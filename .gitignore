@@ -1,0 +1,9 @@
+data/*
+!data/corpus.sqlite
+pdfs/*/*.pdf
+.deps_installed
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/

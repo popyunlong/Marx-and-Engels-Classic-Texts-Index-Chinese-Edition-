@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>马恩文集/全集 引文检索</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico">
+  <style>
+    :root {
+      --bg: #fafaf7;
+      --card: #ffffff;
+      --text: #24292f;
+      --muted: #6a737d;
+      --accent: #8b0000;
+      --accent-light: #fbe9e7;
+      --border: #e1e4e8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text);
+      max-width: 860px; margin: 2rem auto; padding: 0 1rem;
+      line-height: 1.6;
+    }
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; }
+    h1 { font-size: 1.4rem; margin: 0 0 0.2rem 0; }
+    .quit-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer;
+      margin-top: 0.15rem; white-space: nowrap;
+    }
+    .quit-btn:hover { border-color: #c00; color: #c00; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.2rem; }
+    textarea {
+      width: 100%; min-height: 120px; padding: 0.8rem;
+      font-size: 1rem; line-height: 1.6;
+      font-family: inherit;
+      border: 1px solid var(--border); border-radius: 6px;
+      resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+    .row { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; }
+    button {
+      background: var(--accent); color: white; border: none;
+      padding: 0.5rem 1.2rem; font-size: 1rem; border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover { background: #660000; }
+    button:disabled { background: #aaa; cursor: wait; }
+    .hint { color: var(--muted); font-size: 0.85rem; }
+    #results { margin-top: 1.5rem; }
+    .hit {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.9rem 1rem; margin-bottom: 0.8rem;
+    }
+    .hit-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .tag {
+      display: inline-block; font-size: 0.75rem;
+      padding: 0.1rem 0.5rem; border-radius: 10px;
+      background: var(--accent-light); color: var(--accent);
+    }
+    .tag.fuzzy { background: #fff3cd; color: #8a6d0e; }
+    .loc { font-weight: 600; }
+    .ctx {
+      background: #f6f8fa; padding: 0.6rem 0.8rem; border-radius: 4px;
+      font-size: 0.92rem; margin: 0.4rem 0;
+      border-left: 3px solid var(--accent);
+    }
+    .ctx-hl { background: #ffe08a; padding: 0 2px; border-radius: 2px; }
+    .cite-box {
+      display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem;
+    }
+    .cite {
+      flex: 1; background: #f6f8fa; padding: 0.5rem 0.7rem;
+      border-radius: 4px; font-family: "Source Han Serif SC", "Noto Serif CJK SC", serif;
+    }
+    .copy-btn {
+      background: white; color: var(--accent); border: 1px solid var(--accent);
+      font-size: 0.85rem; padding: 0.3rem 0.7rem;
+    }
+    .copy-btn:hover { background: var(--accent-light); }
+    .empty { color: var(--muted); padding: 1rem; text-align: center; }
+    footer { color: var(--muted); font-size: 0.8rem; margin-top: 3rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>马恩文集 / 全集 引文检索</h1>
+    <button class="quit-btn" id="quitBtn">退出服务</button>
+  </div>
+  <div class="sub">
+    已索引《马克思恩格斯文集》{{ n_wenji }} 卷 / 《马克思恩格斯全集》{{ n_quanji }} 卷。
+    粘贴一句原文即可定位出处并生成脚注。优先检索《文集》；未命中再查《全集》。 
+  </div>
+
+  <form id="searchForm">
+    <textarea id="q" placeholder="把需要核查的原文粘贴到这里……（几个短句或一整段都可以）"></textarea>
+    <div class="row">
+      <button type="submit" id="submitBtn">检索</button>
+      <span class="hint">快捷键：Ctrl / ⌘ + Enter</span>
+    </div>
+  </form>
+
+  <div id="results"></div>
+
+  <footer>本地运行 · 检索顺序：文集 → 全集 · 匹配策略：精确优先，模糊兜底</footer>
+
+  <script>
+  const form = document.getElementById('searchForm');
+  const q = document.getElementById('q');
+  const btn = document.getElementById('submitBtn');
+  const out = document.getElementById('results');
+  let pingTimer = null;
+
+  function fmtPages(printed, pdf) {
+    const valid = printed.filter(x => x && !String(x).startsWith('pre-'));
+    if (valid.length) {
+      const a = valid[0], b = valid[valid.length - 1];
+      return a === b ? `第 ${a} 页` : `第 ${a}–${b} 页`;
+    }
+    const a = pdf[0], b = pdf[pdf.length - 1];
+    return a === b ? `PDF 第 ${a} 页` : `PDF 第 ${a}–${b} 页`;
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  }
+
+  function renderCtx(ctx) {
+    const escaped = esc(ctx);
+    return escaped.replace(/【([^】]*)】/g, '<span class="ctx-hl">$1</span>');
+  }
+
+  async function doSearch(text) {
+    btn.disabled = true;
+    btn.textContent = '检索中…';
+    out.innerHTML = '<div class="empty">检索中……</div>';
+    try {
+      const resp = await fetch('/api/search', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({q: text})
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        out.innerHTML = `<div class="empty">错误：${esc(data.error || '未知')}</div>`;
+        return;
+      }
+      if (!data.results.length) {
+        out.innerHTML = '<div class="empty">未在《文集》或《全集》中找到匹配。可尝试缩短引文或去掉标点。</div>';
+        return;
+      }
+      out.innerHTML = data.results.map((h, i) => {
+        const typeTag = h.match_type === 'exact'
+          ? '<span class="tag">精确匹配</span>'
+          : `<span class="tag fuzzy">模糊匹配 ${h.score}%</span>`;
+        return `
+        <div class="hit">
+          <div class="hit-head">
+            <div class="loc">《${esc(h.book === '文集' ? '马克思恩格斯文集' : '马克思恩格斯全集')}》第 ${h.volume} 卷 · ${fmtPages(h.printed_pages, h.pdf_pages)}</div>
+            ${typeTag}
+          </div>
+          <div class="ctx">${renderCtx(h.context)}</div>
+          <div class="cite-box">
+            <div class="cite" id="cite-${i}">${esc(h.citation)}</div>
+            <button class="copy-btn" data-target="cite-${i}">复制引文</button>
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      out.innerHTML = `<div class="empty">请求失败：${esc(e.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '检索';
+    }
+  }
+
+  function sendPing() {
+    fetch('/api/ping', {
+      method: 'POST',
+      keepalive: true,
+      cache: 'no-store'
+    }).catch(() => {});
+  }
+
+  function startHeartbeat() {
+    sendPing();
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = setInterval(sendPing, 8000);
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = q.value.trim();
+    if (text) doSearch(text);
+  });
+
+  q.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      form.requestSubmit();
+    }
+  });
+
+  document.getElementById('quitBtn').addEventListener('click', async () => {
+    if (!confirm('确认退出服务？浏览器页面将无法继续使用。')) return;
+    await fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
+    document.body.innerHTML = '<div style="margin:4rem auto;max-width:400px;text-align:center;font-family:sans-serif;color:#555"><p style="font-size:1.2rem">服务已关闭</p><p>可以关闭此标签页了。</p></div>';
+  });
+
+  out.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.copy-btn');
+    if (!btn) return;
+    const el = document.getElementById(btn.dataset.target);
+    if (!el) return;
+    try {
+      await navigator.clipboard.writeText(el.textContent);
+      const old = btn.textContent;
+      btn.textContent = '已复制 ✓';
+      setTimeout(() => btn.textContent = old, 1200);
+    } catch (_) {
+      const r = document.createRange();
+      r.selectNode(el);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(r);
+    }
+  });
+
+  startHeartbeat();
+  window.addEventListener('focus', sendPing);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) sendPing();
+  });
+  window.addEventListener('pageshow', sendPing);
+  </script>
+</body>
+</html>
