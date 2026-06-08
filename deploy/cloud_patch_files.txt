@@ -33,6 +33,7 @@ templates/viewer.html
 templates/library.html
 static/vendor/qrcode.min.js
 deploy/Caddyfile.example
+deploy/marx-search.service
 deploy/marx-search-journal-alerts.service
 deploy/marx-search-journal-alerts.timer
 deploy/marx-search-journal-send.service
