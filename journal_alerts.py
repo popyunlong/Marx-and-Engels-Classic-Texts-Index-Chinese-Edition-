@@ -21,7 +21,7 @@ from typing import Any, Callable
 from admin_store import get_setting, init_admin_store_db
 from feature_access import feature_allowed_by_policy, load_access_policy
 from membership import init_membership_db, normalize_email
-from runtime_env import APPDATA_DIR, DeploymentSettings
+from runtime_env import APPDATA_DIR, DeploymentSettings, secure_db_file
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
@@ -251,6 +251,7 @@ def _parse_utc(value: str) -> datetime | None:
 def _connect() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

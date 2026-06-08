@@ -311,6 +311,11 @@ def create_app() -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=bool(DEPLOYMENT.public_base_url.startswith("https://")),
+        # 会话绝对过期 14 天 + 每次请求滑动续期：被盗 cookie 不再无限期有效。
+        PERMANENT_SESSION_LIFETIME=timedelta(days=14),
+        SESSION_REFRESH_EACH_REQUEST=True,
+        # 全局请求体上限（防超大 POST 内存放大）；上传类端点在 before_request 里按需放宽。
+        MAX_CONTENT_LENGTH=4 * 1024 * 1024,
     )
     # 模板编译前把页面里的中文静态文字（按钮/标题/正文）自动接入站点文案系统，
     # 让后台「站点文案」可直接编辑控制台之外的程序性文字。注入器内部已做异常回退。
@@ -1229,6 +1234,82 @@ def _require_admin() -> None:
         raise _RedirectTo(url_for("login", next=request.full_path if request.query_string else request.path))
     if not _is_admin_user(user):
         abort(403, description="当前账号没有管理后台权限。")
+    if _admin_2fa_enabled() and not _admin_2fa_session_ok():
+        raise _RedirectTo(url_for("admin_2fa", next=request.full_path if request.query_string else request.path))
+
+
+ADMIN_2FA_PURPOSE = "admin_2fa"
+ADMIN_2FA_TTL_HOURS = 12
+
+
+def _admin_2fa_enabled() -> bool:
+    # 仅在「服务器模式 + 已配置发信邮箱 + 未显式关闭」三者都满足时启用管理员邮箱二次验证。
+    # 任一不满足即安全跳过，绝不把管理员锁在门外；应急关闭：环境变量 DISABLE_ADMIN_2FA=1。
+    if _env_flag("DISABLE_ADMIN_2FA", False):
+        return False
+    if not DEPLOYMENT.is_server:
+        return False
+    return _account_email_configured()
+
+
+def _admin_2fa_session_ok() -> bool:
+    raw = session.get("admin_2fa_verified_at")
+    if not raw:
+        return False
+    try:
+        verified = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    if verified.tzinfo is None:
+        verified = verified.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - verified) < timedelta(hours=ADMIN_2FA_TTL_HOURS)
+
+
+def _mark_admin_2fa_verified() -> None:
+    session["admin_2fa_verified_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    session.permanent = True
+
+
+def _mask_email(email: str) -> str:
+    email = (email or "").strip()
+    if "@" not in email:
+        return email or "（未绑定邮箱）"
+    name, _, domain = email.partition("@")
+    if len(name) <= 2:
+        masked = (name[:1] or "*") + "*"
+    else:
+        masked = name[0] + "*" * (len(name) - 2) + name[-1]
+    return f"{masked}@{domain}"
+
+
+def _dispatch_admin_2fa_code(email: str, errors: list) -> None:
+    # 发送管理员二次验证码；同一会话 60 秒内不重复发送，避免刷新/连点狂发邮件。
+    if not email:
+        errors.append("当前管理员账号未绑定邮箱，无法发送验证码。可由运维用 DISABLE_ADMIN_2FA=1 临时关闭。")
+        return
+    last = session.get("admin_2fa_sent_at")
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(str(last))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - last_dt) < timedelta(seconds=60):
+                return
+        except ValueError:
+            pass
+    code = _make_email_code()
+    try:
+        create_account_email_token(email=email, purpose=ADMIN_2FA_PURPOSE, code=code, ttl_minutes=15)
+        body = (
+            "您好：\n\n"
+            f"您正在登录网站管理后台，二次验证码是：{code}\n\n"
+            "验证码 15 分钟内有效。如非本人操作，请立即修改管理员密码。"
+        )
+        _send_account_email(email, "管理后台登录验证码", body)
+        session["admin_2fa_sent_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Failed to send admin 2FA code: %s", exc)
+        errors.append("验证码发送失败，请稍后重试或联系运维。")
 
 
 def _management_actor_label(remote_admin: bool) -> str:
@@ -3782,6 +3863,30 @@ def _prewarm_page_images(source_file: str, page_number: int, query_text: str, pa
     threading.Thread(target=_worker, daemon=True).start()
 
 
+_RELEASE_UPLOAD_ENDPOINTS = frozenset({"admin_desktop_release_upload"})
+_MEDIA_UPLOAD_ENDPOINTS = frozenset({
+    "api_feedback_message_create",
+    "admin_feedback_reply",
+    "admin_payment_qr_settings",
+})
+
+
+@app.before_request
+def _apply_request_body_limit():
+    # 防超大请求体内存放大：默认沿用 config 的 MAX_CONTENT_LENGTH(4MB)；图片上传端点
+    # 放宽到 40MB(反馈最多 6x5MB、收款码多图)；安装包上传端点放宽到 MAX_RELEASE_UPLOAD_MB
+    # (+8MB 余量)。必须在 CSRF 解析 multipart 表单前生效，故本钩子注册为第一个 before_request。
+    endpoint = request.endpoint or ""
+    if endpoint in _RELEASE_UPLOAD_ENDPOINTS:
+        try:
+            release_mb = max(1, int(os.environ.get("MAX_RELEASE_UPLOAD_MB") or "200"))
+        except ValueError:
+            release_mb = 200
+        request.max_content_length = (release_mb + 8) * 1024 * 1024
+    elif endpoint in _MEDIA_UPLOAD_ENDPOINTS:
+        request.max_content_length = 40 * 1024 * 1024
+
+
 @app.before_request
 def load_current_user():
     user_id = session.get("user_id")
@@ -4112,6 +4217,7 @@ def register():
                     email_verified_at=utc_now_text(),
                 )
                 session["user_id"] = user["id"]
+                session.permanent = True
                 update_last_login(int(user["id"]))
                 flash("注册成功，邮箱已验证。", "success")
                 return redirect(next_url)
@@ -4171,6 +4277,7 @@ def login():
         elif not errors:
             _clear_login_failures(email)
             session["user_id"] = user["id"]
+            session.permanent = True
             update_last_login(int(user["id"]))
             flash("登录成功。", "success")
             return redirect(next_url)
@@ -4528,6 +4635,49 @@ def control_desktop_cache_clear():
     save_desktop_sync_cache({})
     flash("本地同步缓存已清除。", "success")
     return _management_redirect(False, "sync")
+
+
+@app.route("/admin/2fa", methods=["GET", "POST"])
+def admin_2fa():
+    # 管理后台邮箱二次验证页：本路由自行做「已登录 + 管理员角色」校验，但不走二次因子
+    # 闸门（否则会和 _require_admin 形成死循环）。
+    user = getattr(g, "current_user", None)
+    if not user:
+        raise _RedirectTo(url_for("login", next=url_for("admin")))
+    if not _is_admin_user(user):
+        abort(403, description="当前账号没有管理后台权限。")
+    next_url = _safe_next_url(request.args.get("next") or request.form.get("next") or url_for("admin"))
+    # 未启用二次验证（桌面 / 未配邮箱 / 已显式关闭）或本会话已验证：直接放行回后台。
+    if not _admin_2fa_enabled() or _admin_2fa_session_ok():
+        return redirect(next_url)
+    email = str(user.get("email") or "")
+    errors: list[str] = []
+    if request.method == "POST":
+        action = (request.form.get("action") or "verify").strip()
+        if action == "resend":
+            _dispatch_admin_2fa_code(email, errors)
+            if not errors:
+                flash("验证码已发送，请查收邮箱（1 分钟内不重复发送）。", "success")
+        else:
+            code = (request.form.get("code") or "").strip()
+            if not re.fullmatch(r"\d{6}", code or ""):
+                errors.append("请输入 6 位邮箱验证码。")
+            elif not verify_account_email_code(email=email, purpose=ADMIN_2FA_PURPOSE, code=code):
+                errors.append("验证码无效或已过期，请重新获取。")
+            else:
+                _mark_admin_2fa_verified()
+                session.pop("admin_2fa_sent_at", None)
+                _log_management_action(action="admin_2fa_verify", target=_mask_email(email), result="ok", remote_admin=True)
+                return redirect(next_url)
+    else:
+        _dispatch_admin_2fa_code(email, errors)
+    return render_template(
+        "admin_2fa.html",
+        title="管理员二次验证",
+        errors=errors,
+        email_masked=_mask_email(email),
+        next_url=next_url,
+    )
 
 
 @app.route("/admin")

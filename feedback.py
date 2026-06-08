@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from membership import utc_now_text
-from runtime_env import APPDATA_DIR
+from runtime_env import APPDATA_DIR, secure_db_file
 
 
 DB_PATH = APPDATA_DIR / "feedback.sqlite3"
@@ -13,6 +13,7 @@ DB_PATH = APPDATA_DIR / "feedback.sqlite3"
 def _connect() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

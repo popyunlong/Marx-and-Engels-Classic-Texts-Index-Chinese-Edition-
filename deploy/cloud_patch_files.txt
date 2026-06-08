@@ -16,6 +16,7 @@ serve.py
 site_content.py
 DEPLOY_SERVER.md
 templates/account.html
+templates/admin_2fa.html
 templates/control.html
 templates/index.html
 templates/journal_alerts.html

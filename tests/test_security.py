@@ -92,6 +92,54 @@ class SecurityRegressionTests(unittest.TestCase):
         with self.client.session_transaction() as sess:
             sess["user_id"] = int(user_id)
 
+    def _create_admin(self, email: str) -> dict:
+        user = create_user(
+            email=email,
+            display_name="admin",
+            password_hash=generate_password_hash("correct horse battery staple"),
+            email_verified_at="2026-01-01T00:00:00+00:00",
+        )
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            conn.execute("UPDATE users SET role='admin' WHERE id=?", (int(user["id"]),))
+            conn.commit()
+        return user
+
+    def test_admin_2fa_skipped_when_email_unconfigured(self) -> None:
+        # 安全底线：发信邮箱未配置时管理员二次验证必须自动跳过，绝不把管理员锁在门外。
+        admin = self._create_admin("admin-2fa-off@example.test")
+        self._force_login_user_id(int(admin["id"]))
+        self.assertFalse(app_module._admin_2fa_enabled())
+        resp = self.client.get("/admin", follow_redirects=False)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_admin_2fa_gate_and_email_code(self) -> None:
+        admin = self._create_admin("admin-2fa-on@example.test")
+        self._force_login_user_id(int(admin["id"]))
+        original = app_module._admin_2fa_enabled
+        app_module._admin_2fa_enabled = lambda: True
+        try:
+            # 启用二次因子后，进入后台先被拦到 /admin/2fa。
+            gate = self.client.get("/admin", follow_redirects=False)
+            self.assertEqual(gate.status_code, 302)
+            self.assertIn("/admin/2fa", gate.headers.get("Location", ""))
+            # 注入一个已知验证码，带 csrf POST 验证通过后放行进后台。
+            token = self._csrf_from("/admin/2fa")
+            app_module.create_account_email_token(
+                email="admin-2fa-on@example.test", purpose="admin_2fa", code="123456", ttl_minutes=15
+            )
+            verify = self.client.post(
+                "/admin/2fa",
+                data={"csrf_token": token, "action": "verify", "code": "123456", "next": "/admin"},
+                follow_redirects=False,
+            )
+            self.assertEqual(verify.status_code, 302)
+            self.assertIn("/admin", verify.headers.get("Location", ""))
+            # 验证通过后再访问后台不再被拦。
+            ok = self.client.get("/admin", follow_redirects=False)
+            self.assertEqual(ok.status_code, 200)
+        finally:
+            app_module._admin_2fa_enabled = original
+
     def test_login_post_requires_csrf(self) -> None:
         response = self.client.post("/login", data={"email": "nobody@example.test", "password": "bad"})
         self.assertEqual(response.status_code, 403)

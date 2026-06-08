@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import logging.handlers
 import os
 import platform
 import socket
@@ -168,6 +169,23 @@ def ensure_runtime_dirs() -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
+_SECURED_DB_PATHS: set[str] = set()
+
+
+def secure_db_file(path) -> None:
+    # 把含用户数据的 SQLite 文件权限收紧到 0600（仅属主可读写），每个路径每进程做一次、出错静默。
+    # Linux 服务器上把会员/反馈/审计库从默认 644 收到 600，防同机其它账号直读；
+    # Windows(桌面端)上 0600 等价于保持可写、无副作用。
+    key = str(path)
+    if key in _SECURED_DB_PATHS:
+        return
+    try:
+        os.chmod(key, 0o600)
+    except OSError:
+        return
+    _SECURED_DB_PATHS.add(key)
+
+
 def configure_logging() -> logging.Logger:
     ensure_runtime_dirs()
     logger = logging.getLogger(APP_ID)
@@ -177,7 +195,10 @@ def configure_logging() -> logging.Logger:
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    # 轮转日志：单文件上限 10MB、保留 5 份，避免 app.log 无限增长撑满磁盘。
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 

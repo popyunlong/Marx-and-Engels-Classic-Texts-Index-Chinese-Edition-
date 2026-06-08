@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from runtime_env import APP_VERSION, APPDATA_DIR
+from runtime_env import APP_VERSION, APPDATA_DIR, secure_db_file
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
@@ -21,6 +21,7 @@ def utc_now_text() -> str:
 def _connect() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
+    secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
