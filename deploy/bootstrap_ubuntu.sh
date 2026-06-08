@@ -404,6 +404,9 @@ configure_ufw() {
 
 enable_services() {
   systemctl daemon-reload
+  mkdir -p /etc/systemd/journald.conf.d
+  cp "${APP_DIR}/deploy/journald-marx-search.conf" /etc/systemd/journald.conf.d/marx-search.conf 2>/dev/null || true
+  systemctl restart systemd-journald 2>/dev/null || true
   systemctl enable "${SERVICE_NAME}.service"
   if ! systemctl restart "${SERVICE_NAME}.service"; then
     systemctl start "${SERVICE_NAME}.service"

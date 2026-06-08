@@ -15,6 +15,7 @@ search.py
 serve.py
 site_content.py
 DEPLOY_SERVER.md
+RUNBOOK.md
 templates/account.html
 templates/admin_2fa.html
 templates/control.html
@@ -42,6 +43,7 @@ deploy/backup.sh
 deploy/restore.sh
 deploy/BACKUP_README.md
 deploy/marx-search.env.example
+deploy/journald-marx-search.conf
 deploy/update_cloud.ps1
 deploy/upload_lenin_pdfs.ps1
 deploy/upload_reader_patch.ps1

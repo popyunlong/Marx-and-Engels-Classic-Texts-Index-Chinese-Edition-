@@ -152,6 +152,6 @@ def test_update_cloud_powershell_parses() -> None:
 def test_update_cloud_keeps_cache_permission_fix_opt_in() -> None:
     script = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
     assert "[switch]$FixCachePermissions" in script
-    assert "install -d -o www-data -g www-data -m 0755 /var/www/.marx_search_full" in script
+    assert "install -d -o www-data -g www-data -m 0700 /var/www/.marx_search_full" in script
     assert "if ($FixCachePermissions)" in script
     assert "chown -R www-data:www-data /var/www/.marx_search_full" in script

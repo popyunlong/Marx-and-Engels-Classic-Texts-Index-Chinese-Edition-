@@ -15,6 +15,15 @@ Restart=always
 RestartSec=3
 PrivateTmp=true
 NoNewPrivileges=true
+# 文件系统沙箱（收敛 RCE 后的横向破坏面）。用 full 而非 strict：/etc /usr 只读，
+# 但保留 /opt /var 可写，确保 app.log、releases、/var/www 数据写入不受影响。
+ProtectSystem=full
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
 WantedBy=multi-user.target

@@ -15,5 +15,11 @@ marx-search.example.com {
         Permissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"
     }
 
-    log
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 50mb
+            roll_keep 10
+        }
+        format json
+    }
 }

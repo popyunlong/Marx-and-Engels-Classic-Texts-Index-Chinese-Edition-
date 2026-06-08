@@ -1234,8 +1234,19 @@ def _require_admin() -> None:
         raise _RedirectTo(url_for("login", next=request.full_path if request.query_string else request.path))
     if not _is_admin_user(user):
         abort(403, description="当前账号没有管理后台权限。")
+    _enforce_admin_ip_allowlist()
     if _admin_2fa_enabled() and not _admin_2fa_session_ok():
         raise _RedirectTo(url_for("admin_2fa", next=request.full_path if request.query_string else request.path))
+
+
+def _enforce_admin_ip_allowlist() -> None:
+    # 可选：env ADMIN_IP_ALLOWLIST(逗号分隔)配置后，仅允许名单内真实IP访问后台；
+    # 未配置则不启用，避免把自己锁死。_client_ip() 取 XFF 最右(Caddy 写入、不可伪造)。
+    allow = _env_csv("ADMIN_IP_ALLOWLIST")
+    if not allow:
+        return
+    if _client_ip() not in allow:
+        abort(403, description="当前网络不在管理后台允许的 IP 名单内。")
 
 
 ADMIN_2FA_PURPOSE = "admin_2fa"
@@ -2500,6 +2511,11 @@ def _record_login_failure(email: str) -> None:
         values = _prune_window(_login_failures.get(key, []), now, LOGIN_FAILURE_WINDOW_SECONDS)
         values.append(now)
         _login_failures[key] = values
+    # 持久审计：内存计数重启即丢，这里结构化打日志，配合 journald 保留可事后回溯撞库。
+    try:
+        LOGGER.info("auth_failure %s", json.dumps({"email": email, "ip": _client_ip()}, ensure_ascii=False))
+    except Exception:
+        pass
 
 
 def _clear_login_failures(email: str) -> None:
@@ -3941,6 +3957,25 @@ def load_current_user():
         _sweep_expired_orders_if_due()
 
 
+_GLOBAL_RATE_EXEMPT_ENDPOINTS = frozenset({"static"})
+
+
+@app.before_request
+def _global_ip_rate_limit():
+    # 全局每真实IP兜底限速：只拦公网IP对普通端点的高频泛刷。阅读器/书页图像/PDF 已有
+    # 专门限速(READER_ENDPOINTS)，静态资源、管理员、监控、内网/回环均豁免。
+    if request.method == "OPTIONS":
+        return
+    if (request.endpoint or "") in _GLOBAL_RATE_EXEMPT_ENDPOINTS or _is_reader_audit_endpoint():
+        return
+    if _is_monitoring_request() or _is_admin_user(getattr(g, "current_user", None)):
+        return
+    ip = _client_ip()
+    if not _is_public_ip(ip):
+        return
+    _rate_limit_or_abort(f"global:ip:{ip}", limit=600, window_seconds=60, message="访问过于频繁，请稍后再试。")
+
+
 @app.before_request
 def audit_and_guard_reader_access():
     if not _is_reader_audit_endpoint():
@@ -4683,6 +4718,7 @@ def admin_2fa():
         raise _RedirectTo(url_for("login", next=url_for("admin")))
     if not _is_admin_user(user):
         abort(403, description="当前账号没有管理后台权限。")
+    _enforce_admin_ip_allowlist()
     next_url = _safe_next_url(request.args.get("next") or request.form.get("next") or url_for("admin"))
     # 未启用二次验证（桌面 / 未配邮箱 / 已显式关闭）或本会话已验证：直接放行回后台。
     if not _admin_2fa_enabled() or _admin_2fa_session_ok():
@@ -7332,7 +7368,13 @@ def run_waitress() -> None:
     # 使 ProxyFix/_client_ip 拿不到真实 IP(所有访客塌缩为 127.0.0.1)。本进程仅绑定
     # 127.0.0.1、只经本机 Caddy 反代可达，故透传该头是安全的；真实客户端为最右项。
     # 防御:若该机 waitress 版本不支持此参数(极旧版本)，退回默认参数启动，确保服务必起。
-    serve_kwargs = dict(host=DEPLOYMENT.bind_host, port=DEPLOYMENT.port, threads=8)
+    serve_kwargs = dict(
+        host=DEPLOYMENT.bind_host,
+        port=DEPLOYMENT.port,
+        threads=8,
+        connection_limit=200,    # 并发连接上限，避免连接被慢连接/洪水占满（不设 channel_timeout，
+        cleanup_interval=30,     # 以免误伤耗时较长的 AI 请求；慢连接超时交给前置 Caddy）
+    )
     try:
         serve(app, clear_untrusted_proxy_headers=False, **serve_kwargs)
     except TypeError:
