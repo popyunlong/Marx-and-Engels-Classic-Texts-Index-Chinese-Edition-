@@ -1988,6 +1988,31 @@ def _reader_auto_ban_config() -> dict:
     return {"enabled": enabled, "daily_min": max(1, daily), "minute_min": max(1, minute)}
 
 
+def _alert_admin_auto_ban(items: list) -> None:
+    # 反爬自动封禁后给管理员发一封告警邮件。被封 IP 本就是首次新封（已封的在扫描里被跳过），
+    # 天然去重，无需额外记账。SMTP 未配置则静默跳过；发送失败不影响封禁本身。
+    if not items or not _account_email_configured():
+        return
+    to_email = (os.environ.get("SECURITY_ALERT_EMAIL") or "").strip() or FEEDBACK_ADMIN_EMAIL
+    if not to_email:
+        return
+    lines = [
+        f"- IP {it['ip']}：当日 {it['request_count']} 次、单分钟峰值 {it['max_minute_requests']}；{it.get('reason', '')}"
+        for it in items
+    ]
+    body = (
+        "管理员您好：\n\n"
+        f"网站反爬系统刚刚自动封禁了 {len(items)} 个疑似扒站 IP：\n\n"
+        + "\n".join(lines)
+        + "\n\n如系误判，可在后台「阅读异常」处解封，或调整 reader_auto_ban 阈值。\n"
+        + f"后台：{_feedback_public_base_url()}/admin"
+    )
+    try:
+        _send_account_email(to_email, "网站反爬自动封禁告警", body)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("Failed to send auto-ban alert email: %s", exc)
+
+
 def _auto_ban_egregious_scrapers_if_due() -> None:
     """保守自动封禁极端真实 IP 扒站者(按时间节流)。仅封公网 IP actor、双高阈值，
     永不封登录会员/内网/监控;写入 reader_bans["ips"] 并记 management_action 日志。"""
@@ -2006,6 +2031,7 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
         bans = _reader_bans()
         ip_bans = _reader_ip_bans(bans)
         changed = False
+        newly_banned: list[dict] = []
         for item in anomalies:
             if str(item.get("actor_type") or "") != "ip":
                 continue  # 永不自动封登录会员(user:)与会话(session:)
@@ -2018,6 +2044,14 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
                 continue
             ip_bans[ip] = {"banned_at": utc_now_text(), "banned_by": "auto-anticrawl"}
             changed = True
+            newly_banned.append(
+                {
+                    "ip": ip,
+                    "request_count": int(item.get("request_count") or 0),
+                    "max_minute_requests": int(item.get("max_minute_requests") or 0),
+                    "reason": str(item.get("alert_reason") or "")[:200],
+                }
+            )
             LOGGER.info(
                 "management_action %s",
                 json.dumps(
@@ -2041,6 +2075,7 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
             # 直接以固定 actor 落库(不经 _save_reader_bans 的 _management_actor_label，
             # 后者依赖请求上下文且会把自动封禁误记到扒站者头上)。
             set_setting("reader_bans", bans, updated_by="auto-anticrawl")
+            _alert_admin_auto_ban(newly_banned)
     except Exception as exc:
         LOGGER.debug("Auto-ban scan failed: %s", exc)
 
@@ -4216,6 +4251,7 @@ def register():
                     password_hash=generate_password_hash(password),
                     email_verified_at=utc_now_text(),
                 )
+                session.clear()  # 防会话固定：注册登录前丢弃旧会话标识。
                 session["user_id"] = user["id"]
                 session.permanent = True
                 update_last_login(int(user["id"]))
@@ -4276,6 +4312,7 @@ def login():
             login_captcha_required = _login_failure_count(email) >= LOGIN_CAPTCHA_THRESHOLD
         elif not errors:
             _clear_login_failures(email)
+            session.clear()  # 防会话固定：登录成功即丢弃旧会话标识，再写入身份。
             session["user_id"] = user["id"]
             session.permanent = True
             update_last_login(int(user["id"]))

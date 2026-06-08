@@ -140,6 +140,33 @@ class SecurityRegressionTests(unittest.TestCase):
         finally:
             app_module._admin_2fa_enabled = original
 
+    def test_sql_injection_user_search_parameterized(self) -> None:
+        from membership import list_users
+
+        self._create_active_member("inj-a@example.test")
+        self._create_active_member("inj-b@example.test")
+        for payload in ["' OR 1=1--", "x'; DROP TABLE users;--", "%' UNION SELECT 1,2,3--", '" OR "1"="1']:
+            rows = list_users(search_text=payload, limit=50)
+            self.assertIsInstance(rows, list)  # 参数化：不抛 sqlite3 异常、不崩
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertIn("users", tables)  # DROP TABLE 注入未执行
+        hit = list_users(search_text="inj-a", limit=50)
+        self.assertTrue(any(r["email"] == "inj-a@example.test" for r in hit))  # 正常搜索仍工作
+
+    def test_sql_injection_feedback_body_safe(self) -> None:
+        self._create_active_member("inj-fb@example.test")
+        self._login("inj-fb@example.test")
+        token = self._csrf_from("/")
+        resp = self.client.post(
+            "/api/feedback/messages",
+            data={"csrf_token": token, "body": "boom'); DROP TABLE feedback_messages;-- 注入测试"},
+        )
+        self.assertLess(resp.status_code, 500)  # 参数化：不应 5xx
+        with sqlite3.connect(app_module.FEEDBACK_DB_PATH) as conn:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertIn("feedback_messages", tables)  # 表仍在
+
     def test_login_post_requires_csrf(self) -> None:
         response = self.client.post("/login", data={"email": "nobody@example.test", "password": "bad"})
         self.assertEqual(response.status_code, 403)

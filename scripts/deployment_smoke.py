@@ -59,6 +59,16 @@ def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
 
     import app as app_module  # noqa: PLC0415
 
+    # server 模式下 PUBLIC_BASE_URL 若误配为 http:// 会让会话 cookie 静默以非 Secure 下发，
+    # 形成「对外 https 但 cookie 可被降级嗅探」的隐蔽不一致。部署期就拦住。
+    # 本地冒烟通常不设 PUBLIC_BASE_URL（base 为空时跳过，不误伤）。
+    if mode == "server":
+        base = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
+        if base and not base.startswith("https://"):
+            raise RuntimeError(
+                f"server 模式 PUBLIC_BASE_URL 必须以 https:// 开头（当前: {base!r}），否则会话 cookie 非 Secure"
+            )
+
     if skip_http:
         return
 
