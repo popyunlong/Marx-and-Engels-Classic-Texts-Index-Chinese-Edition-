@@ -2,238 +2,2765 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>马恩文集/全集 引文检索</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
   <style>
     :root {
-      --bg: #fafaf7;
-      --card: #ffffff;
-      --text: #24292f;
-      --muted: #6a737d;
-      --accent: #8b0000;
-      --accent-light: #fbe9e7;
-      --border: #e1e4e8;
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+      --warn: #815400;
+      --warn-bg: #fff2cf;
+      --ai: #264653;
+      --ai-deep: #19313b;
+      --ai-soft: #deedf0;
+      /* 联想检索·意大利油画风调色板 */
+      --oil-blue-deep: #0f2542;
+      --oil-blue: #163a63;
+      --oil-azure: #1f4e79;
+      --oil-gold: #c9a227;
+      --oil-gold-hi: #e8cf86;
+      --oil-ivory: #f4ecd6;
     }
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-      background: var(--bg); color: var(--text);
-      max-width: 860px; margin: 2rem auto; padding: 0 1rem;
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .page {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px 16px 56px;
+    }
+    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .feedback-card, .ai-card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .hero {
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
+      color: #fff8f0;
+      padding: 24px 24px 20px;
+    }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(1.5rem, 2vw + 1rem, 2.2rem);
+      font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+    }
+    .hero p {
+      margin: 0;
+      max-width: 880px;
+      line-height: 1.8;
+      color: rgba(255, 248, 240, 0.92);
+    }
+    .stats {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .stat {
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(255, 245, 232, 0.12);
+      border: 1px solid rgba(255, 241, 226, 0.18);
+    }
+    .topbar, .member-strip, .flash {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+    }
+    .topbar-title {
+      display: grid;
+      gap: 4px;
+    }
+    .topbar-title strong {
+      font-size: 1rem;
+    }
+    .topbar-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .mini-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 16px;
+      border-radius: 999px;
+      text-decoration: none;
+      color: var(--accent);
+      background: white;
+      border: 1px solid var(--accent);
+    }
+    .mini-btn:hover {
+      background: var(--soft);
+    }
+    .member-strip {
+      padding: 16px 18px;
+      margin-top: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .member-strip p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .member-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .plan-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .plan-card {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: #fbf8f2;
+    }
+    .plan-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+    .flash-stack {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .flash {
+      padding: 12px 14px;
+      line-height: 1.7;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.95fr);
+      margin-top: 18px;
+      align-items: start;
+    }
+    .left-stack,
+    .right-stack {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .panel, .status-card, .notice-card, .feedback-card, .ai-card {
+      padding: 20px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.14rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      resize: vertical;
+      line-height: 1.8;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      font: inherit;
+      background: #fffdfa;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #b03838;
+      box-shadow: 0 0 0 4px rgba(176, 56, 56, 0.08);
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 12px;
+    }
+    button, .link-btn {
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      padding: 10px 18px;
+      font: inherit;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .18s ease, border-color .18s ease, color .18s ease;
+    }
+    .primary {
+      color: white;
+      background: var(--accent);
+    }
+    .primary:hover { background: var(--accent-deep); }
+    .secondary {
+      color: var(--accent);
+      background: white;
+      border: 1px solid var(--accent);
+    }
+    .secondary:hover { background: var(--soft); }
+    .search-mode-tabs {
+      display: inline-flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding: 4px;
+      background: #f3ede4;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+    .search-mode-tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+      padding: 7px 16px;
+      font-size: .92rem;
+    }
+    .search-mode-tab[data-mode="standard"].active {
+      background: #fff;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .search-mode-tab:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ===================================================================== */
+    /* 联想检索 · 意大利油画风（典雅蓝 + 古金 + 繁复条纹）。仅作用于联想模式与其结果， */
+    /* 标准检索视觉零改动。配色：群青/普鲁士蓝底，象牙卷帙，安提克金描边与金线斜纹。      */
+    /* ===================================================================== */
+    .search-mode-tab[data-mode="associative"].active {
+      color: #fdf6e3;
+      background: linear-gradient(180deg, #25507f, var(--oil-blue));
+      border-color: var(--oil-gold);
+      box-shadow: 0 1px 0 rgba(201,162,39,.55) inset, 0 3px 8px rgba(15,37,66,.32);
+    }
+    /* 联想模式：整张检索面板化为镶金蓝框（绅士油画质感） */
+    .panel.assoc-mode {
+      color: #f3ecd9;
+      background:
+        linear-gradient(180deg, rgba(22,58,99,.96), rgba(15,37,66,.98)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.10) 0 2px, transparent 2px 12px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,.045) 0 1px, transparent 1px 9px);
+      border: 1px solid var(--oil-gold);
+      box-shadow: 0 0 0 3px rgba(15,37,66,.92), 0 0 0 4px rgba(201,162,39,.5), 0 18px 50px rgba(12,28,52,.42);
+    }
+    .panel.assoc-mode h2 { color: #f6edd2; letter-spacing: .04em; }
+    .panel.assoc-mode .muted { color: #c7d4e6; }
+    .panel.assoc-mode .search-mode-tabs { background: rgba(255,255,255,.06); border-color: rgba(201,162,39,.42); }
+    .panel.assoc-mode .search-mode-tab { color: #cbd8ea; }
+    .panel.assoc-mode .search-mode-tab[data-mode="standard"].active { background: #f5efe0; color: var(--accent); border-color: #f5efe0; }
+    .panel.assoc-mode #submitBtn.primary {
+      color: #16233c; border: 1px solid var(--oil-gold-hi);
+      background: linear-gradient(180deg, var(--oil-gold-hi), #b8902f);
+    }
+    .panel.assoc-mode #submitBtn.primary:hover { background: linear-gradient(180deg, #f0db98, #c9a227); }
+    /* 头脑风暴文本框：象牙底 + 繁复金线/蓝线斜纹，油画质感且可读 */
+    #q.brainstorm {
+      border: 1px solid var(--oil-gold);
+      color: #15233f;
+      background-color: var(--oil-ivory);
+      background-image:
+        linear-gradient(135deg, rgba(31,78,121,.10), rgba(244,236,214,0) 55%),
+        repeating-linear-gradient(45deg, rgba(31,78,121,.06) 0 1px, transparent 1px 7px),
+        repeating-linear-gradient(-45deg, rgba(201,162,39,.12) 0 1px, transparent 1px 13px);
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.5), inset 0 0 26px rgba(31,78,121,.07);
+    }
+    #q.brainstorm::placeholder { color: #5b6b86; }
+    #q.brainstorm:focus {
+      border-color: var(--oil-azure);
+      box-shadow: inset 0 0 0 2px rgba(201,162,39,.42), 0 0 0 4px rgba(31,78,121,.18);
+    }
+    /* 结果区：深蓝织锦 + 象牙卷帙卡片 */
+    .assoc-results {
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid var(--oil-gold);
+      background:
+        linear-gradient(180deg, var(--oil-blue), var(--oil-blue-deep)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.08) 0 2px, transparent 2px 13px);
+      box-shadow: 0 0 0 4px rgba(201,162,39,.32), 0 18px 50px rgba(12,28,52,.4);
+    }
+    .assoc-result-head h2 { color: #f6edd2; margin: 0 0 4px; letter-spacing: .04em; }
+    .assoc-lede { color: #c7d4e6; font-size: .92rem; line-height: 1.6; margin-bottom: 4px; }
+    .assoc-volume {
+      margin-top: 14px; border-radius: 12px; overflow: hidden;
+      border: 1px solid rgba(201,162,39,.55);
+      background: var(--oil-ivory);
+      box-shadow: 0 7px 20px rgba(10,24,46,.36);
+    }
+    .assoc-volume-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 10px 14px; color: #f3ecd9; border-bottom: 2px solid var(--oil-gold);
+      background:
+        linear-gradient(180deg, var(--oil-azure), var(--oil-blue)),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,.05) 0 1px, transparent 1px 8px);
+    }
+    .assoc-volume-title { font-weight: 800; letter-spacing: .03em; }
+    .assoc-volume-meta { font-size: .85rem; color: var(--oil-gold-hi); white-space: nowrap; }
+    .assoc-volume-meta b { color: #fff; }
+    .assoc-volume-body { padding: 8px 12px 12px; display: grid; gap: 10px; }
+    .assoc-volume-body .hit { background: #fffdf6; border: 1px solid rgba(31,78,121,.18); }
+    .assoc-volume-body .ctx { border-left-color: var(--oil-azure); }
+    .assoc-volume-body .ctx-hl { background: #f3e1a8; }
+    /* 按权重排序的单列表（页组分页）。象牙卷帙卡片置于深蓝镶金面板之上。 */
+    .assoc-list { margin-top: 12px; display: grid; gap: 12px; }
+    .assoc-list .hit { background: #fffdf6; border: 1px solid rgba(31,78,121,.18); }
+    .assoc-list .ctx { border-left-color: var(--oil-azure); }
+    .assoc-list .ctx-hl { background: #f3e1a8; }
+    .assoc-results .group-list-pager { margin: 12px 0 2px; justify-content: center; }
+    .assoc-results .pager-info { color: #d9e3f1; font-weight: 700; }
+    .assoc-weight {
+      display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
+      font-size: .76rem; font-weight: 800; vertical-align: middle; color: #14233f;
+      background: linear-gradient(180deg, var(--oil-gold-hi), var(--oil-gold));
+      box-shadow: 0 1px 0 rgba(255,255,255,.5) inset;
+    }
+    .assoc-note {
+      margin: 4px 0 2px; padding: 7px 11px; border-radius: 10px;
+      background: linear-gradient(180deg, #eaf1fa, #dde8f5);
+      border: 1px solid rgba(31,78,121,.28); border-left: 3px solid var(--oil-gold);
+      color: #15314f; line-height: 1.6; font-size: .92rem;
+    }
+    .assoc-note .assoc-conf { font-weight: 700; white-space: nowrap; }
+    .reader-entry-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .feature-bar,
+    .journal-bar {
+      --entry-kicker-size: 0.88rem;
+      --entry-status-size: 0.82rem;
+      --entry-title-size: 1.14rem;
+      --entry-body-size: 0.97rem;
+      --entry-action-size: 0.96rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      min-height: 166px;
+      padding: 16px 20px;
+      border-radius: 18px;
+      border: 1px solid rgba(143, 29, 29, 0.28);
+      background:
+        linear-gradient(135deg, rgba(255, 244, 214, 0.95), rgba(255, 253, 249, 0.98));
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .feature-bar.reader-full {
+      border-color: rgba(118, 128, 138, 0.34);
+      background:
+        linear-gradient(135deg, rgba(239, 242, 245, 0.96), rgba(255, 255, 255, 0.98));
+      box-shadow: 0 16px 40px rgba(64, 72, 82, 0.08);
+    }
+    .feature-bar.reader-full .feature-kicker,
+    .feature-bar.reader-full .reader-status {
+      color: #56616d;
+    }
+    .feature-bar.reader-full .reader-status {
+      background: #e8edf1;
+    }
+    .feature-bar.reader-full .feature-action {
+      background: #157f4c;
+      border-color: #157f4c;
+      box-shadow: 0 10px 24px rgba(21, 127, 76, 0.28);
+    }
+    .feature-bar.reader-full .feature-action:hover {
+      background: #0f6d40;
+      border-color: #0f6d40;
+    }
+    .feature-bar.reader-full .feature-action.disabled {
+      color: var(--muted);
+      background: #eef1f3;
+      border-color: #d4d9de;
+    }
+    .journal-bar {
+      border-color: rgba(143, 29, 29, 0.28);
+      background:
+        linear-gradient(135deg, rgba(255, 244, 214, 0.95), rgba(255, 253, 249, 0.98));
+    }
+    .feature-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .feature-kicker {
+      color: var(--accent);
+      font-size: var(--entry-kicker-size);
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    .feature-copy h2 {
+      margin: 0;
+      font-size: var(--entry-title-size);
+      line-height: 1.45;
+    }
+    .feature-copy p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.64;
+      font-size: var(--entry-body-size);
+    }
+    .feature-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 154px;
+      min-height: 44px;
+      padding: 9px 18px;
+      border-radius: 999px;
+      text-decoration: none;
+      white-space: nowrap;
+      color: white;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      font-size: var(--entry-action-size);
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .feature-action:hover {
+      background: var(--accent-deep);
+      border-color: var(--accent-deep);
+    }
+    .feature-action.disabled {
+      color: var(--muted);
+      background: #f7f1e9;
+      border-color: var(--line);
+      pointer-events: none;
+    }
+    .reader-status {
+      display: inline-flex;
+      width: fit-content;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: var(--entry-status-size);
+      font-weight: 700;
+      line-height: 1.35;
+      color: var(--accent);
+      background: var(--soft);
+    }
+    .feature-bar.locked .reader-status {
+      color: var(--warn);
+      background: var(--warn-bg);
+    }
+    .journal-bar .feature-kicker {
+      color: var(--accent);
+    }
+    .journal-bar .feature-action {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .journal-bar .feature-action:hover {
+      background: var(--accent-deep);
+      border-color: var(--accent-deep);
+    }
+    .journal-bar .feature-action.disabled {
+      color: var(--muted);
+      background: #f7f1e9;
+      border-color: var(--line);
+      pointer-events: none;
+    }
+    .ai-primary {
+      color: white;
+      background: var(--ai);
+    }
+    .ai-primary:hover { background: var(--ai-deep); }
+    .muted {
+      color: var(--muted);
+      font-size: 0.93rem;
+      line-height: 1.7;
+    }
+    .status-list {
+      display: grid;
+      gap: 10px;
+    }
+    .status-item {
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #fbf8f2;
+      border: 1px solid var(--line);
+    }
+    .status-item strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .badge {
+      display: inline-flex;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      background: var(--soft);
+      color: var(--accent);
+    }
+    .badge.warn {
+      background: var(--warn-bg);
+      color: var(--warn);
+    }
+    .issues {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .right-top-stack {
+      display: grid;
+      gap: 14px;
+    }
+    .notice-card {
+      min-height: 210px;
+      background:
+        linear-gradient(135deg, rgba(255, 244, 214, 0.92), rgba(255, 253, 249, 0.98));
+    }
+    .notice-card p,
+    .feedback-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+    .notice-body {
+      white-space: pre-wrap;
+      font-size: 1rem;
+    }
+    .feedback-card {
+      min-height: 170px;
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .feedback-alert {
+      display: none;
+      padding: 10px 12px;
+      border-radius: 14px;
+      color: #7b1f1f;
+      background: #fff3d8;
+      border: 1px solid rgba(143, 29, 29, 0.24);
+      font-weight: 700;
+    }
+    .feedback-alert.show {
+      display: block;
+    }
+    .feedback-form {
+      display: grid;
+      gap: 10px;
+    }
+    .feedback-input {
+      min-height: 96px;
+    }
+    .feedback-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .feedback-status {
+      color: var(--muted);
+      font-size: 0.9rem;
       line-height: 1.6;
     }
-    .topbar { display: flex; justify-content: space-between; align-items: flex-start; }
-    h1 { font-size: 1.4rem; margin: 0 0 0.2rem 0; }
-    .quit-btn {
-      background: none; border: 1px solid var(--border); color: var(--muted);
-      font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 4px; cursor: pointer;
-      margin-top: 0.15rem; white-space: nowrap;
+    .feedback-history {
+      border-top: 1px solid rgba(222, 207, 189, 0.9);
+      padding-top: 10px;
     }
-    .quit-btn:hover { border-color: #c00; color: #c00; }
-    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.2rem; }
-    textarea {
-      width: 100%; min-height: 120px; padding: 0.8rem;
-      font-size: 1rem; line-height: 1.6;
-      font-family: inherit;
-      border: 1px solid var(--border); border-radius: 6px;
-      resize: vertical;
+    .feedback-history summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 700;
     }
-    textarea:focus { outline: none; border-color: var(--accent); }
-    .row { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.6rem; }
-    button {
-      background: var(--accent); color: white; border: none;
-      padding: 0.5rem 1.2rem; font-size: 1rem; border-radius: 5px;
+    .feedback-messages {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+      max-height: 240px;
+      overflow: auto;
+    }
+    .feedback-msg {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: #fffdfa;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .feedback-msg.admin {
+      border-color: rgba(38, 70, 83, 0.18);
+      background: #edf5f7;
+    }
+    .feedback-meta {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: normal;
+    }
+    .feedback-attach-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fffdfa;
+      color: var(--accent);
+      font-weight: 700;
       cursor: pointer;
     }
-    button:hover { background: #660000; }
-    button:disabled { background: #aaa; cursor: wait; }
-    .hint { color: var(--muted); font-size: 0.85rem; }
-    #results { margin-top: 1.5rem; }
-    .hit {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 6px; padding: 0.9rem 1rem; margin-bottom: 0.8rem;
+    .feedback-attach-btn:hover {
+      border-color: var(--accent);
     }
-    .hit-head {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 0.5rem;
+    .feedback-attach-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
-    .tag {
-      display: inline-block; font-size: 0.75rem;
-      padding: 0.1rem 0.5rem; border-radius: 10px;
-      background: var(--accent-light); color: var(--accent);
+    .feedback-attach-preview:empty {
+      display: none;
     }
-    .tag.fuzzy { background: #fff3cd; color: #8a6d0e; }
-    .loc { font-weight: 600; }
+    .feedback-attach-thumb {
+      position: relative;
+      width: 64px;
+      height: 64px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .feedback-attach-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .feedback-attach-thumb button {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+    }
+    .feedback-msg-images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .feedback-msg-images a {
+      display: block;
+      width: 96px;
+      height: 96px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .feedback-msg-images img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #results {
+      margin-top: 0;
+    }
+    .book-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 4px 0 14px;
+    }
+    .book-tabs[hidden] { display: none; }
+    .book-tab {
+      border: 1px solid var(--border, #d0d4dc);
+      background: var(--surface, #fff);
+      color: inherit;
+      border-radius: 999px;
+      padding: 5px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      line-height: 1.4;
+      transition: background .15s, border-color .15s, color .15s;
+    }
+    .book-tab:hover { border-color: var(--accent, #2f6fed); }
+    .book-tab.active {
+      background: var(--accent, #2f6fed);
+      border-color: var(--accent, #2f6fed);
+      color: #fff;
+    }
+    .book-tab .tab-count {
+      opacity: .7;
+      font-size: 12px;
+      margin-left: 4px;
+    }
+    .book-tab.active .tab-count { opacity: .9; }
+    .result-head {
+      margin-bottom: 12px;
+    }
+    .hit, .group-card {
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    .loc {
+      font-weight: 700;
+      line-height: 1.7;
+    }
+    .section {
+      margin: 10px 0 12px;
+      padding: 10px 12px;
+      background: #f5efe6;
+      border-radius: 12px;
+    }
     .ctx {
-      background: #f6f8fa; padding: 0.6rem 0.8rem; border-radius: 4px;
-      font-size: 0.92rem; margin: 0.4rem 0;
-      border-left: 3px solid var(--accent);
+      background: #fbf8f2;
+      padding: 13px 14px;
+      border-radius: 14px;
+      line-height: 1.8;
+      border-left: 4px solid #b2533d;
     }
-    .ctx-hl { background: #ffe08a; padding: 0 2px; border-radius: 2px; }
-    .cite-box {
-      display: flex; gap: 0.5rem; align-items: center; margin-top: 0.4rem;
+    .ctx-hl {
+      background: #ffe4a8;
+      padding: 0 3px;
+      border-radius: 4px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      align-items: stretch;
     }
     .cite {
-      flex: 1; background: #f6f8fa; padding: 0.5rem 0.7rem;
-      border-radius: 4px; font-family: "Source Han Serif SC", "Noto Serif CJK SC", serif;
+      flex: 1 1 420px;
+      min-width: 240px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 11px 13px;
+      background: #fbf8f2;
+      line-height: 1.7;
     }
-    .copy-btn {
-      background: white; color: var(--accent); border: 1px solid var(--accent);
-      font-size: 0.85rem; padding: 0.3rem 0.7rem;
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      flex: 0 0 auto;
     }
-    .copy-btn:hover { background: var(--accent-light); }
-    .empty { color: var(--muted); padding: 1rem; text-align: center; }
-    footer { color: var(--muted); font-size: 0.8rem; margin-top: 3rem; text-align: center; }
+    .action-buttons .secondary,
+    .action-buttons .primary,
+    .action-buttons .link-btn {
+      min-height: 42px;
+      padding: 8px 16px;
+      border-radius: 14px;
+      font-size: 0.96rem;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .group-summary, .pager-info {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .group-body {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(222, 207, 189, 0.9);
+    }
+    .volume-meta {
+      color: var(--muted);
+      line-height: 1.7;
+      margin-top: 4px;
+    }
+    .chapter-list {
+      display: grid;
+      gap: 10px;
+    }
+    .chapter-row {
+      border-top: 1px solid rgba(222, 207, 189, 0.75);
+      padding-top: 12px;
+    }
+    .chapter-row:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+    .chapter-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .chapter-title {
+      font-weight: 700;
+      line-height: 1.7;
+    }
+    .chapter-actions {
+      flex: 0 0 auto;
+    }
+    .chapter-hits {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed rgba(222, 207, 189, 0.9);
+    }
+    .chapter-hits .hit {
+      box-shadow: none;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      background: rgba(255, 253, 249, 0.72);
+    }
+    .pager {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      align-items: center;
+    }
+    .group-list-pager {
+      justify-content: space-between;
+      padding: 0 4px 8px;
+    }
+    .empty {
+      padding: 28px 18px;
+      border-radius: 18px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      text-align: center;
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .ai-card {
+      display: grid;
+      gap: 12px;
+      background: linear-gradient(180deg, rgba(222, 237, 240, 0.48), rgba(255, 253, 249, 0.94));
+    }
+    .ai-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .ai-head h2 {
+      margin-bottom: 6px;
+    }
+    .ai-model {
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(38, 70, 83, 0.1);
+      color: var(--ai);
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .ai-status {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+    .ai-lock-note {
+      border: 1px solid rgba(143, 29, 29, 0.2);
+      border-radius: 14px;
+      background: #fff4d6;
+      color: #6f1b1b;
+      padding: 12px 14px;
+      line-height: 1.7;
+      font-weight: 700;
+    }
+    .chat-box {
+      border: 1px solid rgba(38, 70, 83, 0.16);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      min-height: 280px;
+      max-height: 540px;
+      overflow: auto;
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .chat-empty {
+      color: var(--muted);
+      line-height: 1.8;
+      padding: 4px;
+    }
+    .msg {
+      border-radius: 16px;
+      padding: 12px 14px;
+      line-height: 1.8;
+      word-break: break-word;
+    }
+    .msg.user {
+      background: #efe5db;
+      justify-self: end;
+      max-width: 92%;
+      white-space: pre-wrap;
+    }
+    .msg.assistant {
+      background: #edf5f7;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      transform-origin: top left;
+      animation: aiAnswerReveal .22s ease-out;
+    }
+    .msg.assistant.pending {
+      width: fit-content;
+      max-width: 92%;
+      min-width: 124px;
+    }
+    .msg-body {
+      display: grid;
+      gap: 10px;
+    }
+    .msg-body p,
+    .msg-body ul,
+    .msg-body ol,
+    .msg-body blockquote,
+    .msg-body h3,
+    .msg-body h4,
+    .msg-body h5,
+    .msg-body hr {
+      margin: 0;
+    }
+    .msg-body h3,
+    .msg-body h4,
+    .msg-body h5 {
+      color: #163743;
+      font-weight: 800;
+      line-height: 1.55;
+    }
+    .msg-body h3 {
+      padding: 8px 10px;
+      border-left: 4px solid var(--ai);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.62);
+      font-size: 1.02rem;
+    }
+    .msg-body h4 {
+      font-size: 0.98rem;
+    }
+    .msg-body h5 {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    .msg-body blockquote {
+      padding: 10px 12px;
+      border-left: 4px solid rgba(143, 29, 29, 0.55);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.76);
+      color: #40342a;
+    }
+    .msg-body pre {
+      margin: 0;
+      max-width: 100%;
+      overflow: auto;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #19313b;
+      color: #f4fbfd;
+      line-height: 1.65;
+      font-family: "Consolas", "Microsoft YaHei", monospace;
+      font-size: 0.92rem;
+    }
+    .msg-body pre code {
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+    }
+    .code-lang {
+      display: block;
+      margin-bottom: 8px;
+      color: rgba(244, 251, 253, 0.72);
+      font-size: 0.82rem;
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    }
+    .msg-body ul,
+    .msg-body ol {
+      padding-left: 1.35em;
+    }
+    .msg-body li + li {
+      margin-top: 4px;
+    }
+    .msg-body .task-list-item {
+      list-style: none;
+      margin-left: -1.35em;
+    }
+    .msg-body strong {
+      color: #163743;
+      font-weight: 800;
+    }
+    .msg-body em {
+      color: #5f1717;
+      font-style: normal;
+      font-weight: 700;
+    }
+    .msg-body code {
+      padding: 1px 6px;
+      border-radius: 6px;
+      background: rgba(38, 70, 83, 0.1);
+      color: #163743;
+      font-family: "Consolas", "Microsoft YaHei", monospace;
+      font-size: 0.94em;
+    }
+    .msg-body a {
+      color: var(--ai);
+      font-weight: 700;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    .msg-body a:hover {
+      text-decoration: underline;
+    }
+    .msg-body del {
+      color: var(--muted);
+    }
+    .task-checkbox {
+      width: 1em;
+      height: 1em;
+      margin: 0 6px 0 0;
+      vertical-align: -0.14em;
+      accent-color: var(--ai);
+    }
+    .markdown-table-wrap {
+      max-width: 100%;
+      overflow: auto;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+    .msg-body table {
+      width: 100%;
+      min-width: 420px;
+      border-collapse: collapse;
+      line-height: 1.65;
+    }
+    .msg-body th,
+    .msg-body td {
+      padding: 9px 10px;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      text-align: left;
+      vertical-align: top;
+    }
+    .msg-body th {
+      background: rgba(38, 70, 83, 0.1);
+      color: #163743;
+      font-weight: 800;
+    }
+    .msg-body td {
+      background: rgba(255, 253, 248, 0.64);
+    }
+    .msg-body hr {
+      border: 0;
+      border-top: 1px solid rgba(38, 70, 83, 0.18);
+    }
+    .msg-title {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 700;
+      color: var(--ai);
+    }
+    .typing-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-height: 1.8em;
+      color: #42606b;
+    }
+    .typing-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: 0.34;
+      animation: aiTypingDot 1.05s infinite ease-in-out;
+    }
+    .typing-dots span:nth-child(2) {
+      animation-delay: .16s;
+    }
+    .typing-dots span:nth-child(3) {
+      animation-delay: .32s;
+    }
+    @keyframes aiTypingDot {
+      0%, 80%, 100% {
+        transform: translateY(0);
+        opacity: 0.34;
+      }
+      40% {
+        transform: translateY(-5px);
+        opacity: 0.9;
+      }
+    }
+    @keyframes aiAnswerReveal {
+      from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .sources {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .source-item {
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      padding: 10px 12px;
+      border: 1px solid rgba(38, 70, 83, 0.12);
+    }
+    .source-item a {
+      color: var(--ai);
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .source-item a:hover {
+      text-decoration: underline;
+    }
+    .source-meta {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 4px;
+    }
+    .warning-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #805f00;
+      font-size: 0.9rem;
+    }
+    .ai-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .ai-input {
+      min-height: 118px;
+      border-color: rgba(38, 70, 83, 0.18);
+      background: rgba(255, 255, 255, 0.96);
+    }
+    .ai-input:focus {
+      border-color: rgba(38, 70, 83, 0.7);
+      box-shadow: 0 0 0 4px rgba(38, 70, 83, 0.1);
+    }
+    @media (max-width: 1080px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .feature-bar,
+      .journal-bar {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        min-height: 0;
+      }
+      .feature-action {
+        width: 100%;
+        min-width: 0;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="topbar">
-    <h1>马恩文集 / 全集 引文检索</h1>
-    <button class="quit-btn" id="quitBtn">退出服务</button>
-  </div>
-  <div class="sub">
-    已索引《马克思恩格斯文集》{{ n_wenji }} 卷 / 《马克思恩格斯全集》{{ n_quanji }} 卷。
-    粘贴一句原文即可定位出处并生成脚注。优先检索《文集》；未命中再查《全集》。 
-  </div>
+  <div class="page">
+    <section class="topbar">
+      <div class="topbar-title">
+        <strong>{{ site_text("index.topbar_title") }}</strong>
+        <span class="muted">
+          {% if current_user %}
+          {{ site_text("index.topbar_logged_in", display_name=current_user.display_name, email=current_user.email) }}
+          {% else %}
+          {{ site_text("index.topbar_logged_out") }}
+          {% endif %}
+        </span>
+      </div>
+      <div class="topbar-actions">
+        <a class="mini-btn" href="{{ url_for('pricing') }}">会员套餐</a>
+        {% if local_console_available %}
+        <a class="mini-btn" href="{{ url_for('control') }}">本地控制台</a>
+        {% endif %}
+        {% if is_admin %}
+        <a class="mini-btn" href="{{ url_for('admin') }}">管理后台</a>
+        {% endif %}
+        {% if current_user %}
+        <a class="mini-btn" href="{{ url_for('account') }}">会员中心</a>
+        <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="secondary">退出登录</button>
+        </form>
+        {% else %}
+        <a class="mini-btn" href="{{ url_for('login') }}">登录</a>
+        <a class="mini-btn" href="{{ url_for('register') }}">注册</a>
+        {% endif %}
+      </div>
+    </section>
 
-  <form id="searchForm">
-    <textarea id="q" placeholder="把需要核查的原文粘贴到这里……（几个短句或一整段都可以）"></textarea>
-    <div class="row">
-      <button type="submit" id="submitBtn">检索</button>
-      <span class="hint">快捷键：Ctrl / ⌘ + Enter</span>
+    {% with flashes = get_flashed_messages(with_categories=true) %}
+    {% if flashes %}
+    <div class="flash-stack">
+      {% for category, message in flashes %}
+      <div class="flash">{{ message }}</div>
+      {% endfor %}
     </div>
-  </form>
+    {% endif %}
+    {% endwith %}
+    <section class="hero">
+      <h1>{{ site_text("index.hero_title") }}</h1>
+      <p>{{ site_text("index.hero_intro") }}</p>
+      <div class="stats">
+        <div class="stat">{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</div>
+        <div class="stat">{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</div>
+        {% for item in book_stats %}
+        <div class="stat">{{ item.short_title }} {{ item.count }} 卷</div>
+        {% endfor %}
+      </div>
+    </section>
 
-  <div id="results"></div>
+    <section class="member-strip">
+      {% if state.desktop_mode %}
+      <p>当前为本地桌面模式，完整资料与 AI 按本机资料直接可用，不校验网站会员状态。</p>
+      {% elif is_admin %}
+      <p>当前账号为管理员，已开放完整资料、PDF 阅读与 AI 辅助功能。</p>
+      {% elif membership.is_active_member %}
+      <p>{{ site_text("index.member_active") }}</p>
+      {% elif current_user %}
+      <p>{{ site_text("index.member_logged_in") }}</p>
+      {% else %}
+      <p>{{ site_text("index.member_guest") }}</p>
+      {% endif %}
+      <div class="member-actions">
+        <a class="mini-btn" href="{{ url_for('pricing') }}">查看会员方案</a>
+        {% if current_user %}
+        <a class="mini-btn" href="{{ url_for('account') }}">进入会员中心</a>
+        {% else %}
+        <a class="mini-btn" href="{{ url_for('register') }}">先注册账号</a>
+        {% endif %}
+      </div>
+      {% if plans %}
+      <div class="plan-grid">
+        {% for plan in plans %}
+        <div class="plan-card">
+          <strong>{{ plan.name }}</strong>
+          <div class="muted">{{ format_price(plan.price_cents, plan.currency) }} / {{ plan.interval_months }} 个月</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </section>
 
-  <footer>本地运行 · 检索顺序：文集 → 全集 · 匹配策略：精确优先，模糊兜底</footer>
+    <div class="grid">
+      <div class="left-stack">
+        <section class="panel">
+          <h2>{{ site_text("index.search_title") }}</h2>
+          <form id="searchForm">
+            <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
+              <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">标准检索</button>
+              <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">联想检索</button>
+            </div>
+            <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
+            <div class="row">
+              <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>开始检索</button>
+              {% if state.remote_quit_enabled %}
+              <button type="button" class="secondary" id="quitBtn">退出服务</button>
+              {% endif %}
+              <span class="muted">{{ site_text("index.search_shortcut") }}</span>
+            </div>
+          </form>
+        </section>
+
+        {% if chapter_search %}
+        <style>
+          .chapter-search-panel h2 { margin-bottom: 6px; }
+          .chapter-search { position: relative; }
+          .chapter-search input, .chapter-search-panel > input {
+            width: 100%; padding: 13px 16px; font: inherit; font-size: 1.02rem;
+            color: var(--text); background: var(--card);
+            border: 2px solid var(--accent); border-radius: 10px;
+          }
+          .chapter-search input:focus { outline: none; box-shadow: 0 0 0 3px rgba(143,29,29,.15); }
+          .chapter-search-panel > input:disabled { border-color: var(--line); background: #f6f1ea; color: var(--muted); }
+          .chapter-search-results {
+            position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 6px);
+            max-height: 340px; overflow-y: auto; background: var(--card);
+            border: 1px solid var(--line); border-radius: 10px;
+            box-shadow: 0 16px 40px rgba(54,38,23,.18);
+          }
+          .chapter-suggest {
+            display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+            border-bottom: 1px solid var(--line); cursor: pointer; text-decoration: none; color: var(--text);
+          }
+          .chapter-suggest:last-child { border-bottom: none; }
+          .chapter-suggest:hover, .chapter-suggest.active { background: var(--soft); }
+          .chapter-suggest .tag { flex: none; font-size: .8rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; color: #fff; }
+          .chapter-suggest .tag.wenji { background: var(--accent); }
+          .chapter-suggest .tag.quanji { background: var(--ai); }
+          .chapter-suggest .tag.lenin { background: #5b5f2a; }
+          .chapter-suggest .tag.book-other { background: var(--muted); }
+          .chapter-suggest .s-title { flex: 1; line-height: 1.5; }
+          .chapter-suggest .s-page { flex: none; color: var(--muted); font-size: .85rem; }
+          .chapter-search-empty { padding: 12px 14px; color: var(--muted); }
+          .chapter-search-hint { margin-top: 8px; }
+        </style>
+        <section class="panel chapter-search-panel" aria-label="篇章直达搜索">
+          <h2>{{ site_text('index.chapter_search_title') }}</h2>
+          {% if chapter_search.available %}
+          <div class="chapter-search" data-mode="{{ chapter_search.mode }}">
+            <input id="chapterSearchInput" type="search" autocomplete="off" spellcheck="false"
+                   placeholder="{{ site_text('index.chapter_search_placeholder') }}"
+                   aria-label="搜索篇章名称">
+            <div id="chapterSearchResults" class="chapter-search-results" role="listbox" hidden></div>
+          </div>
+          <p class="muted chapter-search-hint">{{ site_text('index.chapter_search_hint', label=chapter_search.label) }}</p>
+          {% else %}
+          <input type="search" placeholder="{{ site_text('index.chapter_search_disabled_placeholder') }}" aria-label="搜索篇章名称" disabled>
+          <p class="muted chapter-search-hint">
+            {% if chapter_search.status == 'login_required' %}登录后即可使用「{{ chapter_search.label }}」篇章直达。
+            {% elif chapter_search.status == 'subscribe_required' %}开通会员后即可使用「{{ chapter_search.label }}」篇章直达。
+            {% else %}篇章直达功能暂未开放。{% endif %}
+          </p>
+          {% if chapter_search.href %}
+          <a class="feature-action" href="{{ chapter_search.href }}">{% if chapter_search.status == 'login_required' %}去登录{% elif chapter_search.status == 'subscribe_required' %}查看会员套餐{% else %}了解更多{% endif %}</a>
+          {% endif %}
+          {% endif %}
+        </section>
+        {% endif %}
+
+        <div class="reader-entry-grid" aria-label="阅读器入口">
+          {% for entry in reader_entries %}
+          <section class="feature-bar reader-{{ entry.kind }} {% if entry.disabled %}locked{% endif %}" aria-label="{{ site_text(entry.title_key) }}">
+            <div class="feature-copy">
+              <div class="feature-kicker">{{ site_text(entry.kicker_key) }}</div>
+              <span class="reader-status">{{ site_text(entry.status_key) }}</span>
+              <h2>{{ site_text(entry.title_key) }}</h2>
+              <p>{{ site_text(entry.description_key) }}</p>
+            </div>
+            <a class="feature-action {% if entry.disabled %}disabled{% endif %}" {% if entry.disabled %}aria-disabled="true"{% endif %} href="{{ entry.href }}">{{ site_text(entry.action_key) }}</a>
+          </section>
+          {% endfor %}
+        </div>
+
+        <section class="journal-bar" aria-label="期刊新文提醒功能">
+          <div class="feature-copy">
+            <div class="feature-kicker">{{ site_text("index.journal_kicker") }}</div>
+            <h2>{{ site_text("index.journal_title") }}</h2>
+            <p>{{ site_text("index.journal_description") }}</p>
+          </div>
+          {% if state.feature_access.journal_alerts %}
+          {# 仅保留「查看本周新文」入口：按设定频率收集的期刊、标题、作者、摘要、引文都在这里浏览。
+             邮箱确认/订阅按钮已去除——是否收到综述邮件由控制台受众/权限决定，无需用户确认邮箱。 #}
+          <a class="feature-action" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
+          {% else %}
+          <a class="feature-action disabled" aria-disabled="true" href="#">{{ site_text("index.journal_locked") }}</a>
+          {% endif %}
+        </section>
+
+        <div id="searchBookTabs" class="book-tabs" hidden></div>
+        <div id="results"></div>
+      </div>
+
+      <aside class="right-stack">
+        <div class="right-top-stack">
+          <section class="notice-card">
+            <h2>{{ site_text("index.notice_title") }}</h2>
+            <p class="notice-body">{{ site_text("index.notice_body") }}</p>
+          </section>
+
+          <section class="feedback-card" id="feedbackCard">
+            <h2>{{ site_text("index.feedback_title") }}</h2>
+            {% if current_user %}
+            <div class="feedback-alert {% if feedback_thread and feedback_thread.unread_user_count %}show{% endif %}" id="feedbackAlert">
+              {{ site_text("index.feedback_reply_notice") }}
+            </div>
+            <p>{{ site_text("index.feedback_intro") }}</p>
+            <div class="feedback-form">
+              <textarea class="feedback-input" id="feedbackInput" maxlength="2000" placeholder="{{ site_text("index.feedback_placeholder") }}"></textarea>
+              <div class="feedback-actions">
+                <label class="feedback-attach-btn">📎 添加图片
+                  <input type="file" id="feedbackImages" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+                </label>
+                <button type="button" class="primary" id="feedbackSubmitBtn">{{ site_text("index.feedback_submit") }}</button>
+                <span class="feedback-status" id="feedbackStatus"></span>
+              </div>
+              <div class="feedback-attach-preview" id="feedbackAttachPreview"></div>
+            </div>
+            <details class="feedback-history" id="feedbackHistory" {% if feedback_thread and feedback_thread.unread_user_count %}open{% endif %}>
+              <summary>{{ site_text("index.feedback_history") }}</summary>
+              <div class="feedback-messages" id="feedbackMessages">
+                <div class="feedback-status">{{ site_text("index.feedback_empty") }}</div>
+              </div>
+            </details>
+            {% else %}
+            <p>{{ site_text("index.feedback_guest") }}</p>
+            <div class="feedback-actions">
+              <a class="mini-btn" href="{{ url_for('login', next='/') }}">登录后留言</a>
+            </div>
+            {% endif %}
+          </section>
+        </div>
+
+        <section class="ai-card">
+          <div class="ai-head">
+            <div>
+              <h2>{{ site_text("index.ai_title") }}</h2>
+              <p class="ai-status" id="aiStatus">{{ site_text("index.ai_status_loading") }}</p>
+            </div>
+            <div class="ai-model" id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</div>
+          </div>
+
+          {% if not ai_access_enabled %}
+          <div class="ai-lock-note">{{ site_text("index.ai_member_locked") }}</div>
+          {% endif %}
+
+          <div class="chat-box" id="aiMessages"></div>
+
+          <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not ai_access_enabled %}disabled{% endif %}></textarea>
+
+          <div class="ai-actions">
+            <button type="button" class="ai-primary" id="aiSendBtn">发送提问</button>
+            <button type="button" class="secondary" id="aiInsertSearchBtn">插入当前检索框文本</button>
+            <button type="button" class="secondary" id="aiClearBtn">清空会话</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
 
   <script>
+  const requestToken = {{ request_token | tojson }};
+  const csrfToken = {{ csrf_token | tojson }};
+  const state = {
+    searchEnabled: {{ (state.search_enabled and state.feature_access.search) | tojson }},
+    pdfEnabled: {{ state.pdf_enabled | tojson }},
+    heartbeatEnabled: {{ state.heartbeat_enabled | tojson }},
+    remoteQuitEnabled: {{ state.remote_quit_enabled | tojson }}
+  };
+  const embeddedAiRuntime = {{ ai_runtime | tojson }};
+  const aiAccessEnabled = {{ ai_access_enabled | tojson }};
+  const feedbackEnabled = {{ (current_user is not none) | tojson }};
+  const initialFeedbackThread = {{ feedback_thread | tojson }};
+  const aiLockedMessage = {{ site_text("index.ai_member_locked") | tojson }};
+  const aiUnavailableMessage = {{ site_text("index.ai_unavailable") | tojson }};
+  const feedbackEmptyMessage = {{ site_text("index.feedback_empty") | tojson }};
+  const feedbackReplyNotice = {{ site_text("index.feedback_reply_notice") | tojson }};
+  const SEARCH_STATE_KEY = 'marx-search-state-v2';
+  const AI_STATE_KEY = 'marx-search-ai-state-v1';
+
   const form = document.getElementById('searchForm');
   const q = document.getElementById('q');
-  const btn = document.getElementById('submitBtn');
+  const submitBtn = document.getElementById('submitBtn');
   const out = document.getElementById('results');
+  const bookTabsEl = document.getElementById('searchBookTabs');
+  const aiMessages = document.getElementById('aiMessages');
+  const aiPrompt = document.getElementById('aiPrompt');
+  const aiSendBtn = document.getElementById('aiSendBtn');
+  const aiInsertSearchBtn = document.getElementById('aiInsertSearchBtn');
+  const aiClearBtn = document.getElementById('aiClearBtn');
+  const aiStatus = document.getElementById('aiStatus');
+  const aiModelBadge = document.getElementById('aiModelBadge');
+  const feedbackInput = document.getElementById('feedbackInput');
+  const feedbackSubmitBtn = document.getElementById('feedbackSubmitBtn');
+  const feedbackStatus = document.getElementById('feedbackStatus');
+  const feedbackMessages = document.getElementById('feedbackMessages');
+  const feedbackAlert = document.getElementById('feedbackAlert');
+  const feedbackHistory = document.getElementById('feedbackHistory');
+  const feedbackImages = document.getElementById('feedbackImages');
+  const feedbackAttachPreview = document.getElementById('feedbackAttachPreview');
+  const FEEDBACK_MAX_IMAGES = 6;
+  const FEEDBACK_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  let pendingFeedbackImages = [];
   let pingTimer = null;
+  let aiRuntime = embeddedAiRuntime;
+  let aiMessagesState = [];
+  let feedbackThread = initialFeedbackThread;
+  const quitBtn = document.getElementById('quitBtn');
+
+  function apiFetch(url, options = {}) {
+    const headers = Object.assign({}, options.headers || {});
+    if (requestToken) {
+      headers['X-App-Token'] = requestToken;
+    }
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+    return fetch(url, Object.assign({}, options, { headers }));
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
+  }
+
+  function feedbackRoleLabel(role) {
+    return role === 'admin' ? '管理员回复' : '我的留言';
+  }
+
+  function renderFeedbackThread(thread) {
+    if (!feedbackMessages) return;
+    feedbackThread = thread || null;
+    const unread = Number(feedbackThread && feedbackThread.unread_user_count || 0);
+    if (feedbackAlert) {
+      feedbackAlert.textContent = feedbackReplyNotice;
+      feedbackAlert.classList.toggle('show', unread > 0);
+    }
+    if (feedbackHistory && unread > 0) {
+      feedbackHistory.open = true;
+    }
+    const messages = Array.isArray(feedbackThread && feedbackThread.messages) ? feedbackThread.messages : [];
+    if (!messages.length) {
+      feedbackMessages.innerHTML = `<div class="feedback-status">${esc(feedbackEmptyMessage)}</div>`;
+      return;
+    }
+    feedbackMessages.innerHTML = messages.map(message => `
+      <div class="feedback-msg ${message.author_role === 'admin' ? 'admin' : 'user'}">
+        <span class="feedback-meta">${esc(feedbackRoleLabel(message.author_role))} · ${esc(message.created_at || '')}</span>
+        ${esc(message.body || '')}
+        ${renderFeedbackAttachments(message.attachments)}
+      </div>
+    `).join('');
+  }
+
+  function renderFeedbackAttachments(attachments) {
+    const list = Array.isArray(attachments) ? attachments : [];
+    if (!list.length) return '';
+    const items = list.map(att => {
+      const url = `/api/feedback/attachment/${encodeURIComponent(att.id)}`;
+      const name = esc(att.original_name || '图片');
+      return `<a href="${escAttr(url)}" target="_blank" rel="noopener noreferrer"><img src="${escAttr(url)}" alt="${name}" loading="lazy"></a>`;
+    }).join('');
+    return `<div class="feedback-msg-images">${items}</div>`;
+  }
+
+  function renderFeedbackPreview() {
+    if (!feedbackAttachPreview) return;
+    feedbackAttachPreview.innerHTML = pendingFeedbackImages.map((file, index) => {
+      const url = URL.createObjectURL(file);
+      return `<div class="feedback-attach-thumb"><img src="${escAttr(url)}" alt="${esc(file.name || '图片')}"><button type="button" data-index="${index}" title="移除">×</button></div>`;
+    }).join('');
+    feedbackAttachPreview.querySelectorAll('button[data-index]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = Number(btn.getAttribute('data-index'));
+        pendingFeedbackImages.splice(index, 1);
+        renderFeedbackPreview();
+      });
+    });
+  }
+
+  function addPendingFeedbackImages(fileList) {
+    const incoming = Array.from(fileList || []);
+    for (const file of incoming) {
+      if (pendingFeedbackImages.length >= FEEDBACK_MAX_IMAGES) {
+        if (feedbackStatus) feedbackStatus.textContent = `最多上传 ${FEEDBACK_MAX_IMAGES} 张图片。`;
+        break;
+      }
+      if (file.size > FEEDBACK_MAX_IMAGE_BYTES) {
+        if (feedbackStatus) feedbackStatus.textContent = `${file.name}：图片过大（>5MB）。`;
+        continue;
+      }
+      pendingFeedbackImages.push(file);
+    }
+    renderFeedbackPreview();
+  }
+
+  async function loadFeedbackThread() {
+    if (!feedbackEnabled || !feedbackMessages) return;
+    try {
+      const resp = await apiFetch('/api/feedback/thread', { cache: 'no-store' });
+      const data = await resp.json();
+      if (data.ok) {
+        renderFeedbackThread(data.thread);
+      }
+    } catch (_) {}
+  }
+
+  async function submitFeedbackMessage() {
+    if (!feedbackEnabled || !feedbackInput || !feedbackSubmitBtn) return;
+    const body = feedbackInput.value.trim();
+    if (body.length < 2 && !pendingFeedbackImages.length) {
+      feedbackStatus.textContent = '请至少输入两个字，或上传一张图片。';
+      return;
+    }
+    feedbackSubmitBtn.disabled = true;
+    feedbackStatus.textContent = '正在提交...';
+    try {
+      const formData = new FormData();
+      formData.append('body', body);
+      for (const file of pendingFeedbackImages) {
+        formData.append('images', file, file.name);
+      }
+      const resp = await apiFetch('/api/feedback/messages', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        throw new Error(data.error || '提交失败');
+      }
+      feedbackInput.value = '';
+      pendingFeedbackImages = [];
+      if (feedbackImages) feedbackImages.value = '';
+      renderFeedbackPreview();
+      feedbackStatus.textContent = data.warning || '留言已提交。';
+      renderFeedbackThread(data.thread);
+      if (feedbackHistory) feedbackHistory.open = true;
+    } catch (error) {
+      feedbackStatus.textContent = error.message || '提交失败';
+    } finally {
+      feedbackSubmitBtn.disabled = false;
+    }
+  }
+
+  function escAttr(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    }[c]));
+  }
+
+  function renderInlineMarkdown(text) {
+    const placeholders = [];
+    const stash = html => {
+      const key = `\u0000MD${placeholders.length}\u0000`;
+      placeholders.push(html);
+      return key;
+    };
+    let source = String(text || '');
+    source = source
+      .replace(/`([^`]+?)`/g, (_, code) => stash(`<code>${esc(code)}</code>`))
+      .replace(/!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => renderMarkdownLink(label || '图片链接', url, stash))
+      .replace(/\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => renderMarkdownLink(label, url, stash))
+      .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/gi, (_, url) => renderMarkdownLink(url, url, stash))
+      .replace(/(^|[\s（(])((?:https?:\/\/)[^\s<>()]+[^\s<>().,;:!?，。；：！？）)])/gi, (_, prefix, url) => `${prefix}${renderMarkdownLink(url, url, stash)}`);
+
+    return esc(source)
+      .replace(/~~(.+?)~~/g, '<del>$1</del>')
+      .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
+      .replace(/(^|[\s（(])\*([^*\n]+?)\*(?=$|[\s，。；：、,.!?;:)）])/g, '$1<em>$2</em>')
+      .replace(/(^|[\s（(])_([^_\n]+?)_(?=$|[\s，。；：、,.!?;:)）])/g, '$1<em>$2</em>')
+      .replace(/\u0000MD(\d+)\u0000/g, (_, index) => placeholders[Number(index)] || '');
+  }
+
+  function safeMarkdownUrl(url) {
+    const raw = String(url || '').trim();
+    if (/^(https?:\/\/|mailto:|\/|#)/i.test(raw)) return raw;
+    return '';
+  }
+
+  function renderMarkdownLink(label, url, stash) {
+    const safeUrl = safeMarkdownUrl(url);
+    const safeLabel = esc(label || url || '');
+    if (!safeUrl) return safeLabel;
+    const isExternal = /^(https?:\/\/|mailto:)/i.test(safeUrl);
+    const target = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return stash(`<a href="${escAttr(safeUrl)}"${target}>${safeLabel}</a>`);
+  }
+
+  function flushMarkdownParagraph(lines, html) {
+    if (!lines.length) return;
+    html.push(`<p>${lines.map(renderInlineMarkdown).join('<br>')}</p>`);
+    lines.length = 0;
+  }
+
+  function flushMarkdownList(list, html) {
+    if (!list.items.length) return;
+    const tag = list.type === 'ol' ? 'ol' : 'ul';
+    html.push(`<${tag}>${list.items.map(renderMarkdownListItem).join('')}</${tag}>`);
+    list.items = [];
+    list.type = null;
+  }
+
+  function renderMarkdownListItem(item) {
+    const task = String(item || '').match(/^\[([ xX])\]\s+(.+)$/);
+    if (task) {
+      const checked = task[1].toLowerCase() === 'x' ? ' checked' : '';
+      return `<li class="task-list-item"><input class="task-checkbox" type="checkbox" disabled${checked}>${renderInlineMarkdown(task[2])}</li>`;
+    }
+    return `<li>${renderInlineMarkdown(item)}</li>`;
+  }
+
+  function flushMarkdownQuote(quote, html) {
+    if (!quote.length) return;
+    html.push(`<blockquote>${quote.map(renderInlineMarkdown).join('<br>')}</blockquote>`);
+    quote.length = 0;
+  }
+
+  function flushMarkdownBlocks(paragraph, list, quote, html) {
+    flushMarkdownParagraph(paragraph, html);
+    flushMarkdownList(list, html);
+    flushMarkdownQuote(quote, html);
+  }
+
+  function splitMarkdownTableRow(line) {
+    const source = String(line || '').trim();
+    if (!source || !source.includes('|')) return null;
+    let text = source;
+    if (text.startsWith('|')) text = text.slice(1);
+    if (text.endsWith('|')) text = text.slice(0, -1);
+    const cells = [];
+    let cell = '';
+    let escaped = false;
+    for (const char of text) {
+      if (char === '|' && !escaped) {
+        cells.push(cell.trim().replace(/\\\|/g, '|'));
+        cell = '';
+        continue;
+      }
+      if (char === '\\' && !escaped) {
+        escaped = true;
+        cell += char;
+        continue;
+      }
+      escaped = false;
+      cell += char;
+    }
+    cells.push(cell.trim().replace(/\\\|/g, '|'));
+    return cells;
+  }
+
+  function isMarkdownTableSeparator(line) {
+    const cells = splitMarkdownTableRow(line);
+    return !!cells && cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
+  }
+
+  function normalizeMarkdownTableCells(cells, columnCount) {
+    return Array.from({ length: columnCount }, (_, index) => cells[index] || '');
+  }
+
+  function markdownTableAlignments(separatorLine, columnCount) {
+    const cells = splitMarkdownTableRow(separatorLine) || [];
+    return normalizeMarkdownTableCells(cells, columnCount).map(cell => {
+      const compact = cell.replace(/\s+/g, '');
+      if (compact.startsWith(':') && compact.endsWith(':')) return 'center';
+      if (compact.endsWith(':')) return 'right';
+      return 'left';
+    });
+  }
+
+  function renderMarkdownTable(headerCells, separatorLine, bodyRows) {
+    const columnCount = Math.max(headerCells.length, ...bodyRows.map(row => row.length));
+    const alignments = markdownTableAlignments(separatorLine, columnCount);
+    const header = normalizeMarkdownTableCells(headerCells, columnCount)
+      .map((cell, index) => `<th scope="col" style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</th>`)
+      .join('');
+    const rows = bodyRows.map(row => `
+      <tr>${normalizeMarkdownTableCells(row, columnCount).map((cell, index) => `<td style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</td>`).join('')}</tr>
+    `).join('');
+    return `<div class="markdown-table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderMarkdownCodeBlock(code, language) {
+    const lang = String(language || '').trim();
+    const label = lang ? `<span class="code-lang">${esc(lang)}</span>` : '';
+    return `<pre>${label}<code>${esc(code).replace(/\n$/, '')}</code></pre>`;
+  }
+
+  function renderBasicMarkdown(markdown) {
+    const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+    const html = [];
+    const paragraph = [];
+    const list = { type: null, items: [] };
+    const quote = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        continue;
+      }
+
+      const fence = trimmed.match(/^(`{3,}|~{3,})\s*([A-Za-z0-9_+.#-]*)?.*$/);
+      if (fence) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const fenceMarker = fence[1][0];
+        const fenceLength = fence[1].length;
+        const codeLines = [];
+        lineIndex += 1;
+        while (lineIndex < lines.length) {
+          const candidate = lines[lineIndex].trim();
+          if (candidate.startsWith(fenceMarker.repeat(fenceLength))) break;
+          codeLines.push(lines[lineIndex]);
+          lineIndex += 1;
+        }
+        html.push(renderMarkdownCodeBlock(codeLines.join('\n'), fence[2] || ''));
+        continue;
+      }
+
+      const headerCells = splitMarkdownTableRow(trimmed);
+      const separatorLine = lines[lineIndex + 1] || '';
+      if (headerCells && isMarkdownTableSeparator(separatorLine)) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const bodyRows = [];
+        lineIndex += 2;
+        while (lineIndex < lines.length) {
+          const rowText = lines[lineIndex].trim();
+          const rowCells = rowText ? splitMarkdownTableRow(rowText) : null;
+          if (!rowCells || isMarkdownTableSeparator(rowText)) break;
+          bodyRows.push(rowCells);
+          lineIndex += 1;
+        }
+        html.push(renderMarkdownTable(headerCells, separatorLine, bodyRows));
+        lineIndex -= 1;
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const level = Math.min(Math.max(heading[1].length + 2, 3), 5);
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      if (/^([-*_])\s*\1\s*\1(?:\s*\1)*$/.test(trimmed)) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        html.push('<hr>');
+        continue;
+      }
+
+      const quoted = trimmed.match(/^[>＞]\s*(.+)$/) || trimmed.match(/^<\s*(.+)$/);
+      if (quoted) {
+        flushMarkdownParagraph(paragraph, html);
+        flushMarkdownList(list, html);
+        quote.push(quoted[1]);
+        continue;
+      }
+
+      const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+      const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        flushMarkdownParagraph(paragraph, html);
+        flushMarkdownQuote(quote, html);
+        const type = ordered ? 'ol' : 'ul';
+        if (list.type && list.type !== type) flushMarkdownList(list, html);
+        list.type = type;
+        list.items.push((ordered || unordered)[1]);
+        continue;
+      }
+
+      flushMarkdownList(list, html);
+      flushMarkdownQuote(quote, html);
+      paragraph.push(trimmed);
+    }
+
+    flushMarkdownBlocks(paragraph, list, quote, html);
+    return html.join('') || '<p></p>';
+  }
 
   function fmtPages(printed, pdf) {
     const valid = printed.filter(x => x && !String(x).startsWith('pre-'));
     if (valid.length) {
-      const a = valid[0], b = valid[valid.length - 1];
-      return a === b ? `第 ${a} 页` : `第 ${a}–${b} 页`;
+      const a = valid[0];
+      const b = valid[valid.length - 1];
+      return a === b ? `第 ${a} 页` : `第 ${a}-${b} 页`;
     }
-    const a = pdf[0], b = pdf[pdf.length - 1];
-    return a === b ? `PDF 第 ${a} 页` : `PDF 第 ${a}–${b} 页`;
-  }
-
-  function esc(s) {
-    return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const a = pdf[0];
+    const b = pdf[pdf.length - 1];
+    return a === b ? `PDF 第 ${a} 页` : `PDF 第 ${a}-${b} 页`;
   }
 
   function renderCtx(ctx) {
     const escaped = esc(ctx);
-    return escaped.replace(/【([^】]*)】/g, '<span class="ctx-hl">$1</span>');
+    return escaped.replace(/\[\[H\]\](.+?)\[\[\/H\]\]/g, '<span class="ctx-hl">$1</span>');
   }
 
-  async function doSearch(text) {
-    btn.disabled = true;
-    btn.textContent = '检索中…';
-    out.innerHTML = '<div class="empty">检索中……</div>';
+  function renderEmpty(message) {
+    out.innerHTML = `<div class="empty">${esc(message)}</div>`;
+  }
+
+  function saveSearchState(payload) {
+    try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(payload)); } catch (_) {}
+  }
+
+  function loadSearchState() {
     try {
-      const resp = await fetch('/api/search', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({q: text})
-      });
-      const data = await resp.json();
-      if (!data.ok) {
-        out.innerHTML = `<div class="empty">错误：${esc(data.error || '未知')}</div>`;
-        return;
-      }
-      if (!data.results.length) {
-        out.innerHTML = '<div class="empty">未在《文集》或《全集》中找到匹配。可尝试缩短引文或去掉标点。</div>';
-        return;
-      }
-      out.innerHTML = data.results.map((h, i) => {
-        const typeTag = h.match_type === 'exact'
-          ? '<span class="tag">精确匹配</span>'
-          : `<span class="tag fuzzy">模糊匹配 ${h.score}%</span>`;
-        return `
-        <div class="hit">
-          <div class="hit-head">
-            <div class="loc">《${esc(h.book === '文集' ? '马克思恩格斯文集' : '马克思恩格斯全集')}》第 ${h.volume} 卷 · ${fmtPages(h.printed_pages, h.pdf_pages)}</div>
-            ${typeTag}
-          </div>
-          <div class="ctx">${renderCtx(h.context)}</div>
-          <div class="cite-box">
-            <div class="cite" id="cite-${i}">${esc(h.citation)}</div>
-            <button class="copy-btn" data-target="cite-${i}">复制引文</button>
-          </div>
-        </div>`;
-      }).join('');
-    } catch (e) {
-      out.innerHTML = `<div class="empty">请求失败：${esc(e.message)}</div>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '检索';
+      const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
+      return raw ? (JSON.parse(raw) || {}) : {};
+    } catch (_) {
+      try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch (__) {}
+      return {};
     }
   }
 
+  function updateBookTabs(payload) {
+    if (!bookTabsEl) return;
+    const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
+    // 只有跨多个书库命中时才显示筛选标签，单一书库无需筛选。
+    if (counts.length < 2) {
+      bookTabsEl.hidden = true;
+      bookTabsEl.innerHTML = '';
+      return;
+    }
+    const active = (payload && payload.book_filter) || '';
+    const total = counts.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const allTab = `<button type="button" class="book-tab${active ? '' : ' active'}" data-action="search-book" data-book="">全部<span class="tab-count">${total}</span></button>`;
+    const tabs = counts.map(item => {
+      const label = item.short_title || item.title || ('《' + (item.key || '') + '》');
+      const on = active === item.key ? ' active' : '';
+      return `<button type="button" class="book-tab${on}" data-action="search-book" data-book="${escAttr(item.key)}">${esc(label)}<span class="tab-count">${Number(item.count || 0)}</span></button>`;
+    }).join('');
+    bookTabsEl.innerHTML = allTab + tabs;
+    bookTabsEl.hidden = false;
+  }
+
+  function findVolume(payload, volumeId) {
+    return (payload.results || []).find(item => item.group_id === volumeId);
+  }
+
+  function findChapter(payload, volumeId, chapterId) {
+    const volume = findVolume(payload, volumeId);
+    if (!volume) return { volume: null, chapter: null };
+    const chapter = (volume.chapters || []).find(item => item.chapter_id === chapterId);
+    return { volume, chapter };
+  }
+
+  function renderHitRow(hit, indexKey) {
+    const section = hit.section_title
+      ? `<div class="section">所属篇章：${esc(hit.section_title)}</div>`
+      : '';
+    const bookTitle = hit.book_title || hit.book_short_title || `《${hit.book || '资料'}》`;
+    const openButton = hit.viewer_available
+      ? `<a class="link-btn primary" href="${escAttr(hit.viewer_url)}">打开正文</a>`
+      : `<button class="secondary" disabled>当前无正文权限</button>`;
+    const assocNote = hit.associative_reason
+      ? `<div class="assoc-note">AI 判断：${esc(hit.associative_reason)}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
+      : '';
+    const weightBadge = hit.associative_weight != null
+      ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
+      : '';
+    return `
+      <article class="hit${weightBadge ? ' assoc-hit' : ''}">
+        <div class="loc">${bookTitle} 第 ${hit.volume} 卷 · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${weightBadge}</div>
+        ${assocNote}
+        ${section}
+        <div class="ctx">${renderCtx(hit.context)}</div>
+        <div class="actions">
+          <div class="cite" id="cite-${indexKey}">${esc(hit.citation)}</div>
+          <div class="action-buttons">
+            <button class="secondary copy-btn" data-target="cite-${indexKey}">复制引文</button>
+            ${openButton}
+          </div>
+        </div>
+      </article>
+    `;
+  }
+
+  function paginateHits(group, page) {
+    const pageSize = Number(group.page_size || 10);
+    const totalPages = Math.max(1, Math.ceil(group.hits.length / pageSize));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+    const start = (safePage - 1) * pageSize;
+    return {
+      page: safePage,
+      totalPages,
+      visibleHits: group.hits.slice(start, start + pageSize)
+    };
+  }
+
+  // 篇章命中视图：兼容两种数据来源——一次性内联命中（旧）与按需分页拉取（短词海量命中）。
+  function chapterView(chapter) {
+    const pageSize = Number(chapter.page_size || 10);
+    const totalPages = Math.max(1, Math.ceil(Number(chapter.count || 0) / pageSize));
+    const page = Math.min(Math.max(1, Number(chapter.current_page || 1)), totalPages);
+    if (chapter.hits_lazy) {
+      const cached = chapter.hits_cache && chapter.hits_cache[page];
+      return { page, totalPages, visibleHits: cached || [], loading: !cached };
+    }
+    const start = (page - 1) * pageSize;
+    return { page, totalPages, visibleHits: (chapter.hits || []).slice(start, start + pageSize), loading: false };
+  }
+
+  // 按需拉取某一篇章某一页的命中详情，结果缓存进 chapter 对象（随检索状态一并持久化）。
+  async function ensureChapterHits(volume, chapter, page) {
+    if (!chapter || !chapter.hits_lazy) return;
+    chapter.hits_cache = chapter.hits_cache || {};
+    if (chapter.hits_cache[page]) return;
+    const stored = loadSearchState();
+    const query = (stored && stored.query) || q.value.trim();
+    if (!query) return;
+    try {
+      const resp = await apiFetch('/api/search/chapter-hits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          q: query,
+          source_file: volume.source_file,
+          chapter_pdf_page: chapter.chapter_pdf_page,
+          page
+        })
+      });
+      const data = await resp.json();
+      if (data && data.ok) {
+        chapter.hits_cache[page] = Array.isArray(data.hits) ? data.hits : [];
+        if (typeof data.count === 'number') chapter.count = data.count;
+      } else {
+        chapter.hits_cache[page] = [];
+      }
+    } catch (_) {
+      chapter.hits_cache[page] = [];
+    }
+  }
+
+  function renderVolumeChapteredResults(payload) {
+    const volumes = Array.isArray(payload.results) ? payload.results : [];
+    const cards = volumes.map((volume, volumeIndex) => {
+      const expanded = !!volume.expanded;
+      const bookTitle = volume.book_title || volume.book_short_title || `《${volume.book || '资料'}》`;
+      const chapters = Array.isArray(volume.chapters) ? volume.chapters : [];
+      const chapterRows = chapters.map((chapter, chapterIndex) => {
+        const chapterExpanded = !!chapter.expanded;
+        const { page, totalPages, visibleHits, loading } = chapterView(chapter);
+        return `
+          <div class="chapter-row">
+            <div class="chapter-head">
+              <div>
+                <div class="chapter-title">${esc(chapter.section_title || '未识别篇章')}</div>
+                <div class="group-summary">共 ${Number(chapter.count || 0)} 处命中</div>
+              </div>
+              <div class="chapter-actions">
+                <button class="secondary" data-action="toggle-chapter" data-volume-id="${escAttr(volume.group_id)}" data-chapter-id="${escAttr(chapter.chapter_id)}">
+                  ${chapterExpanded ? '收起' : '展开'}
+                </button>
+              </div>
+            </div>
+            ${chapterExpanded ? `
+              <div class="chapter-hits">
+                <div class="group-summary">当前第 ${page} / ${totalPages} 页</div>
+                ${loading
+                  ? '<div class="group-summary">正在加载该篇章的命中…</div>'
+                  : visibleHits.map((hit, hitIndex) => renderHitRow(hit, `volume-${volumeIndex}-${chapterIndex}-${page}-${hitIndex}`)).join('')}
+                <div class="pager">
+                  <button class="secondary" data-action="chapter-page" data-direction="-1" data-volume-id="${escAttr(volume.group_id)}" data-chapter-id="${escAttr(chapter.chapter_id)}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+                  <span class="pager-info">${page} / ${totalPages}</span>
+                  <button class="secondary" data-action="chapter-page" data-direction="1" data-volume-id="${escAttr(volume.group_id)}" data-chapter-id="${escAttr(chapter.chapter_id)}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+      return `
+        <section class="group-card">
+          <div class="loc">${bookTitle} 第 ${volume.volume} 卷</div>
+          <div class="volume-meta">${Number(volume.chapter_count || chapters.length)} 个篇章 · 共 ${Number(volume.count || 0)} 处命中</div>
+          <div class="row">
+            <button class="secondary" data-action="toggle-volume" data-volume-id="${escAttr(volume.group_id)}">
+              ${expanded ? '收起篇章目录' : '展开篇章目录'}
+            </button>
+          </div>
+          ${expanded ? `
+            <div class="group-body chapter-list">
+              ${chapterRows || '<div class="group-summary">暂无可展开的篇章。</div>'}
+            </div>
+          ` : ''}
+        </section>
+      `;
+    }).join('');
+
+    const groupPager = Number(payload.group_pages || 1) > 1 ? `
+      <div class="pager group-list-pager">
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) - 1}" ${Number(payload.group_page || 1) <= 1 ? 'disabled' : ''}>上一组页</button>
+        <span class="pager-info">分组页 ${Number(payload.group_page || 1)} / ${Number(payload.group_pages || 1)}，共 ${Number(payload.group_count || volumes.length)} 卷</span>
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) + 1}" ${Number(payload.group_page || 1) >= Number(payload.group_pages || 1) ? 'disabled' : ''}>下一组页</button>
+      </div>
+    ` : '';
+
+    out.innerHTML = `
+      <div class="result-head"><h2>检索结果</h2></div>
+      ${groupPager}
+      ${cards}
+      ${groupPager}
+    `;
+  }
+
+  function renderSummaryResults(payload) {
+    const groups = Array.isArray(payload.results) ? payload.results : [];
+    const cards = groups.map(group => {
+      const bookTitle = group.book_title || group.book_short_title || `《${group.book || '资料'}》`;
+      return `
+        <section class="group-card">
+          <div class="loc">${bookTitle} 第 ${esc(group.volume || '')} 卷</div>
+          <div class="section">所属篇章：${esc(group.section_title || '未识别篇章')}</div>
+          <div class="muted">共 ${Number(group.count || 0)} 处命中</div>
+          <div class="group-summary">${esc(group.lock_message || '当前权限仅显示目录线索。')}</div>
+        </section>
+      `;
+    }).join('');
+    const groupPager = Number(payload.group_pages || 1) > 1 ? `
+      <div class="pager group-list-pager">
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) - 1}" ${Number(payload.group_page || 1) <= 1 ? 'disabled' : ''}>上一组页</button>
+        <span class="pager-info">分组页 ${Number(payload.group_page || 1)} / ${Number(payload.group_pages || 1)}，共 ${Number(payload.group_count || groups.length)} 组</span>
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) + 1}" ${Number(payload.group_page || 1) >= Number(payload.group_pages || 1) ? 'disabled' : ''}>下一组页</button>
+      </div>
+    ` : '';
+    out.innerHTML = `
+      <div class="result-head"><h2>检索结果</h2></div>
+      ${groupPager}
+      ${cards}
+      ${groupPager}
+    `;
+  }
+
+  function renderResults(payload) {
+    const displayMode = payload.display_mode || 'grouped';
+    const groups = Array.isArray(payload.results) ? payload.results : [];
+    if (payload.access_level === 'summary' || displayMode === 'summary') {
+      renderSummaryResults(payload);
+      return;
+    }
+    if (displayMode === 'direct') {
+      out.innerHTML = `
+        <div class="result-head"><h2>检索结果</h2></div>
+        ${groups.map((hit, index) => renderHitRow(hit, `direct-${index}`)).join('')}
+      `;
+      return;
+    }
+    if (displayMode === 'volume_chaptered') {
+      renderVolumeChapteredResults(payload);
+      return;
+    }
+
+    const cards = groups.map((group, groupIndex) => {
+      const { page, totalPages, visibleHits } = paginateHits(group, Number(group.current_page || 1));
+      const expanded = !!group.expanded;
+      const section = group.section_title
+        ? `<div class="section">所属篇章：${esc(group.section_title)}</div>`
+        : '<div class="section">所属篇章：未识别</div>';
+      const bookTitle = group.book_title || group.book_short_title || `《${group.book || '资料'}》`;
+      return `
+        <section class="group-card">
+          <div class="loc">${bookTitle} 第 ${group.volume} 卷</div>
+          ${section}
+          <div class="muted">共 ${group.count} 处命中</div>
+          <div class="row">
+            <button class="secondary" data-action="toggle-group" data-group-id="${escAttr(group.group_id)}">
+              ${expanded ? '收起命中详情' : '展开查看命中详情'}
+            </button>
+          </div>
+          ${expanded ? `
+            <div class="group-body">
+              <div class="group-summary">当前第 ${page} / ${totalPages} 页</div>
+              ${visibleHits.map((hit, hitIndex) => renderHitRow(hit, `${groupIndex}-${page}-${hitIndex}`)).join('')}
+              <div class="pager">
+                <button class="secondary" data-action="group-page" data-direction="-1" data-group-id="${escAttr(group.group_id)}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+                <span class="pager-info">${page} / ${totalPages}</span>
+                <button class="secondary" data-action="group-page" data-direction="1" data-group-id="${escAttr(group.group_id)}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+              </div>
+            </div>
+          ` : ''}
+        </section>
+      `;
+    }).join('');
+
+    const groupPager = Number(payload.group_pages || 1) > 1 ? `
+      <div class="pager group-list-pager">
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) - 1}" ${Number(payload.group_page || 1) <= 1 ? 'disabled' : ''}>上一组页</button>
+        <span class="pager-info">分组页 ${Number(payload.group_page || 1)} / ${Number(payload.group_pages || 1)}，共 ${Number(payload.group_count || groups.length)} 组</span>
+        <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) + 1}" ${Number(payload.group_page || 1) >= Number(payload.group_pages || 1) ? 'disabled' : ''}>下一组页</button>
+      </div>
+    ` : '';
+
+    out.innerHTML = `
+      <div class="result-head"><h2>检索结果</h2></div>
+      ${groupPager}
+      ${cards}
+      ${groupPager}
+    `;
+  }
+
+  async function doSearch(text, options = {}) {
+    if (!state.searchEnabled) {
+      renderEmpty('当前索引不可用，请先检查资料包与数据库校验状态。');
+      return;
+    }
+    const groupPage = Math.max(1, Number(options.groupPage || 1));
+    const book = options.book || '';
+    submitBtn.disabled = true;
+    renderEmpty('检索中，请稍候...');
+    try {
+      const resp = await apiFetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: text, group_page: groupPage, book })
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        renderEmpty(data.error || '未知错误');
+        updateBookTabs(null);
+        return;
+      }
+      if (!data.results.length) {
+        renderEmpty('未找到匹配结果。');
+        updateBookTabs(data);
+        saveSearchState(Object.assign({ query: text, mode: 'empty', message: '未找到匹配结果。' }, data));
+        return;
+      }
+      const payload = Object.assign({ query: text, mode: 'results' }, data);
+      renderResults(payload);
+      updateBookTabs(payload);
+      saveSearchState(payload);
+    } catch (error) {
+      renderEmpty(error.message || '请求失败');
+      updateBookTabs(null);
+    } finally {
+      submitBtn.disabled = !state.searchEnabled;
+    }
+  }
+
+  async function doAssociativeSearch(text) {
+    if (!aiAccessEnabled) {
+      renderEmpty({{ site_text('search.assoc_no_ai') | tojson }});
+      return;
+    }
+    if (!state.searchEnabled) {
+      renderEmpty('当前索引不可用，请先检查资料包与数据库校验状态。');
+      return;
+    }
+    submitBtn.disabled = true;
+    updateBookTabs(null);
+    renderEmpty({{ site_text('search.assoc_loading') | tojson }});
+    try {
+      const resp = await apiFetch('/api/search/associative', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gist: text })
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        renderEmpty(data.error || '未知错误');
+        return;
+      }
+      renderAssociativeResults(data);
+    } catch (error) {
+      renderEmpty(error.message || '请求失败');
+    } finally {
+      submitBtn.disabled = !state.searchEnabled;
+    }
+  }
+
+  // 联想检索结果：按权重排序的单一列表，客户端分页（“页组”），一次取回全部、翻页不再请求。
+  const ASSOC_PAGE_SIZE = 20;
+  let assocState = null;
+
+  function renderAssociativeResults(data) {
+    const results = Array.isArray(data.results) ? data.results : [];
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    if (!results.length) {
+      assocState = null;
+      renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
+      return;
+    }
+    assocState = { results, warnings, page: 1 };
+    renderAssociativePage();
+  }
+
+  function renderAssociativePage() {
+    if (!assocState) return;
+    const { results, warnings } = assocState;
+    const total = results.length;
+    const totalPages = Math.max(1, Math.ceil(total / ASSOC_PAGE_SIZE));
+    const page = Math.min(Math.max(1, assocState.page || 1), totalPages);
+    assocState.page = page;
+    const start = (page - 1) * ASSOC_PAGE_SIZE;
+    const slice = results.slice(start, start + ASSOC_PAGE_SIZE);
+    const warnHtml = warnings.length
+      ? `<div class="assoc-note">${warnings.map(esc).join('；')}</div>`
+      : '';
+    const rows = slice.map((hit, i) => renderHitRow(hit, `assoc-${start + i}`)).join('');
+    const pager = totalPages > 1 ? `
+      <div class="pager group-list-pager">
+        <button class="secondary" data-action="assoc-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页组</button>
+        <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} 段</span>
+        <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button>
+      </div>` : '';
+    out.innerHTML = `
+      <div class="assoc-results">
+        <div class="assoc-result-head"><h2>${ {{ site_text('search.assoc_result_heading') | tojson }} }</h2>
+          <div class="assoc-lede">按匹配权重排序 · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
+        </div>
+        ${warnHtml}
+        ${pager}
+        <div class="assoc-list">${rows}</div>
+        ${pager}
+      </div>
+    `;
+  }
+
   function sendPing() {
-    fetch('/api/ping', {
-      method: 'POST',
-      keepalive: true,
-      cache: 'no-store'
-    }).catch(() => {});
+    if (!state.heartbeatEnabled || !requestToken) return;
+    apiFetch('/api/ping', { method: 'POST', keepalive: true, cache: 'no-store' }).catch(() => {});
   }
 
   function startHeartbeat() {
+    if (!state.heartbeatEnabled || !requestToken) return;
     sendPing();
     if (pingTimer) clearInterval(pingTimer);
     pingTimer = setInterval(sendPing, 8000);
   }
 
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = q.value.trim();
-    if (text) doSearch(text);
+  function saveAiState() {
+    try { sessionStorage.setItem(AI_STATE_KEY, JSON.stringify(aiMessagesState)); } catch (_) {}
+  }
+
+  function renderSources(sources) {
+    if (!Array.isArray(sources) || !sources.length) return '';
+    return `
+      <div class="sources">
+        ${sources.map((source, index) => `
+          <div class="source-item">
+            <a href="${escAttr(source.link || '#')}" target="_blank" rel="noopener">${index + 1}. ${esc(source.title || '未命名来源')}</a>
+            <div class="source-meta">
+              ${esc(source.site || '未知站点')}${source.date ? ` · ${esc(source.date)}` : ''}
+            </div>
+            ${source.snippet ? `<div class="source-meta">${esc(source.snippet)}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function renderWarnings(warnings) {
+    if (!Array.isArray(warnings) || !warnings.length) return '';
+    return `<ul class="warning-list">${warnings.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`;
+  }
+
+  function renderAiMessages() {
+    if (!aiMessagesState.length) {
+      aiMessages.innerHTML = `
+        <div class="chat-empty">
+          ${esc(aiAccessEnabled ? {{ site_text("index.ai_empty_state") | tojson }} : aiLockedMessage)}
+        </div>
+      `;
+      return;
+    }
+
+    aiMessages.innerHTML = aiMessagesState.map(message => {
+      if (message.role === 'user') {
+        return `<div class="msg user">${esc(message.content)}</div>`;
+      }
+      if (message.pending) {
+        return `
+          <div class="msg assistant pending" aria-live="polite">
+            <span class="msg-title">AI 正在思考</span>
+            <span class="typing-dots" aria-label="AI 正在生成回答">
+              <span></span><span></span><span></span>
+            </span>
+          </div>
+        `;
+      }
+      return `
+        <div class="msg assistant">
+          <span class="msg-title">AI 回答</span>
+          <div class="msg-body">${renderBasicMarkdown(message.content)}</div>
+          ${renderWarnings(message.warnings)}
+          ${renderSources(message.sources)}
+        </div>
+      `;
+    }).join('');
+    aiMessages.scrollTop = aiMessages.scrollHeight;
+  }
+
+  async function loadAiRuntime() {
+    try {
+      const resp = await fetch('/api/ai/runtime');
+      const data = await resp.json();
+      if (data.ok) {
+        aiRuntime = data;
+      }
+    } catch (_) {}
+
+    if (!aiAccessEnabled) {
+      aiModelBadge.textContent = '未开放';
+      aiStatus.textContent = aiLockedMessage;
+      aiSendBtn.disabled = true;
+      aiPrompt.disabled = true;
+      aiInsertSearchBtn.disabled = false;
+      return;
+    }
+
+    if (aiRuntime.enabled) {
+      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
+      aiStatus.textContent = aiAccessEnabled
+        ? `已启用 ${aiRuntime.model || 'AI 导学'}，当前已关闭联网检索。`
+        : '非会员不能使用 AI 导学问答；请登录并开通会员后使用。';
+      aiSendBtn.disabled = !aiAccessEnabled;
+      aiPrompt.disabled = !aiAccessEnabled;
+      aiInsertSearchBtn.disabled = false;
+    } else {
+      aiModelBadge.textContent = aiUnavailableMessage;
+      aiStatus.textContent = aiUnavailableMessage;
+      aiSendBtn.disabled = true;
+      aiPrompt.disabled = true;
+      aiInsertSearchBtn.disabled = false;
+    }
+  }
+
+  async function submitAiQuestion(text) {
+    if (!aiRuntime.enabled || !aiAccessEnabled) return;
+    const question = text.trim();
+    if (!question) return;
+    const historyMessages = aiMessagesState.map(item => ({ role: item.role, content: item.content }));
+
+    aiMessagesState.push({ role: 'user', content: question });
+    const assistantMessage = { role: 'assistant', content: '', sources: [], warnings: [], pending: true };
+    aiMessagesState.push(assistantMessage);
+    saveAiState();
+    renderAiMessages();
+    aiPrompt.value = '';
+    aiSendBtn.disabled = true;
+
+    try {
+      const resp = await apiFetch('/api/ai/search-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          messages: historyMessages
+        })
+      });
+      const data = await resp.json();
+      if (!data.ok) {
+        throw new Error(data.error || 'AI 请求失败');
+      }
+      assistantMessage.content = data.answer_markdown || '';
+      assistantMessage.sources = data.sources || [];
+      assistantMessage.warnings = data.warnings || [];
+      delete assistantMessage.pending;
+      saveAiState();
+      renderAiMessages();
+    } catch (error) {
+      assistantMessage.content = `请求失败：${error.message || '未知错误'}`;
+      assistantMessage.sources = [];
+      assistantMessage.warnings = [];
+      delete assistantMessage.pending;
+      saveAiState();
+      renderAiMessages();
+    } finally {
+      aiSendBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
+    }
+  }
+
+  // 检索模式：standard（精确/模糊）/ associative（AI 联想定位）。共用文本框与“开始检索”按钮。
+  let searchMode = 'standard';
+  const modeTabs = Array.from(document.querySelectorAll('.search-mode-tab'));
+  const STANDARD_PLACEHOLDER = q.getAttribute('placeholder') || '';
+  const ASSOCIATIVE_PLACEHOLDER = {{ site_text('search.assoc_placeholder') | tojson }};
+
+  function applySearchMode(mode) {
+    searchMode = (mode === 'associative') ? 'associative' : 'standard';
+    modeTabs.forEach(tab => {
+      const active = tab.dataset.mode === searchMode;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    const panel = form.closest('.panel');
+    const associative = searchMode === 'associative';
+    if (panel) panel.classList.toggle('assoc-mode', associative);
+    if (associative) {
+      q.classList.add('brainstorm');
+      q.setAttribute('placeholder', ASSOCIATIVE_PLACEHOLDER);
+    } else {
+      q.classList.remove('brainstorm');
+      q.setAttribute('placeholder', STANDARD_PLACEHOLDER);
+    }
+  }
+
+  modeTabs.forEach(tab => {
+    if (tab.dataset.mode === 'associative' && !aiAccessEnabled) {
+      tab.disabled = true;
+      tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
+    }
+    tab.addEventListener('click', () => {
+      if (tab.disabled) return;
+      applySearchMode(tab.dataset.mode);
+    });
   });
 
-  q.addEventListener('keydown', (e) => {
+  function runActiveSearch() {
+    const text = q.value.trim();
+    if (!text) return;
+    if (searchMode === 'associative') {
+      doAssociativeSearch(text);
+    } else {
+      doSearch(text);
+    }
+  }
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    runActiveSearch();
+  });
+
+  q.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       form.requestSubmit();
     }
   });
 
-  document.getElementById('quitBtn').addEventListener('click', async () => {
-    if (!confirm('确认退出服务？浏览器页面将无法继续使用。')) return;
-    await fetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
-    document.body.innerHTML = '<div style="margin:4rem auto;max-width:400px;text-align:center;font-family:sans-serif;color:#555"><p style="font-size:1.2rem">服务已关闭</p><p>可以关闭此标签页了。</p></div>';
-  });
-
-  out.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.copy-btn');
-    if (!btn) return;
-    const el = document.getElementById(btn.dataset.target);
-    if (!el) return;
-    try {
-      await navigator.clipboard.writeText(el.textContent);
-      const old = btn.textContent;
-      btn.textContent = '已复制 ✓';
-      setTimeout(() => btn.textContent = old, 1200);
-    } catch (_) {
-      const r = document.createRange();
-      r.selectNode(el);
-      window.getSelection().removeAllRanges();
-      window.getSelection().addRange(r);
+  aiPrompt.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitAiQuestion(aiPrompt.value);
     }
   });
 
-  startHeartbeat();
-  window.addEventListener('focus', sendPing);
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) sendPing();
+  aiSendBtn.addEventListener('click', () => submitAiQuestion(aiPrompt.value));
+
+  aiInsertSearchBtn.addEventListener('click', () => {
+    const value = q.value.trim();
+    if (!value) return;
+    aiPrompt.value = aiPrompt.value.trim() ? `${aiPrompt.value.trim()}\n\n${value}` : value;
+    aiPrompt.focus();
   });
-  window.addEventListener('pageshow', sendPing);
+
+  aiClearBtn.addEventListener('click', () => {
+    aiMessagesState = [];
+    saveAiState();
+    renderAiMessages();
+  });
+
+  if (feedbackSubmitBtn) {
+    feedbackSubmitBtn.addEventListener('click', submitFeedbackMessage);
+  }
+  if (feedbackImages) {
+    feedbackImages.addEventListener('change', () => {
+      addPendingFeedbackImages(feedbackImages.files);
+      feedbackImages.value = '';
+    });
+  }
+  if (feedbackInput) {
+    feedbackInput.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        submitFeedbackMessage();
+      }
+    });
+  }
+
+  if (quitBtn) {
+    quitBtn.addEventListener('click', async () => {
+      await apiFetch('/api/shutdown', { method: 'POST', keepalive: true }).catch(() => {});
+      document.body.innerHTML = '<div class="page"><div class="empty">服务已关闭，现在可以关闭这个窗口。</div></div>';
+    });
+  }
+
+  if (bookTabsEl) {
+    bookTabsEl.addEventListener('click', async e => {
+      const tab = e.target.closest('[data-action="search-book"]');
+      if (!tab) return;
+      const payload = loadSearchState();
+      const query = (payload && payload.query) || q.value.trim();
+      if (!query) return;
+      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '' });
+    });
+  }
+
+  out.addEventListener('click', async e => {
+    const copy = e.target.closest('.copy-btn');
+    if (copy) {
+      const el = document.getElementById(copy.dataset.target);
+      if (el) {
+        await navigator.clipboard.writeText(el.textContent).catch(() => {});
+      }
+      return;
+    }
+
+    const volumeToggle = e.target.closest('[data-action="toggle-volume"]');
+    if (volumeToggle) {
+      const payload = loadSearchState();
+      const volume = findVolume(payload, volumeToggle.dataset.volumeId);
+      if (!volume) return;
+      volume.expanded = !volume.expanded;
+      saveSearchState(payload);
+      renderResults(payload);
+      return;
+    }
+
+    const chapterToggle = e.target.closest('[data-action="toggle-chapter"]');
+    if (chapterToggle) {
+      const payload = loadSearchState();
+      const { volume, chapter } = findChapter(payload, chapterToggle.dataset.volumeId, chapterToggle.dataset.chapterId);
+      if (!volume || !chapter) return;
+      volume.expanded = true;
+      chapter.expanded = !chapter.expanded;
+      chapter.current_page = chapter.expanded ? 1 : (chapter.current_page || 1);
+      saveSearchState(payload);
+      renderResults(payload);
+      if (chapter.expanded) {
+        await ensureChapterHits(volume, chapter, 1);
+        saveSearchState(payload);
+        renderResults(payload);
+      }
+      return;
+    }
+
+    const chapterPager = e.target.closest('[data-action="chapter-page"]');
+    if (chapterPager) {
+      const payload = loadSearchState();
+      const { volume, chapter } = findChapter(payload, chapterPager.dataset.volumeId, chapterPager.dataset.chapterId);
+      if (!volume || !chapter) return;
+      const { page, totalPages } = chapterView(chapter);
+      const nextPage = Math.min(Math.max(1, page + Number(chapterPager.dataset.direction || 0)), totalPages);
+      volume.expanded = true;
+      chapter.expanded = true;
+      chapter.current_page = nextPage;
+      saveSearchState(payload);
+      renderResults(payload);
+      await ensureChapterHits(volume, chapter, nextPage);
+      saveSearchState(payload);
+      renderResults(payload);
+      return;
+    }
+
+    const toggle = e.target.closest('[data-action="toggle-group"]');
+    if (toggle) {
+      const payload = loadSearchState();
+      const group = (payload.results || []).find(item => item.group_id === toggle.dataset.groupId);
+      if (!group) return;
+      group.expanded = !group.expanded;
+      group.current_page = group.expanded ? 1 : (group.current_page || 1);
+      saveSearchState(payload);
+      renderResults(payload);
+      return;
+    }
+
+    const pager = e.target.closest('[data-action="group-page"]');
+    if (pager) {
+      const payload = loadSearchState();
+      const group = (payload.results || []).find(item => item.group_id === pager.dataset.groupId);
+      if (!group) return;
+      const { totalPages } = paginateHits(group, Number(group.current_page || 1));
+      const nextPage = Math.min(Math.max(1, Number(group.current_page || 1) + Number(pager.dataset.direction || 0)), totalPages);
+      group.expanded = true;
+      group.current_page = nextPage;
+      saveSearchState(payload);
+      renderResults(payload);
+      return;
+    }
+
+    const groupListPager = e.target.closest('[data-action="group-list-page"]');
+    if (groupListPager) {
+      const payload = loadSearchState();
+      const query = payload.query || q.value.trim();
+      const nextPage = Math.max(1, Number(groupListPager.dataset.page || 1));
+      if (!query) return;
+      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '' });
+      return;
+    }
+
+    // 联想检索“页组”翻页：纯客户端，结果已全部取回，翻页只切片重渲染，不再请求后端。
+    const assocPager = e.target.closest('[data-action="assoc-page"]');
+    if (assocPager) {
+      if (!assocState) return;
+      assocState.page = Math.max(1, Number(assocPager.dataset.page || 1));
+      renderAssociativePage();
+      const head = out.querySelector('.assoc-result-head');
+      if (head && head.scrollIntoView) head.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  try {
+    const payload = loadSearchState();
+    if (payload.mode === 'results' && Array.isArray(payload.results)) {
+      q.value = payload.query || '';
+      renderResults(payload);
+      updateBookTabs(payload);
+    }
+  } catch (_) {}
+
+  try {
+    const raw = sessionStorage.getItem(AI_STATE_KEY);
+    if (raw) {
+      aiMessagesState = (JSON.parse(raw) || []).filter(message => !message.pending);
+    }
+  } catch (_) {}
+
+  renderAiMessages();
+  renderFeedbackThread(feedbackThread);
+  loadFeedbackThread();
+  loadAiRuntime();
+  if (state.heartbeatEnabled) {
+    startHeartbeat();
+    window.addEventListener('focus', sendPing);
+  }
+  </script>
+  <script>
+    (function () {
+      const box = document.querySelector('.chapter-search');
+      const input = document.getElementById('chapterSearchInput');
+      const panel = document.getElementById('chapterSearchResults');
+      if (!box || !input || !panel) return;
+      const mode = box.getAttribute('data-mode') || 'ai';
+      let items = [], activeIndex = -1, timer = null, seq = 0;
+      function hide() { panel.hidden = true; panel.innerHTML = ''; items = []; activeIndex = -1; }
+      function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+      function render(results) {
+        items = results || []; activeIndex = -1;
+        if (!items.length) { panel.innerHTML = '<div class="chapter-search-empty">没有匹配的篇章，换个关键词试试。</div>'; panel.hidden = false; return; }
+        panel.innerHTML = items.map(function (r, i) {
+          const tagClass = 'tag ' + (r.tag_class || 'book-other');
+          const label = r.book_short_title || r.book_title || ('《' + r.book + '》');
+          const page = r.printed ? r.printed : ('PDF ' + r.page);
+          return '<a class="chapter-suggest" data-i="' + i + '" href="' + escAttr(r.url || '#') + '">' +
+                 '<span class="' + escAttr(tagClass) + '">' + esc(label) + '·第' + esc(r.volume) + '卷</span>' +
+                 '<span class="s-title">' + esc(r.title) + '</span>' +
+                 '<span class="s-page">' + esc(page) + '</span></a>';
+        }).join('');
+        panel.hidden = false;
+      }
+      function setActive(idx) {
+        const nodes = panel.querySelectorAll('.chapter-suggest');
+        nodes.forEach(function (n) { n.classList.remove('active'); });
+        if (idx >= 0 && idx < nodes.length) { nodes[idx].classList.add('active'); nodes[idx].scrollIntoView({ block: 'nearest' }); }
+        activeIndex = idx;
+      }
+      async function suggest(q) {
+        const mine = ++seq;
+        try {
+          const resp = await fetch('/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) { if (mine === seq) hide(); return; }
+          const data = await resp.json();
+          if (mine !== seq) return;
+          render(data.results || []);
+        } catch (e) { if (mine === seq) hide(); }
+      }
+      input.addEventListener('input', function () {
+        const q = input.value.trim();
+        if (timer) clearTimeout(timer);
+        if (q.length < 2) { hide(); return; }
+        timer = setTimeout(function () { suggest(q); }, 180);
+      });
+      input.addEventListener('keydown', function (e) {
+        if (panel.hidden || !items.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIndex + 1, items.length - 1)); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIndex - 1, 0)); }
+        else if (e.key === 'Enter') { if (activeIndex >= 0 && items[activeIndex]) { e.preventDefault(); window.location.href = items[activeIndex].url; } }
+        else if (e.key === 'Escape') { hide(); }
+      });
+      document.addEventListener('click', function (e) { if (!box.contains(e.target)) hide(); });
+      input.addEventListener('focus', function () { if (input.value.trim().length >= 2 && items.length) panel.hidden = false; });
+    })();
   </script>
 </body>
 </html>

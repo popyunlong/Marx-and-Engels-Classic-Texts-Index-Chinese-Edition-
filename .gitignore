@@ -1,5 +1,6 @@
 data/*
-!data/corpus.sqlite
+!data/corpus.sqlite.sha256
+!data/release.json
 pdfs/*/*.pdf
 .deps_installed
 __pycache__/
@@ -7,3 +8,23 @@ __pycache__/
 .venv/
 build/
 dist/
+logs/
+release/
+config/keys/
+*.pem
+# 真实密钥配置：只跟踪 *.example，绝不提交含 api_key/密钥的实际文件
+config/alipay.yaml
+config/ai.yaml
+config/zpay.yaml
+config/*.override.yaml
+# 运行期缓存 / 审计与构建生成物 / 临时草稿文件
+cache/
+audit_out/
+*.log
+tmp_*.html
+toc*_out.json
+toc_dump*.txt
+# 本地一次性运维/诊断脚本（下划线前缀）：保留本地备用，不入库
+scripts/_*.py
+# 第三方 pdf.js 阅读器库：网站用服务端页面图像渲染，未引用此库，不入库（防回流）
+static/vendor/pdfjs/

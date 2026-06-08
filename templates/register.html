@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - 会员站</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if turnstile_required and turnstile_site_key %}
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  {% endif %}
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+      --warn: #8a5b00;
+      --warn-bg: #fff4d6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .wrap {
+      max-width: 620px;
+      margin: 48px auto;
+      padding: 0 16px 40px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 28px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.9rem;
+    }
+    .muted {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .error-list {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .error {
+      border-radius: 14px;
+      padding: 12px 14px;
+      line-height: 1.7;
+      color: var(--warn);
+      background: var(--warn-bg);
+      border: 1px solid rgba(138, 91, 0, 0.16);
+    }
+    form {
+      display: grid;
+      gap: 14px;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr 1fr;
+    }
+    .inline-row {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+    }
+    label {
+      display: grid;
+      gap: 8px;
+      font-weight: 700;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      background: #fffdfa;
+    }
+    input:focus {
+      outline: none;
+      border-color: #b03838;
+      box-shadow: 0 0 0 4px rgba(176, 56, 56, 0.08);
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      border-radius: 999px;
+      padding: 11px 18px;
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .primary {
+      color: white;
+      background: var(--accent);
+    }
+    .primary:hover { background: var(--accent-deep); }
+    .secondary {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: white;
+    }
+    .secondary:hover { background: var(--soft); }
+    .links {
+      margin-top: 20px;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .links a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .links a:hover { text-decoration: underline; }
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>{{ title }}</h1>
+      <p class="muted">{{ site_text("register.intro") }}</p>
+
+      {% if errors %}
+      <div class="error-list">
+        {% for item in errors %}
+        <div class="error">{{ item }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <div class="grid">
+          <label>
+            显示名称
+            <input type="text" name="display_name" value="{{ values.display_name }}" autocomplete="nickname" maxlength="40" required>
+          </label>
+          <label>
+            邮箱
+            <input type="email" name="email" value="{{ values.email }}" autocomplete="email" required>
+          </label>
+        </div>
+        <div class="grid">
+          <label>
+            密码
+            <input type="password" name="password" value="{{ values.password }}" autocomplete="new-password" required>
+          </label>
+          <label>
+            确认密码
+            <input type="password" name="confirm_password" value="{{ values.confirm_password }}" autocomplete="new-password" required>
+          </label>
+        </div>
+        <div class="inline-row">
+          <label>
+            邮箱验证码
+            <input type="text" name="email_code" value="{{ values.email_code }}" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" maxlength="6" required>
+          </label>
+          <button class="btn secondary" type="submit" name="action" value="send_code" formnovalidate {% if not account_email_configured %}disabled{% endif %}>发送验证码</button>
+        </div>
+        {% if turnstile_required and turnstile_site_key %}
+        <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+        {% endif %}
+        {% if not account_email_configured %}
+        <div class="error">{{ site_text("register.email_unavailable") }}</div>
+        {% endif %}
+        <div class="actions">
+          <button class="btn primary" type="submit" name="action" value="register">创建账号</button>
+          <a class="btn secondary" href="/">返回首页</a>
+          {% if local_console_available %}
+          <a class="btn secondary" href="{{ url_for('control') }}">本地控制台</a>
+          {% endif %}
+        </div>
+      </form>
+
+      <div class="links">
+        {{ site_text("register.links_login") }}<a href="{{ url_for('login', next=next_url) }}">立即登录</a><br>
+        {{ site_text("register.links_pricing") }}<a href="{{ url_for('pricing', next=next_url) }}">查看会员方案</a>
+      </div>
+    </section>
+  </div>
+
+  {% if code_sent %}
+  <div id="codeSentModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="codeSentTitle">
+    <div class="modal-box">
+      <div class="modal-icon">✓</div>
+      <h2 id="codeSentTitle">验证码已发送</h2>
+      <p>
+        验证码已发送至<br>
+        <strong>{{ values.email }}</strong><br>
+        请查收邮件，并在 15 分钟内填写完成注册。<br>
+        <span class="modal-hint">如未收到，请检查垃圾邮件，或稍后重新发送。</span>
+      </p>
+      <button type="button" class="btn primary" id="codeSentOk">我知道了</button>
+    </div>
+  </div>
+  <style>
+    .modal-overlay { position: fixed; inset: 0; background: rgba(20, 15, 10, 0.55); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
+    .modal-box { background: #fffdf8; border: 1px solid #dfd3c4; border-radius: 14px; max-width: 380px; width: 100%; padding: 28px 26px; text-align: center; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28); }
+    .modal-icon { width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%; background: #e8f5e9; color: #2e7d32; font-size: 30px; line-height: 52px; }
+    .modal-box h2 { margin: 0 0 12px; font-size: 1.25rem; color: #241d17; }
+    .modal-box p { margin: 0 0 20px; color: #70655b; line-height: 1.7; }
+    .modal-box .modal-hint { font-size: 0.85rem; color: #9a8c7e; }
+    .modal-box .btn { width: 100%; }
+  </style>
+  <script>
+    (function () {
+      var modal = document.getElementById('codeSentModal');
+      if (!modal) return;
+      function closeModal() {
+        modal.style.display = 'none';
+        var codeInput = document.querySelector('input[name="email_code"]');
+        if (codeInput) codeInput.focus();
+      }
+      var okBtn = document.getElementById('codeSentOk');
+      if (okBtn) okBtn.addEventListener('click', closeModal);
+      modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

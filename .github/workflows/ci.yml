@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # corpus.sqlite 不入库，确定性门禁不依赖语料库，无需 LFS。
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Guard against pdf.js re-entering the repo
+        run: |
+          if git ls-files | grep -q "vendor/pdfjs"; then
+            echo "static/vendor/pdfjs must not be tracked (unused dead weight)."; exit 1
+          fi
+
+      - name: Compile all deployed Python modules
+        run: python -m py_compile $(grep -v '^\s*#' deploy/cloud_compile_files.txt | tr '\n' ' ')
+
+      - name: Deploy-manifest drift tests
+        # 确定性、无需语料库；防"被 import 的模块漏入部署清单"(check_inline_js / 502 漂移同类)。
+        # 全功能套件依赖 corpus.sqlite(不入库)，由本地 pre-push 钩子运行。
+        run: python -m pytest tests/test_deploy_manifests.py -q

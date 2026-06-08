@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+      --warn: #8a5b00;
+      --warn-bg: #fff4d6;
+      --ok: #22543d;
+      --ok-bg: #e8f5ec;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .page { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    .hero, .card, .flash {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .hero {
+      color: #fff8f0;
+      background: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
+      padding: 24px;
+    }
+    .hero-row, .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+    .card { margin-top: 16px; padding: 22px; }
+    .list { display: grid; gap: 12px; margin-top: 12px; }
+    .item { border: 1px solid var(--line); border-radius: 10px; background: #fbf8f2; padding: 14px; }
+    .muted, .kv { color: var(--muted); line-height: 1.75; }
+    .kv { display: grid; gap: 4px; }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      background: #fffdfa;
+    }
+    .btn, button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 10px 16px;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: #fff;
+      text-decoration: none;
+      font: inherit;
+      cursor: pointer;
+    }
+    .primary { color: #fff; background: var(--accent); }
+    .primary:hover { background: var(--accent-deep); }
+    .hero .btn { color: #fff8f0; border-color: rgba(255,255,255,.28); background: transparent; }
+    .flash-list { display: grid; gap: 10px; margin-top: 16px; }
+    .flash { padding: 12px 14px; line-height: 1.7; }
+    .flash.success { color: var(--ok); background: var(--ok-bg); }
+    .flash.warning, .flash.info { color: var(--warn); background: var(--warn-bg); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>期刊新文提醒</h1>
+          <p>订阅后，系统每天 09:00（北京时间）汇总公开发表的新文章，把题目、摘要、作者和 GB/T 7714-2015 引文发送到你的邮箱。</p>
+        </div>
+        <div class="actions">
+          <a class="btn" href="{{ url_for('account') }}">返回会员中心</a>
+          <a class="btn" href="/">返回首页</a>
+        </div>
+      </div>
+    </section>
+
+    {% with flashes = get_flashed_messages(with_categories=true) %}
+    {% if flashes %}
+    <div class="flash-list">
+      {% for category, message in flashes %}
+      <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <section class="card">
+      <h2>添加订阅邮箱</h2>
+      {% if journal_alerts_allowed %}
+      {% if smtp_enabled %}
+      <p class="muted">提交后会先通过全站发信邮箱发送确认邮件，点击确认链接后才会开始接收每日摘要。</p>
+      <form method="post" action="{{ url_for('account_journal_alerts_subscribe') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="email" name="email" value="{{ current_user.email }}" required>
+        <div class="actions" style="margin-top:12px; justify-content:flex-start">
+          <button class="primary" type="submit">发送确认邮件</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted">{{ site_text("journal.email_unavailable") }}</p>
+      {% endif %}
+      {% else %}
+      <p class="muted">当前账号暂未开放期刊提醒权限。开通对应套餐，或由管理员在控制台为你的账号开放后即可订阅。</p>
+      <a class="btn primary" href="{{ url_for('pricing') }}">查看会员套餐</a>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>当前订阅</h2>
+      <div class="list">
+        {% for subscription in journal_subscriptions %}
+        <section class="item">
+          <h3>{{ subscription.email }}</h3>
+          <div class="kv">
+            <div>状态：{{ subscription.status }}</div>
+            <div>确认时间：{{ subscription.confirmed_at or "尚未确认" }}</div>
+            <div>最近摘要：{{ subscription.last_sent_at or "暂无" }}</div>
+          </div>
+          {% if subscription.status != "unsubscribed" %}
+          <form method="post" action="{{ url_for('account_journal_alerts_unsubscribe') }}" style="margin-top:12px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="subscription_id" value="{{ subscription.id }}">
+            <button type="submit">退订</button>
+          </form>
+          {% endif %}
+        </section>
+        {% else %}
+        <div class="item muted">还没有订阅邮箱。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</body>
+</html>

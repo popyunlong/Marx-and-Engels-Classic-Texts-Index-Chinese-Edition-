@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8; --card: #fffdf9; --line: #decfbd; --text: #231d17; --muted: #72675d;
+      --accent: #8f1d1d; --accent-deep: #651313; --soft: #f5e2dc;
+      --warn: #8a5b00; --warn-bg: #fff4d6; --ok: #22543d; --ok-bg: #e8f5ec;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%); }
+    .page { max-width: 720px; margin: 0 auto; padding: 28px 16px 48px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08); padding: 28px; }
+    .muted { color: var(--muted); line-height: 1.8; }
+    .amount { font-size: 30px; font-weight: 800; color: var(--accent); margin: 6px 0 2px; }
+    .qrwrap { display: flex; justify-content: center; margin: 22px 0 10px; }
+    .qrbox { background: #fff; padding: 16px; border: 1px solid var(--line); border-radius: 14px; min-height: 240px;
+      min-width: 240px; display: flex; align-items: center; justify-content: center; }
+    .qrbox img { width: 240px; height: 240px; object-fit: contain; }
+    .kv { display: grid; gap: 6px; line-height: 1.8; color: var(--muted); margin-top: 14px; }
+    .hint { text-align: center; color: var(--muted); margin-top: 6px; }
+    .status { text-align: center; margin-top: 14px; font-weight: 700; }
+    .status.paid { color: var(--ok); }
+    .notice { background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 12px 14px; margin-top: 16px; line-height: 1.7; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; justify-content: center; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+      border-radius: 999px; padding: 11px 18px; font: inherit; cursor: pointer; border: 1px solid var(--accent); }
+    .primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+    .primary:hover { background: var(--accent-deep); }
+    .secondary { color: var(--accent); background: #fff; }
+    .secondary:hover { background: var(--soft); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="card">
+      <h1 style="margin-top:0">扫码支付</h1>
+      <div class="muted">{{ plan.name }}</div>
+      <div class="amount">{{ format_price(order.amount_cents, order.currency) }}</div>
+      <div class="muted">订单号：{{ order.order_no }}</div>
+
+      {% if message %}
+      <div class="notice">{{ message }}</div>
+      {% endif %}
+
+      {% if mode == "manual" and qr_image %}
+      <div class="qrwrap"><div class="qrbox"><img src="{{ qr_image }}" alt="收款二维码"></div></div>
+      <p class="hint">请用支付宝/微信扫描上方二维码完成支付</p>
+      {% if note %}<div class="notice">{{ note }}</div>{% endif %}
+      <div class="notice">说明：本套餐采用人工确认收款，支付完成后会员将由管理员尽快为你开通；如长时间未开通可联系管理员并提供订单号。</div>
+      {% elif mode == "api" and pay_url %}
+      <div class="qrwrap"><div class="qrbox" id="qrbox"></div></div>
+      <p class="hint">请用<strong>支付宝</strong>扫描上方二维码完成支付，支付成功后本页会自动跳转。</p>
+      {% elif gateway_url %}
+      <div class="actions"><a class="btn primary" href="{{ gateway_url }}">改用网关页面支付</a></div>
+      {% endif %}
+
+      <div class="status" id="payStatus" data-status-url="{{ status_url }}" data-result-url="{{ result_url }}">待支付…</div>
+
+      <div class="actions">
+        <a class="btn primary" href="{{ result_url }}">我已完成支付</a>
+        <a class="btn secondary" href="{{ url_for('account') }}">返回会员中心</a>
+        <a class="btn secondary" href="{{ url_for('pricing') }}">查看套餐</a>
+      </div>
+    </section>
+  </div>
+
+  {% if mode == "api" and pay_url %}
+  <script src="{{ url_for('static', filename='vendor/qrcode.min.js') }}"></script>
+  {% endif %}
+  <script>
+    (function () {
+      var payUrl = {{ pay_url | tojson }};
+      if (payUrl && window.QRCode) {
+        try {
+          new QRCode(document.getElementById("qrbox"), {
+            text: payUrl, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M
+          });
+        } catch (e) {
+          var box = document.getElementById("qrbox");
+          if (box) { box.textContent = "二维码生成失败，请点击下方按钮改用网关支付。"; }
+        }
+      }
+      var el = document.getElementById("payStatus");
+      if (!el) { return; }
+      var statusUrl = el.getAttribute("data-status-url");
+      var resultUrl = el.getAttribute("data-result-url");
+      var tries = 0, MAX = 150; // 约 10 分钟（4s 间隔）
+      function poll() {
+        tries += 1;
+        fetch(statusUrl, { headers: { "Accept": "application/json" }, credentials: "same-origin" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (d && d.paid) {
+              el.textContent = "支付成功，正在跳转…";
+              el.className = "status paid";
+              window.location.href = resultUrl;
+              return;
+            }
+            if (tries < MAX) { setTimeout(poll, 4000); }
+            else { el.textContent = "若已支付仍未跳转，请点击「我已完成支付」。"; }
+          })
+          .catch(function () { if (tries < MAX) { setTimeout(poll, 4000); } });
+      }
+      setTimeout(poll, 4000);
+    })();
+  </script>
+</body>
+</html>

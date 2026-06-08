@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .page { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    .hero, .card, .review {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .hero {
+      color: #fff8f0;
+      background: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
+      padding: 24px;
+    }
+    .hero-row, .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+    .card, .review { margin-top: 16px; padding: 22px; }
+    .list { display: grid; gap: 12px; margin-top: 12px; }
+    .item { border: 1px solid var(--line); border-radius: 10px; background: #fbf8f2; padding: 16px; }
+    .item h3 { margin: 0 0 8px; line-height: 1.5; }
+    .muted, .kv { color: var(--muted); line-height: 1.75; }
+    .kv { display: grid; gap: 4px; }
+    .tag {
+      display: inline-block; font-size: 13px; color: var(--accent);
+      background: var(--soft); border-radius: 999px; padding: 2px 10px; margin-bottom: 8px;
+    }
+    .cite { font-size: 14px; color: var(--muted); margin-top: 8px; word-break: break-all; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 999px; padding: 10px 16px; border: 1px solid var(--accent);
+      color: var(--accent); background: #fff; text-decoration: none; font: inherit; cursor: pointer;
+    }
+    .primary { color: #fff; background: var(--accent); }
+    .primary:hover { background: var(--accent-deep); }
+    .hero .btn { color: #fff8f0; border-color: rgba(255,255,255,.28); background: transparent; }
+    a { color: var(--accent); }
+    /* 综述排版（与阅读器「AI 讲解」一致的 .msg-body 风格，配本页暖红色调） */
+    .msg-body { display: grid; gap: 12px; line-height: 1.85; font-size: 1rem; color: var(--text); }
+    .msg-body > *:first-child { margin-top: 0; }
+    .msg-body h1, .msg-body h2, .msg-body h3, .msg-body h4, .msg-body h5 { margin: 4px 0; line-height: 1.5; color: #5f1717; font-weight: 800; }
+    .msg-body h1 { font-size: 1.32rem; padding-bottom: 8px; border-bottom: 2px solid var(--soft); }
+    .msg-body h2 {
+      font-size: 1.1rem; padding: 8px 12px; border-left: 4px solid var(--accent);
+      border-radius: 10px; background: var(--soft);
+    }
+    .msg-body h3 { font-size: 1.02rem; color: #7a2222; }
+    .msg-body h4 { font-size: 0.98rem; }
+    .msg-body p { margin: 0; }
+    .msg-body ul, .msg-body ol { margin: 0; padding-left: 1.4em; }
+    .msg-body li + li { margin-top: 4px; }
+    .msg-body blockquote {
+      margin: 0; padding: 10px 14px; border-left: 4px solid rgba(143, 29, 29, 0.5);
+      border-radius: 10px; background: rgba(255, 253, 248, 0.85); color: #4a3b30;
+    }
+    .msg-body blockquote p { margin: 0; }
+    .msg-body strong { color: #5f1717; font-weight: 800; }
+    .msg-body em { color: #7a2222; font-style: normal; font-weight: 700; }
+    .msg-body code {
+      padding: 1px 6px; border-radius: 6px; background: rgba(143, 29, 29, 0.08);
+      color: #5f1717; font-family: "Consolas", "Microsoft YaHei", monospace; font-size: 0.94em;
+    }
+    .msg-body a { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>本期期刊新文</h1>
+          {% if batch %}
+          <p>抓取窗口 {{ (batch.period_start or "")[:10] }} ~ {{ (batch.period_end or "")[:10] }}，共 {{ articles|length }} 篇。下列为本期收录的公开发表新文（题目、作者、摘要、GB/T 7714-2015 引文）。</p>
+          {% else %}
+          <p>本期暂无收录文章，请稍后再来查看。</p>
+          {% endif %}
+        </div>
+        <div class="actions">
+          <a class="btn" href="/">返回首页</a>
+        </div>
+      </div>
+    </section>
+
+    {% if review_html %}
+    <article class="review msg-body">
+      {{ review_html|safe }}
+    </article>
+    {% endif %}
+
+    <section class="card">
+      <h2>本期文章</h2>
+      <div class="list">
+        {% for article in articles %}
+        <section class="item">
+          {% if article.ai_discipline %}
+          <span class="tag">{{ article.ai_discipline }}{% if article.ai_problem_type %} · {{ article.ai_problem_type }}{% endif %}</span>
+          {% endif %}
+          <h3>{{ article.title_zh or article.title }}</h3>
+          <div class="kv">
+            <div>期刊：{{ article.journal_name or "—" }}{% if article.published_at %} · {{ article.published_at }}{% endif %}</div>
+            <div>作者：{{ article.authors|join("、") if article.authors else "作者信息暂缺" }}</div>
+            {% if article.abstract or article.abstract_zh %}
+            <div>摘要：{{ (article.abstract_zh or article.abstract)|truncate(280, true) }}</div>
+            {% endif %}
+          </div>
+          {% if article.citation_gb2015 %}<div class="cite">{{ article.citation_gb2015 }}</div>{% endif %}
+          {% if article.url %}<div style="margin-top:8px"><a href="{{ article.url }}" target="_blank" rel="noopener">查看来源 ↗</a></div>{% endif %}
+        </section>
+        {% else %}
+        <div class="item muted">本期暂无文章。</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</body>
+</html>

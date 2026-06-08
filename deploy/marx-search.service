@@ -1,0 +1,20 @@
+[Unit]
+Description=Marx Search Flask Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/serve.py
+Restart=always
+RestartSec=3
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

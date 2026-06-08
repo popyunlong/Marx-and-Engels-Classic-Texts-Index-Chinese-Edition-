@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+      --hero: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
+      --warn: #8a5b00;
+      --warn-bg: #fff4d6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+    .hero, .card, .notice {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .hero {
+      overflow: hidden;
+      color: #fff8f0;
+      background: var(--hero);
+      padding: 28px;
+    }
+    h1, h2, h3 { margin-top: 0; }
+    .hero p {
+      margin: 0;
+      max-width: 840px;
+      line-height: 1.8;
+      color: rgba(255, 248, 240, 0.92);
+    }
+    .top-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .nav {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      border-radius: 999px;
+      padding: 11px 18px;
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+    }
+    .btn[aria-disabled="true"] {
+      opacity: 0.58;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .hero .btn {
+      color: #fff8f0;
+      border-color: rgba(255, 245, 232, 0.28);
+    }
+    .hero .btn:hover {
+      background: rgba(255, 245, 232, 0.08);
+    }
+    .notice {
+      margin-top: 18px;
+      padding: 16px 18px;
+      line-height: 1.8;
+      color: var(--warn);
+      background: var(--warn-bg);
+      border-color: rgba(138, 91, 0, 0.16);
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      margin-top: 18px;
+    }
+    .card {
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .price {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .muted {
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      line-height: 1.9;
+    }
+    form {
+      margin: 0;
+    }
+    .primary {
+      color: white;
+      background: var(--accent);
+    }
+    .primary:hover { background: var(--accent-deep); }
+    .secondary {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: white;
+    }
+    .secondary:hover { background: var(--soft); }
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .catalog {
+      margin-top: 18px;
+      padding: 22px;
+    }
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+      margin-top: 14px;
+    }
+    .journal-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .journal-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 9px 0;
+      border-top: 1px solid rgba(222, 207, 189, .72);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="top-row">
+        <div>
+          <h1>{{ title }}</h1>
+          <p>{{ site_text("pricing.hero_intro") }}</p>
+        </div>
+        <div class="nav">
+          <a class="btn" href="/">返回首页</a>
+          {% if local_console_available %}
+          <a class="btn" href="{{ url_for('control') }}">本地控制台</a>
+          {% endif %}
+          {% if is_admin %}
+          <a class="btn" href="{{ url_for('admin') }}">管理后台</a>
+          {% endif %}
+          {% if current_user %}
+          <a class="btn" href="{{ url_for('account') }}">会员中心</a>
+          {% else %}
+          <a class="btn" href="{{ url_for('login', next=next_url) }}">登录</a>
+          <a class="btn" href="{{ url_for('register', next=next_url) }}">注册</a>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+
+    <div class="notice">
+      {% if alipay_runtime.enabled %}
+      {{ site_text("pricing.payment_enabled") }}
+      {% else %}
+      {{ site_text("pricing.payment_disabled") }}
+      {% endif %}
+    </div>
+
+    <section class="grid">
+      {% for plan in plans %}
+      <article class="card">
+        <div>
+          <h2>{{ plan.name }}</h2>
+          <div class="price">{{ format_price(plan.price_cents, plan.currency) }}</div>
+          <div class="muted">周期：{{ plan.interval_months }} 个月</div>
+        </div>
+        <p class="muted">{{ plan.description }}</p>
+        <ul>
+          <li>{{ site_text("pricing.feature_viewer") }}</li>
+          <li>{{ site_text("pricing.feature_pdf") }}</li>
+          <li>{{ site_text("pricing.feature_ai") }}</li>
+          <li>{{ site_text("pricing.feature_account") }}</li>
+        </ul>
+        <div class="actions">
+          {% if current_user and alipay_runtime.enabled %}
+          <form method="post" action="{{ url_for('create_checkout', plan_code=plan.code) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn primary" type="submit">在线支付开通</button>
+          </form>
+          {% elif current_user %}
+          <span class="btn primary" aria-disabled="true">暂不可支付</span>
+          {% else %}
+          <a class="btn primary" href="{{ url_for('login', next=next_url or url_for('pricing')) }}">登录后开通</a>
+          {% endif %}
+          <a class="btn secondary" href="{{ url_for('account') if current_user else url_for('register', next=next_url) }}">
+            {{ "去会员中心" if current_user else "先注册账号" }}
+          </a>
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="card catalog">
+      <h2>可订阅期刊目录</h2>
+      <p class="muted">会员可订阅期刊新文摘要。当前收录 {{ journal_catalog.total }} 种期刊，后台审核后再进入邮件摘要。</p>
+      <div class="catalog-grid">
+        <div>
+          <h3>中文理论期刊</h3>
+          <div class="journal-list">
+            {% for source in journal_catalog.zh %}
+            <div class="journal-row">
+              <span>{{ source.name }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div>
+          <h3>英文马克思主义与政治经济学期刊</h3>
+          <div class="journal-list">
+            {% for source in journal_catalog.en %}
+            <div class="journal-row">
+              <span>{{ source.name }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

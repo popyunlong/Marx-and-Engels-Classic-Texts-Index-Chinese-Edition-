@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ "阅读器" if reader_mode else "AI 导学阅读" }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: #fffdf8;
+      --line: #dfd3c4;
+      --text: #241d17;
+      --muted: #70655b;
+      --accent: #8f1d1d;
+      --accent-soft: #f2ded8;
+      --ink: #25424d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: var(--bg);
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 253, 248, 0.94);
+      backdrop-filter: blur(10px);
+    }
+    .brand {
+      display: grid;
+      gap: 2px;
+    }
+    .brand strong { font-size: 1.05rem; }
+    .brand span { color: var(--muted); font-size: 0.9rem; }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .nav a, .volume-actions a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      border-radius: 999px;
+      padding: 8px 14px;
+      text-decoration: none;
+      color: var(--accent);
+      border: 1px solid rgba(143, 29, 29, 0.35);
+      background: white;
+    }
+    .nav a.primary, .volume-actions a.primary {
+      color: white;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 24px auto 48px;
+      display: grid;
+      gap: 14px;
+    }
+    .intro {
+      display: grid;
+      gap: 8px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+    }
+    h1, h2, p { margin: 0; }
+    h1 { font-size: clamp(1.5rem, 3vw, 2.2rem); }
+    .intro p, .volume-meta, .empty {
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .volume {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .volume summary {
+      list-style: none;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      border-bottom: 1px solid transparent;
+    }
+    .volume[open] summary {
+      border-bottom-color: var(--line);
+      background: #fff7ef;
+    }
+    .volume summary::-webkit-details-marker { display: none; }
+    .volume-title {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+    .volume-title h2 {
+      font-size: 1.08rem;
+      line-height: 1.5;
+    }
+    .volume-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .toc {
+      display: grid;
+      gap: 2px;
+      padding: 10px 12px 18px;
+    }
+    .toc a {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: baseline;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      line-height: 1.65;
+    }
+    .toc a:hover {
+      background: var(--accent-soft);
+      color: #641212;
+    }
+    .toc .level-2 { padding-left: 26px; }
+    .toc .level-3 { padding-left: 42px; }
+    .toc .level-4 { padding-left: 58px; }
+    .toc .level-5, .toc .level-6 { padding-left: 72px; }
+    .page {
+      color: var(--muted);
+      white-space: nowrap;
+      font-size: 0.9rem;
+    }
+    .empty {
+      padding: 18px 20px;
+      border: 1px dashed var(--line);
+      background: rgba(255, 255, 255, 0.64);
+      border-radius: 8px;
+    }
+    .book-group {
+      margin: 14px 4px 0;
+      padding-bottom: 6px;
+      font-size: 1.18rem;
+      color: var(--accent);
+      border-bottom: 2px solid var(--accent-soft);
+    }
+    .book-group:first-of-type { margin-top: 0; }
+    @media (max-width: 720px) {
+      .topbar, .volume summary {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .topbar {
+        display: grid;
+        padding: 12px 16px;
+      }
+      .volume-actions {
+        justify-content: flex-start;
+      }
+      .toc a {
+        grid-template-columns: 1fr;
+        gap: 2px;
+      }
+      .toc .level-2, .toc .level-3, .toc .level-4, .toc .level-5, .toc .level-6 {
+        padding-left: 10px;
+      }
+    }
+    .toc-search-card {
+      margin-top: 18px;
+      max-width: 760px;
+      padding: 16px 18px 14px;
+      background: linear-gradient(180deg, #fff8f3 0%, var(--accent-soft) 100%);
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(143,29,29,.12);
+    }
+    .toc-search-label {
+      font-weight: 800;
+      font-size: 1.08rem;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    .toc-search { position: relative; }
+    .toc-search input {
+      width: 100%;
+      padding: 15px 18px;
+      font-size: 1.05rem;
+      color: var(--text);
+      background: var(--panel);
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(143,29,29,.10);
+    }
+    .toc-search input::placeholder { color: #b58c80; }
+    .toc-search input:focus { outline: none; border-color: var(--accent-dark, #651313); box-shadow: 0 0 0 3px rgba(143,29,29,.15); }
+    .volume-hint {
+      max-width: 980px;
+      margin: 4px auto 14px;
+      padding: 10px 14px;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+    }
+    .toc-search-results {
+      position: absolute;
+      z-index: 30;
+      left: 0;
+      right: 0;
+      top: calc(100% + 6px);
+      max-height: 360px;
+      overflow-y: auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 16px 40px rgba(54,38,23,.18);
+    }
+    .toc-suggest {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      text-decoration: none;
+      color: var(--text);
+    }
+    .toc-suggest:last-child { border-bottom: none; }
+    .toc-suggest:hover, .toc-suggest.active { background: var(--accent-soft); }
+    .toc-suggest .tag {
+      flex: none;
+      font-size: .8rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      color: #fff;
+    }
+    .toc-suggest .tag.wenji { background: var(--accent); }
+    .toc-suggest .tag.quanji { background: var(--ink); }
+    .toc-suggest .tag.lenin { background: #5b5f2a; }
+    .toc-suggest .tag.book-other { background: var(--muted); }
+    .toc-suggest .s-title { flex: 1; line-height: 1.5; }
+    .toc-suggest .s-page { flex: none; color: var(--muted); font-size: .85rem; }
+    .toc-search-empty { padding: 12px 14px; color: var(--muted); }
+    .toc-search-hint { color: var(--muted); margin-top: 8px; font-size: .92rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>{{ "阅读器" if reader_mode else "AI 导学阅读" }}</strong>
+      <span>{{ app_name }} · {{ app_version }}</span>
+    </div>
+    <nav class="nav">
+      <a href="/?restore=1">返回检索</a>
+      <a class="primary" href="{{ volumes[0].viewer_url if volumes else '/' }}">开始阅读</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="intro">
+      <h1>{{ site_text("library.reader_heading") if reader_mode else site_text("library.ai_heading") }}</h1>
+      {% if reader_mode and not ai_access_enabled %}
+      <p>{{ site_text("library.reader_description") }}</p>
+      {% elif not reader_mode and not ai_access_enabled %}
+      <p>{{ site_text("library.ai_locked_description") }}</p>
+      {% elif reader_mode %}
+      <p>{{ site_text("library.reader_description") }}</p>
+      {% else %}
+      <p>{{ site_text("library.ai_description") }}</p>
+      {% endif %}
+      <div class="toc-search-card">
+        <div class="toc-search-label">{{ site_text("library.chapter_search_label") }}</div>
+        <div class="toc-search" data-mode="{{ 'reader' if reader_mode else 'ai' }}">
+          <input id="tocSearchInput" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="{{ site_text('library.chapter_search_placeholder') }}"
+                 aria-label="搜索篇章名称">
+          <div id="tocSearchResults" class="toc-search-results" role="listbox" hidden></div>
+        </div>
+        <p class="toc-search-hint">{{ site_text("library.chapter_search_hint") }}</p>
+      </div>
+    </section>
+
+    {% if volumes %}
+      <p class="volume-hint">{{ site_text("library.volume_hint") }}</p>
+      {% for volume in volumes %}
+      {% if loop.changed(volume.book) %}
+      <h2 class="book-group">{{ volume.book_title }}</h2>
+      {% endif %}
+      <details class="volume">
+        <summary>
+          <div class="volume-title">
+            <h2>第 {{ volume.volume }} 卷 · {{ volume.display_title }}</h2>
+            <div class="volume-meta">
+              {%- if volume.toc_entries -%}
+              {{ volume.page_count }} 页 · {{ volume.toc_entries|length }} 个目录项
+              {%- else -%}
+              共 {{ volume.page_count }} 页 · 逐页阅读
+              {%- endif -%}
+            </div>
+          </div>
+          <div class="volume-actions">
+            <a class="primary" href="{{ volume.viewer_url }}">打开阅读器</a>
+          </div>
+        </summary>
+        {% if volume.toc_entries %}
+        <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录">
+          {% for entry in volume.toc_entries %}
+          <a
+            class="level-{{ entry.level if entry.level <= 6 else 6 }}"
+            href="{{ url_for('pdf_viewer', file=volume.source_file, page=entry.pdf_page, section=entry.title, printed=entry.printed_page or '', mode='reader' if reader_mode else 'ai') }}"
+          >
+            <span>{{ entry.title }}</span>
+            <span class="page">{{ entry.printed_page or ('PDF ' ~ entry.pdf_page) }}</span>
+          </a>
+          {% endfor %}
+        </nav>
+        {% else %}
+        <div class="empty">
+          本卷暂未生成目录：点击「打开阅读器」从第 1 页开始逐页浏览正文。
+        </div>
+        {% endif %}
+      </details>
+      {% endfor %}
+    {% else %}
+      <div class="empty">还没有可用的目录数据。</div>
+    {% endif %}
+  </main>
+  <script>
+    (function () {
+      const box = document.querySelector('.toc-search');
+      const input = document.getElementById('tocSearchInput');
+      const panel = document.getElementById('tocSearchResults');
+      if (!box || !input || !panel) return;
+      const mode = box.getAttribute('data-mode') || 'ai';
+      let items = [];
+      let activeIndex = -1;
+      let timer = null;
+      let lastQuery = '';
+      let seq = 0;
+
+      function hide() { panel.hidden = true; panel.innerHTML = ''; items = []; activeIndex = -1; }
+
+      function render(results) {
+        items = results || [];
+        activeIndex = -1;
+        if (!items.length) {
+          panel.innerHTML = '<div class="toc-search-empty">没有匹配的篇章，换个关键词试试。</div>';
+          panel.hidden = false;
+          return;
+        }
+        panel.innerHTML = items.map(function (r, i) {
+          const tagClass = 'tag ' + (r.tag_class || 'book-other');
+          const tagText = (r.book_short_title || r.book_title || ('《' + r.book + '》')) + '·第' + r.volume + '卷';
+          const page = r.printed ? r.printed : ('PDF ' + r.page);
+          return '<a class="toc-suggest" data-i="' + i + '" href="' + escapeAttr(r.url || '#') + '">' +
+                 '<span class="' + escapeAttr(tagClass) + '">' + escapeHtml(tagText) + '</span>' +
+                 '<span class="s-title">' + escapeHtml(r.title) + '</span>' +
+                 '<span class="s-page">' + escapeHtml(page) + '</span></a>';
+        }).join('');
+        panel.hidden = false;
+      }
+
+      function escapeAttr(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      function setActive(idx) {
+        const nodes = panel.querySelectorAll('.toc-suggest');
+        nodes.forEach(function (n) { n.classList.remove('active'); });
+        if (idx >= 0 && idx < nodes.length) {
+          nodes[idx].classList.add('active');
+          nodes[idx].scrollIntoView({ block: 'nearest' });
+        }
+        activeIndex = idx;
+      }
+
+      async function fetchSuggest(q) {
+        const mine = ++seq;
+        try {
+          const url = '/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q);
+          const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) { if (mine === seq) hide(); return; }
+          const data = await resp.json();
+          if (mine !== seq) return;
+          render(data.results || []);
+        } catch (e) {
+          if (mine === seq) hide();
+        }
+      }
+
+      input.addEventListener('input', function () {
+        const q = input.value.trim();
+        lastQuery = q;
+        if (timer) clearTimeout(timer);
+        if (q.length < 2) { hide(); return; }
+        timer = setTimeout(function () { fetchSuggest(q); }, 180);
+      });
+
+      input.addEventListener('keydown', function (e) {
+        if (panel.hidden || !items.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIndex + 1, items.length - 1)); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIndex - 1, 0)); }
+        else if (e.key === 'Enter') {
+          if (activeIndex >= 0 && items[activeIndex]) { e.preventDefault(); window.location.href = items[activeIndex].url; }
+        } else if (e.key === 'Escape') { hide(); }
+      });
+
+      document.addEventListener('click', function (e) {
+        if (!box.contains(e.target)) hide();
+      });
+      input.addEventListener('focus', function () {
+        if (input.value.trim().length >= 2 && items.length) panel.hidden = false;
+      });
+    })();
+  </script>
+</body>
+</html>

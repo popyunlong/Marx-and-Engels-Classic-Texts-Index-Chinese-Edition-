@@ -1,0 +1,20 @@
+app_id: ""
+# 沙箱联调先用：https://openapi-sandbox.dl.alipaydev.com/gateway.do
+# 正式收款再切换为：https://openapi.alipay.com/gateway.do
+gateway_url: "https://openapi-sandbox.dl.alipaydev.com/gateway.do"
+sign_type: "RSA2"
+charset: "utf-8"
+seller_id: ""
+subject_prefix: "马恩文献检索会员"
+sandbox: true
+
+# 可以直接填完整 PEM 文本，也可以填写相对 config/ 的文件路径。
+# 生产环境建议只填写路径，密钥文件放在服务器 config/keys/，不要提交到 git。
+app_private_key_path: "keys/alipay_app_private_key.pem"
+alipay_public_key_path: "keys/alipay_public_key.pem"
+
+# 留空时会自动基于 PUBLIC_BASE_URL 生成：
+# notify_url = <PUBLIC_BASE_URL>/payments/alipay/notify
+# return_url = <PUBLIC_BASE_URL>/payments/alipay/return
+notify_url: ""
+return_url: ""

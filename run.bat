@@ -38,6 +38,16 @@ if not exist "data\corpus.sqlite" (
     exit /b 1
 )
 
+if not exist "data\corpus.sqlite.sha256" (
+    echo Release metadata missing. Generating local hash...
+    %PY% scripts\write_release_metadata.py --data-dir data --data-version local-dev
+    if errorlevel 1 (
+        echo Failed to generate release metadata.
+        pause
+        exit /b 1
+    )
+)
+
 rem ---- start app in background ----
 rem Browser opening is handled inside app.py.
 if defined PYW (

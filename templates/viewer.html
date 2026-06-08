@@ -1,0 +1,1849 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ pdf_name }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #efe7dc;
+      --panel: #fffdf8;
+      --line: #ddcfbf;
+      --text: #241d17;
+      --muted: #71675d;
+      --accent: #8f1d1d;
+      --accent-deep: #6f1515;
+      --ai: #264653;
+      --ai-deep: #1c3440;
+      --ai-soft: #e2eef1;
+      --page-bg: #d9d1c5;
+      --hit: #ffe17f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: linear-gradient(180deg, #f5f1ea 0%, #ebe2d6 100%);
+    }
+    .layout {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) clamp(410px, 28vw, 500px);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+    .viewer-panel, .ai-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+      min-height: calc(100vh - 32px);
+    }
+    .ai-panel {
+      display: grid;
+      grid-template-rows: var(--reader-top-height, auto) minmax(0, var(--reader-answer-height, auto));
+      overflow: hidden;
+      height: var(--reader-total-height, auto);
+      max-height: var(--reader-total-height, none);
+      min-height: 0;
+    }
+    body.reader-basic .layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    body.reader-basic .ai-panel {
+      display: none;
+    }
+    .reader-head, .ai-head {
+      padding: 18px;
+    }
+    .ai-head {
+      padding: 12px 18px;
+    }
+    .reader-head {
+      display: grid;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.74);
+    }
+    .reader-title-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .reader-title {
+      margin: 0;
+      color: #5f1717;
+      font-size: clamp(1.15rem, 1.8vw, 1.55rem);
+      line-height: 1.55;
+      max-width: 760px;
+    }
+    .reader-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .reader-actions .nav-btn {
+      border-color: rgba(143, 29, 29, 0.28);
+      color: var(--accent);
+      background: #fffaf6;
+    }
+    .reader-actions .nav-btn:hover {
+      background: #f7eeeb;
+    }
+    .reader-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.94rem;
+    }
+    .reader-meta span {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .toc-popover {
+      position: relative;
+    }
+    .toc-popover summary {
+      list-style: none;
+    }
+    .toc-popover summary::-webkit-details-marker {
+      display: none;
+    }
+    .toc-sheet {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      z-index: 20;
+      width: min(520px, calc(100vw - 40px));
+      max-height: 64vh;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 253, 248, 0.98);
+      box-shadow: 0 20px 44px rgba(64, 44, 27, 0.18);
+      overflow: auto;
+    }
+    .toc-empty {
+      padding: 10px 12px;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .ai-head {
+      color: #fff8f0;
+      background: linear-gradient(135deg, rgba(38, 70, 83, 0.98), rgba(26, 44, 53, 0.98));
+    }
+    .ai-head h2 {
+      margin: 0;
+      line-height: 1.3;
+      font-size: clamp(1.24rem, 1.5vw, 1.5rem);
+    }
+    .meta {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+      line-height: 1.7;
+      font-size: 0.94rem;
+    }
+    .nav-row, .ai-top-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+      align-items: center;
+    }
+    .ai-top-row {
+      margin-top: 6px;
+    }
+    .nav-btn, .tool-btn, .ai-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 10px 16px;
+      text-decoration: none;
+      cursor: pointer;
+      font: inherit;
+      transition: background .18s ease, color .18s ease, border-color .18s ease;
+    }
+    .nav-btn {
+      border: 1px solid rgba(255, 245, 232, 0.4);
+      color: #fff8f0;
+    }
+    .tool-btn {
+      border: none;
+      color: white;
+      background: var(--accent);
+    }
+    .tool-btn:hover { background: var(--accent-deep); }
+    .tool-btn[aria-disabled="true"] {
+      background: #bca99a;
+      pointer-events: none;
+    }
+    .tool-btn.secondary {
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      background: white;
+    }
+    .tool-btn.secondary:hover {
+      background: #f7eeeb;
+    }
+    .ai-btn {
+      border: none;
+      color: white;
+      background: var(--ai);
+    }
+    .ai-btn:hover { background: var(--ai-deep); }
+    .ghost-btn {
+      border: 1px solid var(--ai);
+      background: white;
+      color: var(--ai);
+    }
+    .ghost-btn:hover { background: var(--ai-soft); }
+    .toc-title {
+      padding: 4px 10px 10px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+    .toc {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      overflow: auto;
+      display: grid;
+      gap: 6px;
+    }
+    .toc-link {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 12px;
+      color: var(--text);
+      text-decoration: none;
+      line-height: 1.6;
+    }
+    .toc-link:hover, .toc-link.active {
+      background: #f3e1da;
+      color: #6b1414;
+    }
+    .toc-link.level-2 { padding-left: 22px; }
+    .toc-link.level-3 { padding-left: 34px; }
+    .toc-link.level-4 { padding-left: 46px; }
+    .viewer-panel {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: visible;
+    }
+    .viewer-bar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+      flex-wrap: wrap;
+      background: rgba(255, 255, 255, 0.7);
+    }
+    .page-indicator {
+      color: var(--muted);
+      font-size: 0.93rem;
+      min-width: 240px;
+      text-align: center;
+    }
+    .viewer-body {
+      flex: 1;
+      min-height: 72vh;
+      padding: 20px;
+      overflow: auto;
+      background:
+        radial-gradient(circle at top, rgba(255, 255, 255, 0.55), transparent 32%),
+        linear-gradient(180deg, #ddd5ca 0%, #d3cbc0 100%);
+    }
+    .page-frame {
+      width: min(100%, 1120px);
+      margin: 0 auto;
+      display: grid;
+      gap: 16px;
+    }
+    .page-image-wrap, .page-text-wrap {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid rgba(36, 29, 23, 0.08);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 12px 28px rgba(36, 29, 23, 0.08);
+    }
+    .page-image-wrap {
+      background: var(--page-bg);
+      text-align: center;
+    }
+    .page-image {
+      display: block;
+      width: min(100%, 960px);
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+    }
+    .page-image[hidden] { display: none; }
+    canvas.page-image {
+      height: auto;
+    }
+    /* 纯文字渲染模式（如《全集》仅保留 OCR 文本时）：隐藏书页图像，放大正文阅读区。 */
+    body.mode-text .page-image-wrap { display: none; }
+    body.mode-text .page-text-wrap {
+      background: #fffdf8;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.1);
+    }
+    body.mode-text .page-text {
+      font-size: 1.06rem;
+      line-height: 2.05;
+      min-height: 60vh;
+      background: #fffdf9;
+    }
+    .text-mode-banner {
+      display: none;
+      margin: 0 auto 4px;
+      width: min(100%, 1120px);
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(38, 70, 83, 0.18);
+      background: #eef4f6;
+      color: #25424d;
+      line-height: 1.7;
+      font-size: 0.92rem;
+    }
+    body.mode-text .text-mode-banner { display: block; }
+    /* 书页防爬提示弹窗（P3）：非阻塞顶部浮层，自动消失，不影响阅读布局 */
+    .reader-rate-toast {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-14px);
+      max-width: min(580px, 92vw);
+      z-index: 9999;
+      background: var(--accent, #8f1d1d);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.24);
+      font-size: 0.92rem;
+      line-height: 1.6;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .reader-rate-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
+    }
+    .image-error {
+      display: none;
+      padding: 28px 18px;
+      border-radius: 14px;
+      border: 1px dashed rgba(129, 84, 0, 0.4);
+      background: #fff2cf;
+      color: #805400;
+      line-height: 1.7;
+    }
+    .image-error.show { display: block; }
+    .page-text-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .page-text-title {
+      font-weight: 700;
+      font-size: 1.02rem;
+    }
+    .page-text-note {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.7;
+    }
+    .ai-upsell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px 18px;
+      align-items: center;
+      margin: 0 0 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(143, 29, 29, 0.18);
+      border-radius: 14px;
+      background: linear-gradient(135deg, #fff8e7 0%, #fffdf8 100%);
+      color: var(--text);
+    }
+    .ai-upsell-title {
+      font-weight: 800;
+      color: var(--accent-deep);
+      line-height: 1.5;
+    }
+    .ai-upsell-body {
+      margin-top: 4px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.92rem;
+    }
+    .ai-upsell .tool-btn {
+      white-space: nowrap;
+    }
+    .page-text {
+      border: 1px solid rgba(38, 70, 83, 0.15);
+      border-radius: 14px;
+      background: #fbf9f4;
+      padding: 14px 16px;
+      line-height: 2;
+      white-space: pre-wrap;
+      user-select: text;
+      min-height: 180px;
+    }
+    .page-text mark {
+      background: var(--hit);
+      border-radius: 4px;
+      padding: 0 2px;
+    }
+    .viewer-note {
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.7;
+    }
+    .ai-head p {
+      margin: 5px 0 0;
+      color: rgba(240, 248, 250, 0.86);
+      line-height: 1.42;
+      font-size: 0.84rem;
+    }
+    .ai-top-section {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 0;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+    .ai-content {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .ai-top-content {
+      grid-template-rows: auto auto;
+      gap: 14px;
+      align-content: start;
+    }
+    .ai-top-content .ai-btn {
+      padding: 8px 14px;
+    }
+    .ai-top-content .selected-box {
+      line-height: 1.62;
+    }
+    .ai-top-content #selectedText {
+      font-size: 0.96rem;
+    }
+    .ai-answer-section {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      gap: 12px;
+      min-height: 0;
+      overflow: hidden;
+      padding: 18px;
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      color: white;
+      font-size: 0.92rem;
+    }
+    .toggle input { accent-color: #f4c95d; }
+    .selected-box {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 6px;
+      align-self: start;
+      border-radius: 16px;
+      padding: 12px 14px;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      background: #f8fbfc;
+      line-height: 1.75;
+      height: 148px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .selected-box strong {
+      display: block;
+      color: var(--ai);
+    }
+    #selectedText {
+      overflow: auto;
+      min-height: 0;
+      padding-right: 4px;
+    }
+    .selected-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      align-self: end;
+    }
+    .chat-box {
+      border: 1px solid rgba(38, 70, 83, 0.15);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      padding: 16px;
+      overflow: auto;
+      min-height: 0;
+      max-height: none;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .chat-empty {
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .msg {
+      border-radius: 16px;
+      padding: 13px 15px;
+      line-height: 1.8;
+      word-break: break-word;
+    }
+    .msg.user {
+      white-space: pre-wrap;
+      justify-self: end;
+      background: #f1e9df;
+      max-width: 94%;
+    }
+    .msg.assistant {
+      background: #edf5f7;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+    }
+    .msg-body {
+      display: grid;
+      gap: 10px;
+    }
+    .msg-body p,
+    .msg-body ul,
+    .msg-body ol,
+    .msg-body blockquote,
+    .msg-body h3,
+    .msg-body h4,
+    .msg-body h5,
+    .msg-body hr {
+      margin: 0;
+    }
+    .msg-body h3,
+    .msg-body h4,
+    .msg-body h5 {
+      color: #163743;
+      font-weight: 800;
+      line-height: 1.55;
+    }
+    .msg-body h3 {
+      padding: 8px 10px;
+      border-left: 4px solid var(--ai);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.62);
+      font-size: 1.02rem;
+    }
+    .msg-body h4 {
+      font-size: 0.98rem;
+    }
+    .msg-body h5 {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+    .msg-body blockquote {
+      padding: 10px 12px;
+      border-left: 4px solid rgba(143, 29, 29, 0.55);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.76);
+      color: #40342a;
+    }
+    .msg-body pre {
+      margin: 0;
+      max-width: 100%;
+      overflow: auto;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #19313b;
+      color: #f4fbfd;
+      line-height: 1.65;
+      font-family: "Consolas", "Microsoft YaHei", monospace;
+      font-size: 0.92rem;
+    }
+    .msg-body pre code {
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      font-size: inherit;
+    }
+    .code-lang {
+      display: block;
+      margin-bottom: 8px;
+      color: rgba(244, 251, 253, 0.72);
+      font-size: 0.82rem;
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    }
+    .msg-body ul,
+    .msg-body ol {
+      padding-left: 1.35em;
+    }
+    .msg-body li + li {
+      margin-top: 4px;
+    }
+    .msg-body .task-list-item {
+      list-style: none;
+      margin-left: -1.35em;
+    }
+    .msg-body strong {
+      color: #163743;
+      font-weight: 800;
+    }
+    .msg-body em {
+      color: #5f1717;
+      font-style: normal;
+      font-weight: 700;
+    }
+    .msg-body code {
+      padding: 1px 6px;
+      border-radius: 6px;
+      background: rgba(38, 70, 83, 0.1);
+      color: #163743;
+      font-family: "Consolas", "Microsoft YaHei", monospace;
+      font-size: 0.94em;
+    }
+    .msg-body a {
+      color: var(--ai);
+      font-weight: 700;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    .msg-body a:hover {
+      text-decoration: underline;
+    }
+    .msg-body del {
+      color: var(--muted);
+    }
+    .task-checkbox {
+      width: 1em;
+      height: 1em;
+      margin: 0 6px 0 0;
+      vertical-align: -0.14em;
+      accent-color: var(--ai);
+    }
+    .markdown-table-wrap {
+      max-width: 100%;
+      overflow: auto;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+    .msg-body table {
+      width: 100%;
+      min-width: 420px;
+      border-collapse: collapse;
+      line-height: 1.65;
+    }
+    .msg-body th,
+    .msg-body td {
+      padding: 9px 10px;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+      text-align: left;
+      vertical-align: top;
+    }
+    .msg-body th {
+      background: rgba(38, 70, 83, 0.1);
+      color: #163743;
+      font-weight: 800;
+    }
+    .msg-body td {
+      background: rgba(255, 253, 248, 0.64);
+    }
+    .msg-body hr {
+      border: 0;
+      border-top: 1px solid rgba(38, 70, 83, 0.18);
+    }
+    .msg-title {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 700;
+      color: var(--ai);
+    }
+    .sources {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .source-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.75);
+      border: 1px solid rgba(38, 70, 83, 0.12);
+    }
+    .source-item a {
+      color: var(--ai);
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .source-item a:hover { text-decoration: underline; }
+    .source-meta {
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin-top: 4px;
+    }
+    .warning-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #805f00;
+      font-size: 0.9rem;
+    }
+    .ai-input {
+      width: 100%;
+      min-height: 112px;
+      resize: vertical;
+      line-height: 1.8;
+      border: 1px solid rgba(38, 70, 83, 0.18);
+      border-radius: 16px;
+      padding: 12px 14px;
+      font: inherit;
+      background: rgba(255, 255, 255, 0.96);
+    }
+    .ai-input:focus {
+      outline: none;
+      border-color: rgba(38, 70, 83, 0.7);
+      box-shadow: 0 0 0 4px rgba(38, 70, 83, 0.1);
+    }
+    .ai-footer {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 1280px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .ai-panel {
+        height: auto;
+        max-height: none;
+        min-height: 0;
+        position: static;
+        display: flex;
+        flex-direction: column;
+      }
+      .ai-top-section,
+      .ai-answer-section {
+        overflow: visible;
+      }
+      .chat-box {
+        max-height: 52vh;
+      }
+    }
+    @media (max-width: 920px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .viewer-panel, .ai-panel {
+        min-height: 0;
+      }
+      .reader-title-row {
+        display: grid;
+      }
+      .ai-upsell {
+        grid-template-columns: 1fr;
+      }
+      .ai-upsell .tool-btn {
+        width: 100%;
+      }
+      .reader-actions {
+        justify-content: flex-start;
+      }
+      .toc-sheet {
+        left: 0;
+        right: auto;
+      }
+      .page-indicator {
+        min-width: 0;
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body class="mode-{{ render_mode | default('image') }}{% if basic_reader_mode %} reader-basic{% endif %}">
+  <div class="layout">
+    <main class="viewer-panel">
+      <div class="reader-head">
+        <div class="reader-title-row">
+          <h1 class="reader-title">{{ volume.display_title if volume else pdf_name }}</h1>
+          <div class="reader-actions">
+            <details class="toc-popover" id="tocPanel">
+              <summary class="tool-btn secondary">目录</summary>
+              <div class="toc-sheet">
+                <div class="toc-title">目录导航</div>
+                {% if toc_entries %}
+                <ul class="toc" id="tocList">
+                  {% for entry in toc_entries %}
+                  <li>
+                    <a
+                      class="toc-link level-{{ entry.level if entry.level <= 4 else 4 }}{% if entry.pdf_page == page %} active{% endif %}"
+                      href="{{ url_for('pdf_viewer', file=source_file, page=entry.pdf_page, q=query_text, h=highlight_text, mode=viewer_mode) }}"
+                      data-page="{{ entry.pdf_page }}"
+                      data-title="{{ entry.title }}"
+                    >{{ entry.title }}</a>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <div class="toc-empty">{{ site_text("viewer.empty_toc") }}</div>
+                {% endif %}
+              </div>
+            </details>
+            <a class="nav-btn" href="/?restore=1">返回检索</a>
+            {% if local_console_available %}
+            <a class="nav-btn" href="{{ url_for('control') }}">本地控制台</a>
+            {% endif %}
+            {% if is_admin %}
+            <a class="nav-btn" href="{{ url_for('admin') }}">管理后台</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="reader-meta">
+          {% if volume %}
+          <div>卷次：<span>{{ volume.book }} 第 {{ volume.volume }} 卷</span></div>
+          {% endif %}
+          <div>当前位置：书本第 <span id="currentPage">{{ current_page_label }}</span> 页</div>
+          <div>篇章：<span id="currentSection">{{ current_section or "未识别" }}</span></div>
+          <div>程序版本：<span>{{ app_version }}</span></div>
+        </div>
+      </div>
+      <div class="viewer-bar">
+        <a class="tool-btn" id="prevBtn" href="#">上一页</a>
+        <div class="page-indicator" id="pageIndicator">书本第 {{ current_page_label }} 页 · PDF 第 {{ page }} / {{ page_count }} 页</div>
+        <a class="tool-btn" id="nextBtn" href="#">下一页</a>
+      </div>
+      <div class="viewer-body" id="viewerBody">
+        <div class="page-frame">
+          <div class="text-mode-banner">
+            {% if basic_reader_mode %}
+            本卷以校对后的 OCR 文字逐页呈现，可直接阅读与划选；满足权限后可进入 AI 导学阅读器使用页面讲解。
+            {% else %}
+            本卷以校对后的 OCR 文字逐页呈现，可直接阅读、划选并使用右侧 AI 导读；暂不提供原版书页图像。
+            {% endif %}
+          </div>
+          <section class="page-image-wrap">
+            <canvas class="page-image" id="pageCanvas" aria-label="PDF 页面"></canvas>
+            <img class="page-image" id="pageImage" alt="PDF 页面图像" hidden>
+            <div class="image-error" id="imageError"></div>
+          </section>
+
+          <section class="page-text-wrap">
+            <div class="page-text-head">
+              <div>
+                <div class="page-text-title">{{ site_text("viewer.page_text_title") }}</div>
+                <div class="page-text-note">{{ site_text("viewer.page_text_note") }}</div>
+              </div>
+              {% if show_ai_panel %}
+              <button type="button" class="tool-btn secondary" id="usePageTextBtn">使用当前页文本</button>
+              {% endif %}
+            </div>
+            {% if basic_reader_mode and ai_upsell %}
+            <div class="ai-upsell">
+              <div>
+                <div class="ai-upsell-title">{{ site_text(ai_upsell.title_key) }}</div>
+                <div class="ai-upsell-body">{{ site_text(ai_upsell.body_key) }}</div>
+              </div>
+              {% if ai_upsell.href %}
+              <a class="tool-btn secondary" href="{{ ai_upsell.href }}">{{ site_text(ai_upsell.action_key) }}</a>
+              {% endif %}
+            </div>
+            {% endif %}
+            <div class="page-text" id="pageText">正在加载当前页文本...</div>
+          </section>
+
+          <div class="viewer-note">{{ site_text("viewer.viewer_note") }}</div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="ai-panel">
+      <div class="ai-top-section">
+        <div class="ai-head">
+          <h2>{{ site_text("viewer.ai_title") }}</h2>
+          <p id="aiStatus">{{ site_text("viewer.ai_status_loading") }}</p>
+          <div class="ai-top-row">
+            <input type="checkbox" id="webToggle" hidden>
+            <span id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</span>
+          </div>
+        </div>
+        <div class="ai-content ai-top-content">
+          <div class="selected-box">
+            <strong>{{ site_text("viewer.selected_title") }}</strong>
+            <div id="selectedText">{{ site_text("viewer.selected_empty") }}</div>
+          </div>
+
+          <div class="selected-actions">
+            <button type="button" class="ai-btn" id="explainPageBtn">解释本页内容</button>
+            <button type="button" class="ai-btn" id="explainSelectionBtn" disabled>解释所选内容</button>
+            <button type="button" class="ghost-btn ai-btn" id="clearSelectionBtn" style="color:var(--ai);background:white;border:1px solid var(--ai)">清空选中</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ai-answer-section">
+        <div class="chat-box" id="aiMessages"></div>
+
+        <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("viewer.prompt_placeholder") }}" {% if not ai_access_enabled %}disabled{% endif %}></textarea>
+
+        <div class="ai-footer">
+          <button type="button" class="ai-btn" id="aiSendBtn">发送提问</button>
+          <button type="button" class="ghost-btn ai-btn" id="aiClearBtn" style="color:var(--ai);background:white;border:1px solid var(--ai)">清空本页会话</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+  const requestToken = {{ request_token | tojson }};
+  const csrfToken = {{ csrf_token | tojson }};
+  const pageState = {
+    heartbeatEnabled: {{ state.heartbeat_enabled | tojson }}
+  };
+  const embeddedAiRuntime = {{ ai_runtime | tojson }};
+  const aiAccessEnabled = {{ ai_access_enabled | tojson }};
+  const aiLockedMessage = {{ site_text("index.ai_member_locked") | tojson }};
+  const aiUnavailableMessage = {{ site_text("index.ai_unavailable") | tojson }};
+  const aiLockedExample = '示例：选中正文中的一句话后，AI 导学可以解释概念、梳理论证脉络，并提示与前后页的关联。当前账号尚未开放 AI 导学，因此这里只展示示例，不能发送问题。';
+  const initialSection = {{ current_section | tojson }};
+  const sourceFile = {{ source_file | tojson }};
+  const queryText = {{ query_text | tojson }};
+  const highlightQueryText = {{ highlight_text | default(query_text) | tojson }};
+  const pageCount = {{ page_count | tojson }};
+  const pageLabels = {{ page_labels | tojson }};
+  const renderMode = {{ render_mode | default('image') | tojson }};
+  const viewerMode = {{ viewer_mode | tojson }};
+  let currentPageNumber = {{ page | tojson }};
+
+  const currentPage = document.getElementById('currentPage');
+  const currentSection = document.getElementById('currentSection');
+  const pageIndicator = document.getElementById('pageIndicator');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const tocPanel = document.getElementById('tocPanel');
+  const tocList = document.getElementById('tocList');
+  const viewerPanel = document.querySelector('.viewer-panel');
+  const aiPanel = document.querySelector('.ai-panel');
+  const pageImageWrap = document.querySelector('.page-image-wrap');
+  const pageCanvas = document.getElementById('pageCanvas');
+  const pageImage = document.getElementById('pageImage');
+  const imageError = document.getElementById('imageError');
+  const pageText = document.getElementById('pageText');
+  const usePageTextBtn = document.getElementById('usePageTextBtn');
+  const aiStatus = document.getElementById('aiStatus');
+  const aiModelBadge = document.getElementById('aiModelBadge');
+  const webToggle = document.getElementById('webToggle');
+  const selectedTextEl = document.getElementById('selectedText');
+  const explainSelectionBtn = document.getElementById('explainSelectionBtn');
+  const explainPageBtn = document.getElementById('explainPageBtn');
+  const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+  const aiMessagesEl = document.getElementById('aiMessages');
+  const aiPrompt = document.getElementById('aiPrompt');
+  const aiSendBtn = document.getElementById('aiSendBtn');
+  const aiClearBtn = document.getElementById('aiClearBtn');
+
+  let pingTimer = null;
+  let aiRuntime = embeddedAiRuntime;
+  let selectedText = '';
+  let currentPageContext = null;
+  let aiMessagesState = [];
+  let imageSeq = 0;
+
+  function apiFetch(url, options = {}) {
+    const headers = Object.assign({}, options.headers || {});
+    if (requestToken) {
+      headers['X-App-Token'] = requestToken;
+    }
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+    return fetch(url, Object.assign({}, options, { headers }));
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  }
+
+  function escAttr(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function renderInlineMarkdown(text) {
+    const placeholders = [];
+    const stash = html => {
+      const key = `\u0000MD${placeholders.length}\u0000`;
+      placeholders.push(html);
+      return key;
+    };
+    let source = String(text || '');
+    source = source
+      .replace(/`([^`]+?)`/g, (_, code) => stash(`<code>${esc(code)}</code>`))
+      .replace(/!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => renderMarkdownLink(label || '图片链接', url, stash))
+      .replace(/\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => renderMarkdownLink(label, url, stash))
+      .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/gi, (_, url) => renderMarkdownLink(url, url, stash))
+      .replace(/(^|[\s（(])((?:https?:\/\/)[^\s<>()]+[^\s<>().,;:!?，。；：！？）)])/gi, (_, prefix, url) => `${prefix}${renderMarkdownLink(url, url, stash)}`);
+
+    return esc(source)
+      .replace(/~~(.+?)~~/g, '<del>$1</del>')
+      .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
+      .replace(/(^|[\s（(])\*([^*\n]+?)\*(?=$|[\s，。；：、,.!?;:)）])/g, '$1<em>$2</em>')
+      .replace(/(^|[\s（(])_([^_\n]+?)_(?=$|[\s，。；：、,.!?;:)）])/g, '$1<em>$2</em>')
+      .replace(/\u0000MD(\d+)\u0000/g, (_, index) => placeholders[Number(index)] || '');
+  }
+
+  function safeMarkdownUrl(url) {
+    const raw = String(url || '').trim();
+    if (/^(https?:\/\/|mailto:|\/|#)/i.test(raw)) return raw;
+    return '';
+  }
+
+  function renderMarkdownLink(label, url, stash) {
+    const safeUrl = safeMarkdownUrl(url);
+    const safeLabel = esc(label || url || '');
+    if (!safeUrl) return safeLabel;
+    const isExternal = /^(https?:\/\/|mailto:)/i.test(safeUrl);
+    const target = isExternal ? ' target="_blank" rel="noopener noreferrer"' : '';
+    return stash(`<a href="${escAttr(safeUrl)}"${target}>${safeLabel}</a>`);
+  }
+
+  function flushMarkdownParagraph(lines, html) {
+    if (!lines.length) return;
+    html.push(`<p>${lines.map(renderInlineMarkdown).join('<br>')}</p>`);
+    lines.length = 0;
+  }
+
+  function flushMarkdownList(list, html) {
+    if (!list.items.length) return;
+    const tag = list.type === 'ol' ? 'ol' : 'ul';
+    html.push(`<${tag}>${list.items.map(renderMarkdownListItem).join('')}</${tag}>`);
+    list.items = [];
+    list.type = null;
+  }
+
+  function renderMarkdownListItem(item) {
+    const task = String(item || '').match(/^\[([ xX])\]\s+(.+)$/);
+    if (task) {
+      const checked = task[1].toLowerCase() === 'x' ? ' checked' : '';
+      return `<li class="task-list-item"><input class="task-checkbox" type="checkbox" disabled${checked}>${renderInlineMarkdown(task[2])}</li>`;
+    }
+    return `<li>${renderInlineMarkdown(item)}</li>`;
+  }
+
+  function flushMarkdownQuote(quote, html) {
+    if (!quote.length) return;
+    html.push(`<blockquote>${quote.map(renderInlineMarkdown).join('<br>')}</blockquote>`);
+    quote.length = 0;
+  }
+
+  function flushMarkdownBlocks(paragraph, list, quote, html) {
+    flushMarkdownParagraph(paragraph, html);
+    flushMarkdownList(list, html);
+    flushMarkdownQuote(quote, html);
+  }
+
+  function splitMarkdownTableRow(line) {
+    const source = String(line || '').trim();
+    if (!source || !source.includes('|')) return null;
+    let text = source;
+    if (text.startsWith('|')) text = text.slice(1);
+    if (text.endsWith('|')) text = text.slice(0, -1);
+    const cells = [];
+    let cell = '';
+    let escaped = false;
+    for (const char of text) {
+      if (char === '|' && !escaped) {
+        cells.push(cell.trim().replace(/\\\|/g, '|'));
+        cell = '';
+        continue;
+      }
+      if (char === '\\' && !escaped) {
+        escaped = true;
+        cell += char;
+        continue;
+      }
+      escaped = false;
+      cell += char;
+    }
+    cells.push(cell.trim().replace(/\\\|/g, '|'));
+    return cells;
+  }
+
+  function isMarkdownTableSeparator(line) {
+    const cells = splitMarkdownTableRow(line);
+    return !!cells && cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
+  }
+
+  function normalizeMarkdownTableCells(cells, columnCount) {
+    return Array.from({ length: columnCount }, (_, index) => cells[index] || '');
+  }
+
+  function markdownTableAlignments(separatorLine, columnCount) {
+    const cells = splitMarkdownTableRow(separatorLine) || [];
+    return normalizeMarkdownTableCells(cells, columnCount).map(cell => {
+      const compact = cell.replace(/\s+/g, '');
+      if (compact.startsWith(':') && compact.endsWith(':')) return 'center';
+      if (compact.endsWith(':')) return 'right';
+      return 'left';
+    });
+  }
+
+  function renderMarkdownTable(headerCells, separatorLine, bodyRows) {
+    const columnCount = Math.max(headerCells.length, ...bodyRows.map(row => row.length));
+    const alignments = markdownTableAlignments(separatorLine, columnCount);
+    const header = normalizeMarkdownTableCells(headerCells, columnCount)
+      .map((cell, index) => `<th scope="col" style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</th>`)
+      .join('');
+    const rows = bodyRows.map(row => `
+      <tr>${normalizeMarkdownTableCells(row, columnCount).map((cell, index) => `<td style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</td>`).join('')}</tr>
+    `).join('');
+    return `<div class="markdown-table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  function renderMarkdownCodeBlock(code, language) {
+    const lang = String(language || '').trim();
+    const label = lang ? `<span class="code-lang">${esc(lang)}</span>` : '';
+    return `<pre>${label}<code>${esc(code).replace(/\n$/, '')}</code></pre>`;
+  }
+
+  function renderBasicMarkdown(markdown) {
+    const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+    const html = [];
+    const paragraph = [];
+    const list = { type: null, items: [] };
+    const quote = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        continue;
+      }
+
+      const fence = trimmed.match(/^(`{3,}|~{3,})\s*([A-Za-z0-9_+.#-]*)?.*$/);
+      if (fence) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const fenceMarker = fence[1][0];
+        const fenceLength = fence[1].length;
+        const codeLines = [];
+        lineIndex += 1;
+        while (lineIndex < lines.length) {
+          const candidate = lines[lineIndex].trim();
+          if (candidate.startsWith(fenceMarker.repeat(fenceLength))) break;
+          codeLines.push(lines[lineIndex]);
+          lineIndex += 1;
+        }
+        html.push(renderMarkdownCodeBlock(codeLines.join('\n'), fence[2] || ''));
+        continue;
+      }
+
+      const headerCells = splitMarkdownTableRow(trimmed);
+      const separatorLine = lines[lineIndex + 1] || '';
+      if (headerCells && isMarkdownTableSeparator(separatorLine)) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const bodyRows = [];
+        lineIndex += 2;
+        while (lineIndex < lines.length) {
+          const rowText = lines[lineIndex].trim();
+          const rowCells = rowText ? splitMarkdownTableRow(rowText) : null;
+          if (!rowCells || isMarkdownTableSeparator(rowText)) break;
+          bodyRows.push(rowCells);
+          lineIndex += 1;
+        }
+        html.push(renderMarkdownTable(headerCells, separatorLine, bodyRows));
+        lineIndex -= 1;
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        const level = Math.min(Math.max(heading[1].length + 2, 3), 5);
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      if (/^([-*_])\s*\1\s*\1(?:\s*\1)*$/.test(trimmed)) {
+        flushMarkdownBlocks(paragraph, list, quote, html);
+        html.push('<hr>');
+        continue;
+      }
+
+      const quoted = trimmed.match(/^[>＞]\s*(.+)$/) || trimmed.match(/^<\s*(.+)$/);
+      if (quoted) {
+        flushMarkdownParagraph(paragraph, html);
+        flushMarkdownList(list, html);
+        quote.push(quoted[1]);
+        continue;
+      }
+
+      const unordered = trimmed.match(/^[-*+]\s+(.+)$/);
+      const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        flushMarkdownParagraph(paragraph, html);
+        flushMarkdownQuote(quote, html);
+        const type = ordered ? 'ol' : 'ul';
+        if (list.type && list.type !== type) flushMarkdownList(list, html);
+        list.type = type;
+        list.items.push((ordered || unordered)[1]);
+        continue;
+      }
+
+      flushMarkdownList(list, html);
+      flushMarkdownQuote(quote, html);
+      paragraph.push(trimmed);
+    }
+
+    flushMarkdownBlocks(paragraph, list, quote, html);
+    return html.join('') || '<p></p>';
+  }
+
+  function sendPing() {
+    if (!pageState.heartbeatEnabled || !requestToken) return;
+    apiFetch('/api/ping', { method: 'POST', keepalive: true, cache: 'no-store' }).catch(() => {});
+  }
+
+  function startHeartbeat() {
+    if (!pageState.heartbeatEnabled || !requestToken) return;
+    sendPing();
+    if (pingTimer) clearInterval(pingTimer);
+    pingTimer = setInterval(sendPing, 8000);
+  }
+
+  function buildViewerUrl(page) {
+    const url = new URL('/viewer', window.location.origin);
+    url.searchParams.set('file', sourceFile);
+    url.searchParams.set('page', page);
+    if (viewerMode) url.searchParams.set('mode', viewerMode);
+    if (queryText) url.searchParams.set('q', queryText);
+    if (highlightQueryText && highlightQueryText !== queryText) url.searchParams.set('h', highlightQueryText);
+    const label = pageLabels[String(page)] || pageLabels[page] || '';
+    if (label && !String(label).startsWith('PDF-')) {
+      url.searchParams.set('printed', label);
+    }
+    if (currentSection.textContent) {
+      url.searchParams.set('section', currentSection.textContent);
+    }
+    return url.pathname + url.search;
+  }
+
+  function buildPageImageUrl(page) {
+    const url = new URL('/page-image', window.location.origin);
+    url.searchParams.set('file', sourceFile);
+    url.searchParams.set('page', page);
+    if (queryText) url.searchParams.set('q', queryText);
+    if (highlightQueryText && highlightQueryText !== queryText) url.searchParams.set('h', highlightQueryText);
+    return url.toString();
+  }
+
+  function getPageLabel(page) {
+    const label = pageLabels[String(page)] || pageLabels[page];
+    if (!label || String(label).startsWith('PDF-')) return `PDF ${page}`;
+    if (String(label).startsWith('pre-')) return String(label).replace(/^pre-/, '');
+    return label;
+  }
+
+  function updatePager() {
+    const pageLabel = getPageLabel(currentPageNumber);
+    pageIndicator.textContent = `书本第 ${pageLabel} 页 · PDF 第 ${currentPageNumber} / ${pageCount} 页`;
+    currentPage.textContent = pageLabel;
+    if (currentPageNumber <= 1) prevBtn.setAttribute('aria-disabled', 'true');
+    else prevBtn.removeAttribute('aria-disabled');
+    if (currentPageNumber >= pageCount) nextBtn.setAttribute('aria-disabled', 'true');
+    else nextBtn.removeAttribute('aria-disabled');
+  }
+
+  function syncAiPanelHeight() {
+    if (!aiPanel || !viewerPanel || window.matchMedia('(max-width: 1280px)').matches) {
+      document.documentElement.style.removeProperty('--reader-top-height');
+      document.documentElement.style.removeProperty('--reader-image-height');
+      document.documentElement.style.removeProperty('--reader-answer-height');
+      document.documentElement.style.removeProperty('--reader-total-height');
+      return;
+    }
+    const imageRect = pageImage.getBoundingClientRect();
+    if (pageImage.hidden || imageRect.height <= 240) return;
+
+    const viewerRect = viewerPanel.getBoundingClientRect();
+    const imageTopOffset = Math.max(0, Math.round(imageRect.top - viewerRect.top));
+    const imageHeight = Math.round(imageRect.height);
+    const totalHeight = imageTopOffset + imageHeight;
+    if (imageTopOffset > 120 && imageHeight > 240) {
+      const comfortableTop = 380;
+      const minAnswerHeight = 300;
+      const topHeight = Math.min(
+        Math.max(imageTopOffset, comfortableTop),
+        Math.max(imageTopOffset, totalHeight - minAnswerHeight)
+      );
+      const answerHeight = Math.max(0, totalHeight - topHeight);
+      document.documentElement.style.setProperty('--reader-top-height', `${topHeight}px`);
+      document.documentElement.style.setProperty('--reader-image-height', `${imageHeight}px`);
+      document.documentElement.style.setProperty('--reader-answer-height', `${answerHeight}px`);
+      document.documentElement.style.setProperty('--reader-total-height', `${totalHeight}px`);
+    }
+  }
+
+  function syncActiveToc(page) {
+    if (!tocList) return;
+    const links = [...tocList.querySelectorAll('.toc-link')];
+    let active = null;
+    for (const link of links) {
+      const linkPage = Number(link.dataset.page);
+      if (linkPage <= page) active = link;
+      else break;
+    }
+    for (const link of links) link.classList.toggle('active', link === active);
+    if (active) {
+      currentSection.textContent = active.dataset.title;
+      keepActiveTocInView(active);
+    }
+  }
+
+  function keepActiveTocInView(active) {
+    if (!active || !tocList) return;
+    const itemTop = active.offsetTop;
+    const itemBottom = itemTop + active.offsetHeight;
+    const viewTop = tocList.scrollTop;
+    const viewBottom = viewTop + tocList.clientHeight;
+    if (itemTop < viewTop) {
+      tocList.scrollTop = itemTop;
+    } else if (itemBottom > viewBottom) {
+      tocList.scrollTop = itemBottom - tocList.clientHeight;
+    }
+  }
+
+  function queryTerms(query) {
+    const compact = String(query || '').trim();
+    if (!compact) return [];
+    const parts = compact.split(/[\s，。；：、“”‘’？,.!?;:()（）【】《》]/).filter(Boolean);
+    const items = [compact, compact.replace(/\s+/g, ''), ...parts];
+    return [...new Set(items.filter(Boolean).sort((a, b) => b.length - a.length))];
+  }
+
+  function escapeRegex(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function highlightText(text, terms) {
+    if (!text || !terms.length) return esc(text);
+    const pattern = new RegExp(`(${terms.map(escapeRegex).join('|')})`, 'gi');
+    if (!pattern.test(text)) return esc(text);
+    pattern.lastIndex = 0;
+    return text
+      .replace(pattern, '\u0000$1\u0000')
+      .split('\u0000')
+      .map((part, index) => index % 2 ? `<mark>${esc(part)}</mark>` : esc(part))
+      .join('');
+  }
+
+  async function loadPageContext(page) {
+    const resp = await fetch(`/api/pdf-page-context?file=${encodeURIComponent(sourceFile)}&page=${page}`);
+    const data = await resp.json();
+    if (!data.ok) {
+      throw new Error(data.error || '页面上下文加载失败');
+    }
+    currentPageContext = data.context || null;
+    if (currentPageContext?.section_title) {
+      currentSection.textContent = currentPageContext.section_title;
+    } else if (!currentSection.textContent && initialSection) {
+      currentSection.textContent = initialSection;
+    }
+  }
+
+  function renderPageText() {
+    if (!currentPageContext) {
+      pageText.textContent = {{ site_text("viewer.page_context_unavailable") | tojson }};
+      return;
+    }
+    const terms = queryTerms(highlightQueryText || queryText);
+    pageText.innerHTML = highlightText(currentPageContext.current_text || '', terms);
+  }
+
+  function preloadPageImages(page) {
+    for (const candidate of [page - 1, page + 1]) {
+      if (candidate >= 1 && candidate <= pageCount) {
+        const img = new Image();
+        img.src = buildPageImageUrl(candidate);
+      }
+    }
+  }
+
+  function loadPageImage(page) {
+    const seq = ++imageSeq;
+    imageError.classList.remove('show');
+    imageError.textContent = '';
+    pageCanvas.hidden = true;
+    pageImage.hidden = false;
+    pageImage.removeAttribute('src');
+    pageImage.onload = () => {
+      if (seq === imageSeq) {
+        preloadPageImages(page);
+        syncAiPanelHeight();
+      }
+    };
+    pageImage.src = buildPageImageUrl(page);
+  }
+
+  function pageStorageKey(page = currentPageNumber) {
+    return `marx-pdf-ai:${sourceFile}:${page}`;
+  }
+
+  function readPageState(page = currentPageNumber) {
+    try {
+      const raw = sessionStorage.getItem(pageStorageKey(page));
+      if (!raw) return { messages: [], webEnabled: false };
+      const parsed = JSON.parse(raw) || {};
+      return {
+        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        webEnabled: typeof parsed.webEnabled === 'boolean' ? parsed.webEnabled : false
+      };
+    } catch (_) {
+      return { messages: [], webEnabled: false };
+    }
+  }
+
+  function savePageState() {
+    try {
+      sessionStorage.setItem(pageStorageKey(), JSON.stringify({
+        messages: aiMessagesState,
+        webEnabled: webToggle.checked
+      }));
+    } catch (_) {}
+  }
+
+  function renderWarnings(warnings) {
+    if (!Array.isArray(warnings) || !warnings.length) return '';
+    return `<ul class="warning-list">${warnings.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`;
+  }
+
+  function renderSources(sources) {
+    if (!Array.isArray(sources) || !sources.length) return '';
+    return `
+      <div class="sources">
+        ${sources.map((source, index) => `
+          <div class="source-item">
+            <a href="${escAttr(source.link || '#')}" target="_blank" rel="noopener">${index + 1}. ${esc(source.title || '未命名来源')}</a>
+            <div class="source-meta">
+              ${esc(source.site || '未知站点')}${source.date ? ` · ${esc(source.date)}` : ''}
+            </div>
+            ${source.snippet ? `<div class="source-meta">${esc(source.snippet)}</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function renderAiMessages() {
+    if (!aiMessagesState.length) {
+      if (!aiAccessEnabled) {
+        aiMessagesEl.innerHTML = `
+          <div class="msg assistant">
+            <span class="msg-title">AI 导学示例</span>
+            ${esc(aiLockedExample).replace(/\n/g, '<br>')}
+          </div>
+          <div class="chat-empty">${esc(aiLockedMessage)}</div>
+        `;
+        return;
+      }
+      aiMessagesEl.innerHTML = `
+        <div class="chat-empty">
+          ${esc({{ site_text("viewer.ai_empty_state") | tojson }})}
+        </div>
+      `;
+      return;
+    }
+    aiMessagesEl.innerHTML = aiMessagesState.map(message => {
+      if (message.role === 'user') {
+        return `<div class="msg user">${esc(message.content)}</div>`;
+      }
+      return `
+        <div class="msg assistant">
+          <span class="msg-title">AI 讲解</span>
+          <div class="msg-body">${renderBasicMarkdown(message.content)}</div>
+          ${renderWarnings(message.warnings)}
+          ${renderSources(message.sources)}
+        </div>
+      `;
+    }).join('');
+    aiMessagesEl.scrollTop = aiMessagesEl.scrollHeight;
+  }
+
+  function renderSelectedText() {
+    if (selectedText) {
+      selectedTextEl.textContent = selectedText;
+      explainSelectionBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
+      clearSelectionBtn.disabled = false;
+      return;
+    }
+    selectedTextEl.textContent = {{ site_text("viewer.selected_empty") | tojson }};
+    explainSelectionBtn.disabled = true;
+    clearSelectionBtn.disabled = true;
+  }
+
+  function clearSelection() {
+    selectedText = '';
+    const selection = window.getSelection();
+    if (selection) selection.removeAllRanges();
+    renderSelectedText();
+  }
+
+  async function loadAiRuntime() {
+    try {
+      const resp = await fetch('/api/ai/runtime');
+      const data = await resp.json();
+      if (data.ok) aiRuntime = data;
+    } catch (_) {}
+
+    if (!aiAccessEnabled) {
+      aiModelBadge.textContent = '未开放';
+      aiStatus.textContent = aiLockedMessage;
+      aiSendBtn.disabled = true;
+      aiPrompt.disabled = true;
+      explainPageBtn.disabled = true;
+      explainSelectionBtn.disabled = true;
+      return;
+    }
+
+    if (aiRuntime.enabled) {
+      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
+      aiStatus.textContent = `已启用 ${aiRuntime.model || 'AI 导学'}。当前已关闭联网检索，AI 将基于本页和相邻页文本讲解。`;
+      aiSendBtn.disabled = false;
+      aiPrompt.disabled = false;
+      explainPageBtn.disabled = false;
+    } else {
+      aiModelBadge.textContent = aiUnavailableMessage;
+      aiStatus.textContent = aiUnavailableMessage;
+      aiSendBtn.disabled = true;
+      aiPrompt.disabled = true;
+      explainPageBtn.disabled = true;
+    }
+  }
+
+  function buildPdfAiPayload(question, historyMessages, quickMode) {
+    return {
+      question,
+      messages: historyMessages,
+      source_file: sourceFile,
+      page: currentPageNumber,
+      selected_text: selectedText,
+      web_enabled: false,
+      quick_mode: quickMode
+    };
+  }
+
+  async function streamAiQuestion(payload, assistantMessage) {
+    const resp = await apiFetch('/api/ai/pdf-chat-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok || !resp.body) return false;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let doneSeen = false;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+      for (const raw of events) {
+        const lines = raw.split('\n');
+        const eventName = (lines.find(line => line.startsWith('event:')) || '').slice(6).trim();
+        const dataLine = lines.find(line => line.startsWith('data:'));
+        if (!dataLine) continue;
+        const payloadText = dataLine.slice(5).trim();
+        if (!payloadText) continue;
+        const data = JSON.parse(payloadText);
+        if (eventName === 'delta') {
+          assistantMessage.content += data.text || '';
+          savePageState();
+          renderAiMessages();
+        } else if (eventName === 'done') {
+          assistantMessage.sources = data.sources || [];
+          assistantMessage.warnings = data.warnings || [];
+          assistantMessage.content = assistantMessage.content || data.answer_markdown || '';
+          doneSeen = true;
+          savePageState();
+          renderAiMessages();
+        } else if (eventName === 'error') {
+          throw new Error(data.error || 'AI 请求失败');
+        }
+      }
+    }
+    return doneSeen;
+  }
+
+  async function fetchAiQuestion(payload) {
+    const resp = await apiFetch('/api/ai/pdf-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (!data.ok) {
+      throw new Error(data.error || 'AI 请求失败');
+    }
+    return data;
+  }
+
+  async function submitAiQuestion(questionText, options = {}) {
+    const question = String(questionText || '').trim();
+    if (!question || !currentPageContext || !aiRuntime.enabled || !aiAccessEnabled) return;
+    const quickMode = !!options.quickMode;
+    const historyMessages = aiMessagesState.map(item => ({ role: item.role, content: item.content }));
+    const payload = buildPdfAiPayload(question, historyMessages, quickMode);
+
+    aiMessagesState.push({ role: 'user', content: question });
+    const assistantMessage = { role: 'assistant', content: '', sources: [], warnings: [] };
+    aiMessagesState.push(assistantMessage);
+    savePageState();
+    renderAiMessages();
+    aiPrompt.value = '';
+    aiSendBtn.disabled = true;
+    explainPageBtn.disabled = true;
+    explainSelectionBtn.disabled = true;
+
+    try {
+      let streamed = false;
+      try {
+        streamed = await streamAiQuestion(payload, assistantMessage);
+      } catch (_) {
+        streamed = false;
+      }
+      if (!streamed) {
+        const data = await fetchAiQuestion(payload);
+        assistantMessage.content = data.answer_markdown || '';
+        assistantMessage.sources = data.sources || [];
+        assistantMessage.warnings = data.warnings || [];
+      }
+      savePageState();
+      renderAiMessages();
+    } catch (error) {
+      assistantMessage.content = `请求失败：${error.message || '未知错误'}`;
+      assistantMessage.sources = [];
+      assistantMessage.warnings = [];
+      savePageState();
+      renderAiMessages();
+    } finally {
+      aiSendBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
+      explainPageBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
+      explainSelectionBtn.disabled = !selectedText || !aiRuntime.enabled || !aiAccessEnabled;
+    }
+  }
+
+  async function loadPage(page, title = null) {
+    currentPageNumber = Math.min(Math.max(1, Number(page)), pageCount);
+    currentPageContext = null;
+    if (title) currentSection.textContent = title;
+    updatePager();
+    syncActiveToc(currentPageNumber);
+    history.replaceState(null, '', buildViewerUrl(currentPageNumber));
+    clearSelection();
+
+    const stored = readPageState(currentPageNumber);
+    aiMessagesState = stored.messages;
+    webToggle.checked = stored.webEnabled;
+    renderAiMessages();
+    pageText.textContent = {{ site_text("viewer.page_context_loading") | tojson }};
+    if (renderMode === 'image') {
+      loadPageImage(currentPageNumber);
+    }
+
+    try {
+      await loadPageContext(currentPageNumber);
+      renderPageText();
+    } catch (error) {
+      pageText.textContent = `页面上下文加载失败：${error.message || '未知错误'}`;
+      aiMessagesState.push({
+        role: 'assistant',
+        content: `页面上下文加载失败：${error.message || '未知错误'}`,
+        sources: [],
+        warnings: []
+      });
+      savePageState();
+      renderAiMessages();
+    }
+  }
+
+  prevBtn.addEventListener('click', e => {
+    e.preventDefault();
+    if (currentPageNumber > 1) loadPage(currentPageNumber - 1);
+  });
+
+  nextBtn.addEventListener('click', e => {
+    e.preventDefault();
+    if (currentPageNumber < pageCount) loadPage(currentPageNumber + 1);
+  });
+
+  window.addEventListener('keydown', e => {
+    if (e.target && ['TEXTAREA', 'INPUT'].includes(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      if (currentPageNumber > 1) loadPage(currentPageNumber - 1);
+    }
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+      e.preventDefault();
+      if (currentPageNumber < pageCount) loadPage(currentPageNumber + 1);
+    }
+  });
+
+  if (tocList) {
+    tocList.addEventListener('click', e => {
+      const link = e.target.closest('.toc-link');
+      if (!link) return;
+      e.preventDefault();
+      loadPage(link.dataset.page, link.dataset.title);
+      if (tocPanel) tocPanel.open = false;
+    });
+  }
+
+  document.addEventListener('click', e => {
+    if (!tocPanel || !tocPanel.open || tocPanel.contains(e.target)) return;
+    tocPanel.open = false;
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && tocPanel?.open) tocPanel.open = false;
+  });
+
+  // 书页防爬提示（P3）：非阻塞弹窗，30 秒内不重复打扰，自动消失。
+  let lastRateLimitNoticeAt = 0;
+  function showReaderRateLimitNotice() {
+    const now = Date.now();
+    if (now - lastRateLimitNoticeAt < 30000) return;
+    lastRateLimitNoticeAt = now;
+    let toast = document.getElementById('readerRateToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'readerRateToast';
+      toast.className = 'reader-rate-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = '⚠️ 检测到翻页速度过快，为保障全体读者的访问，已对书页图像做临时限流。请稍候片刻，系统会自动恢复，您的阅读进度不会丢失。';
+    toast.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => toast.classList.remove('show'), 8000);
+  }
+
+  pageImage.addEventListener('error', () => {
+    const seqAtError = imageSeq;
+    const pageAtError = currentPageNumber;
+    pageImage.hidden = true;
+    imageError.textContent = {{ site_text("viewer.image_error") | tojson }};
+    imageError.classList.add('show');
+    syncAiPanelHeight();
+    // 仅在加载失败时做一次轻量探测：若为访问过于频繁（429）触发，则弹窗提示并在稍后自动恢复；
+    // 其他原因（如偶发网络错误）维持原有错误提示，不打扰读者。该探测只在出错时发生，不影响正常阅读路径。
+    fetch(buildPageImageUrl(pageAtError), { cache: 'no-store' })
+      .then(resp => {
+        if (resp.status !== 429) return;
+        let retryAfter = parseInt(resp.headers.get('Retry-After') || '6', 10);
+        if (Number.isNaN(retryAfter) || retryAfter <= 0) retryAfter = 6;
+        retryAfter = Math.min(retryAfter, 20);
+        showReaderRateLimitNotice();
+        imageError.textContent = '系统检测到翻页过于频繁，已临时限流，页面将自动为您恢复阅读…';
+        setTimeout(() => {
+          if (imageSeq === seqAtError) loadPageImage(pageAtError);
+        }, retryAfter * 1000);
+      })
+      .catch(() => {});
+  });
+
+  if (window.ResizeObserver && pageImageWrap) {
+    const readerSizeObserver = new ResizeObserver(syncAiPanelHeight);
+    readerSizeObserver.observe(pageImageWrap);
+    readerSizeObserver.observe(pageImage);
+  }
+  window.addEventListener('resize', syncAiPanelHeight);
+
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!pageText.contains(range.commonAncestorContainer)) return;
+    const text = selection.toString().replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    selectedText = text.slice(0, 1200);
+    renderSelectedText();
+  });
+
+  webToggle.addEventListener('change', savePageState);
+
+  if (usePageTextBtn) {
+    usePageTextBtn.addEventListener('click', () => {
+      const text = (currentPageContext?.current_text || '').trim();
+      if (!text) return;
+      selectedText = text.slice(0, 1200);
+      renderSelectedText();
+    });
+  }
+
+  explainSelectionBtn.addEventListener('click', () => {
+    if (!selectedText) return;
+    submitAiQuestion('请解释我当前选中的这段内容。');
+  });
+
+  explainPageBtn.addEventListener('click', () => {
+    submitAiQuestion('请概括并解释本页内容，并指出其核心观点。');
+  });
+
+  clearSelectionBtn.addEventListener('click', clearSelection);
+
+  aiSendBtn.addEventListener('click', () => submitAiQuestion(aiPrompt.value));
+
+  aiPrompt.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitAiQuestion(aiPrompt.value);
+    }
+  });
+
+  aiClearBtn.addEventListener('click', () => {
+    aiMessagesState = [];
+    savePageState();
+    renderAiMessages();
+  });
+
+  renderSelectedText();
+  renderAiMessages();
+  loadAiRuntime();
+  syncAiPanelHeight();
+  loadPage(currentPageNumber, initialSection);
+  if (pageState.heartbeatEnabled) {
+    startHeartbeat();
+    window.addEventListener('focus', sendPing);
+  }
+  </script>
+</body>
+</html>

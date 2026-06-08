@@ -1,0 +1,97 @@
+# 《文集》引文检索正文修订映射
+#
+# 作用：在 build_index.py 抽取 PDF 文本后、归一化前，对 raw_text 做定向修订，修正
+# PDF 隐藏 OCR 文本层的缺陷（形近错别字、字母代替标点/汉字、误识数字等），使
+# 引文检索 的 normalized_text 与 PDF 原文对应、提升召回。
+#
+# 重要安全说明：
+#   - 修订只影响“检索匹配 / 引文摘要片段”，不影响阅读器实时渲染的 PDF 图片，
+#     即用户屏幕所见的书页内容不受影响。
+#   - 三类条目：
+#       book_wide   —— 对每个《文集》页应用；仅放 never-valid（永不构成合法词）的串。
+#       volume_wide —— 对指定卷每页应用；仅放在该卷范围内 never-valid 的串。
+#       pages       —— 页锚定（volume+page），带 occ 校验：find 须在该页恰好命中 occ 次，
+#                      否则只告警跳过、绝不误改。
+#   - 仅 conf: high 的条目会被应用。
+#   - 全部条目均经 10 个核对 agent 渲染 PDF 扫描页核对、并尽量与公开权威资料
+#     （marxists.org 中文马克思主义文库 / 中国社科院马研网 / 人民出版社《文集》）交叉印证。
+#   - 本文件只动《文集》，对 全集 / 列宁全集 零影响。
+#
+# 注：大量“孤立拉丁字母代替标点（尤其 z=冒号、s/g/E/F=逗号/句号）”由 build_index.py
+#     的 OCR 标点清理在构建期自动移除，无需在此逐条列出。此处只收录清理无法覆盖的
+#     形近错别字、字母代替汉字/数字等需“替换”的高置信修订。
+
+# —— 文集级（never-valid，全卷安全替换）——
+book_wide:
+  - find: "f卑斯"            # OCR 把“俾”的单人旁误拆为孤立 f：f卑斯麦 → 俾斯麦(Bismarck)
+    replace: "俾斯"
+    conf: high
+    evidence: "Bismarck 标准译名俾斯麦；'f卑斯'永不构成合法词；分布于第1/2/3/4/9/10卷共约164处，已核对无合法搭配。"
+  - find: "瑛鼎查"           # Henry Pottinger 标准译名璞鼎查；瑛鼎查为形近误识
+    replace: "璞鼎查"
+    conf: high
+    evidence: "第2卷 p852 人名索引原文'璞鼎查，亨利(Pottinger, Henry 1789—1856)'；'瑛鼎查'永不构成合法词。"
+  - find: "租f田"            # 分成租佃制：OCR 把“佃”误识为'f田'
+    replace: "租佃"
+    conf: high
+    evidence: "第10卷 p400/p561'分成租佃制(métayage)'；'租f田'含孤立 f，永不构成合法词。"
+  - find: "握蜒"             # 龌龊：生僻词形近误识（龌龊→握蜒）
+    replace: "龌龊"
+    conf: high
+    evidence: "全《文集》'龌龊'出现0次、'握蜒'出现4次(卑鄙龌龊×3/最龌龊的×1，v1p460/v2p80/v2p117/v3p480)，'握蜒'永不构成合法词。"
+
+# —— 卷级（在该卷范围内 never-valid）——
+volume_wide:
+  6:
+    - find: "商晶"           # 商品：OCR 把“品”误识为“晶”
+      replace: "商品"
+      conf: high
+      evidence: "第6卷《资本论》第二卷共147处'商晶'，全卷无'通商晶/形成晶'等合法搭配（已核 0 例），渲染 p24 序言确认'商品'。"
+    - find: "成晶"           # 成品：同类“品→晶”误识
+      replace: "成品"
+      conf: high
+      evidence: "第6卷共19处'成晶'(成品/半成品)，全《文集》无'形成晶/成晶体'等合法搭配（已核 0 例），渲染 p411 确认'成品'。"
+    - find: "货市"           # 货币：OCR 把“币”误识为“市”
+      replace: "货币"
+      conf: high
+      evidence: "第6卷 5处'货市'(货市资本/货市经济)均应为货币，全卷无'货市场'等合法搭配（已核 0 例），渲染 p73 章题'货币资本的循环'确认。"
+
+# —— 页锚定（occ 校验；命中失败只跳过不改）——
+pages:
+  # 第1卷
+  - {volume: 1, page: 350, find: "而J二\n学", replace: "而上学", occ: 1, conf: high, evidence: "《神圣家族》'形而上学'；'J二'=形近误识的'上'(原文含OCR换行)。PDF p350 核对。"}
+  - {volume: 1, page: 449, find: "怠J惰", replace: "怠惰", occ: 1, conf: high, evidence: "《英国工人阶级状况》'怠惰'；J 为词内噪声。PDF p449 核对。"}
+  - {volume: 1, page: 456, find: "进取d心", replace: "进取心", occ: 1, conf: high, evidence: "'富于进取心的资本家'；d 为词内噪声。PDF p456 核对。"}
+  - {volume: 1, page: 461, find: "他J切", replace: "他一切", occ: 1, conf: high, evidence: "'在其他一切大城市'；'J'=形近误识的'一'。PDF p461 核对。"}
+  - {volume: 1, page: 578, find: "后一种d情", replace: "后一种情", occ: 1, conf: high, evidence: "《德意志意识形态》'在后一种情况下'；d 为噪声。PDF p578 核对。"}
+  - {volume: 1, page: 632, find: "殊的理d性", replace: "殊的理性", occ: 1, conf: high, evidence: "《哲学的贫困》'十分特殊的理性'；d 为噪声。PDF p632 核对。"}
+  - {volume: 1, page: 645, find: "机器E像", replace: "机器正像", occ: 1, conf: high, evidence: "《哲学的贫困》名句'机器正像拖犁的牛一样'；E=形近误识的'正'。PDF p645 + 社科院马研网印证。"}
+  - {volume: 1, page: 678, find: "一w阶", replace: "一切阶", occ: 1, conf: high, evidence: "《德意志意识形态》'消灭一切阶级'；w=形近误识的'切'。PDF p678 核对。"}
+  - {volume: 1, page: 934, find: "唯d心主义", replace: "唯心主义", occ: 1, conf: high, evidence: "名词索引'唯心主义'；d 为噪声。PDF p934 核对。"}
+  - {volume: 1, page: 421, find: "和j默里克", replace: "利默里克", occ: 1, conf: high, evidence: "地名 Limerick'利默里克'；'和j'=误识的'利'。PDF p421 核对。"}
+  - {volume: 1, page: 822, find: "第277页h 在", replace: "第277页在", occ: 1, conf: high, evidence: "注释'…第277页。在这部著作中'；h 代替句号。PDF p822 核对。"}
+  - {volume: 1, page: 642, find: "勒蒙泰H巳", replace: "勒蒙泰吧", occ: 1, conf: high, evidence: "'让我们听听勒蒙泰吧'；H=误识的'吧'，巳为逗号残留。PDF p642 核对。"}
+  # 第2卷
+  - {volume: 2, page: 642, find: "反J毒", replace: "反感", occ: 1, conf: high, evidence: "《俄国和中国》'那种反感'；'J毒'=形近误识的'感'。PDF p642 核对。"}
+  - {volume: 2, page: 637, find: "倒莓", replace: "倒霉", occ: 1, conf: high, evidence: "'出口贸易要倒霉'；'莓'=形近误识的'霉'。PDF p637 + marxists.org 印证。"}
+  # 第4卷
+  - {volume: 4, page: 169, find: "》第l 册第1", replace: "》第一册第1", occ: 1, conf: high, evidence: "脚注'《盎格鲁教会史》第一册第1章'；l=误识的数字/'一'。PDF p169 核对。"}
+  - {volume: 4, page: 739, find: "最后l 卷", replace: "最后一卷", occ: 1, conf: high, evidence: "文献索引'第3卷和最后一卷'；l=误识的'一'。PDF p739 核对。"}
+  - {volume: 4, page: 626, find: "斯多亚i底", replace: "斯多亚派", occ: 1, conf: high, evidence: "注释'斯多亚派…又称画廊学派'；'i底'=误识的'派'。PDF p626 核对。"}
+  - {volume: 4, page: 695, find: "(卡和l古拉)", replace: "(卡里古拉)", occ: 1, conf: high, evidence: "人名索引 Caligula'卡里古拉'；'和l'=误识的'里'。PDF p695 核对。"}
+  # 第6卷
+  - {volume: 6, page: 368, find: "得型", replace: "得到", occ: 1, conf: high, evidence: "'靠贷款得到这种追加货币资本'；'型'=形近误识的'到'。PDF p351 核对。"}
+  - {volume: 6, page: 177, find: "脆l汀", replace: "脆弱", occ: 1, conf: high, evidence: "'这种储备脆弱'；'l汀'=形近误识的'弱'。PDF p160 核对。"}
+  # 第9卷
+  - {volume: 9, page: 493, find: "是i日世界观", replace: "是旧世界观", occ: 1, conf: high, evidence: "'是旧世界观的基本定律：a=a'；'i日'=误识的'旧'。PDF p493 核对。"}
+  - {volume: 9, page: 400, find: "时代的来l恼", replace: "时代的来临", occ: 1, conf: high, evidence: "'欢庆这个时代的来临'；'l恼'=误识的'临'。PDF p400 核对。"}
+  - {volume: 9, page: 287, find: "票j窃\n黑格尔", replace: "剽窃\n黑格尔", occ: 1, conf: high, evidence: "'又不断剽窃黑格尔的思想'；'票j'=误识的'剽'(原文含OCR换行)。PDF p287 核对。"}
+  - {volume: 9, page: 624, find: "知j略部分", replace: "结尾部分", occ: 1, conf: high, evidence: "编者注标题'《〈费尔巴哈〉的结尾部分》'；'知j略'=误识的'结尾'。PDF p624 核对。"}
+  - {volume: 9, page: 636, find: "米和l都的", replace: "米利都的", occ: 1, conf: high, evidence: "人名索引'阿那克西米尼(米利都的)'；'和l'=误识的'利'。PDF p636 核对。"}
+  - {volume: 9, page: 592, find: "星E假说", replace: "星云假说", occ: 1, conf: high, evidence: "注释26'康德的星云假说'；E=形近误识的'云'。PDF p592 核对。"}
+  - {volume: 9, page: 595, find: "538.9卡f克", replace: "538.9卡/克", occ: 1, conf: high, evidence: "注释41'潜热为538.9卡/克'；f=误识的'/'。PDF p595 核对。"}
+  - {volume: 9, page: 385, find: "教程B一书", replace: "教程》一书", occ: 1, conf: high, evidence: "'《…教程》一书中引用'；B=误识的书名号'》'。PDF p385 核对。"}
+  - {volume: 9, page: 588, find: "反杜林论Y分析", replace: "反杜林论》分析", occ: 1, conf: high, evidence: "'《反杜林论》分析了…'；Y=误识的'》'。PDF p588 核对。"}
+  - {volume: 9, page: 614, find: "自然辩证法B是恩格斯", replace: "自然辩证法》是恩格斯", occ: 1, conf: high, evidence: "注释154'《自然辩证法》是恩格斯…手稿'；B=误识的'》'。PDF p614 核对。"}
+  # 第10卷
+  - {volume: 10, page: 93, find: "年l 月", replace: "年1月", occ: 1, conf: high, evidence: "信首日期'1851年1月7日'；l=误识的数字1。PDF p93 核对。"}

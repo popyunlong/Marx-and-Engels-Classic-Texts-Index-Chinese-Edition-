@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Marx Search Journal Alerts collect daily at 19:00 Beijing time (eve of send day)
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* 11:00:00 UTC
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

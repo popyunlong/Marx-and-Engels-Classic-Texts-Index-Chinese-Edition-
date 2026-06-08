@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ state.data_version }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: linear-gradient(180deg, #f7f3ed 0%, #ece3d7 100%);
+      color: #241d17;
+    }
+    .wrap {
+      max-width: 760px;
+      margin: 48px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: #fffdf8;
+      border: 1px solid #ddcfbf;
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    h1 { margin-top: 0; }
+    .muted { color: #72675d; line-height: 1.8; }
+    .actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 10px 18px;
+      text-decoration: none;
+    }
+    .primary { background: #8f1d1d; color: white; }
+    .secondary { background: white; color: #8f1d1d; border: 1px solid #8f1d1d; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>{{ title }}</h1>
+      <p>{{ message }}</p>
+      {% if state.issues %}
+      <div class="muted">
+        {% for issue in state.issues %}
+        <div>{{ issue }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="actions">
+        <a class="btn primary" href="/">{{ site_text("error.back_home") }}</a>
+        <a class="btn secondary" href="/?restore=1">{{ site_text("error.back_search") }}</a>
+        {% if local_console_available %}
+        <a class="btn secondary" href="{{ url_for('control') }}">本地控制台</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

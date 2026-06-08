@@ -1,0 +1,16 @@
+[Unit]
+Description=Marx Search Journal Alerts Collect Worker (fetch a batch the eve of a send day)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/journal_alert_worker.py --stage=collect
+TimeoutStartSec=1800
+PrivateTmp=true
+NoNewPrivileges=true

@@ -1,0 +1,27 @@
+pid: ""
+key: ""
+submit_url: "https://zpayz.cn/submit.php"
+mapi_url: "https://zpayz.cn/mapi.php"
+api_url: "https://zpayz.cn/api.php"
+
+# 支付方式：支付宝 alipay；微信支付 wxpay。
+type: "alipay"
+
+# 支付渠道 ID，可留空；多个渠道按文档用英文逗号分隔。
+channel_id: ""
+
+sign_type: "MD5"
+subject_prefix: "马恩文献检索会员"
+
+# 支付产品（device）：
+#   留空或 "pc" = 不下发 device，由网关按浏览器 UA 自动判定（默认）。
+#   "mobile"   = 使用支付宝手机网站支付(wap)，在 PC 上同样渲染二维码，且不依赖「当面付」签约。
+#   若支付页报错 ACQ.APPLY_PC_MERCHANT_CODE_ERROR（当面付 PC 扫码未签约/渠道不支持），
+#   将本项改为 "mobile" 即可绕开；或在第四方支付后台为该支付宝渠道签约「当面付」、或更换渠道。
+device: "pc"
+
+# 留空时会自动基于 PUBLIC_BASE_URL 生成：
+# notify_url = <PUBLIC_BASE_URL>/payments/zpay/notify
+# return_url = <PUBLIC_BASE_URL>/payments/zpay/return
+notify_url: ""
+return_url: ""

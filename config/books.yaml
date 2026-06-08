@@ -1,0 +1,30 @@
+publisher: 人民出版社
+place: 北京
+books:
+# available: 是否对终端用户开放。false 时该书库不在「篇章直达」等面向用户的
+# 入口中露出（仍可被索引/调试）。列宁《全集》资料尚未完全上线，先置 false，
+# 待正文与目录在云端验证可用后改为 true 即可，无需改代码。
+- key: 文集
+  title: 《马克思恩格斯文集》
+  short_title: 《文集》
+  citation_title: 马克思恩格斯文集
+  folder: pdfs/文集
+  sort_order: 10
+  tag_class: wenji
+  available: true
+- key: 全集
+  title: 《马克思恩格斯全集》
+  short_title: 《全集》
+  citation_title: 马克思恩格斯全集
+  folder: pdfs/全集
+  sort_order: 20
+  tag_class: quanji
+  available: true
+- key: 列宁全集
+  title: 《列宁全集》
+  short_title: 列宁《全集》
+  citation_title: 列宁全集
+  folder: pdfs/列宁《全集》
+  sort_order: 30
+  tag_class: lenin
+  available: true

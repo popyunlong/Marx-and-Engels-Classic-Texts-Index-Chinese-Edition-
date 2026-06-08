@@ -1,0 +1,1721 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --panel: #fffdf8;
+      --line: #d8c9b8;
+      --text: #241d17;
+      --muted: #70665c;
+      --accent: #8f1d1d;
+      --accent-dark: #651313;
+      --soft: #f7ece7;
+      --ok: #24593f;
+      --warn: #8a5b00;
+      --ai: #264653;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: linear-gradient(180deg, #f8f4ee 0%, var(--bg) 100%);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    }
+    .page { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; }
+    .hero, .card, .flash {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(54, 38, 23, .08);
+    }
+    .hero {
+      color: #fff8f0;
+      background: linear-gradient(135deg, #6d1515, #241812);
+      padding: 22px 24px;
+    }
+    .hero-row, .nav, .actions, .pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .hero-row { justify-content: space-between; align-items: flex-start; }
+    h1, h2, h3 { margin-top: 0; }
+    .hero p { max-width: 860px; line-height: 1.75; margin: 8px 0 0; color: rgba(255, 248, 240, .92); }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.1);
+      font-size: .92rem;
+    }
+    .btn, button {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      padding: 9px 15px;
+      color: var(--accent);
+      background: #fff;
+      text-decoration: none;
+      font: inherit;
+      cursor: pointer;
+    }
+    .hero .btn { color: #fff8f0; border-color: rgba(255,255,255,.28); background: transparent; }
+    .primary { color: #fff; background: var(--accent); }
+    .primary:hover { background: var(--accent-dark); }
+    .ai-btn { color: #fff; background: var(--ai); border-color: var(--ai); }
+    .danger { color: #fff; background: #7b1f1f; border-color: #7b1f1f; }
+    .btn.mini { padding: 5px 11px; font-size: .85rem; }
+    .ai-usage-detail .au-row { border-bottom: 1px dashed var(--line); padding: 9px 0; }
+    .ai-usage-detail .au-row:last-child { border-bottom: none; }
+    .ai-usage-detail .au-meta { color: var(--muted); font-size: .82rem; margin-bottom: 4px; }
+    .ai-usage-detail .au-input { white-space: pre-wrap; word-break: break-word; background: #fffaf3; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-size: .9rem; }
+    .ai-usage-detail .au-fail { color: #7b1f1f; }
+    .ai-usage-detail .au-summary { background: #f7f3ec; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: .9rem; }
+    .anchor-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
+    .anchor-row a {
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .admin-nav {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .nav-group {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.76);
+      padding: 10px;
+    }
+    .nav-group strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent-dark);
+    }
+    .nav-group a {
+      display: inline-flex;
+      margin: 4px 6px 4px 0;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .admin-category {
+      margin: 4px 0 -4px;
+      color: var(--accent-dark);
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .matrix {
+      display: grid;
+      gap: 10px;
+      overflow-x: auto;
+    }
+    .matrix-row {
+      display: grid;
+      grid-template-columns: minmax(160px, 1.2fr) repeat(4, minmax(110px, 1fr));
+      gap: 10px;
+      align-items: center;
+      min-width: 680px;
+    }
+    .matrix-head {
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .flash-stack { display: grid; gap: 10px; margin: 16px 0; }
+    .flash { padding: 12px 14px; line-height: 1.7; }
+    .flash.success { color: var(--ok); background: #e9f5ec; }
+    .flash.warning, .flash.info { color: var(--warn); background: #fff3d8; }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(360px, .95fr); gap: 16px; align-items: start; }
+    .admin-module-grid { display: block; }
+    .admin-module-grid > .stack { margin-bottom: 16px; }
+    .stack { display: grid; gap: 16px; }
+    .card { padding: 20px; }
+    .section-note, .muted { color: var(--muted); line-height: 1.75; }
+    .stats-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .stat, .item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbf8f2;
+      padding: 14px;
+    }
+    .stat strong { display: block; margin-bottom: 6px; }
+    .form-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wide-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .field, .field-wide { display: grid; gap: 7px; font-weight: 700; }
+    .field-wide { grid-column: 1 / -1; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--text);
+      background: #fffdfa;
+    }
+    textarea { min-height: 96px; resize: vertical; line-height: 1.7; }
+    .checkbox { display: inline-flex; gap: 8px; align-items: center; font-weight: 700; }
+    .checkbox input { width: auto; }
+    .scroll-box { max-height: 600px; overflow: auto; display: grid; gap: 12px; padding-right: 4px; }
+    .kv { display: grid; gap: 6px; color: var(--muted); line-height: 1.7; }
+    .table-list { display: grid; gap: 10px; }
+    .table-row { border-top: 1px solid var(--line); padding-top: 10px; }
+    .feedback-msg-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .feedback-msg-images a { display: block; width: 96px; height: 96px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+    .feedback-msg-images img { width: 100%; height: 100%; object-fit: cover; }
+    .table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: #fffdfa; }
+    .data-table { width: 100%; min-width: 980px; border-collapse: collapse; font-size: .95rem; }
+    .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    .data-table th { color: var(--muted); background: #fbf8f2; }
+    .control-strip { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin: 12px 0 16px; }
+    .control-strip .field { min-width: 170px; }
+    .coverage-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 14px 0; }
+    .coverage-list { display: grid; gap: 8px; max-height: 240px; overflow: auto; }
+    .coverage-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffdfa;
+      padding: 10px 12px;
+      line-height: 1.65;
+    }
+    .coverage-item code { display: block; margin-top: 4px; }
+    code { word-break: break-all; color: #4d2b16; }
+    @media (max-width: 900px) {
+      .grid, .form-grid, .wide-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>{{ title }}</h1>
+          <p>{{ console_intro }}</p>
+          <div class="pills" style="margin-top:14px">
+            <span class="pill">应用 {{ app_version }}</span>
+            <span class="pill">{{ "网站后台" if remote_admin else "本地诊断" }}</span>
+            <span class="pill">资料 {{ state.data_version }}</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <a class="btn" href="/">返回首页</a>
+          <a class="btn" href="{{ url_for('pricing') }}">会员套餐</a>
+          <a class="btn" href="{{ url_for('account') if current_user else url_for('login') }}">{{ "会员中心" if current_user else "登录" }}</a>
+        </nav>
+      </div>
+    </section>
+
+    {% with flashes = get_flashed_messages(with_categories=true) %}
+    {% if flashes %}
+    <div class="flash-stack">
+      {% for category, message in flashes %}
+      <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {% if remote_admin %}
+    <nav class="admin-nav">
+      {% for module_key, module_label in admin_modules.items() %}
+      <div class="nav-group">
+        <strong>{{ module_label }}</strong>
+        <a href="{{ admin_module_urls[module_key] }}" {% if admin_module == module_key %}class="primary"{% endif %}>
+          进入{{ module_label }}
+        </a>
+      </div>
+      {% endfor %}
+    </nav>
+    {% else %}
+    <nav class="anchor-row">
+      <a href="#overview">运行概况</a>
+      <a href="#sync">网站同步</a>
+      <a href="#cache">缓存状态</a>
+    </nav>
+    {% endif %}
+
+    {% if not remote_admin %}
+    <div class="grid">
+      <div class="stack">
+        <div class="admin-category">总览</div>
+        <section class="card" id="overview">
+          <h2>本机资料状态</h2>
+          <div class="stats-grid">
+            <div class="stat"><strong>检索</strong>{{ "可用" if state.search_enabled else "不可用" }}</div>
+            <div class="stat"><strong>PDF/全文</strong>{{ "可用" if state.pdf_enabled else "不可用" }}</div>
+            <div class="stat"><strong>本地授权</strong>{{ "有效" if state.desktop_license_enabled else "未授权" }}</div>
+            <div class="stat"><strong>AI 代理</strong>{{ "已同步：" ~ state.ai_model if state.ai_enabled else "不可用" }}</div>
+            <div class="stat"><strong>数据库校验</strong>{{ state.db_status }}</div>
+            <div class="stat"><strong>资料目录</strong><code>{{ state.runtime_root }}</code></div>
+            <div class="stat"><strong>缓存文件</strong><code>{{ desktop_sync.cache_path if desktop_sync.cache_path else "" }}</code></div>
+          </div>
+          {% if state.issues or state.ai_problems %}
+          <div class="scroll-box" style="margin-top:14px">
+            {% for issue in state.issues %}<div class="item">{{ issue }}</div>{% endfor %}
+            {% for issue in state.ai_problems %}<div class="item">{{ issue }}</div>{% endfor %}
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="card" id="sync">
+          <h2>连接网站后台</h2>
+          <p class="section-note">输入网站地址和管理员在 `/admin` 创建的设备授权码。本地会保存同步令牌，之后启动时自动刷新授权、文案、AI 代理状态和发布信息。</p>
+          <form method="post" action="{{ url_for('control_desktop_activate') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field-wide">网站地址
+                <input type="url" name="server_url" value="{{ desktop_sync.server_url or state.public_base_url }}" placeholder="https://search.example.com" required>
+              </label>
+              <label class="field">设备名称
+                <input type="text" name="label" value="{{ desktop_sync.device.label if desktop_sync.device else '' }}" placeholder="例如 书房电脑">
+              </label>
+              <label class="field">授权码
+                <input type="text" name="activation_code" placeholder="XXXX-XXXX-XXXX-XXXX" required>
+              </label>
+            </div>
+            <div class="actions" style="margin-top:14px">
+              <button class="btn primary" type="submit">激活并同步</button>
+            </div>
+          </form>
+          <div class="actions" style="margin-top:14px">
+            <form method="post" action="{{ url_for('control_desktop_sync') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="btn" type="submit">立即同步</button>
+            </form>
+            <form method="post" action="{{ url_for('control_desktop_cache_clear') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="btn danger" type="submit">清除同步缓存</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="card" id="cache">
+          <h2>缓存授权</h2>
+          <div class="kv">
+            <div>网站：{{ desktop_sync.server_url or "未配置" }}</div>
+            <div>最近同步：{{ format_datetime(desktop_sync.last_sync_at) if desktop_sync.last_sync_at else "暂无" }}</div>
+            <div>同步错误：{{ desktop_sync.last_error or "无" }}</div>
+            <div>授权状态：{{ desktop_sync.license.status if desktop_sync.license else "未授权" }}</div>
+            <div>到期时间：{{ format_datetime(desktop_sync.license.expires_at) if desktop_sync.license and desktop_sync.license.expires_at else "暂无" }}</div>
+            <div>设备：{{ desktop_sync.device.label if desktop_sync.device else "暂无" }}</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>发布更新</h2>
+          {% set release = desktop_sync.release or latest_desktop_release %}
+          <div class="kv">
+            <div>最新应用版本：{{ release.app_version or "暂无" }}</div>
+            <div>最新资料版本：{{ release.data_version or "暂无" }}</div>
+            <div>强制更新：{{ "是" if release.force_update else "否" }}</div>
+            <div>下载地址：{% if release.download_url %}<a href="{{ release.download_url }}" target="_blank" rel="noopener">{{ release.download_url }}</a>{% else %}暂无{% endif %}</div>
+            <div>SHA256：<code>{{ release.sha256 or "暂无" }}</code></div>
+          </div>
+          {% if release.notes %}<p class="section-note">{{ release.notes }}</p>{% endif %}
+        </section>
+      </div>
+    </div>
+    {% else %}
+
+    <div class="grid admin-module-grid">
+      <div class="stack">
+        {% if admin_module == "overview" %}
+        <section class="card" id="overview">
+          <h2>运行概况</h2>
+          <p class="section-note">运营仪表盘 · 北京时间 {{ dashboard_metrics.day }}</p>
+          <form class="control-strip" method="get" action="{{ url_for('admin', module='overview') }}">
+            <label class="field">查看日期
+              <input type="date" name="date" value="{{ dashboard_selected_day }}">
+            </label>
+            <input type="hidden" name="history_start" value="{{ dashboard_history_start }}">
+            <input type="hidden" name="history_end" value="{{ dashboard_history_end }}">
+            <button class="btn" type="submit">查看</button>
+          </form>
+          <div class="stats-grid">
+            <div class="stat"><strong>当前在线</strong>{{ dashboard_metrics.current_online or 0 }}</div>
+            <div class="stat"><strong>当日在线</strong>{{ dashboard_metrics.today_online or 0 }}</div>
+            <div class="stat"><strong>注册用户总数</strong>{{ dashboard_metrics.total_users or 0 }}</div>
+            <div class="stat"><strong>活跃账号</strong>{{ dashboard_metrics.active_accounts or 0 }}</div>
+            <div class="stat"><strong>已验证用户</strong>{{ dashboard_metrics.verified_users or 0 }}</div>
+            <div class="stat"><strong>停用账号</strong>{{ dashboard_metrics.disabled_users or 0 }}</div>
+            <div class="stat"><strong>新注册</strong>{{ dashboard_metrics.new_users_today or 0 }}</div>
+            <div class="stat"><strong>活跃会员</strong>{{ dashboard_metrics.active_members or 0 }}</div>
+            <div class="stat"><strong>当日付费</strong>{{ format_price(dashboard_metrics.paid_today_cents or 0, "CNY") }}</div>
+            <div class="stat"><strong>待支付订单</strong>{{ dashboard_metrics.pending_orders or 0 }}</div>
+            <div class="stat"><strong>支付异常</strong>{{ dashboard_metrics.payment_errors_today or 0 }}</div>
+            <div class="stat"><strong>当日搜索</strong>{{ dashboard_metrics.searches_today or 0 }}</div>
+            <div class="stat"><strong>阅读器访问</strong>{{ dashboard_metrics.reader_views_today or 0 }}</div>
+            <div class="stat"><strong>AI 请求</strong>{{ dashboard_metrics.ai_requests_today or 0 }}</div>
+            <div class="stat"><strong>AI token</strong>{{ dashboard_metrics.ai_tokens_today or 0 }}</div>
+            <div class="stat"><strong>高 token 用户</strong>{{ dashboard_metrics.high_token_user_count or 0 }}</div>
+            <div class="stat"><strong>阅读异常</strong>{{ dashboard_metrics.reader_anomaly_count or 0 }}</div>
+            <div class="stat"><strong>AI 错误</strong>{{ dashboard_metrics.ai_errors_today or 0 }}</div>
+            <div class="stat"><strong>期刊订阅</strong>{{ dashboard_metrics.journal_subscriptions or 0 }}</div>
+            <div class="stat"><strong>待审文章</strong>{{ dashboard_metrics.journal_pending_articles or 0 }}</div>
+            <div class="stat"><strong>待发送文章</strong>{{ dashboard_metrics.journal_ready_articles or 0 }}</div>
+            <div class="stat"><strong>当日发送</strong>{{ dashboard_metrics.journal_recent_sends or 0 }}</div>
+            <div class="stat"><strong>数据库</strong>{{ dashboard_metrics.db_status or state.db_status }}</div>
+            <div class="stat"><strong>AI 状态</strong>{{ "正常" if dashboard_metrics.ai_ok else "未启用" }}</div>
+            <div class="stat"><strong>支付状态</strong>{{ "正常" if dashboard_metrics.payment_ok else "未启用" }}</div>
+          </div>
+          {% if dashboard_metrics.active_members_by_plan %}
+          <div class="table-list" style="margin-top:14px">
+            {% for plan_metric in dashboard_metrics.active_members_by_plan %}
+            <div class="table-row"><strong>{{ plan_metric.name }}</strong><div class="muted">{{ plan_metric.code }} · {{ plan_metric.active_count or 0 }} 位活跃会员</div></div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <h3 style="margin-top:18px">AI token 高用量用户</h3>
+          <p class="section-note">按所选日期统计单个注册用户用量，超过警戒线或接近个人每日限额时列入名单。点击「查看用量详情」可核对该用户的具体输入、命中的接口与客户端 IP；「暂停 AI」会禁用其阅读器 AI 导学与首页随心问（与「会员与权限」的个别权限联通），其余功能不受影响。</p>
+          {% if dashboard_metrics.high_token_users %}
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>用户</th><th>请求</th><th>总 token</th><th>单次最高</th><th>每日限额</th><th>原因</th><th>最后使用</th><th>操作</th></tr></thead>
+              <tbody>
+                {% for user in dashboard_metrics.high_token_users %}
+                <tr>
+                  <td>{{ user.email }}{% if user.display_name %}<br><span class="muted">{{ user.display_name }}</span>{% endif %}{% if user.ai_blocked %}<br><span class="muted" style="color:#7b1f1f">已暂停 AI</span>{% endif %}</td>
+                  <td>{{ user.request_count or 0 }}</td>
+                  <td>{{ user.total_tokens or 0 }}</td>
+                  <td>{{ user.max_request_tokens or 0 }}</td>
+                  <td>{{ user.effective_limit if user.effective_limit is not none else "未设置" }}</td>
+                  <td>{{ user.alert_reason }}</td>
+                  <td>{{ format_datetime(user.last_used_at) }}</td>
+                  <td>
+                    <button type="button" class="btn mini ai-usage-detail-btn" data-user-id="{{ user.user_id }}" data-email="{{ user.email }}">查看用量详情</button>
+                    {% if user.ai_blocked %}
+                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="user_email" value="{{ user.email }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="action" value="unban">
+                      <button class="btn mini" type="submit">恢复 AI</button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px" onsubmit="return confirm('确认暂停 {{ user.email }} 的 AI 使用？阅读器 AI 导学与首页随心问都会被禁用，其余功能不受影响。');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="user_email" value="{{ user.email }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="action" value="ban">
+                      <button class="btn mini danger" type="submit">暂停 AI</button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div id="ai-usage-detail" class="item ai-usage-detail" style="display:none;margin-top:12px"
+               data-endpoint="{{ control_ai_usage_url }}" data-date="{{ dashboard_selected_day }}"></div>
+          {% else %}
+          <div class="item muted">所选日期暂无高 token 用户。</div>
+          {% endif %}
+
+          <h3 style="margin-top:18px">阅读器异常访问</h3>
+          <p class="section-note">按所选日期聚合阅读器访问，出现高频书页图像、跨卷册扫描、连续翻页或自动化特征时列入名单。注册用户封禁会暂停阅读器权限；未登录访客封禁 IP。</p>
+          {% if dashboard_metrics.reader_anomaly_visitors %}
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>访客</th><th>请求</th><th>书页图像</th><th>页数</th><th>卷册</th><th>单分钟最高</th><th>原因</th><th>最后访问</th><th>操作</th></tr></thead>
+              <tbody>
+                {% for visitor in dashboard_metrics.reader_anomaly_visitors %}
+                <tr>
+                  <td>
+                    {% if visitor.actor_type == "user" %}
+                      {{ visitor.email or ("用户 #" ~ visitor.user_id) }}
+                      {% if visitor.client_ip %}<br><span class="muted">IP {{ visitor.client_ip }}</span>{% endif %}
+                    {% else %}
+                      {{ visitor.client_ip or visitor.actor_key }}
+                      <br><span class="muted">未登录访客</span>
+                    {% endif %}
+                    {% if visitor.reader_blocked %}<br><span class="muted" style="color:#7b1f1f">已暂停阅读</span>{% endif %}
+                  </td>
+                  <td>{{ visitor.request_count or 0 }}</td>
+                  <td>{{ visitor.page_image_count or 0 }}</td>
+                  <td>{{ visitor.page_count or 0 }}</td>
+                  <td>{{ visitor.volume_count or 0 }}</td>
+                  <td>{{ visitor.max_minute_requests or 0 }}</td>
+                  <td>{{ visitor.alert_reason }}</td>
+                  <td>{{ format_datetime(visitor.last_seen_at) }}</td>
+                  <td>
+                    <button type="button" class="btn mini reader-access-detail-btn" data-actor="{{ visitor.actor_key }}">查看详情</button>
+                    <form method="post" action="{{ control_reader_access_ban_url }}" style="display:inline-block;margin-top:6px" {% if not visitor.reader_blocked %}onsubmit="return confirm('确认暂停该访客的阅读器访问？');"{% endif %}>
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="actor_type" value="{{ visitor.actor_type }}">
+                      <input type="hidden" name="user_id" value="{{ visitor.user_id or '' }}">
+                      <input type="hidden" name="email" value="{{ visitor.email or '' }}">
+                      <input type="hidden" name="client_ip" value="{{ visitor.client_ip or '' }}">
+                      <input type="hidden" name="action" value="{{ 'unban' if visitor.reader_blocked else 'ban' }}">
+                      <button class="btn mini {{ '' if visitor.reader_blocked else 'danger' }}" type="submit">{{ "恢复阅读" if visitor.reader_blocked else "暂停阅读" }}</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div id="reader-access-detail" class="item ai-usage-detail" style="display:none;margin-top:12px"
+               data-endpoint="{{ control_reader_access_url }}" data-date="{{ dashboard_selected_day }}"></div>
+          {% else %}
+          <div class="item muted">所选日期暂无阅读器异常访问。</div>
+          {% endif %}
+
+          <h3 style="margin-top:18px">历史数据</h3>
+          <form class="control-strip" method="get" action="{{ url_for('admin', module='overview') }}">
+            <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+            <label class="field">开始日期
+              <input type="date" name="history_start" value="{{ dashboard_history_start }}">
+            </label>
+            <label class="field">结束日期
+              <input type="date" name="history_end" value="{{ dashboard_history_end }}">
+            </label>
+            <button class="btn" type="submit">查看历史</button>
+            <a class="btn secondary" href="{{ dashboard_export_url }}">下载当前范围 Excel</a>
+            <a class="btn secondary" href="{{ dashboard_export_all_url }}">下载完整历史 Excel</a>
+          </form>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>日期</th><th>当日在线</th><th>注册总数</th><th>新注册</th><th>活跃会员</th><th>当日付费</th><th>搜索</th><th>阅读</th><th>AI请求</th><th>AI token</th><th>高Token用户</th><th>支付异常</th><th>当日发送</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in dashboard_history_rows %}
+                <tr>
+                  <td><a href="{{ url_for('admin', module='overview', date=row.day, history_start=dashboard_history_start, history_end=dashboard_history_end) }}">{{ row.day }}</a></td>
+                  <td>{{ row.today_online or 0 }}</td>
+                  <td>{{ row.total_users or 0 }}</td>
+                  <td>{{ row.new_users_today or 0 }}</td>
+                  <td>{{ row.active_members or 0 }}</td>
+                  <td>{{ format_price(row.paid_today_cents or 0, "CNY") }}</td>
+                  <td>{{ row.searches_today or 0 }}</td>
+                  <td>{{ row.reader_views_today or 0 }}</td>
+                  <td>{{ row.ai_requests_today or 0 }}</td>
+                  <td>{{ row.ai_tokens_today or 0 }}</td>
+                  <td>{{ row.high_token_user_count or 0 }}</td>
+                  <td>{{ row.payment_errors_today or 0 }}</td>
+                  <td>{{ row.journal_recent_sends or 0 }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <details class="item" style="margin-top:14px">
+            <summary style="cursor:pointer;font-weight:800">计算规则附录</summary>
+            <div class="table-list" style="margin-top:10px">
+              {% for rule in dashboard_rules %}
+              <div class="table-row"><strong>{{ rule.name }}</strong><div class="muted">{{ rule.rule }}</div></div>
+              {% endfor %}
+            </div>
+          </details>
+
+          <div class="stats-grid">
+            <div class="stat"><strong>检索</strong>{{ "可用" if state.search_enabled else "不可用" }}</div>
+            <div class="stat"><strong>PDF/全文</strong>{{ "可用" if state.pdf_enabled else "不可用" }}</div>
+            <div class="stat"><strong>AI</strong>{{ "已启用：" ~ state.ai_model if state.ai_enabled else "未启用" }}</div>
+            <div class="stat"><strong>在线支付</strong>{{ "已启用" if state.payment_enabled else "未启用" }}</div>
+            <div class="stat"><strong>支付方式</strong>{{ alipay_runtime.payment_type }}</div>
+            <div class="stat"><strong>网站地址</strong>{{ state.public_base_url or "未配置" }}</div>
+            <div class="stat"><strong>资料版本</strong>{{ state.data_version }}</div>
+            <div class="stat"><strong>管理模块</strong>文案、套餐、权限、期刊订阅</div>
+          </div>
+          {% if state.alipay_problems %}
+          <div class="scroll-box" style="margin-top:14px">
+            {% for problem in state.alipay_problems %}
+            <div class="item">{{ problem }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </section>
+        {% endif %}
+
+        {% if admin_module == "ai" %}
+        <div class="admin-category">智能服务</div>
+        <section class="card" id="ai">
+          <h2>AI 设置</h2>
+          <p class="section-note">{{ ai_override_hint }}</p>
+          <form method="post" action="{{ control_ai_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">Provider
+                <select name="provider">
+                  <option value="zai" {% if ai_settings.provider == "zai" %}selected{% endif %}>zai</option>
+                  <option value="deepseek" {% if ai_settings.provider == "deepseek" %}selected{% endif %}>deepseek</option>
+                </select>
+              </label>
+              <label class="field">模型 <input type="text" name="model" value="{{ ai_settings.model }}"></label>
+              <label class="field-wide">Base URL <input type="text" name="base_url" value="{{ ai_settings.base_url }}"></label>
+              <label class="field-wide">API Key <input type="text" name="api_key" value="{{ ai_settings.api_key }}"></label>
+              <div class="field-wide section-note">联网检索已关闭，AI 只使用上方配置的对话模型。请在这里保留 deepseek 配置即可。</div>
+            </div>
+            <div class="form-grid wide-3" style="margin-top:14px">
+              <label class="field">超时秒数 <input type="number" name="request_timeout_seconds" value="{{ ai_settings.request_timeout_seconds }}" min="5"></label>
+              <label class="field">历史轮数 <input type="number" name="max_history_turns" value="{{ ai_settings.max_history_turns }}" min="1"></label>
+              <label class="field">搜索历史 <input type="number" name="search_history_turns" value="{{ ai_settings.search_history_turns }}" min="1"></label>
+              <label class="field">阅读历史 <input type="number" name="pdf_history_turns" value="{{ ai_settings.pdf_history_turns }}" min="1"></label>
+              <label class="field">温度 <input type="number" step="0.05" name="temperature" value="{{ ai_settings.temperature }}" min="0" max="1.5"></label>
+              <label class="field">搜索消息字数 <input type="number" name="search_message_char_limit" value="{{ ai_settings.search_message_char_limit }}" min="500"></label>
+              <label class="field">阅读消息字数 <input type="number" name="pdf_message_char_limit" value="{{ ai_settings.pdf_message_char_limit }}" min="500"></label>
+              <label class="field">搜索 tokens <input type="number" name="search_answer_max_tokens" value="{{ ai_settings.search_answer_max_tokens }}" min="300"></label>
+              <label class="field">阅读 tokens <input type="number" name="pdf_answer_max_tokens" value="{{ ai_settings.pdf_answer_max_tokens }}" min="300"></label>
+              <label class="field">快速讲解 tokens <input type="number" name="pdf_quick_answer_max_tokens" value="{{ ai_settings.pdf_quick_answer_max_tokens }}" min="300"></label>
+              <label class="field">选中文字数 <input type="number" name="pdf_selected_text_char_limit" value="{{ ai_settings.pdf_selected_text_char_limit }}" min="200"></label>
+              <label class="field">当前页字数 <input type="number" name="pdf_current_text_char_limit" value="{{ ai_settings.pdf_current_text_char_limit }}" min="600"></label>
+              <label class="field">相邻页字数 <input type="number" name="pdf_adjacent_excerpt_char_limit" value="{{ ai_settings.pdf_adjacent_excerpt_char_limit }}" min="60"></label>
+              <label class="field">快速选中文字数 <input type="number" name="pdf_quick_selected_text_char_limit" value="{{ ai_settings.pdf_quick_selected_text_char_limit }}" min="120"></label>
+              <label class="field">快速当前页字数 <input type="number" name="pdf_quick_current_text_char_limit" value="{{ ai_settings.pdf_quick_current_text_char_limit }}" min="300"></label>
+              <label class="field">快速相邻页字数 <input type="number" name="pdf_quick_adjacent_excerpt_char_limit" value="{{ ai_settings.pdf_quick_adjacent_excerpt_char_limit }}" min="60"></label>
+            </div>
+            <div class="actions" style="margin-top:14px">
+              <button class="btn ai-btn" type="submit" name="action" value="save">保存 AI 设置</button>
+              <button class="btn" type="submit" name="action" value="reset">清除后台设置</button>
+            </div>
+          </form>
+        </section>
+        {% endif %}
+
+        {% if admin_module == "content" %}
+        <div class="admin-category">内容运营</div>
+        <section class="card" id="feedback-replies">
+          <h2>用户留言回复</h2>
+          <p class="section-note">用户在首页留言后会发送提醒到 {{ feedback_admin_email }}。你在这里回复后，系统会给用户邮箱发送回复，并同步显示在首页留言栏。</p>
+          <div class="scroll-box">
+            {% for thread in feedback_threads %}
+            <section class="item">
+              <h3>
+                {{ thread.display_name or "未命名用户" }}
+                <span class="muted">{{ thread.user_email }}</span>
+              </h3>
+              <div class="kv">
+                <div>状态：{% if thread.unread_admin_count %}待回复（{{ thread.unread_admin_count }} 条新留言）{% elif thread.status == "answered" %}已回复{% else %}打开{% endif %}</div>
+                <div>最近更新：{{ format_datetime(thread.updated_at) }}</div>
+                {% if thread.last_user_message_at %}<div>最近留言：{{ format_datetime(thread.last_user_message_at) }}</div>{% endif %}
+                {% if thread.last_admin_message_at %}<div>最近回复：{{ format_datetime(thread.last_admin_message_at) }}</div>{% endif %}
+              </div>
+              <details {% if thread.unread_admin_count %}open{% endif %} style="margin-top:10px">
+                <summary style="cursor:pointer;font-weight:800;color:var(--accent)">查看历史会话</summary>
+                <div class="table-list" style="margin-top:10px">
+                  {% for message in thread.messages %}
+                  <div class="table-row">
+                    <strong>{{ "管理员回复" if message.author_role == "admin" else "用户留言" }}</strong>
+                    <div class="muted">{{ format_datetime(message.created_at) }}{% if message.email_status == "failed" %} / 邮件发送失败：{{ message.email_error }}{% elif message.email_status == "sent" %} / 邮件已发送{% endif %}</div>
+                    {% if message.body %}<div style="white-space:pre-wrap;line-height:1.75">{{ message.body }}</div>{% endif %}
+                    {% if message.attachments %}
+                    <div class="feedback-msg-images">
+                      {% for att in message.attachments %}
+                      <a href="{{ url_for('api_feedback_attachment', attachment_id=att.id) }}" target="_blank" rel="noopener noreferrer">
+                        <img src="{{ url_for('api_feedback_attachment', attachment_id=att.id) }}" alt="{{ att.original_name or '图片' }}" loading="lazy">
+                      </a>
+                      {% endfor %}
+                    </div>
+                    {% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+              </details>
+              <form method="post" action="{{ url_for('admin_feedback_reply', thread_id=thread.id) }}" enctype="multipart/form-data" style="margin-top:12px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label class="field-wide">回复内容
+                  <textarea name="body" maxlength="2000" placeholder="输入回复后，将同步发送到用户邮箱并显示在首页留言栏。"></textarea>
+                </label>
+                <label class="field-wide" style="margin-top:8px">附带图片（可选，最多 6 张，单张 ≤5MB）
+                  <input type="file" name="images" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+                </label>
+                <div class="actions" style="margin-top:10px">
+                  <button class="btn primary" type="submit">发送回复</button>
+                </div>
+              </form>
+            </section>
+            {% else %}
+            <div class="item muted">暂无用户留言。</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="card" id="copy">
+          <h2>站点文案</h2>
+          <p class="section-note">{{ site_text_note }}</p>
+          <div class="actions" id="content-scan-actions" style="margin:4px 0 12px">
+            <button type="button" class="btn primary" id="content-scan-btn"
+                    data-scan-url="{{ control_content_scan_url }}">重新检测框架变化</button>
+            {% if control_content_prune_url %}
+            <form method="post" action="{{ control_content_prune_url }}" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button type="submit" class="btn" id="content-prune-btn"
+                      {% if not site_text_coverage.stale_override_count %}disabled{% endif %}>
+                清理失效文案缓存<span id="content-stale-badge">{% if site_text_coverage.stale_override_count %}（{{ site_text_coverage.stale_override_count }}）{% endif %}</span>
+              </button>
+            </form>
+            {% endif %}
+            <span class="muted" id="content-scan-status" style="margin-left:8px"></span>
+          </div>
+          <p class="section-note">点击「重新检测框架变化」会立即重新扫描所有页面模板，捕捉新增/失效/未接入的文案位；具体文字仍在下方表单中修改保存。页面里的按钮、标题、正文说明（除本控制台外）已全部自动接入，可直接在下方「{{ '自动接入文字（按钮 / 标题 / 正文）' }}」分组里编辑。</p>
+          <div class="coverage-grid">
+            <div class="stat"><strong>已登记文案</strong><span data-cov="registered_count">{{ site_text_coverage.registered_count }}</span></div>
+            <div class="stat"><strong>模板正在使用</strong><span data-cov="template_key_count">{{ site_text_coverage.template_key_count }}</span></div>
+            <div class="stat"><strong>自动发现新 key</strong><span data-cov="dynamic_count">{{ site_text_coverage.dynamic_count }}</span></div>
+            <div class="stat"><strong>失效文案缓存</strong><span data-cov="stale_override_count">{{ site_text_coverage.stale_override_count }}</span></div>
+            <div class="stat"><strong>自动接入文字</strong><span data-cov="auto_literal_count">{{ site_text_coverage.auto_literal_count }}</span></div>
+          </div>
+          {% if site_text_coverage.stale_overrides %}
+          <details class="item" id="content-stale-block" open>
+            <summary style="cursor:pointer;font-weight:800">失效文案缓存（框架已删除，仍保留旧值）</summary>
+            <p class="section-note">这些 key 已不在任何模板，也不在登记清单里，是模板改版后遗留的旧文案缓存。点击上方「清理失效文案缓存」即可移除。</p>
+            <div class="coverage-list">
+              {% for key in site_text_coverage.stale_overrides %}
+              <div class="coverage-item"><strong>{{ key }}</strong></div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+          {% if site_text_coverage.dynamic_keys %}
+          <details class="item" open>
+            <summary style="cursor:pointer;font-weight:800">自动发现并已纳入表单的文案 key</summary>
+            <p class="section-note">这些 key 已出现在页面模板里，但不在原手工清单中；后台会自动把它们显示在下方表单，可直接维护。</p>
+            <div class="coverage-list">
+              {% for item in site_text_coverage.dynamic_keys %}
+              <div class="coverage-item">
+                <strong>{{ item.key }}</strong>
+                <code>{{ item.templates|join(", ") }}</code>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+          <form method="post" action="{{ control_site_texts_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="scroll-box">
+              {% for group in site_text_groups %}
+              <section class="item">
+                <h3>{{ group.group }}</h3>
+                {% for entry in group.entries %}
+                <label class="field-wide" style="margin-top:10px">
+                  {{ entry.label }} <span class="muted">{{ entry.key }}</span>
+                  {% if entry.multiline %}
+                  <textarea name="site_text__{{ entry.key }}">{{ entry.value }}</textarea>
+                  {% else %}
+                  <input type="text" name="site_text__{{ entry.key }}" value="{{ entry.value }}">
+                  {% endif %}
+                </label>
+                {% endfor %}
+              </section>
+              {% endfor %}
+            </div>
+            <div class="actions" style="margin-top:14px">
+              <button class="btn primary" type="submit" name="action" value="save">保存文案</button>
+              <button class="btn" type="submit" name="action" value="reset">恢复默认</button>
+            </div>
+          </form>
+        </section>
+        {% endif %}
+      </div>
+
+      <div class="stack">
+        {% if admin_module == "journal" %}
+        <div class="admin-category">期刊订阅</div>
+        <section class="card" id="journal-alerts">
+          <h2>期刊订阅与邮件提醒</h2>
+          {% set freqmap = {"daily":"每天","weekly":"每周","biweekly":"每两周","monthly":"每月"} %}
+          {% set wdnames = ["周一","周二","周三","周四","周五","周六","周日"] %}
+          <p class="section-note">运行流程：系统每天按「抓取时间范围」收录各期刊新文 → 可信来源自动入队、其余进入待审 → 按「发送频率」把摘要发给已确认的订阅邮箱。下面依次为：状态总览 · 发送设置 · 运行与测试 · 期刊来源 · 文章审核 · 运行记录。用户页只负责邮箱确认与退订。</p>
+          <div class="stats-grid">
+            <div class="stat"><strong>全站发信邮箱</strong>{{ "已配置" if journal_smtp_enabled else "未配置" }}{% if smtp_config.from_email %}<br><span class="muted" style="font-weight:400">{{ smtp_config.from_email }}</span>{% endif %}</div>
+            <div class="stat"><strong>发送频率</strong>{{ freqmap.get(journal_alert_settings.send_frequency, "每周") }}{% if journal_alert_settings.send_frequency in ["weekly","biweekly"] %} · {{ wdnames[journal_alert_settings.send_weekday] }}{% endif %}</div>
+            <div class="stat"><strong>抓取时间范围</strong>近 {{ journal_alert_settings.lookback_days }} 天</div>
+            <div class="stat"><strong>全局自动发送</strong>{{ "开启" if journal_alert_settings.auto_publish_all else "关闭（需审核）" }}</div>
+            <div class="stat"><strong>订阅邮箱</strong>{{ dashboard_metrics.journal_subscriptions or 0 }}</div>
+            <div class="stat"><strong>待审文章</strong>{{ dashboard_metrics.journal_pending_articles or 0 }}</div>
+            <div class="stat"><strong>待发送</strong>{{ dashboard_metrics.journal_ready_articles or 0 }}</div>
+            <div class="stat"><strong>近期发送</strong>{{ dashboard_metrics.journal_recent_sends or 0 }}</div>
+            <div class="stat"><strong>中文摘要覆盖</strong>{{ journal_abstract_coverage.cn_with_abstract or 0 }}/{{ journal_abstract_coverage.cn_total or 0 }}</div>
+            <div class="stat"><strong>摘要总覆盖</strong>{{ journal_abstract_coverage.with_abstract or 0 }}/{{ journal_abstract_coverage.total or 0 }}</div>
+          </div>
+
+          <h3 style="margin-top:18px">发送设置</h3>
+          <form class="item" method="post" action="{{ url_for('admin_journal_alert_settings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid wide-3">
+              <label class="field">发送频率
+                <select name="send_frequency">
+                  <option value="daily" {% if journal_alert_settings.send_frequency == "daily" %}selected{% endif %}>每天</option>
+                  <option value="weekly" {% if journal_alert_settings.send_frequency == "weekly" %}selected{% endif %}>每周</option>
+                  <option value="biweekly" {% if journal_alert_settings.send_frequency == "biweekly" %}selected{% endif %}>每两周</option>
+                  <option value="monthly" {% if journal_alert_settings.send_frequency == "monthly" %}selected{% endif %}>每月</option>
+                </select>
+              </label>
+              <label class="field">每周几发送（每周/每两周时生效）
+                <select name="send_weekday">
+                  {% for i in range(7) %}
+                  <option value="{{ i }}" {% if journal_alert_settings.send_weekday == i %}selected{% endif %}>{{ wdnames[i] }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field">抓取时间范围（天）
+                <input type="number" name="lookback_days" value="{{ journal_alert_settings.lookback_days }}" min="1" max="365">
+              </label>
+              <label class="field">发送时间（北京时间 HH:MM）
+                <input type="text" name="send_time" value="{{ journal_alert_settings.send_time }}" placeholder="08:00">
+              </label>
+              <label class="field">定时自动发送默认受众
+                <select name="send_audience">
+                  <option value="subscribers" {% if journal_alert_settings.send_audience == "subscribers" %}selected{% endif %}>邮箱订阅者（按权限）</option>
+                  <option value="members" {% if journal_alert_settings.send_audience == "members" %}selected{% endif %}>付费会员（按套餐）</option>
+                  <option value="registered" {% if journal_alert_settings.send_audience == "registered" %}selected{% endif %}>全部注册用户</option>
+                </select>
+              </label>
+              <div class="field-wide">自动发送限定套餐（仅「付费会员」受众时生效；不勾=全部有效会员）
+                <div class="actions" style="margin-top:6px">
+                  {% for plan in plans_all %}
+                  {% if plan.is_active %}
+                  <label class="checkbox"><input type="checkbox" name="send_audience_plans" value="{{ plan.code }}" {% if plan.code in journal_alert_settings.send_audience_plans %}checked{% endif %}>{{ plan.name }}</label>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <p class="section-note">采集在「发送日的前一天 19:00（北京时间）」自动进行，抓取「抓取时间范围」内各来源公开发表的全部文章；随后按下方自动化档位生成综述、审核，并在发送日的「发送时间」群发。「抓取时间范围」只收录最近 N 天发表的文章（对 OpenAlex/Crossref 生效，越小越时效）。管理员的手动按钮不受频率限制。</p>
+            <div class="form-grid" style="margin-top:12px">
+              <label class="field-wide">邮件标题前缀
+                <input type="text" name="subject_prefix" value="{{ journal_alert_settings.subject_prefix }}" required>
+              </label>
+              <label class="field-wide">邮件开头说明
+                <textarea name="intro_text" required>{{ journal_alert_settings.intro_text }}</textarea>
+              </label>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <label class="checkbox"><input type="checkbox" name="include_title" value="1" {% if journal_alert_settings.include_title %}checked{% endif %}>题名</label>
+              <label class="checkbox"><input type="checkbox" name="include_journal" value="1" {% if journal_alert_settings.include_journal %}checked{% endif %}>期刊名</label>
+              <label class="checkbox"><input type="checkbox" name="include_authors" value="1" {% if journal_alert_settings.include_authors %}checked{% endif %}>作者</label>
+              <label class="checkbox"><input type="checkbox" name="include_published_at" value="1" {% if journal_alert_settings.include_published_at %}checked{% endif %}>发表日期</label>
+              <label class="checkbox"><input type="checkbox" name="include_abstract" value="1" {% if journal_alert_settings.include_abstract %}checked{% endif %}>摘要</label>
+              <label class="checkbox"><input type="checkbox" name="include_citation" value="1" {% if journal_alert_settings.include_citation %}checked{% endif %}>GB/T 7714 引文</label>
+              <label class="checkbox"><input type="checkbox" name="include_url" value="1" {% if journal_alert_settings.include_url %}checked{% endif %}>来源链接</label>
+            </div>
+            <p class="section-note" style="margin-top:14px">上面的「邮件字段」勾选项用于旧版逐篇摘要邮件（降级备用）。现行邮件正文为下方生成的「文献综述」。</p>
+            <h4 style="margin-top:14px">自动化档位（每一步都可保留人工干预）</h4>
+            <div class="form-grid" style="margin-top:8px">
+              <label class="checkbox"><input type="checkbox" name="auto_approve_articles" value="1" {% if journal_alert_settings.auto_approve_articles %}checked{% endif %}>① 自动批准抓取的文章（跳过人工审核）</label>
+              <label class="checkbox"><input type="checkbox" name="auto_generate_review" value="1" {% if journal_alert_settings.auto_generate_review %}checked{% endif %}>② 采集后自动生成文献综述</label>
+              <label class="checkbox"><input type="checkbox" name="auto_send" value="1" {% if journal_alert_settings.auto_send %}checked{% endif %}>③ 自动批准综述并在发送日自动群发（全流程自动化）</label>
+              <label class="checkbox"><input type="checkbox" name="hard_delete_archived" value="1" {% if journal_alert_settings.hard_delete_archived %}checked{% endif %}>归档旧批次时直接硬删除（默认仅归档保留）</label>
+            </div>
+            <div class="item" style="margin-top:12px;border:1px solid #d9534f55;border-radius:8px;padding:10px">
+              <label class="checkbox"><input type="checkbox" name="automation_paused" value="1" {% if journal_alert_settings.automation_paused %}checked{% endif %}><strong>⏸ 暂停自动化（总闸）</strong>：开启后采集 / 生成综述 / 发送各阶段一律暂停，手动按钮仍可用，便于随时干预。</label>
+            </div>
+            <div class="form-grid" style="margin-top:12px">
+              <label class="field-wide">综述专用模型（留空＝沿用当前生效模型）
+                <input type="text" name="review_model" value="{{ journal_alert_settings.review_model }}" placeholder="如 deepseek-v4-pro，留空则用 {{ journal_ai_model }}">
+              </label>
+            </div>
+            <p class="section-note">当前生效 AI 模型：<strong>{{ journal_ai_model or "（未配置）" }}</strong>（{{ "已启用" if journal_ai_enabled else "未启用，将生成降级综述" }}）。兼容旧设置：<label class="checkbox" style="display:inline-flex"><input type="checkbox" name="auto_publish_all" value="1" {% if journal_alert_settings.auto_publish_all %}checked{% endif %}>旧版全局自动发送</label></p>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn primary" type="submit">保存发送设置</button>
+            </div>
+          </form>
+
+          <h3 style="margin-top:18px">运行与测试</h3>
+          <form method="post" action="{{ control_email_test_url }}" style="margin-top:8px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field-wide">测试收件邮箱
+                <input type="email" name="test_email" value="{{ current_user.email }}" required>
+              </label>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn" type="submit" {% if not journal_smtp_enabled %}disabled{% endif %}>发送测试邮件</button>
+            </div>
+          </form>
+          <form method="post" action="{{ control_journal_run_url }}" style="margin-top:14px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn primary" type="submit" name="action" value="collect">① 立即采集本期（开新批次）</button>
+            <button class="btn" type="submit" name="action" value="generate_review">② 生成本期文献综述</button>
+            <button class="btn" type="submit" name="action" value="send_batch" {% if not journal_smtp_enabled %}disabled{% endif %}>③ 立即发送本期综述</button>
+          </form>
+          <p class="section-note">完整顺序：① 采集 → 在「文章审核」批准 → ② 生成综述 → 在「综述审核」批准 → ③ 发送。开启自动化档位后这些步骤可自动衔接，但你随时可手动介入。</p>
+
+          <h3 style="margin-top:18px">期刊来源（共 {{ journal_sources|length }} 个，{{ journal_source_catalog.auto_count or 0 }} 个可自动抓取）</h3>
+          <p class="section-note">英文刊选 OpenAlex/Crossref 并填 ISSN；中文刊选「国哲社期刊页」并填刊号 gch（在 ncpssd.cn 期刊页地址 details?gch=… 中可见）；提供 RSS 的可选 RSS。默认网页抓取需人工审核，确认稳定后勾选「可信来源」即可自动发送。常用项直接可见，其余在每条的「高级设置」里。</p>
+          <form method="post" action="{{ control_journal_backfill_url }}" style="margin:12px 0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn" type="submit">补齐默认来源参数</button>
+          </form>
+          <details class="item" style="margin:12px 0">
+            <summary style="cursor:pointer;font-weight:700">➕ 新增期刊来源</summary>
+            <form method="post" action="{{ control_journal_source_add_url }}" style="margin-top:12px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <div class="form-grid">
+                <label class="field-wide">期刊名称 <input type="text" name="name" required placeholder="如 马克思主义研究"></label>
+                <label class="field">语言
+                  <select name="language">
+                    <option value="zh">中文</option>
+                    <option value="en">英文</option>
+                  </select>
+                </label>
+                <label class="field">来源类型
+                  <select name="source_type">
+                    <option value="manual">暂不自动抓取</option>
+                    <option value="openalex">OpenAlex（按 ISSN）</option>
+                    <option value="crossref">Crossref（按 ISSN）</option>
+                    <option value="rss">RSS（按来源地址）</option>
+                    <option value="web_html">网页目录（需审核）</option>
+                  </select>
+                </label>
+                <label class="field">ISSN <input type="text" name="issn" placeholder="英文刊填写"></label>
+                <label class="field">国哲社刊号 gch <input type="text" name="gch" placeholder="中文刊填写，如 80453X"></label>
+                <label class="field-wide">来源 / 入口 URL <input type="url" name="source_url" placeholder="RSS / 网页目录地址"></label>
+                <label class="field-wide">入口 URL（可选） <input type="url" name="entry_url"></label>
+              </div>
+              <div class="actions" style="margin-top:10px">
+                <label class="checkbox"><input type="checkbox" name="auto_publish" value="1">可信来源（抓到即自动发送）</label>
+                <button class="btn primary" type="submit">新增来源</button>
+              </div>
+            </form>
+          </details>
+          <div class="scroll-box">
+            {% for source in journal_sources %}
+            <form class="item" method="post" action="{{ url_for('admin_journal_source_update', source_id=source.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <h3>{{ source.name }}</h3>
+              <div class="kv">
+                <div>来源状态：{{ source.completeness.label }}{% if source.completeness.parser %} / {{ source.completeness.parser }}{% endif %}</div>
+                <div>最近检测：{{ format_datetime(source.last_checked_at) if source.last_checked_at else "暂无" }}</div>
+                <div>错误：{{ (source.last_error|truncate(140, true)) if source.last_error else "无" }}</div>
+              </div>
+              <div class="form-grid" style="margin-top:12px">
+                <label class="field">来源类型
+                  <select name="source_type">
+                    <option value="manual" {% if source.source_type == "manual" %}selected{% endif %}>暂不自动抓取</option>
+                    <option value="openalex" {% if source.source_type == "openalex" %}selected{% endif %}>OpenAlex（按 ISSN）</option>
+                    <option value="crossref" {% if source.source_type == "crossref" %}selected{% endif %}>Crossref（按 ISSN）</option>
+                    <option value="rss" {% if source.source_type == "rss" %}selected{% endif %}>RSS（按来源地址）</option>
+                    <option value="web_html" {% if source.source_type == "web_html" %}selected{% endif %}>网页目录（需审核）</option>
+                  </select>
+                </label>
+                <label class="field">ISSN <input type="text" name="issn" value="{{ source.issn }}"></label>
+                <label class="field">国哲社刊号 gch <input type="text" name="gch" value="{{ source.config.gch or '' }}" placeholder="如 80453X"></label>
+                <details class="field-wide">
+                  <summary style="cursor:pointer;font-weight:700">高级设置（解析器 / 来源地址 / 备用地址）</summary>
+                  <div class="form-grid" style="margin-top:10px">
+                    <label class="field">解析器
+                      <select name="parser">
+                        <option value="" {% if not source.config.parser %}selected{% endif %}>自动</option>
+                        <option value="ncpssd_journal" {% if source.config.parser == "ncpssd_journal" %}selected{% endif %}>国哲社期刊页（按 gch）</option>
+                        <option value="qstheory_list" {% if source.config.parser == "qstheory_list" %}selected{% endif %}>求是网列表</option>
+                        <option value="ncssd_cnki_list" {% if source.config.parser == "ncssd_cnki_list" %}selected{% endif %}>国哲社/知网页面（旧）</option>
+                        <option value="generic" {% if source.config.parser == "generic" %}selected{% endif %}>通用网页列表</option>
+                      </select>
+                    </label>
+                    <label class="field">检索 ISSN <input type="text" name="search_issn" value="{{ source.config.search_issn or source.issn }}"></label>
+                    <label class="field-wide">来源 URL <input type="url" name="source_url" value="{{ source.source_url }}"></label>
+                    <label class="field-wide">入口 URL <input type="url" name="entry_url" value="{{ source.config.entry_url or '' }}"></label>
+                    <label class="field">链接含子串 <input type="text" name="link_selector" value="{{ source.config.link_selector or '' }}" placeholder="通用解析器可选，如 /content/"></label>
+                    <label class="field-wide">备用 URL（每行一个）
+                      <textarea name="fallback_urls">{{ (source.config.fallback_urls or [])|join('\n') }}</textarea>
+                    </label>
+                  </div>
+                </details>
+                <label class="checkbox"><input type="checkbox" name="is_enabled" value="1" {% if source.is_enabled %}checked{% endif %}>启用</label>
+                <label class="checkbox"><input type="checkbox" name="auto_publish" value="1" {% if source.config.auto_publish %}checked{% endif %}>可信来源（抓到即自动发送，不经人工审核）</label>
+              </div>
+              <div class="actions"><button class="btn" type="submit">保存来源</button></div>
+            </form>
+            {% endfor %}
+          </div>
+
+          <h3 style="margin-top:18px">文章审核（当前批次）</h3>
+          {% if journal_current_batch %}
+          <p class="section-note">
+            当前批次 #{{ journal_current_batch.id }} · 状态 {{ journal_current_batch.status }} · 抓取窗口
+            {{ format_datetime(journal_current_batch.period_start) if journal_current_batch.period_start else "—" }}
+            ~ {{ format_datetime(journal_current_batch.period_end) if journal_current_batch.period_end else "—" }}。
+            只显示本批次文章；上一批未处理文章已自动归档，不再堆积。
+          </p>
+          <form method="post" action="{{ control_journal_archive_url }}" style="display:inline-block;margin:6px 6px 6px 0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn" type="submit">归档旧批次未处理文章</button>
+          </form>
+          <form method="post" action="{{ control_journal_purge_url }}" style="display:inline-block;margin:6px 0" onsubmit="return confirm('确认硬删除所有已归档文章？此操作不可恢复。');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn" type="submit">硬删除已归档文章</button>
+          </form>
+          {% else %}
+          <p class="section-note">当前没有批次。点击上方「① 立即采集本期」开始，或等待发送日前一天 19:00 自动采集。</p>
+          {% endif %}
+
+          <h4 style="margin-top:14px">待审核（{{ journal_batch_pending_articles|length }} 篇）</h4>
+          {% if journal_batch_pending_articles %}
+          <form method="post" action="{{ control_journal_approve_all_url }}" style="margin:8px 0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn primary" type="submit">一键批准全部待审</button>
+          </form>
+          {% endif %}
+          <div class="table-list">
+            {% for article in journal_batch_pending_articles %}
+            <div class="table-row">
+              <strong>{{ article.title }}</strong>
+              <div class="kv">
+                {% if article.ai_discipline %}<div>学科：{{ article.ai_discipline }}{% if article.ai_problem_type %} · {{ article.ai_problem_type }}{% endif %}</div>{% endif %}
+                <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }} / {{ article.url or "链接暂缺" }}</div>
+                {% if article.abstract %}<div>{{ article.abstract|truncate(200, true) }}</div>{% endif %}
+                <div>{{ article.citation_gb2015 }}</div>
+              </div>
+              <form method="post" action="{{ url_for(control_journal_article_review_endpoint, article_id=article.id) }}" class="actions" style="margin-top:10px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn primary" type="submit" name="action" value="approve">批准</button>
+                <button class="btn" type="submit" name="action" value="ignore">忽略</button>
+              </form>
+            </div>
+            {% else %}
+            <div class="item muted">本批次暂无待审核文章。</div>
+            {% endfor %}
+          </div>
+
+          <h4 style="margin-top:14px">已批准待发送（{{ journal_batch_ready_articles|length }} 篇）</h4>
+          <div class="table-list">
+            {% for article in journal_batch_ready_articles %}
+            <div class="table-row">
+              <strong>{{ article.title }}</strong>
+              <div class="kv">
+                {% if article.ai_discipline %}<div>学科：{{ article.ai_discipline }}{% if article.ai_problem_type %} · {{ article.ai_problem_type }}{% endif %}</div>{% endif %}
+                <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }}</div>
+              </div>
+              <form method="post" action="{{ url_for(control_journal_article_review_endpoint, article_id=article.id) }}" class="actions" style="margin-top:10px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn" type="submit" name="action" value="reopen">退回待审核</button>
+                <button class="btn" type="submit" name="action" value="ignore">忽略</button>
+              </form>
+            </div>
+            {% else %}
+            <div class="item muted">本批次暂无已批准待发送文章。</div>
+            {% endfor %}
+          </div>
+
+          <h3 style="margin-top:18px">综述审核</h3>
+          <style>
+            .journal-review-preview { line-height: 1.85; color: #231d17; }
+            .journal-review-preview h1 { font-size: 1.3rem; color: #5f1717; border-bottom: 2px solid #f5e2dc; padding-bottom: 6px; }
+            .journal-review-preview h2 { font-size: 1.08rem; color: #5f1717; border-left: 4px solid #8f1d1d; background: #f7ede6; padding: 6px 10px; border-radius: 8px; }
+            .journal-review-preview h3 { font-size: 1rem; color: #7a2222; }
+            .journal-review-preview blockquote { border-left: 4px solid rgba(143,29,29,.5); background: #fffdf8; margin: 10px 0; padding: 8px 12px; color: #4a3b30; }
+            .journal-review-preview ul, .journal-review-preview ol { padding-left: 1.4em; }
+            .journal-review-preview strong { color: #5f1717; }
+            .journal-send-status { margin: 4px 0 12px; padding: 12px 14px; border-radius: 10px; line-height: 1.7; border: 1px solid; }
+            .journal-send-status.ok { background: #e8f5ec; border-color: #bfe2c9; color: #22543d; }
+            .journal-send-status.warn, .journal-send-status.pending { background: #fff4d6; border-color: #f0dca0; color: #8a5b00; }
+            .journal-send-status.paused { background: #f7e9e9; border-color: #e3c2c2; color: #8a2b2b; }
+            .journal-send-status.muted { background: #f3efe8; border-color: #ddd2c2; color: #6b6258; }
+          </style>
+          {% if journal_send_status and journal_send_status.text %}
+          <div class="journal-send-status {{ journal_send_status.level }}">{{ journal_send_status.text }}</div>
+          {% endif %}
+          {% if journal_current_batch %}
+          <p class="section-note">
+            综述状态：<strong>{{ journal_current_batch.review_status }}</strong>
+            {% if journal_current_batch.review_model %} · 生成模型 {{ journal_current_batch.review_model }}{% endif %}
+            {% if journal_current_batch.review_generated_at %} · 生成于 {{ format_datetime(journal_current_batch.review_generated_at) }}{% endif %}。
+            综述按五大学科 + 经典/前沿分类，文末附 GB2015 引文，覆盖本批全部文章。可直接编辑后批准。
+          </p>
+          <form method="post" action="{{ url_for(control_journal_review_endpoint, digest_id=journal_current_batch.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field-wide">综述正文（Markdown）
+              <textarea name="review_md" rows="16" style="font-family:ui-monospace,Consolas,monospace">{{ journal_current_batch.review_md }}</textarea>
+            </label>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit" name="action" value="save">保存草稿</button>
+              <button class="btn" type="submit" name="action" value="regenerate">重新生成</button>
+              <button class="btn primary" type="submit" name="action" value="approve">保存并批准</button>
+              <button class="btn" type="submit" name="action" value="reject">退回</button>
+            </div>
+          </form>
+          {% if journal_current_batch.review_html %}
+          <details class="item" style="margin-top:12px" open>
+            <summary style="cursor:pointer;font-weight:700">渲染预览（与邮件/首页一致的排版）</summary>
+            <div class="journal-review-preview">{{ journal_current_batch.review_html|safe }}</div>
+          </details>
+          {% endif %}
+          <form method="post" action="{{ url_for(control_journal_digest_send_endpoint, digest_id=journal_current_batch.id) }}" style="margin-top:12px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <h4 style="margin:6px 0">发送对象</h4>
+            <div class="form-grid">
+              <label class="field">受众
+                <select name="recipient_mode" id="journal-recipient-mode">
+                  <option value="subscribers">邮箱订阅者（按权限）</option>
+                  <option value="members">付费会员（按套餐）</option>
+                  <option value="registered">全部注册用户</option>
+                  <option value="specific">特定邮箱（手填）</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-grid" data-recipient="members" style="margin-top:8px">
+              <div class="field-wide">按套餐勾选（不勾=全部有效付费会员）
+                <div class="actions" style="margin-top:6px">
+                  {% for plan in plans_all %}
+                  {% if plan.is_active %}
+                  <label class="checkbox"><input type="checkbox" name="recipient_plans" value="{{ plan.code }}">{{ plan.name }}（{{ plan.code }}）</label>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <label class="field-wide" data-recipient="specific" style="margin-top:8px">特定邮箱（每行一个）
+              <textarea name="recipient_emails" rows="4" placeholder="someone@example.com"></textarea>
+            </label>
+            <p class="section-note">选「付费会员/全部注册用户/特定邮箱」时为管理员强制群发，忽略「期刊提醒」权限；选「邮箱订阅者」时仍按控制台权限发送。同一批次按邮箱去重，重复发不会重收。</p>
+            <div class="actions" style="margin-top:8px">
+              <button class="btn primary" type="submit" {% if not journal_smtp_enabled %}disabled{% endif %}>发送本期综述邮件</button>
+            </div>
+          </form>
+          <script>
+            (function () {
+              var sel = document.getElementById('journal-recipient-mode');
+              if (!sel) return;
+              function sync() {
+                var blocks = document.querySelectorAll('[data-recipient]');
+                for (var i = 0; i < blocks.length; i++) {
+                  blocks[i].style.display = (blocks[i].getAttribute('data-recipient') === sel.value) ? '' : 'none';
+                }
+              }
+              sel.addEventListener('change', sync);
+              sync();
+            })();
+          </script>
+          {% else %}
+          <div class="item muted">暂无批次可生成综述。</div>
+          {% endif %}
+
+          <h3 style="margin-top:18px">订阅概览</h3>
+          <div class="table-list">
+            {% for subscription in journal_alert_subscriptions %}
+            <div class="table-row">
+              <strong>{{ subscription.email }} / {{ subscription.status }}</strong>
+              <div class="kv">
+                <div>账号：{{ subscription.user_account_email }} / {{ subscription.display_name or "未命名" }}</div>
+                <div>确认：{{ format_datetime(subscription.confirmed_at) if subscription.confirmed_at else "尚未确认" }} / 最近摘要：{{ format_datetime(subscription.last_sent_at) if subscription.last_sent_at else "暂无" }}</div>
+                <div>更新：{{ format_datetime(subscription.updated_at) }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无订阅邮箱。</div>
+            {% endfor %}
+          </div>
+
+          <h3 style="margin-top:18px">最近检测</h3>
+          <div class="table-list">
+            {% for run in journal_recent_runs %}
+            <div class="table-row">
+              <strong>{{ run.status }}</strong>
+              <div class="kv">
+                <div>{{ format_datetime(run.started_at) }} - {{ format_datetime(run.finished_at) if run.finished_at else "运行中" }}</div>
+                <div>来源 {{ run.sources_checked }}，发现 {{ run.articles_found }}，新增 {{ run.articles_inserted }}，邮件 {{ run.emails_sent }}</div>
+                {% if run.error %}<details><summary style="cursor:pointer">错误详情（{{ run.error.split(';')|length }} 条，点击展开）</summary><div style="white-space:pre-wrap; word-break:break-all; color:var(--muted)">{{ run.error }}</div></details>{% endif %}
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无检测记录。</div>
+            {% endfor %}
+          </div>
+
+          <details class="item" style="margin-top:18px">
+          <summary style="cursor:pointer;font-weight:800">最近文章（点击展开）</summary>
+          <div class="table-list" style="margin-top:10px">
+            {% for article in journal_recent_articles %}
+            <div class="table-row">
+              <strong>{{ article.title }}</strong>
+              <div class="kv">
+                <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }} / {{ article.status }}</div>
+                <div>{{ article.citation_gb2015 }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无文章记录。</div>
+            {% endfor %}
+          </div>
+          </details>
+
+          <details class="item" style="margin-top:18px">
+          <summary style="cursor:pointer;font-weight:800">发送记录（点击展开）</summary>
+          <div class="table-list" style="margin-top:10px">
+            {% for log in journal_delivery_logs %}
+            <div class="table-row">
+              <strong>{{ log.status }} / {{ log.email }}</strong>
+              <div class="kv">
+                <div>{{ log.journal_name }}：{{ log.title }}</div>
+                <div>{{ format_datetime(log.created_at) }}</div>
+                {% if log.error %}<div>{{ log.error }}</div>{% endif %}
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无发送记录。</div>
+            {% endfor %}
+          </div>
+          </details>
+        </section>
+
+        {% endif %}
+
+        {% if admin_module == "members" %}
+        <div class="admin-category">会员与权限</div>
+        <section class="card" id="plans">
+          <h2>套餐管理</h2>
+          <div class="scroll-box">
+            {% for plan in plans_all %}
+            <form class="item" method="post" action="{{ control_plans_url }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <div class="form-grid">
+                <label class="field">代码 <input type="text" name="code" value="{{ plan.code }}"></label>
+                <label class="field">名称 <input type="text" name="name" value="{{ plan.name }}"></label>
+                <label class="field">价格分 <input type="number" name="price_cents" value="{{ plan.price_cents }}" min="0"></label>
+                <label class="field">币种 <input type="text" name="currency" value="{{ plan.currency }}"></label>
+                <label class="field">周期月 <input type="number" name="interval_months" value="{{ plan.interval_months }}" min="1"></label>
+                <label class="field">排序 <input type="number" name="sort_order" value="{{ plan.sort_order }}"></label>
+                <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" value="{{ plan.daily_ai_token_limit if plan.daily_ai_token_limit is not none else '' }}" min="0" placeholder="留空不限额"></label>
+                <label class="field-wide">说明 <textarea name="description">{{ plan.description }}</textarea></label>
+              </div>
+              <div class="actions">
+                <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if plan.is_active %}checked{% endif %}>上架</label>
+                <button class="btn" type="submit">保存套餐</button>
+              </div>
+            </form>
+            {% endfor %}
+            <form class="item" method="post" action="{{ control_plans_url }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <h3>新增套餐</h3>
+              <div class="form-grid">
+                <label class="field">代码 <input type="text" name="code" required></label>
+                <label class="field">名称 <input type="text" name="name" required></label>
+                <label class="field">价格分 <input type="number" name="price_cents" value="0" min="0"></label>
+                <label class="field">币种 <input type="text" name="currency" value="CNY"></label>
+                <label class="field">周期月 <input type="number" name="interval_months" value="1" min="1"></label>
+                <label class="field">排序 <input type="number" name="sort_order" value="50"></label>
+                <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" min="0" placeholder="留空不限额"></label>
+                <label class="field-wide">说明 <textarea name="description"></textarea></label>
+              </div>
+              <div class="actions">
+                <label class="checkbox"><input type="checkbox" name="is_active" value="1" checked>上架</label>
+                <button class="btn primary" type="submit">创建套餐</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section class="card" id="plan-access">
+          <h2>套餐功能开放</h2>
+          <p class="section-note">这里统一管理访客、注册用户、月度会员、年度会员以及后续新增套餐可以使用哪些功能。单个用户仍可在“用户管理”里临时覆盖。</p>
+          <form class="item" method="post" action="{{ control_access_policy_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="save_plans">
+            <div class="matrix">
+              <div class="matrix-row matrix-head" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+                <div>对象</div>
+                {% for key in feature_access_keys %}
+                <div>{{ feature_access_labels[key] }}</div>
+                {% endfor %}
+              </div>
+              {% for row in audience_feature_access %}
+              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+                <div>
+                  <strong>{{ row.label }}</strong>
+                  <div class="muted">{{ "未登录访问者" if row.key == "guest" else "已登录但未开通会员" }}</div>
+                </div>
+                {% for key in feature_access_keys %}
+                <label class="checkbox">
+                  <input type="checkbox" name="audience_{{ row.key }}_{{ key }}" value="1" {% if row.values[key] %}checked{% endif %}>
+                  开放
+                </label>
+                {% endfor %}
+              </div>
+              {% endfor %}
+              {% for row in plan_feature_access %}
+              {% set plan = row.plan %}
+              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+                <div>
+                  <strong>{{ plan.name }}</strong>
+                  <div class="muted">{{ plan.code }}{% if not plan.is_active %} / 已下架{% endif %}</div>
+                </div>
+                {% for key in feature_access_keys %}
+                <label class="checkbox">
+                  <input type="checkbox" name="plan_{{ plan.code }}_{{ key }}" value="1" {% if row.values[key] %}checked{% endif %}>
+                  开放
+                </label>
+                {% endfor %}
+              </div>
+              {% endfor %}
+            </div>
+            <div class="actions" style="margin-top:14px">
+              <button class="btn primary" type="submit">保存套餐权限</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card" id="payments">
+          <h2>支付记录</h2>
+          <p class="section-note">这里查看近期订单、支付返回记录和会员开通结果，便于核对用户是否已经完成支付。</p>
+          <div class="stats-grid">
+            <div class="stat"><strong>支付状态</strong>{{ "已启用" if alipay_runtime.enabled else "未启用" }}</div>
+            <div class="stat"><strong>网关</strong><code>{{ alipay_runtime.gateway_url }}</code></div>
+            <div class="stat"><strong>支付通知</strong>{{ "已配置" if alipay_runtime.notify_url else "未配置" }}</div>
+            <div class="stat"><strong>支付返回</strong>{{ "已配置" if alipay_runtime.return_url else "未配置" }}</div>
+          </div>
+          {% if alipay_runtime.problems %}
+          <div class="scroll-box" style="margin-top:14px">
+            {% for problem in alipay_runtime.problems %}
+            <div class="item">{{ problem }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <h3 style="margin-top:18px">清理待支付旧订单</h3>
+          <p class="section-note">
+            把卡住的「待支付」旧订单一键置为已过期(不删除,保留记录)。常用于:改过价、或之前出码异常导致用户手里留着旧订单——清理后该用户下次下单会<strong>按当前价新建</strong>,二维码与金额恢复正常。留空邮箱=清理全部;填邮箱=只清该用户。
+          </p>
+          <form method="post" action="{{ control_payment_clear_pending_url }}" class="item"
+                onsubmit="return confirm('确认把待支付旧订单置为已过期？(不影响已支付订单)');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field-wide">用户邮箱（留空=清理全部待支付订单）
+                <input type="email" name="email" placeholder="只清某个卡住的账号就填它的邮箱">
+              </label>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit">清理待支付订单</button>
+            </div>
+          </form>
+
+          <h3 style="margin-top:18px">出码自测（找可用金额）</h3>
+          <p class="section-note">
+            输入金额点「测试出码」，看 ZPay 能否为该金额生成二维码（<strong>不改公开价格、不产生本站订单</strong>，仅在 ZPay 侧生成一个会自动过期的临时单）。
+            年度 ¥69 可用、月度 ¥9 报 ACQ 即「按金额路由到坏通道」。逐步试出能出码的最低金额（如 ¥12/¥18/¥28…），再把月度价格设成它，即可恢复 api/redirect 全自动开通。
+          </p>
+          <form method="post" action="{{ control_payment_test_qr_url }}" class="item">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">测试金额（元）
+                <input type="number" step="0.01" min="0.01" name="amount" value="12.00">
+              </label>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit" {% if not alipay_runtime.enabled %}disabled{% endif %}>测试出码</button>
+            </div>
+          </form>
+
+          <h3 style="margin-top:18px">收款二维码渲染</h3>
+          <p class="section-note">
+            报错 <code>ACQ.APPLY_PC_MERCHANT_CODE_ERROR</code> 是 ZPay 按金额把小额订单路由到的支付宝通道未开通「当面付 PC 扫码」所致（年度可用、月度失败即此原因）。
+            这里可逐套餐选择出码方式：<strong>api</strong>＝本站调 ZPay API 拿支付链接、自行渲染二维码（绕开网关页面）；<strong>manual</strong>＝用你上传的固定收款码（最稳，付款后由管理员在「会员授权」处手动开通）；<strong>redirect</strong>＝旧版跳转网关页面。可随时切换。
+          </p>
+          <form class="item" method="post" action="{{ control_payment_qr_url }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">全局默认出码方式
+              <select name="default_mode">
+                {% for m in ["api", "manual", "redirect"] %}
+                <option value="{{ m }}" {% if payment_qr_settings.default_mode == m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="scroll-box" style="margin-top:12px">
+              {% for plan in plans_all %}
+              {% set pcfg = payment_qr_settings.plans.get(plan.code, {}) %}
+              <div class="item">
+                <h4 style="margin:0 0 8px">{{ plan.name }} <span class="muted">（{{ format_price(plan.price_cents, plan.currency) }} / {{ plan.code }}）</span></h4>
+                <div class="form-grid">
+                  <label class="field">出码方式
+                    <select name="mode_{{ plan.code }}">
+                      <option value="" {% if not pcfg.mode %}selected{% endif %}>继承默认（{{ payment_qr_settings.default_mode }}）</option>
+                      <option value="api" {% if pcfg.mode == "api" %}selected{% endif %}>api（本站渲染二维码）</option>
+                      <option value="manual" {% if pcfg.mode == "manual" %}selected{% endif %}>manual（手动收款码）</option>
+                      <option value="redirect" {% if pcfg.mode == "redirect" %}selected{% endif %}>redirect（跳转网关）</option>
+                    </select>
+                  </label>
+                  <label class="field">手动收款码图片（png/jpg/gif/webp/svg，≤400KB）
+                    <input type="file" name="image_{{ plan.code }}" accept="image/*">
+                  </label>
+                  <label class="field-wide">收款说明（manual 模式下显示给用户）
+                    <input type="text" name="note_{{ plan.code }}" value="{{ pcfg.note or '' }}" placeholder="如：付款备注填写你的注册邮箱，便于核对开通">
+                  </label>
+                </div>
+                {% if pcfg.image %}
+                <div class="kv" style="margin-top:8px">
+                  <div>当前已配置收款码：</div>
+                  <img src="{{ pcfg.image }}" alt="收款码预览" style="width:120px;height:120px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff">
+                  <label class="checkbox"><input type="checkbox" name="clear_{{ plan.code }}" value="1">删除该收款码</label>
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button class="btn primary" type="submit">保存收款二维码设置</button>
+            </div>
+          </form>
+
+          <h3 style="margin-top:18px">最近订单</h3>
+          <div class="table-list">
+            {% for order in recent_orders %}
+            <div class="table-row">
+              <strong>{{ order.order_no }} / {{ order.status }}</strong>
+              <div class="kv">
+                <div>{{ order.user_email }} / {{ order.plan_name }} / {{ format_price(order.amount_cents, order.currency) }}</div>
+                <div>渠道：{{ order.payment_provider or "pending" }} / 交易号：{{ order.payment_reference or "暂无" }}</div>
+                <div>创建：{{ format_datetime(order.created_at) }}{% if order.paid_at %} / 支付：{{ format_datetime(order.paid_at) }}{% endif %}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无订单记录。</div>
+            {% endfor %}
+          </div>
+
+          <h3 style="margin-top:18px">最近支付事件</h3>
+          <div class="table-list">
+            {% for event in recent_payment_events %}
+            <div class="table-row">
+              <strong>{{ event.provider }} / {{ event.event_type }} / {{ event.order_no }}</strong>
+              <div class="kv">
+                <div>{{ event.user_email or "未知用户" }} / {{ format_datetime(event.created_at) }}</div>
+                <div>{{ event.payload_json }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无支付事件。</div>
+            {% endfor %}
+          </div>
+
+          <h3 style="margin-top:18px">最近订阅</h3>
+          <div class="table-list">
+            {% for subscription in recent_subscriptions %}
+            <div class="table-row">
+              <strong>{{ subscription.user_email }} / {{ subscription.plan_name }} / {{ subscription.status }}</strong>
+              <div class="kv">
+                <div>来源：{{ subscription.source }} / 开始：{{ format_datetime(subscription.starts_at) }} / 到期：{{ format_datetime(subscription.expires_at) }}</div>
+                <div>创建：{{ format_datetime(subscription.created_at) }}</div>
+              </div>
+            </div>
+            {% else %}
+            <div class="item muted">暂无订阅记录。</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="card" id="members">
+          <h2>用户管理</h2>
+          <form class="item" method="post" action="{{ control_access_policy_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="action" value="save_global">
+            <h3>功能默认权限</h3>
+            <p class="section-note">这是所有套餐未单独设置时的默认值。常用的月度、年度差异请优先在“套餐功能开放”里调整。</p>
+            <div class="actions">
+              {% for key in feature_access_keys %}
+              <label class="checkbox">
+                <input type="checkbox" name="global_{{ key }}" value="1" {% if access_policy["global"][key] %}checked{% endif %}>
+                {{ feature_access_labels[key] }}
+              </label>
+              {% endfor %}
+              <button class="btn primary" type="submit">保存默认权限</button>
+            </div>
+          </form>
+
+          <form class="item" method="post" action="{{ control_membership_grant_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">邮箱 <input type="email" name="user_email" required></label>
+              <label class="field">套餐
+                <select name="plan_code" required>
+                  {% for plan in plans_all if plan.is_active %}
+                  <option value="{{ plan.code }}">{{ plan.name }} ({{ plan.code }})</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field-wide">备注 <textarea name="note"></textarea></label>
+            </div>
+            <div class="actions"><button class="btn primary" type="submit">手动开通</button></div>
+          </form>
+          <form class="item" method="get" action="{{ control_user_search_url }}" style="margin-top:12px">
+            <input type="hidden" name="section" value="members">
+            <label class="field">搜索用户 <input type="text" name="user_q" value="{{ user_q }}"></label>
+            <div class="actions"><button class="btn" type="submit">筛选</button></div>
+          </form>
+          <div class="scroll-box" style="margin-top:12px">
+            {% for user in users %}
+            <form class="item" method="post" action="{{ url_for(control_user_update_endpoint, user_id=user.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="user_q" value="{{ user_q }}">
+              <h3>{{ user.display_name }} <span class="muted">{{ user.email }}</span></h3>
+              <div class="kv">
+                <div>会员：{{ user.membership_status or "free" }} / {{ user.membership_plan_name or "未开通" }}</div>
+                <div>到期：{{ format_datetime(user.membership_expires_at) if user.membership_expires_at else "暂无" }}</div>
+                <div>最近登录：{{ format_datetime(user.last_login_at) if user.last_login_at else "暂无" }}</div>
+              </div>
+              <div class="form-grid" style="margin-top:12px">
+                <label class="field">角色
+                  <select name="role">
+                    <option value="member" {% if user.role == "member" %}selected{% endif %}>member</option>
+                    <option value="admin" {% if user.role == "admin" %}selected{% endif %}>admin</option>
+                  </select>
+                </label>
+                <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %}>允许登录</label>
+                <label class="field">用户每日 AI token 覆盖
+                  <input type="number" name="daily_ai_token_limit_override" value="{{ user.daily_ai_token_limit_override if user.daily_ai_token_limit_override is not none else '' }}" min="0" placeholder="留空继承套餐">
+                </label>
+              </div>
+              <div class="actions"><button class="btn" type="submit">保存用户</button></div>
+            </form>
+            <form class="item" method="post" action="{{ control_access_policy_url }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="action" value="save_user">
+              <input type="hidden" name="user_email" value="{{ user.email }}">
+              <input type="hidden" name="user_q" value="{{ user_q }}">
+              <h3>个别权限 <span class="muted">{{ user.email }}</span></h3>
+              <div class="form-grid">
+                {% for key in feature_access_keys %}
+                {% set override = user.feature_access.overrides.get(key) if user.feature_access and user.feature_access.overrides else none %}
+                <label class="field">{{ feature_access_labels[key] }}
+                  <select name="user_{{ key }}">
+                    <option value="inherit" {% if override is none %}selected{% endif %}>跟随全站默认（当前{{ "允许" if user.feature_access.effective[key] else "禁止" }}）</option>
+                    <option value="allow" {% if override is sameas true %}selected{% endif %}>单独允许</option>
+                    <option value="deny" {% if override is sameas false %}selected{% endif %}>单独禁止</option>
+                  </select>
+                </label>
+                {% endfor %}
+              </div>
+              <div class="actions">
+                <button class="btn" type="submit">保存个别权限</button>
+                <button class="btn" type="submit" name="action" value="reset_user">恢复默认</button>
+              </div>
+            </form>
+            {% else %}
+            <div class="item muted">没有找到用户。</div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <script>
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' });
+
+    (function () {
+      const panel = document.getElementById('ai-usage-detail');
+      const buttons = document.querySelectorAll('.ai-usage-detail-btn');
+      if (!panel || !buttons.length) return;
+      const endpoint = panel.dataset.endpoint;
+      const date = panel.dataset.date || '';
+      if (!endpoint) return;
+
+      function esc(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      const FEATURE_LABELS = {
+        'search-chat': '首页随心问',
+        'pdf-chat': '阅读器 AI 导学',
+        'pdf-chat-stream': '阅读器 AI 导学（流式）',
+      };
+
+      function render(data) {
+        const u = data.user || {};
+        const s = data.summary || {};
+        const items = data.items || [];
+        let html = '<h3 style="margin-top:0">用量详情 · ' + esc(u.email || '') +
+          (u.display_name ? ' <span class="muted">' + esc(u.display_name) + '</span>' : '') + '</h3>';
+        const providerList = (s.providers || []).join('、') || '（无记录）';
+        const modelList = (s.models || []).join('、') || '（无记录）';
+        const ipList = (s.client_ips || []).join('、') || '（未记录）';
+        const mismatch = (s.providers || []).some(function (p) { return p && p !== s.configured_provider; });
+        html += '<div class="au-summary">' +
+          '<div>统计区间：' + (date ? esc(date) + ' 当日' : '最近请求') + '，共 ' + esc(s.request_count || 0) + ' 条记录。</div>' +
+          '<div>本站固定上游：<strong>' + esc(s.configured_provider || '') + ' / ' + esc(s.configured_model || '') + '</strong>（' + esc(s.configured_base_url || '') + '）。用户无法在请求中改写该接口。</div>' +
+          '<div>实际命中 provider：' + esc(providerList) + (mismatch ? ' <span class="au-fail">（出现非默认接口，请留意）</span>' : '') + '</div>' +
+          '<div>实际命中 model：' + esc(modelList) + '</div>' +
+          '<div>客户端 IP：' + esc(ipList) + '</div>' +
+          (u.ai_blocked ? '<div class="au-fail">该用户当前已被暂停 AI。</div>' : '') +
+          '</div>';
+        if (!items.length) {
+          html += '<div class="muted">该区间暂无 AI 请求记录。</div>';
+        } else {
+          items.forEach(function (it) {
+            const feature = FEATURE_LABELS[it.feature] || it.feature || '未知';
+            const ok = it.success ? '成功' : '失败';
+            let meta = esc(it.created_at) + ' · ' + esc(feature) + ' · ' + esc(it.total_tokens || 0) + ' token · ' +
+              (it.success ? ok : '<span class="au-fail">' + ok + '</span>');
+            if (it.client_ip) meta += ' · IP ' + esc(it.client_ip);
+            if (it.provider && it.provider !== s.configured_provider) meta += ' · <span class="au-fail">接口 ' + esc(it.provider) + '</span>';
+            html += '<div class="au-row"><div class="au-meta">' + meta + '</div>';
+            if (it.source_ref) html += '<div class="au-meta">来源：' + esc(it.source_ref) + '</div>';
+            html += '<div class="au-input">' + (it.prompt_excerpt ? esc(it.prompt_excerpt) : '<span class="muted">（无输入记录）</span>') + '</div>';
+            if (!it.success && it.error) html += '<div class="au-meta au-fail">错误：' + esc(it.error) + '</div>';
+            html += '</div>';
+          });
+        }
+        html += '<div class="actions" style="margin-top:10px"><button type="button" class="btn mini" id="ai-usage-close">收起</button></div>';
+        panel.innerHTML = html;
+        const closeBtn = document.getElementById('ai-usage-close');
+        if (closeBtn) closeBtn.addEventListener('click', function () { panel.style.display = 'none'; });
+      }
+
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const userId = btn.dataset.userId;
+          if (!userId) return;
+          panel.style.display = 'block';
+          panel.innerHTML = '<div class="muted">正在加载用量详情…</div>';
+          panel.scrollIntoView({ block: 'nearest' });
+          try {
+            const url = endpoint + '?user_id=' + encodeURIComponent(userId) + (date ? '&date=' + encodeURIComponent(date) : '');
+            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+              panel.innerHTML = '<div class="au-fail">加载失败：' + esc((data && data.error) || ('HTTP ' + resp.status)) + '</div>';
+              return;
+            }
+            render(data);
+          } catch (err) {
+            panel.innerHTML = '<div class="au-fail">加载失败：' + esc(err && err.message ? err.message : err) + '</div>';
+          }
+        });
+      });
+    })();
+
+    (function () {
+      const panel = document.getElementById('reader-access-detail');
+      const buttons = document.querySelectorAll('.reader-access-detail-btn');
+      if (!panel || !buttons.length) return;
+      const endpoint = panel.dataset.endpoint;
+      const date = panel.dataset.date || '';
+      if (!endpoint) return;
+
+      function esc(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      function render(data) {
+        const actor = data.actor || {};
+        const summary = data.summary || {};
+        const items = data.items || [];
+        const title = actor.actor_type === 'user'
+          ? (actor.email || ('用户 #' + (actor.user_id || '')))
+          : (actor.client_ip || actor.actor_key || '未知访客');
+        let html = '<h3 style="margin-top:0">阅读访问详情 · ' + esc(title) + '</h3>';
+        html += '<div class="au-summary">' +
+          '<div>统计区间：' + (date ? esc(date) + ' 当日' : '最近请求') + '，共 ' + esc(summary.request_count || 0) + ' 条记录。</div>' +
+          '<div>接口：' + esc((summary.endpoints || []).join('、') || '无记录') + '</div>' +
+          '<div>卷册：' + esc(summary.source_file_count || 0) + '；页面：' + esc(summary.page_count || 0) + '</div>' +
+          (actor.reader_blocked ? '<div class="au-fail">该访客当前已被暂停阅读器访问。</div>' : '') +
+          (actor.user_agent ? '<div>User-Agent：' + esc(actor.user_agent) + '</div>' : '') +
+          '</div>';
+        if (!items.length) {
+          html += '<div class="muted">该区间暂无阅读器访问记录。</div>';
+        } else {
+          items.forEach(function (it) {
+            let meta = esc(it.created_at) + ' · ' + esc(it.endpoint || '') + ' · ' + esc(it.method || '');
+            if (it.client_ip) meta += ' · IP ' + esc(it.client_ip);
+            if (it.reader_mode) meta += ' · ' + esc(it.reader_mode);
+            if (it.is_rate_limited) meta += ' · <span class="au-fail">触发限速</span>';
+            html += '<div class="au-row"><div class="au-meta">' + meta + '</div>';
+            html += '<div class="au-input">' + esc(it.path || '') + '</div>';
+            if (it.source_file || it.page) {
+              html += '<div class="au-meta">卷册：' + esc(it.source_file || '') + '；页码：' + esc(it.page || '') + '</div>';
+            }
+            html += '</div>';
+          });
+        }
+        html += '<div class="actions" style="margin-top:10px"><button type="button" class="btn mini" id="reader-access-close">收起</button></div>';
+        panel.innerHTML = html;
+        const closeBtn = document.getElementById('reader-access-close');
+        if (closeBtn) closeBtn.addEventListener('click', function () { panel.style.display = 'none'; });
+      }
+
+      buttons.forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const actor = btn.dataset.actor;
+          if (!actor) return;
+          panel.style.display = 'block';
+          panel.innerHTML = '<div class="muted">正在加载阅读访问详情...</div>';
+          panel.scrollIntoView({ block: 'nearest' });
+          try {
+            const url = endpoint + '?actor=' + encodeURIComponent(actor) + (date ? '&date=' + encodeURIComponent(date) : '');
+            const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+              panel.innerHTML = '<div class="au-fail">加载失败：' + esc((data && data.error) || ('HTTP ' + resp.status)) + '</div>';
+              return;
+            }
+            render(data);
+          } catch (err) {
+            panel.innerHTML = '<div class="au-fail">加载失败：' + esc(err && err.message ? err.message : err) + '</div>';
+          }
+        });
+      });
+    })();
+
+    (function () {
+      const btn = document.getElementById('content-scan-btn');
+      if (!btn) return;
+      const statusEl = document.getElementById('content-scan-status');
+      const pruneBtn = document.getElementById('content-prune-btn');
+      const staleBadge = document.getElementById('content-stale-badge');
+      function setCov(key, value) {
+        const el = document.querySelector('[data-cov="' + key + '"]');
+        if (el) el.textContent = value;
+      }
+      btn.addEventListener('click', async function () {
+        const url = btn.getAttribute('data-scan-url');
+        if (!url) return;
+        btn.disabled = true;
+        const original = btn.textContent;
+        btn.textContent = '正在检测…';
+        if (statusEl) statusEl.textContent = '';
+        try {
+          const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const data = await resp.json();
+          const cov = (data && data.coverage) || {};
+          ['registered_count', 'template_key_count', 'dynamic_count',
+           'stale_override_count', 'auto_literal_count']
+            .forEach(function (k) { if (k in cov) setCov(k, cov[k]); });
+          const stale = cov.stale_override_count || 0;
+          if (pruneBtn) pruneBtn.disabled = stale === 0;
+          if (staleBadge) staleBadge.textContent = stale ? ('（' + stale + '）') : '';
+          if (statusEl) {
+            const t = new Date().toLocaleTimeString();
+            statusEl.textContent = '已重新检测（' + t + '）。新发现 ' + (cov.dynamic_count || 0)
+              + ' 个 key，失效缓存 ' + stale + ' 条。如有新增项，刷新页面即可在下方表单中编辑。';
+          }
+        } catch (e) {
+          if (statusEl) statusEl.textContent = '检测失败：' + e.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - 会员中心</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --card: #fffdf9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --soft: #f5e2dc;
+      --warn: #8a5b00;
+      --warn-bg: #fff4d6;
+      --ok: #22543d;
+      --ok-bg: #e8f5ec;
+      --hero: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+    }
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+    .hero, .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+    }
+    .hero {
+      overflow: hidden;
+      color: #fff8f0;
+      background: var(--hero);
+      padding: 26px 28px;
+    }
+    .hero-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .hero p {
+      margin: 8px 0 0;
+      line-height: 1.8;
+      color: rgba(255, 248, 240, 0.92);
+    }
+    .nav, .actions, .item-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1.1fr 1fr;
+      margin-top: 18px;
+      align-items: start;
+    }
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+    .card {
+      padding: 22px;
+    }
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+    .item {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      background: #fbf8f2;
+    }
+    .kv {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .muted {
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 0.92rem;
+      background: rgba(255, 245, 232, 0.12);
+      border: 1px solid rgba(255, 245, 232, 0.2);
+    }
+    .flash-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .flash {
+      border-radius: 14px;
+      padding: 12px 14px;
+      line-height: 1.7;
+      border: 1px solid transparent;
+    }
+    .flash.success {
+      color: var(--ok);
+      background: var(--ok-bg);
+      border-color: rgba(34, 84, 61, 0.16);
+    }
+    .flash.info, .flash.warning {
+      color: var(--warn);
+      background: var(--warn-bg);
+      border-color: rgba(138, 91, 0, 0.16);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      border-radius: 999px;
+      padding: 11px 18px;
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+    }
+    .hero .btn {
+      color: #fff8f0;
+      border-color: rgba(255, 245, 232, 0.28);
+    }
+    .hero .btn:hover {
+      background: rgba(255, 245, 232, 0.08);
+    }
+    .primary {
+      color: white;
+      background: var(--accent);
+    }
+    .primary:hover { background: var(--accent-deep); }
+    .secondary {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: white;
+    }
+    .secondary:hover { background: var(--soft); }
+    form {
+      margin: 0;
+    }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      background: #fffdfa;
+    }
+    input:focus {
+      outline: none;
+      border-color: #b03838;
+      box-shadow: 0 0 0 4px rgba(176, 56, 56, 0.08);
+    }
+    @media (max-width: 960px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>{{ current_user.display_name }} 的会员中心</h1>
+          <p>{{ current_user.email }}</p>
+          <div class="actions" style="margin-top:14px">
+            <span class="badge">
+              {% if state.desktop_mode %}
+              本地桌面模式：不校验网站会员
+              {% elif is_admin %}
+              管理员账号：完整功能已开放
+              {% elif membership.is_active_member %}
+              {{ site_text("account.badge_active", plan_name=membership.plan_name, expires_suffix=("，有效期至 " ~ format_datetime(membership.expires_at)) if membership.expires_at else "") }}
+              {% else %}
+              {{ site_text("account.badge_free") }}
+              {% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="nav">
+          <a class="btn" href="/">返回首页</a>
+          {% if local_console_available %}
+          <a class="btn" href="{{ url_for('control') }}">本地控制台</a>
+          {% endif %}
+          {% if is_admin %}
+          <a class="btn" href="{{ url_for('admin') }}">管理后台</a>
+          {% endif %}
+          <a class="btn" href="{{ url_for('pricing') }}">查看套餐</a>
+          <form method="post" action="{{ url_for('logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn" type="submit">退出登录</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    {% with flashes = get_flashed_messages(with_categories=true) %}
+    {% if flashes %}
+    <div class="flash-list">
+      {% for category, message in flashes %}
+      <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <section class="grid">
+      <div class="stack">
+        <article class="card">
+          <h2>会员状态</h2>
+          <p class="muted">{{ site_text("account.membership_note") }}</p>
+          <div class="kv">
+            <div>账号状态：已登录</div>
+            <div>会员状态：{{ format_membership_status(membership.status) }}</div>
+            <div>当前套餐：{{ membership.plan_name or "未开通" }}</div>
+            <div>有效期至：{{ format_datetime(membership.expires_at) if membership.expires_at else "暂无" }}</div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            {% if not state.desktop_mode and not is_admin and not membership.is_active_member %}
+            <a class="btn primary" href="{{ url_for('pricing') }}">去开通会员</a>
+            {% endif %}
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>订单记录</h2>
+          <div class="list">
+            {% if orders %}
+            {% for order in orders %}
+            <section class="item">
+              <h3>{{ order.plan_name }}</h3>
+              <div class="kv">
+                <div>订单号：{{ order.order_no }}</div>
+                <div>状态：{{ format_order_status(order.status) }}</div>
+                <div>金额：{{ format_price(order.amount_cents, order.currency) }}</div>
+                <div>创建时间：{{ format_datetime(order.created_at) }}</div>
+                <div>支付方式：{{ format_payment_provider(order.payment_provider) }}</div>
+              </div>
+              <div class="item-actions" style="margin-top:12px">
+                <a class="btn secondary" href="{{ url_for('payment_result', order_no=order.order_no) }}">查看结果</a>
+                {% if order.status == "pending" %}
+                <form method="post" action="{{ url_for('retry_checkout', order_no=order.order_no) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="btn primary" type="submit">继续支付</button>
+                </form>
+                {% endif %}
+              </div>
+            </section>
+            {% endfor %}
+            {% else %}
+            <div class="item">
+              <div class="muted">{{ site_text("account.empty_orders") }}</div>
+            </div>
+            {% endif %}
+          </div>
+        </article>
+      </div>
+
+      <div class="stack">
+        <article class="card">
+          <h2>订阅记录</h2>
+          <div class="list">
+            {% if subscriptions %}
+            {% for subscription in subscriptions %}
+            <section class="item">
+              <h3>{{ subscription.plan_name }}</h3>
+              <div class="kv">
+                <div>状态：{{ format_membership_status(subscription.status) }}</div>
+                <div>开始时间：{{ format_datetime(subscription.starts_at) }}</div>
+                <div>有效期至：{{ format_datetime(subscription.expires_at) }}</div>
+                <div>开通方式：{{ format_subscription_source(subscription.source) }}</div>
+              </div>
+            </section>
+            {% endfor %}
+            {% else %}
+            <div class="item">
+              <div class="muted">{{ site_text("account.empty_subscriptions") }}</div>
+            </div>
+            {% endif %}
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>期刊新文提醒</h2>
+          <p class="muted">开放权限后，系统会按设定频率收集相关期刊新文，生成学科文献综述并发送到你的邮箱；新文的题目、作者、摘要与 GB/T 7714-2015 引文也可在「查看本周新文」中浏览。</p>
+          <div class="kv">
+            <div>权限状态：{{ "已开放" if state.feature_access.journal_alerts else "暂未开放" }}</div>
+          </div>
+          <div class="actions" style="margin-top:14px">
+            {% if state.feature_access.journal_alerts %}
+            <a class="btn secondary" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
+            {% else %}
+            <a class="btn secondary" href="{{ url_for('pricing') }}">查看会员套餐</a>
+            {% endif %}
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>支付状态</h2>
+          <p class="muted">
+            {% if alipay_runtime.enabled %}
+            {{ site_text("account.payment_enabled") }}
+            {% else %}
+            {{ site_text("account.payment_disabled") }}
+            {% endif %}
+          </p>
+          <div class="actions" style="margin-top:14px">
+            <a class="btn secondary" href="{{ url_for('pricing') }}">继续查看套餐</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>账号安全</h2>
+          <div class="kv">
+            {% if current_user.email_verified_at %}
+            <div>邮箱验证：{{ format_datetime(current_user.email_verified_at) }}</div>
+            {% else %}
+            <div>邮箱状态：历史账号已绑定</div>
+            {% endif %}
+          </div>
+          <form method="post" action="{{ url_for('delete_account') }}" style="display:grid;gap:12px;margin-top:14px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="muted" style="display:grid;gap:8px">
+              登录密码
+              <input type="password" name="password" autocomplete="current-password" required>
+            </label>
+            <label class="muted" style="display:grid;gap:8px">
+              输入“注销账号”
+              <input type="text" name="confirm_text" autocomplete="off" required>
+            </label>
+            <div class="actions">
+              <button class="btn secondary" type="submit">注销账号</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
