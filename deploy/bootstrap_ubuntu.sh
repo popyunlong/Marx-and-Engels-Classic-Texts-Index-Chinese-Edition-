@@ -365,6 +365,12 @@ install_systemd_service() {
     -e "s|marx-search-journal-alerts.service|${SERVICE_NAME}-journal-alerts.service|g" \
     "${APP_DIR}/deploy/marx-search-journal-alerts.timer" > "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.timer"
   chmod 644 "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.service" "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.timer"
+
+  sed \
+    -e "s|/opt/marx-search|${escaped_app_dir}|g" \
+    "${APP_DIR}/deploy/marx-search-backup.service" > "/etc/systemd/system/${SERVICE_NAME}-backup.service"
+  cp "${APP_DIR}/deploy/marx-search-backup.timer" "/etc/systemd/system/${SERVICE_NAME}-backup.timer"
+  chmod 644 "/etc/systemd/system/${SERVICE_NAME}-backup.service" "/etc/systemd/system/${SERVICE_NAME}-backup.timer"
 }
 
 install_caddyfile() {
@@ -403,6 +409,7 @@ enable_services() {
     systemctl start "${SERVICE_NAME}.service"
   fi
   systemctl enable --now "${SERVICE_NAME}-journal-alerts.timer"
+  systemctl enable --now "${SERVICE_NAME}-backup.timer"
 
   systemctl enable caddy
   if ! systemctl reload caddy; then

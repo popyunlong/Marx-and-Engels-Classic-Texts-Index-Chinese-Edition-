@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Marx Search data backup daily at 04:00 Beijing time
+
+[Timer]
+OnBootSec=15min
+OnCalendar=*-*-* 20:00:00 UTC
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

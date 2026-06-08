@@ -36,6 +36,11 @@ deploy/marx-search-journal-alerts.service
 deploy/marx-search-journal-alerts.timer
 deploy/marx-search-journal-send.service
 deploy/marx-search-journal-send.timer
+deploy/marx-search-backup.service
+deploy/marx-search-backup.timer
+deploy/backup.sh
+deploy/restore.sh
+deploy/BACKUP_README.md
 deploy/marx-search.env.example
 deploy/update_cloud.ps1
 deploy/upload_lenin_pdfs.ps1

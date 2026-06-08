@@ -293,6 +293,12 @@ try {
     Write-Host "Installing journal alert send timer if systemd files changed ..."
     Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-journal-send.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-journal-send.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-journal-send.service && changed=1; fi && rm -f `"`$tmp_service`" && if ! cmp -s deploy/marx-search-journal-send.timer /etc/systemd/system/marx-search-journal-send.timer 2>/dev/null; then cp deploy/marx-search-journal-send.timer /etc/systemd/system/marx-search-journal-send.timer && changed=1; fi && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload && systemctl restart marx-search-journal-send.timer; else if ! systemctl is-active --quiet marx-search-journal-send.timer; then systemctl start marx-search-journal-send.timer; fi; fi && if ! systemctl is-enabled --quiet marx-search-journal-send.timer; then systemctl enable marx-search-journal-send.timer >/dev/null; fi"
 
+    Write-Host "Installing daily data backup timer ..."
+    Invoke-Remote "cd '$RemoteDir' && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-backup.service > /etc/systemd/system/marx-search-backup.service && cp deploy/marx-search-backup.timer /etc/systemd/system/marx-search-backup.timer && systemctl daemon-reload && systemctl enable --now marx-search-backup.timer"
+
+    Write-Host "Running one backup now to verify it works ..."
+    Invoke-Remote-BestEffort "systemctl start marx-search-backup.service; sleep 2; ls -1dt /var/backups/marx-search/*/ 2>/dev/null | head -1"
+
     if ($SkipRestart) {
         Write-Host "Skipping service restart because -SkipRestart was supplied."
     } else {

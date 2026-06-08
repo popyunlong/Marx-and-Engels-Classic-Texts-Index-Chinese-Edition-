@@ -1,0 +1,12 @@
+[Unit]
+Description=Marx Search daily data backup (sqlite .backup + secrets/images tar, optional rclone offsite)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash /opt/marx-search/deploy/backup.sh
+TimeoutStartSec=1800
+NoNewPrivileges=true
