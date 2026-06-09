@@ -142,6 +142,15 @@ _OCR_PUNCT_RATIO = 0.6
 _ROMAN_UPPER = set("IVXLCDM")      # 合法罗马数字大写字母（第I编/第V部类等），豁免移除
 _DIGIT_CONFUSABLE = set("lioO")    # 与数字 1/0 形近，禁止自动删除（防删数字/“一”）
 _BODYSIZE_Z_EXCLUDE_VOLUMES = {9}  # 第9卷含坐标变量 z，z 仍受字号约束；其余卷孤立 z 必为标点
+# 夹在汉字间、被 OCR 误识为标点的"杂符号"（如 $ 误识句号、= 误识冒号）。
+# 与字母同样受"小字号"约束：正文字号的 = / | + 是《资本论》公式运算符，必不满足小字号而豁免。
+_JUNK_SYMBOLS = set("$=|+*/@^~")
+# 这些符号在《文集》正文中永不合法（金额 $100 由"相邻数字"规则排除），不受字号约束、一律删；
+# 其余 = | + * / 是《资本论》公式/分隔符，仅删小字号（正文字号者豁免）。
+_NEVER_LEGIT_SYMBOLS = set("$@^~")
+_SCAN_RE = re.compile(r"[A-Za-z$=|+*/@^~]")
+# 引号类：找 CJK 锚点时跳过它们，但替换时保留（如 生产力"s→生产力"，只删 s）。
+_QUOTE_CHARS = set('"' + "'" + "“”‘’「」『』")
 
 
 def _ocr_punct_pairs_for_page(page, volume: int) -> list[tuple[str, str]]:
@@ -171,35 +180,53 @@ def _ocr_punct_pairs_for_page(page, volume: int) -> list[tuple[str, str]]:
                 line += s["text"]
                 sizes.extend([s["size"]] * len(s["text"]))
             n = len(line)
-            for m in _LATIN_RE.finditer(line):
+            for m in _SCAN_RE.finditer(line):
                 i = m.start()
                 ch = line[i]
-                # 必须是孤立单字母（注意：CJK 的 .isalpha() 为真，故须判 ASCII 字母）
-                prev_lat = i > 0 and line[i - 1].isascii() and line[i - 1].isalpha()
-                next_lat = i + 1 < n and line[i + 1].isascii() and line[i + 1].isalpha()
-                if prev_lat or next_lat:
-                    continue
-                if ch in _ROMAN_UPPER or ch in _DIGIT_CONFUSABLE:
-                    continue  # 合法罗马数字 / 数字形近字（第I编、第l册=第一册），保留交人工修订
+                is_symbol = ch in _JUNK_SYMBOLS
+                if is_symbol:
+                    # 排除公式/金额：相邻是同符号或字母数字（如 ==、c+v、$100）→ 跳过
+                    prev_bad = i > 0 and (line[i - 1] == ch or (line[i - 1].isascii() and line[i - 1].isalnum()))
+                    next_bad = i + 1 < n and (line[i + 1] == ch or (line[i + 1].isascii() and line[i + 1].isalnum()))
+                    if prev_bad or next_bad:
+                        continue
+                else:
+                    # 必须是孤立单字母（注意：CJK 的 .isalpha() 为真，故须判 ASCII 字母）
+                    prev_lat = i > 0 and line[i - 1].isascii() and line[i - 1].isalpha()
+                    next_lat = i + 1 < n and line[i + 1].isascii() and line[i + 1].isalpha()
+                    if prev_lat or next_lat:
+                        continue
+                    if ch in _ROMAN_UPPER or ch in _DIGIT_CONFUSABLE:
+                        continue  # 合法罗马数字 / 数字形近字（第I编、第l册=第一册），保留交人工修订
                 small = sizes[i] / body < _OCR_PUNCT_RATIO
-                z_force = ch == "z" and z_ignores_size
-                if not (small or z_force):
-                    continue  # 正文字号合法拉丁（公式变量等）豁免；非科学卷孤立 z 必为标点
-                # 注：希腊字母（ω/ι 等）夹在汉字间可能是误识的标点(噪声)，也可能是误识的
-                #     汉字(如 法ι克福=法兰克福)，二者无法用几何区分，故不在此删除，交由权威全文对齐处理。
-                # 跳过空格找最近邻
+                z_force = (not is_symbol) and ch == "z" and z_ignores_size
+                sym_force = is_symbol and ch in _NEVER_LEGIT_SYMBOLS  # $@^~ 永不合法，不受字号约束
+                if not (small or z_force or sym_force):
+                    continue  # 正文字号合法字符（公式变量/运算符等）豁免；非科学卷孤立 z 必为标点
+                # 注：希腊字母（ω/ι 等）夹汉字间可能是误识标点或误识汉字(法ι克福=法兰克福)，
+                #     几何无法区分，故不在此删除，交由权威全文对齐处理。
+                # 找左右最近的 CJK 锚点：跳过空格与引号（引号本身保留）
                 li = i - 1
-                while li >= 0 and line[li].isspace():
+                while li >= 0 and (line[li].isspace() or line[li] in _QUOTE_CHARS):
                     li -= 1
                 ri = i + 1
-                while ri < n and line[ri].isspace():
+                while ri < n and (line[ri].isspace() or line[ri] in _QUOTE_CHARS):
                     ri += 1
                 if li < 0 or ri >= n:
                     continue
                 if _CJK_RE.match(line[li]) and _CJK_RE.match(line[ri]):
-                    find = line[li:ri + 1]            # 含字母与其间 OCR 空格
-                    replace = line[li] + line[ri]      # 收拢为两个 CJK 直接相邻
-                    pairs.append((find, replace))
+                    window = line[li:ri + 1]
+                    jp = i - li  # 杂字符在窗口内的位置
+                    kept = []
+                    for k, c2 in enumerate(window):
+                        if k == jp:
+                            continue  # 删掉杂字符本身
+                        if c2.isspace() and (k == jp - 1 or k == jp + 1):
+                            continue  # 删掉紧邻杂字符的 OCR 空格
+                        kept.append(c2)  # 其余（含引号、锚点 CJK）保留
+                    replace = "".join(kept)
+                    if window != replace:
+                        pairs.append((window, replace))
     return pairs
 
 
@@ -235,7 +262,7 @@ def _load_text_corrections() -> dict:
     if _TEXT_CORRECTIONS_CACHE is not None:
         return _TEXT_CORRECTIONS_CACHE
 
-    result: dict = {"book_wide": [], "volume_wide": {}, "pages": {}}
+    result: dict = {"book_wide": [], "volume_wide": {}, "pages": {}, "han_pages": {}}
     try:
         if TEXT_CORRECTIONS.exists():
             data = yaml.safe_load(TEXT_CORRECTIONS.read_text(encoding="utf-8")) or {}
@@ -269,9 +296,27 @@ def _load_text_corrections() -> dict:
                         {"find": e["find"], "replace": e["replace"], "occ": occ}
                     )
                     _corrections_stats["entries"] += 1
+                # han_pages：在 raw 的"汉字投影"空间里匹配/替换（兼容标点/换行打断的上下文）
+                for e in data.get("han_pages") or []:
+                    if not isinstance(e, dict):
+                        continue
+                    vol, page = e.get("volume"), e.get("page")
+                    if not (isinstance(vol, int) and isinstance(page, int) and _valid_repl(e)):
+                        print(f"[corrections] 跳过非法 han_pages 条目: {e!r}", file=sys.stderr)
+                        continue
+                    if len(e["find"]) != len(e["replace"]):
+                        print(f"[corrections] han_pages find/replace 不等长，跳过: {e!r}", file=sys.stderr)
+                        continue
+                    occ = e.get("occ", 1)
+                    if occ is not None and not isinstance(occ, int):
+                        occ = 1
+                    result["han_pages"].setdefault((vol, page), []).append(
+                        {"find": e["find"], "replace": e["replace"], "occ": occ}
+                    )
+                    _corrections_stats["entries"] += 1
     except Exception as exc:  # 配置损坏绝不应中断构建
         print(f"[corrections] 加载 {TEXT_CORRECTIONS} 失败，忽略全部修订：{exc}", file=sys.stderr)
-        result = {"book_wide": [], "volume_wide": {}, "pages": {}}
+        result = {"book_wide": [], "volume_wide": {}, "pages": {}, "han_pages": {}}
 
     _TEXT_CORRECTIONS_CACHE = result
     return result
@@ -312,8 +357,61 @@ def apply_text_corrections(book: str, volume: int, pdf_page: int, raw: str) -> s
             continue
         raw = raw.replace(find, entry["replace"])
         _corrections_stats["applied"] += 1
+    raw = _apply_han_corrections(volume, pdf_page, raw)
     return raw
 
+
+def _apply_han_corrections(volume: int, pdf_page: int, raw: str) -> str:
+    """在 raw 的"汉字投影"空间内匹配 find（兼容标点/换行），把差异字符替换回 raw 原位置。
+
+    find/replace 等长、han-only；二者差异位即需改的字符。仅当 han 投影中出现次数==occ 时应用，
+    否则告警跳过（绝不误伤）。用于承接"权威全文对齐"产出的形近字修订。"""
+    entries = _load_text_corrections()["han_pages"].get((volume, pdf_page))
+    if not entries:
+        return raw
+    # 汉字投影 + 原始下标
+    han_chars: list[str] = []
+    han_idx: list[int] = []
+    for i, ch in enumerate(raw):
+        if "一" <= ch <= "鿿":
+            han_chars.append(ch)
+            han_idx.append(i)
+    han = "".join(han_chars)
+    edits: dict[int, str] = {}
+    for entry in entries:
+        find = entry["find"]
+        repl = entry["replace"]
+        occ = entry["occ"]
+        positions = []
+        start = 0
+        while True:
+            p = han.find(find, start)
+            if p < 0:
+                break
+            positions.append(p)
+            start = p + 1
+        if not positions:
+            _corrections_stats["missing"] += 1
+            print(f"[corrections] han 未命中 文集·第{volume}卷·p{pdf_page}: {find!r}", file=sys.stderr)
+            continue
+        if occ is not None and len(positions) != occ:
+            _corrections_stats["ambiguous"] += 1
+            print(
+                f"[corrections] han 命中数={len(positions)}≠期望{occ}，跳过 文集·第{volume}卷·p{pdf_page}: {find!r}",
+                file=sys.stderr,
+            )
+            continue
+        for p in positions:
+            for k in range(len(find)):
+                if find[k] != repl[k]:
+                    edits[han_idx[p + k]] = repl[k]
+        _corrections_stats["applied"] += 1
+    if edits:
+        buf = list(raw)
+        for i, ch in edits.items():
+            buf[i] = ch
+        raw = "".join(buf)
+    return raw
 
 
 def _parse_page_token(text: str) -> str | None:
