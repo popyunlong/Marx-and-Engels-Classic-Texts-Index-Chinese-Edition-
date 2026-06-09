@@ -254,3 +254,18 @@
   volume: 3
 - file: pdfs/《毛泽东选集》/毛泽东选集第四卷.pdf
   volume: 4
+毛泽东文集:
+- file: pdfs/《毛泽东文集》/1.pdf
+  volume: 1
+- file: pdfs/《毛泽东文集》/2.pdf
+  volume: 2
+- file: pdfs/《毛泽东文集》/3.pdf
+  volume: 3
+- file: pdfs/《毛泽东文集》/4.pdf
+  volume: 4
+- file: pdfs/《毛泽东文集》/5.pdf
+  volume: 5
+- file: pdfs/《毛泽东文集》/7.pdf
+  volume: 7
+- file: pdfs/《毛泽东文集》/8.pdf
+  volume: 8

@@ -39,3 +39,14 @@ books:
   sort_order: 40
   tag_class: mao
   available: true
+# 《毛泽东文集》8 卷：正文为可选择文本层、书签目录可用，走标准文本书库流程
+# （scripts/build_textbook_index.py 定向写 pages + scripts/build_toc.py 写目录）。
+# 注：第6卷为扫描件无文本层，暂不纳入（待文字版或另议）。
+- key: 毛泽东文集
+  title: 《毛泽东文集》
+  short_title: 毛泽东《文集》
+  citation_title: 毛泽东文集
+  folder: pdfs/《毛泽东文集》
+  sort_order: 50
+  tag_class: maowenji
+  available: true
