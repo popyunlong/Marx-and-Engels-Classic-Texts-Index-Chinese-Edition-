@@ -80,6 +80,25 @@
     .ai-usage-detail .au-input { white-space: pre-wrap; word-break: break-word; background: #fffaf3; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-size: .9rem; }
     .ai-usage-detail .au-fail { color: #7b1f1f; }
     .ai-usage-detail .au-summary { background: #f7f3ec; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: .9rem; }
+    .online-chart-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: #fffdf8; }
+    .online-chart-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    .online-chart-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .online-chart-card .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #fff; }
+    .online-chart-card .seg-btn { border: none; background: transparent; padding: 6px 14px; font-size: .85rem; cursor: pointer; color: var(--muted); }
+    .online-chart-card .seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+    .online-chart-card .seg-btn.active { background: var(--accent); color: #fff; }
+    .online-chart-meta { font-size: .82rem; margin: 4px 0 8px; }
+    .online-chart-plot { width: 100%; overflow-x: auto; }
+    .online-chart-plot svg { display: block; max-width: 100%; height: auto; }
+    .online-chart-plot .oc-area { fill: rgba(123, 31, 31, .10); }
+    .online-chart-plot .oc-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+    .online-chart-plot .oc-dot { fill: var(--accent); }
+    .online-chart-plot .oc-axis { stroke: var(--line); stroke-width: 1; }
+    .online-chart-plot .oc-grid { stroke: #efe7da; stroke-width: 1; }
+    .online-chart-plot .oc-tick { fill: var(--muted); font-size: 11px; }
+    .online-chart-plot .oc-hit { fill: transparent; cursor: pointer; }
+    .online-chart-tip { fill: #2b2b2b; }
+    .online-chart-tip text { fill: #fff; font-size: 11px; }
     .anchor-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0; }
     .anchor-row a {
       padding: 8px 12px;
@@ -353,6 +372,8 @@
           <div class="stats-grid">
             <div class="stat"><strong>当前在线</strong>{{ dashboard_metrics.current_online or 0 }}</div>
             <div class="stat"><strong>当日在线</strong>{{ dashboard_metrics.today_online or 0 }}</div>
+            <div class="stat"><strong>注册用户在线(今日)</strong>{{ dashboard_metrics.registered_online_today or 0 }}</div>
+            <div class="stat"><strong>会员在线(今日)</strong>{{ dashboard_metrics.member_online_today or 0 }}</div>
             <div class="stat"><strong>注册用户总数</strong>{{ dashboard_metrics.total_users or 0 }}</div>
             <div class="stat"><strong>活跃账号</strong>{{ dashboard_metrics.active_accounts or 0 }}</div>
             <div class="stat"><strong>已验证用户</strong>{{ dashboard_metrics.verified_users or 0 }}</div>
@@ -377,6 +398,26 @@
             <div class="stat"><strong>AI 状态</strong>{{ "正常" if dashboard_metrics.ai_ok else "未启用" }}</div>
             <div class="stat"><strong>支付状态</strong>{{ "正常" if dashboard_metrics.payment_ok else "未启用" }}</div>
           </div>
+
+          {% if control_online_series_url %}
+          <div class="online-chart-card" id="online-chart" data-endpoint="{{ control_online_series_url }}" style="margin-top:18px">
+            <div class="online-chart-head">
+              <h3 style="margin:0">24 小时在线变化</h3>
+              <div class="online-chart-controls">
+                <span class="seg" role="group" aria-label="在线人群口径">
+                  <button type="button" class="seg-btn active" data-series="total">所有访问者</button>
+                  <button type="button" class="seg-btn" data-series="registered">注册用户</button>
+                  <button type="button" class="seg-btn" data-series="members">会员用户</button>
+                </span>
+                <button type="button" class="btn mini" id="online-chart-refresh">刷新</button>
+              </div>
+            </div>
+            <p class="section-note" style="margin:6px 0 4px">每 15 分钟一个时槽（北京时间），统计该时段内在线的去重访问者。所有访问者含未登录访客；注册用户、会员用户只计去重账号。</p>
+            <div class="online-chart-meta muted" id="online-chart-meta"></div>
+            <div class="online-chart-plot" id="online-chart-plot"><div class="muted">正在加载在线变化…</div></div>
+          </div>
+          {% endif %}
+
           {% if dashboard_metrics.active_members_by_plan %}
           <div class="table-list" style="margin-top:14px">
             {% for plan_metric in dashboard_metrics.active_members_by_plan %}
@@ -1715,6 +1756,134 @@
           btn.textContent = original;
         }
       });
+    })();
+
+    (function () {
+      const card = document.getElementById('online-chart');
+      if (!card) return;
+      const endpoint = card.dataset.endpoint;
+      if (!endpoint) return;
+      const plot = document.getElementById('online-chart-plot');
+      const meta = document.getElementById('online-chart-meta');
+      const refreshBtn = document.getElementById('online-chart-refresh');
+      const segBtns = Array.from(card.querySelectorAll('.seg-btn'));
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const SERIES_LABELS = { total: '所有访问者', registered: '注册用户', members: '会员用户' };
+      let buckets = [];
+      let current = 'total';
+
+      function el(name, attrs, text) {
+        const node = document.createElementNS(SVG_NS, name);
+        for (const k in attrs) node.setAttribute(k, attrs[k]);
+        if (text != null) node.textContent = text;
+        return node;
+      }
+
+      function draw() {
+        plot.textContent = '';
+        if (!buckets.length) {
+          plot.innerHTML = '<div class="muted">暂无在线记录。</div>';
+          return;
+        }
+        const W = 960, H = 280, padL = 38, padR = 14, padT = 14, padB = 28;
+        const innerW = W - padL - padR, innerH = H - padT - padB;
+        const n = buckets.length;
+        const values = buckets.map(function (b) { return b[current] || 0; });
+        const maxV = Math.max(1, Math.max.apply(null, values));
+        const x = function (i) { return padL + (n <= 1 ? 0 : innerW * i / (n - 1)); };
+        const y = function (v) { return padT + innerH - innerH * v / maxV; };
+
+        const svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+          'aria-label': '24 小时在线变化（' + SERIES_LABELS[current] + '）' });
+
+        // 横向网格 + Y 轴刻度（0 到 maxV 取 4 段）。
+        const steps = 4;
+        for (let s = 0; s <= steps; s++) {
+          const v = Math.round(maxV * s / steps);
+          const yy = y(v);
+          svg.appendChild(el('line', { class: 'oc-grid', x1: padL, y1: yy, x2: W - padR, y2: yy }));
+          svg.appendChild(el('text', { class: 'oc-tick', x: padL - 6, y: yy + 4, 'text-anchor': 'end' }, String(v)));
+        }
+        // X 轴刻度：每 4 小时（16 个时槽）打一个时间标签。
+        for (let i = 0; i < n; i += 16) {
+          svg.appendChild(el('text', { class: 'oc-tick', x: x(i), y: H - 8, 'text-anchor': 'middle' }, buckets[i].label));
+        }
+
+        // 面积 + 折线。
+        let areaD = 'M ' + x(0) + ' ' + y(0);
+        let lineD = '';
+        for (let i = 0; i < n; i++) {
+          areaD += ' L ' + x(i).toFixed(1) + ' ' + y(values[i]).toFixed(1);
+          lineD += (i === 0 ? 'M ' : ' L ') + x(i).toFixed(1) + ' ' + y(values[i]).toFixed(1);
+        }
+        areaD += ' L ' + x(n - 1) + ' ' + y(0) + ' Z';
+        svg.appendChild(el('path', { class: 'oc-area', d: areaD }));
+        svg.appendChild(el('path', { class: 'oc-line', d: lineD }));
+
+        // 末点高亮。
+        svg.appendChild(el('circle', { class: 'oc-dot', cx: x(n - 1), cy: y(values[n - 1]), r: 3 }));
+
+        // 悬停提示。
+        const tip = el('g', { class: 'online-chart-tip', style: 'display:none' });
+        const tipRect = el('rect', { rx: 4, width: 0, height: 20, x: 0, y: 0 });
+        const tipText = el('text', { x: 0, y: 14 }, '');
+        tip.appendChild(tipRect); tip.appendChild(tipText);
+
+        const colW = innerW / Math.max(1, n - 1);
+        for (let i = 0; i < n; i++) {
+          const hit = el('rect', { class: 'oc-hit', x: (x(i) - colW / 2).toFixed(1), y: padT,
+            width: Math.max(2, colW).toFixed(1), height: innerH });
+          (function (idx) {
+            hit.addEventListener('mouseenter', function () {
+              const b = buckets[idx];
+              const label = b.full_label + ' · ' + SERIES_LABELS[current] + ' ' + (b[current] || 0) + ' 人';
+              tipText.textContent = label;
+              tip.style.display = '';
+              const w = label.length * 6.6 + 12;
+              tipRect.setAttribute('width', w);
+              let tx = x(idx) - w / 2;
+              tx = Math.max(padL, Math.min(tx, W - padR - w));
+              let ty = y(b[current] || 0) - 26;
+              if (ty < padT) ty = padT;
+              tip.setAttribute('transform', 'translate(' + tx.toFixed(1) + ',' + ty.toFixed(1) + ')');
+            });
+          })(i);
+          hit.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
+          svg.appendChild(hit);
+        }
+        svg.appendChild(tip);
+        plot.appendChild(svg);
+      }
+
+      async function load() {
+        plot.innerHTML = '<div class="muted">正在加载在线变化…</div>';
+        try {
+          const resp = await fetch(endpoint, { headers: { 'Accept': 'application/json' } });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          const data = await resp.json();
+          buckets = (data && data.buckets) || [];
+          const peak = buckets.reduce(function (m, b) { return Math.max(m, b[current] || 0); }, 0);
+          if (meta) meta.textContent = '统计截至 ' + (data.generated_at || '') + ' · 当前口径峰值 ' + peak + ' 人';
+          draw();
+        } catch (e) {
+          plot.innerHTML = '<div class="muted">在线变化加载失败：' + e.message + '</div>';
+        }
+      }
+
+      segBtns.forEach(function (b) {
+        b.addEventListener('click', function () {
+          segBtns.forEach(function (x) { x.classList.remove('active'); });
+          b.classList.add('active');
+          current = b.dataset.series || 'total';
+          const peak = buckets.reduce(function (m, x) { return Math.max(m, x[current] || 0); }, 0);
+          if (meta && buckets.length) {
+            meta.textContent = meta.textContent.replace(/当前口径峰值 \d+ 人/, '当前口径峰值 ' + peak + ' 人');
+          }
+          draw();
+        });
+      });
+      if (refreshBtn) refreshBtn.addEventListener('click', load);
+      load();
     })();
   </script>
 </body>

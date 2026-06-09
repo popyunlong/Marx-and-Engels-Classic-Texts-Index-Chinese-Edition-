@@ -243,6 +243,14 @@ def init_membership_db() -> Path:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS online_presence (
+                bucket_start TEXT NOT NULL,
+                session_key TEXT NOT NULL,
+                user_id INTEGER,
+                last_seen_at TEXT NOT NULL,
+                PRIMARY KEY (bucket_start, session_key)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_payment_events_order_no ON payment_events(order_no, created_at DESC);
@@ -258,6 +266,8 @@ def init_membership_db() -> Path:
                 ON reader_access_events(day, actor_key, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_reader_access_created
                 ON reader_access_events(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_online_presence_bucket
+                ON online_presence(bucket_start);
             """
         )
         user_columns = _table_columns(conn, "users")
@@ -1274,6 +1284,85 @@ def record_site_activity(
         conn.commit()
 
 
+def _online_bucket_start(at: datetime | None = None) -> str:
+    """把时间点向下取整到 15 分钟时槽起点（UTC ISO），作为在线变化图的横轴刻度。"""
+    now = at or utc_now()
+    floored = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+    return floored.isoformat(timespec="seconds")
+
+
+def record_online_presence(
+    *,
+    session_key: str,
+    user_id: int | None,
+    at: datetime | None = None,
+) -> None:
+    """按 15 分钟时槽记录在线访问者，用于 24 小时在线变化图。
+
+    同一访客在同一时槽内只占一行（按 session_key 去重）；登录后 user_id 经
+    COALESCE 落到该行，使该时槽内由访客变为注册/会员身份，与总览去重口径一致。
+    """
+    bucket = _online_bucket_start(at)
+    seen = (at or utc_now()).isoformat(timespec="seconds")
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO online_presence(bucket_start, session_key, user_id, last_seen_at)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(bucket_start, session_key) DO UPDATE SET
+                user_id=COALESCE(excluded.user_id, online_presence.user_id),
+                last_seen_at=excluded.last_seen_at
+            """,
+            (bucket, (session_key or "").strip() or "anonymous", user_id, seen),
+        )
+        conn.commit()
+
+
+def prune_online_presence(*, keep_hours: int = 48) -> None:
+    cutoff = utc_now() - timedelta(hours=max(1, int(keep_hours)))
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM online_presence WHERE bucket_start < ?",
+            (cutoff.isoformat(timespec="seconds"),),
+        )
+        conn.commit()
+
+
+def get_online_presence_series(
+    *,
+    since_text: str,
+    until_text: str,
+    member_as_of: str,
+) -> dict[str, dict]:
+    """返回 [since, until] 区间内每个 15 分钟时槽的在线人数，按时槽起点(UTC ISO)索引。
+
+    - total：所有访问者（含访客），登录用户按账号去重、访客按会话去重；
+    - registered：去重后的注册用户数（user_id 非空）；
+    - members：去重后、在 member_as_of 时点仍为有效会员的用户数。
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                bucket_start,
+                COUNT(DISTINCT CASE
+                    WHEN user_id IS NOT NULL THEN 'u:' || user_id
+                    ELSE 's:' || session_key
+                END) AS total,
+                COUNT(DISTINCT user_id) AS registered,
+                COUNT(DISTINCT CASE WHEN user_id IN (
+                    SELECT user_id FROM subscriptions
+                    WHERE status = 'active' AND starts_at < ? AND expires_at > ?
+                ) THEN user_id END) AS members
+            FROM online_presence
+            WHERE bucket_start >= ? AND bucket_start <= ?
+            GROUP BY bucket_start
+            """,
+            (member_as_of, member_as_of, since_text, until_text),
+        ).fetchall()
+    return {str(row["bucket_start"]): (row_to_dict(row) or {}) for row in rows}
+
+
 def _reader_actor_key(*, user_id: int | None, client_ip: str, session_key: str) -> tuple[str, str]:
     if user_id:
         return f"user:{int(user_id)}", "user"
@@ -1681,26 +1770,46 @@ def get_admin_dashboard_metrics(
             "disabled_users": scalar(
                 "SELECT COUNT(*) FROM users WHERE is_active = 0 OR deactivated_at != ''"
             ),
+            # 在线去重：先把“同一会话曾登录过的访客行”归并到其账号，避免登录前后被
+            # 算成两个访问者（访客一次 + 注册一次）。再按账号/会话去重计数。
             "current_online": scalar(
                 """
                 SELECT COUNT(DISTINCT CASE
-                    WHEN user_id IS NOT NULL THEN 'u:' || user_id
-                    ELSE 's:' || session_key
+                    WHEN COALESCE(sa.user_id, m.user_id) IS NOT NULL
+                        THEN 'u:' || COALESCE(sa.user_id, m.user_id)
+                    ELSE 's:' || sa.session_key
                 END)
-                FROM site_activity
-                WHERE last_seen_at >= ?
+                FROM site_activity sa
+                LEFT JOIN (
+                    SELECT session_key, MAX(user_id) AS user_id
+                    FROM site_activity
+                    WHERE user_id IS NOT NULL
+                    GROUP BY session_key
+                ) m ON m.session_key = sa.session_key
+                WHERE sa.last_seen_at >= ?
                 """,
                 (online_since,),
             ),
             "today_online": scalar(
                 """
                 SELECT COUNT(DISTINCT CASE
-                    WHEN user_id IS NOT NULL THEN 'u:' || user_id
-                    ELSE 's:' || session_key
+                    WHEN COALESCE(sa.user_id, m.user_id) IS NOT NULL
+                        THEN 'u:' || COALESCE(sa.user_id, m.user_id)
+                    ELSE 's:' || sa.session_key
                 END)
-                FROM site_activity
-                WHERE day = ?
+                FROM site_activity sa
+                LEFT JOIN (
+                    SELECT session_key, MAX(user_id) AS user_id
+                    FROM site_activity
+                    WHERE user_id IS NOT NULL AND day = ?
+                    GROUP BY session_key
+                ) m ON m.session_key = sa.session_key
+                WHERE sa.day = ?
                 """,
+                (day, day),
+            ),
+            "registered_online_today": scalar(
+                "SELECT COUNT(DISTINCT user_id) FROM site_activity WHERE day = ? AND user_id IS NOT NULL",
                 (day,),
             ),
             "new_users_today": scalar(
@@ -1716,6 +1825,23 @@ def get_admin_dashboard_metrics(
                   AND expires_at > ?
                 """,
                 (member_as_of, member_as_of),
+            ),
+            # 今日上线的会员：当日在 site_activity 有记录、且在 member_as_of 时点仍为有效会员的注册用户。
+            "member_online_today": scalar(
+                """
+                SELECT COUNT(DISTINCT sa.user_id)
+                FROM site_activity sa
+                WHERE sa.day = ?
+                  AND sa.user_id IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM subscriptions s
+                      WHERE s.user_id = sa.user_id
+                        AND s.status = 'active'
+                        AND s.starts_at < ?
+                        AND s.expires_at > ?
+                  )
+                """,
+                (day, member_as_of, member_as_of),
             ),
             "paid_today_cents": scalar(
                 "SELECT COALESCE(SUM(amount_cents), 0) FROM orders WHERE status = 'paid' AND paid_at >= ? AND paid_at < ?",

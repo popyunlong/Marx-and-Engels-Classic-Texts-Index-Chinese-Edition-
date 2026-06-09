@@ -107,8 +107,11 @@ from membership import (
     load_session_secret,
     normalize_email,
     china_day_text,
+    get_online_presence_series,
+    prune_online_presence,
     prune_reader_access_events,
     record_ai_usage,
+    record_online_presence,
     record_payment_event,
     record_reader_access_event,
     record_site_activity,
@@ -399,6 +402,9 @@ DASHBOARD_DEFAULT_HISTORY_DAYS = 30
 DASHBOARD_MAX_HISTORY_DAYS = 366
 READER_AUDIT_KEEP_DAYS = 30
 READER_AUDIT_PRUNE_INTERVAL_SECONDS = 60 * 60
+# 在线变化图按 15 分钟时槽留存，保留 48 小时足够覆盖 24 小时窗口与跨时区显示。
+ONLINE_PRESENCE_KEEP_HOURS = 48
+ONLINE_PRESENCE_PRUNE_INTERVAL_SECONDS = 60 * 60
 READER_ENDPOINTS = {
     "reader",
     "library",
@@ -464,6 +470,7 @@ _last_rate_prune: list[float] = [0.0]
 _login_failures: dict[str, list[float]] = {}
 _last_order_expiry_sweep: list[float] = [0.0]
 _last_reader_audit_prune: list[float] = [0.0]
+_last_online_presence_prune: list[float] = [0.0]
 _last_reader_auto_ban: list[float] = [0.0]
 ADMIN_SECTION_MODULES = {
     "overview": "overview",
@@ -1678,7 +1685,7 @@ def _dashboard_rules() -> list[dict]:
         },
         {
             "name": "在线",
-            "rule": f"当前在线为最近 {ONLINE_WINDOW_SECONDS // 60} 分钟有记录的去重访问者；登录用户按账号去重，未登录访客按浏览器会话去重，当日在线同口径按所选日期统计。IP 不作为主去重键，避免把同一单位或家庭的多人误合并。",
+            "rule": f"当前在线为最近 {ONLINE_WINDOW_SECONDS // 60} 分钟有记录的去重访问者；登录用户按账号去重，未登录访客按浏览器会话去重，当日在线同口径按所选日期统计。同一浏览器登录前后会归并为同一访问者（按账号），不会重复计为「访客一次 + 注册一次」。注册用户在线、会员在线为当日上线的去重账号数（会员按当前仍有效的订阅判定）。IP 不作为主去重键，避免把同一单位或家庭的多人误合并。24 小时在线变化图按 15 分钟时槽统计，可在所有访问者 / 注册用户 / 会员之间切换。",
         },
         {
             "name": "会员与订单",
@@ -1912,6 +1919,19 @@ def _visitor_session_key() -> str:
     return key
 
 
+def _reset_session_preserving_visitor() -> None:
+    """登录/注册成功时清空会话以防会话固定，但保留访客分析标识 _visitor_key。
+
+    _visitor_key 仅是无权限的统计令牌，鉴权完全依赖随后写入的 session["user_id"]，
+    保留它不会削弱防会话固定。保留后，同一浏览器登录前后归并为同一访问者，避免
+    在线/当日在线把同一个人重复计为「访客一次 + 注册一次」。
+    """
+    visitor_key = str(session.get("_visitor_key") or "").strip()
+    session.clear()
+    if visitor_key:
+        session["_visitor_key"] = visitor_key
+
+
 def _activity_feature_for_request() -> str | None:
     endpoint = str(request.endpoint or "")
     if not endpoint or endpoint == "static":
@@ -1968,6 +1988,17 @@ def _prune_reader_audit_if_due() -> None:
         prune_reader_access_events(keep_days=READER_AUDIT_KEEP_DAYS)
     except Exception as exc:
         LOGGER.debug("Reader access pruning failed: %s", exc)
+
+
+def _prune_online_presence_if_due() -> None:
+    now = time.time()
+    if now - _last_online_presence_prune[0] < ONLINE_PRESENCE_PRUNE_INTERVAL_SECONDS:
+        return
+    _last_online_presence_prune[0] = now
+    try:
+        prune_online_presence(keep_hours=ONLINE_PRESENCE_KEEP_HOURS)
+    except Exception as exc:
+        LOGGER.debug("Online presence pruning failed: %s", exc)
 
 
 def _is_public_ip(ip: str) -> bool:
@@ -3014,6 +3045,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_ai_access_url": url_for("admin_ai_access") if remote_admin else "",
         "control_ai_usage_url": url_for("admin_ai_usage") if remote_admin else "",
         "control_reader_access_url": url_for("admin_reader_access") if remote_admin else "",
+        "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
         "control_reader_access_ban_url": url_for("admin_reader_access_ban") if remote_admin else "",
         "recent_orders": list_recent_orders(limit=18),
         "recent_subscriptions": list_recent_subscriptions(limit=18),
@@ -4061,13 +4093,18 @@ def record_current_activity():
         return
     try:
         user = getattr(g, "current_user", None)
+        session_key = _visitor_session_key()
+        user_id = int(user["id"]) if user else None
         record_site_activity(
-            session_key=_visitor_session_key(),
-            user_id=int(user["id"]) if user else None,
+            session_key=session_key,
+            user_id=user_id,
             day=china_day_text(),
             feature=feature,
             path=request.path,
         )
+        # 同步写入 15 分钟时槽在线记录，供 24 小时在线变化图统计。
+        record_online_presence(session_key=session_key, user_id=user_id)
+        _prune_online_presence_if_due()
     except Exception as exc:
         LOGGER.debug("Site activity recording failed: %s", exc)
 
@@ -4345,7 +4382,7 @@ def register():
                     password_hash=generate_password_hash(password),
                     email_verified_at=utc_now_text(),
                 )
-                session.clear()  # 防会话固定：注册登录前丢弃旧会话标识。
+                _reset_session_preserving_visitor()  # 防会话固定，但保留访客统计标识。
                 session["user_id"] = user["id"]
                 session.permanent = True
                 update_last_login(int(user["id"]))
@@ -4406,7 +4443,7 @@ def login():
             login_captcha_required = _login_failure_count(email) >= LOGIN_CAPTCHA_THRESHOLD
         elif not errors:
             _clear_login_failures(email)
-            session.clear()  # 防会话固定：登录成功即丢弃旧会话标识，再写入身份。
+            _reset_session_preserving_visitor()  # 防会话固定，但保留访客统计标识。
             session["user_id"] = user["id"]
             session.permanent = True
             update_last_login(int(user["id"]))
@@ -5153,6 +5190,50 @@ def admin_reader_access():
                 "page_count": len(pages),
             },
             "items": items,
+        }
+    )
+
+
+@app.get("/admin/online-series")
+def admin_online_series():
+    """返回最近 24 小时、15 分钟粒度的在线人数序列，供总览页在线变化图使用。
+
+    每个时槽给出三条口径：所有访问者(含访客) / 注册用户 / 会员用户，前端按需切换。
+    """
+    _require_admin()
+    now_utc = datetime.now(timezone.utc)
+    end_bucket = now_utc.replace(minute=(now_utc.minute // 15) * 15, second=0, microsecond=0)
+    # 24 小时 = 96 个 15 分钟时槽，含当前时槽。
+    start_bucket = end_bucket - timedelta(minutes=15 * 95)
+    now_text = now_utc.isoformat(timespec="seconds")
+    series = get_online_presence_series(
+        since_text=start_bucket.isoformat(timespec="seconds"),
+        until_text=end_bucket.isoformat(timespec="seconds"),
+        member_as_of=now_text,
+    )
+    beijing = timezone(timedelta(hours=8))
+    buckets: list[dict] = []
+    cursor = start_bucket
+    while cursor <= end_bucket:
+        key = cursor.isoformat(timespec="seconds")
+        row = series.get(key) or {}
+        local = cursor.astimezone(beijing)
+        buckets.append(
+            {
+                "label": local.strftime("%H:%M"),
+                "full_label": local.strftime("%m-%d %H:%M"),
+                "total": int(row.get("total") or 0),
+                "registered": int(row.get("registered") or 0),
+                "members": int(row.get("members") or 0),
+            }
+        )
+        cursor += timedelta(minutes=15)
+    return jsonify(
+        {
+            "ok": True,
+            "interval_minutes": 15,
+            "buckets": buckets,
+            "generated_at": _display_datetime(now_text),
         }
     )
 
