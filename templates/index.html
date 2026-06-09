@@ -545,6 +545,23 @@
       white-space: pre-wrap;
       font-size: 1rem;
     }
+    .notice-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .notice-date {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent, #7b1f1f);
+      background: rgba(123, 31, 31, 0.08);
+      border: 1px solid rgba(123, 31, 31, 0.18);
+      border-radius: 999px;
+      padding: 2px 10px;
+      white-space: nowrap;
+    }
     .feedback-card {
       min-height: 170px;
       display: grid;
@@ -1234,7 +1251,7 @@
         <div class="stat">{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</div>
         <div class="stat">{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</div>
         {% for item in book_stats %}
-        <div class="stat">{{ item.short_title }} {{ item.count }} 卷</div>
+        <div class="stat">{{ site_text(item.text_key) or (item.short_title ~ " " ~ item.count ~ " 卷") }}</div>
         {% endfor %}
       </div>
     </section>
@@ -1386,7 +1403,10 @@
       <aside class="right-stack">
         <div class="right-top-stack">
           <section class="notice-card">
-            <h2>{{ site_text("index.notice_title") }}</h2>
+            <h2 class="notice-head">
+              <span class="notice-heading-text">{{ site_text("index.notice_title") }}</span>
+              <time class="notice-date" id="noticeDate">{{ notice_date_cn }}</time>
+            </h2>
             <p class="notice-body">{{ site_text("index.notice_body") }}</p>
           </section>
 
@@ -2762,6 +2782,27 @@
       });
       document.addEventListener('click', function (e) { if (!box.contains(e.target)) hide(); });
       input.addEventListener('focus', function () { if (input.value.trim().length >= 2 && items.length) panel.hidden = false; });
+    })();
+
+    // 公告标题旁的日期：始终按北京时间显示当天年月日，跨零点自动滚动到新日期。
+    (function () {
+      const el = document.getElementById('noticeDate');
+      if (!el) return;
+      function beijingDateText() {
+        try {
+          const parts = new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric'
+          }).formatToParts(new Date());
+          const get = function (t) { return (parts.find(function (p) { return p.type === t; }) || {}).value || ''; };
+          const y = get('year'), m = get('month'), d = get('day');
+          if (y && m && d) return y + '年' + m + '月' + d + '日';
+        } catch (e) {}
+        return el.textContent;
+      }
+      function sync() { el.textContent = beijingDateText(); }
+      sync();
+      // 每分钟校正一次，保证页面长时间停留时日期仍准确。
+      setInterval(sync, 60000);
     })();
   </script>
   {% include "_marx_mascot.html" %}

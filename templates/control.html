@@ -358,6 +358,28 @@
     <div class="grid admin-module-grid">
       <div class="stack">
         {% if admin_module == "overview" %}
+        {% if remote_admin %}
+        <section class="card" id="notice-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>网站公告（首页右侧）</h2>
+          <p class="section-note">这里直接编辑首页右上角「网站公告」栏。标题旁的日期由系统按北京时间自动显示，无需手动填写。保存只影响这两段文字，不动其他文案。</p>
+          <form method="post" action="{{ control_notice_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">公告标题
+              <input type="text" name="notice_title" maxlength="60"
+                     value="{{ site_text('index.notice_title') }}"
+                     placeholder="网站公告">
+            </label>
+            <label class="field">公告内容
+              <textarea name="notice_body" rows="5"
+                        placeholder="在此填写面向访客与会员的公告内容，支持换行。">{{ site_text('index.notice_body') }}</textarea>
+            </label>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit">保存公告</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        {% endif %}
         <section class="card" id="overview">
           <h2>运行概况</h2>
           <p class="section-note">运营仪表盘 · 北京时间 {{ dashboard_metrics.day }}</p>

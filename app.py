@@ -215,16 +215,19 @@ from search import CHAPTER_HITS_PAGE_SIZE, Corpus
 from site_content import (
     SITE_TEXT_OVERRIDES_PATH,
     AutoSiteTextExtension,
+    SiteTextDefinition,
     get_site_text_map,
     list_site_text_groups,
     list_site_text_groups_from_map,
     prune_stale_overrides,
+    register_site_text_definitions,
     render_auto_site_text,
     render_site_text,
     reset_site_text_overrides,
     save_site_text_overrides,
     site_text_coverage_report,
     stale_override_keys,
+    update_site_text_overrides,
 )
 from zpay import ZPayClient, load_zpay_config
 
@@ -370,6 +373,25 @@ book_stats = [
 ]
 n_wenji = len(corpus.books.get("文集", [])) if corpus else 0
 n_quanji = len(corpus.books.get("全集", [])) if corpus else 0
+
+# 首页顶部「卷数 pill」原本是模板里按真实书目动态渲染的（{{ short_title }} {{ count }} 卷），
+# 静态文案扫描发现不了，因此后台「内容运营」一直无法编辑。这里给每个书目注册一个可选
+# 覆盖 key（默认留空＝继续自动显示实时卷数，填写后即整段替换该 pill 文字），让它们和其他
+# 文案一样能在后台编辑。
+_book_pill_definitions = []
+for _pill_index, _book_item in enumerate(book_stats, start=1):
+    _pill_key = f"index.stat_book_{_pill_index}"
+    _book_item["text_key"] = _pill_key
+    _book_pill_definitions.append(
+        SiteTextDefinition(
+            _pill_key,
+            "首页",
+            f"首页顶部卷数 pill：{_book_item['short_title']}（留空＝自动显示实时卷数）",
+            "",
+            multiline=False,
+        )
+    )
+register_site_text_definitions(_book_pill_definitions)
 
 if BASE_RUNTIME.can_search:
     LOGGER.info(
@@ -3046,6 +3068,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_ai_usage_url": url_for("admin_ai_usage") if remote_admin else "",
         "control_reader_access_url": url_for("admin_reader_access") if remote_admin else "",
         "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
+        "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
         "control_reader_access_ban_url": url_for("admin_reader_access_ban") if remote_admin else "",
         "recent_orders": list_recent_orders(limit=18),
         "recent_subscriptions": list_recent_subscriptions(limit=18),
@@ -3222,6 +3245,38 @@ def _handle_site_texts_submit(*, remote_admin: bool):
         )
         flash("站点说明文字已保存。", "success")
     return _management_redirect(remote_admin, "copy")
+
+
+def _handle_notice_submit(*, remote_admin: bool):
+    """「网站公告」的快捷保存：只改公告标题与正文，合并写入，不影响其他文案覆盖。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，网站公告请在网站 /admin 管理。")
+    updates = {
+        "index.notice_title": str(request.form.get("notice_title", "")).strip(),
+        "index.notice_body": str(request.form.get("notice_body", "")),
+    }
+    defaults = get_site_text_map()
+    if DEPLOYMENT.is_server:
+        saved = get_setting("site_texts", {})
+        saved = {str(k): str(v) for k, v in saved.items()} if isinstance(saved, dict) else {}
+        for key, value in updates.items():
+            if defaults.get(key) == value:
+                saved.pop(key, None)
+            else:
+                saved[key] = value
+        set_setting("site_texts", saved, updated_by=_management_actor_label(remote_admin))
+    else:
+        update_site_text_overrides(updates)
+    _log_management_action(
+        action="site_text.notice",
+        target="index.notice",
+        result="success",
+        remote_admin=remote_admin,
+    )
+    flash("网站公告已更新。", "success")
+    return _management_redirect(remote_admin, "overview")
 
 
 def _handle_site_text_scan(*, remote_admin: bool):
@@ -5064,6 +5119,16 @@ def admin_site_texts():
     return _handle_site_texts_submit(remote_admin=True)
 
 
+@app.post("/admin/notice")
+def admin_notice():
+    return _handle_notice_submit(remote_admin=True)
+
+
+@app.post("/control/notice")
+def control_notice():
+    return _handle_notice_submit(remote_admin=False)
+
+
 @app.get("/admin/content/scan")
 def admin_content_scan():
     return _handle_site_text_scan(remote_admin=True)
@@ -5844,10 +5909,12 @@ def index():
         if current_user
         else None
     )
+    _bj_today = _beijing_now()
     return render_template(
         "index.html",
         app_name=APP_NAME,
         app_version=APP_VERSION,
+        notice_date_cn=f"{_bj_today.year}年{_bj_today.month}月{_bj_today.day}日",
         request_token=REQUEST_TOKEN if state["management_api_enabled"] else None,
         state=state,
         ai_runtime=_public_ai_runtime_payload(allow_details=bool(state["feature_access"].get("ai", False))),

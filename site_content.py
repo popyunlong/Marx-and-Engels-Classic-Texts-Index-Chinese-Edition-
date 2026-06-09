@@ -491,6 +491,24 @@ SITE_TEXT_DEFINITIONS = (
 
 _SITE_TEXT_INDEX = {item.key: item for item in SITE_TEXT_DEFINITIONS}
 
+# 运行期追加的定义：例如 app.py 按真实书目动态注册的「首页卷数 pill」。这些 key 在
+# 模板里以变量形式调用（site_text(item.text_key)），静态扫描发现不了，必须显式注册，
+# 才能与静态定义同等地参与渲染、后台分组展示与覆盖保存。
+_EXTRA_DEFINITIONS: list[SiteTextDefinition] = []
+
+
+def register_site_text_definitions(definitions) -> None:
+    """注册额外的站点文案定义（幂等：已存在的 key 跳过）。"""
+    for definition in definitions:
+        if definition.key in _SITE_TEXT_INDEX:
+            continue
+        _EXTRA_DEFINITIONS.append(definition)
+        _SITE_TEXT_INDEX[definition.key] = definition
+
+
+def _all_static_definitions() -> list[SiteTextDefinition]:
+    return list(SITE_TEXT_DEFINITIONS) + _EXTRA_DEFINITIONS
+
 
 class _SafeFormatDict(dict):
     def __missing__(self, key: str) -> str:
@@ -578,7 +596,7 @@ def get_site_text_map(path: Path | None = None) -> dict[str, str]:
     overrides = _load_overrides(path)
     values = {
         definition.key: overrides.get(definition.key, definition.default)
-        for definition in SITE_TEXT_DEFINITIONS
+        for definition in _all_static_definitions()
     }
     for definition in _dynamic_definitions_from_templates(overrides):
         values[definition.key] = overrides.get(definition.key, definition.default)
@@ -603,7 +621,7 @@ def list_site_text_groups_from_map(current: dict[str, str]) -> list[dict[str, ob
     groups: dict[str, list[dict[str, object]]] = {}
     auto_definitions = globals().get("auto_literal_definitions", lambda: [])
     definitions = (
-        list(SITE_TEXT_DEFINITIONS)
+        _all_static_definitions()
         + _dynamic_definitions_from_templates(current)
         + auto_definitions()
     )
@@ -633,7 +651,7 @@ def save_site_text_overrides(values: dict[str, str], path: Path | None = None) -
     payload: dict[str, str] = {}
     auto_definitions = globals().get("auto_literal_definitions", lambda: [])
     definitions = (
-        list(SITE_TEXT_DEFINITIONS)
+        _all_static_definitions()
         + _dynamic_definitions_from_templates(values)
         + auto_definitions()
     )
@@ -649,6 +667,29 @@ def save_site_text_overrides(values: dict[str, str], path: Path | None = None) -
             payload[definition.key] = value
     target.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def update_site_text_overrides(values: dict[str, str], path: Path | None = None) -> None:
+    """合并写入若干文案覆盖：只改动给定 key，其余覆盖原样保留。
+
+    值等于框架默认值时移除该 key（即恢复默认）。用于「网站公告」等局部小表单，避免像
+    整表保存那样用提交内容整体替换覆盖文件而误删其他文案。
+    """
+    target = path or SITE_TEXT_OVERRIDES_PATH
+    current = _load_overrides(target)
+    for key, raw in values.items():
+        value = str(raw)
+        definition = _SITE_TEXT_INDEX.get(key)
+        default = definition.default if definition else ""
+        if value == default:
+            current.pop(key, None)
+        else:
+            current[key] = value
+    APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(current, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
