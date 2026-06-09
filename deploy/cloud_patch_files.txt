@@ -31,7 +31,10 @@ templates/register.html
 templates/reset_password.html
 templates/viewer.html
 templates/library.html
+templates/_marx_mascot.html
 static/vendor/qrcode.min.js
+static/mascot/marx-mascot.css
+static/mascot/marx-mascot.js
 deploy/Caddyfile.example
 deploy/marx-search.service
 deploy/marx-search-journal-alerts.service
