@@ -39,6 +39,7 @@
   position: absolute;
   right: 0; bottom: 0;
   width: 100%; height: 100%;
+  z-index: 1;                    /* keep below the bubble so its chips stay clickable */
   cursor: pointer;
   filter: drop-shadow(0 6px 10px rgba(40, 26, 16, .22));
   transition: transform .2s ease;
@@ -94,6 +95,7 @@
 .mx-bubble {
   position: absolute;
   right: 10px; bottom: 182px;
+  z-index: 3;                    /* above the stage so 换一句/收起 receive clicks */
   width: max-content; max-width: 268px;
   background: #fff;
   border: 1px solid rgba(143, 29, 29, .22);
@@ -109,6 +111,7 @@
 .mx-bubble-text { margin: 0 0 8px; color: #2a2118; }
 .mx-bubble-tail {
   position: absolute; right: 26px; bottom: -7px;
+  pointer-events: none;          /* never intercept clicks on the chips above it */
   width: 14px; height: 14px; background: #fff;
   border-right: 1px solid rgba(143,29,29,.22);
   border-bottom: 1px solid rgba(143,29,29,.22);
