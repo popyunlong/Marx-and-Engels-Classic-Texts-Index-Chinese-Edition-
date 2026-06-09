@@ -28,3 +28,14 @@ books:
   sort_order: 30
   tag_class: lenin
   available: true
+# 《毛泽东选集》为扫描版（pdfs/《毛泽东选集》），无文本层；检索正文与页码取自项目根目录
+# 的可选文字版（毛泽东选集文字版/），但 source_file/pdf_page 锚定到扫描版，由
+# scripts/build_mao_index.py 原地写入 pages/toc_entries（不经 build_index 全量重建）。
+- key: 毛泽东选集
+  title: 《毛泽东选集》
+  short_title: 毛泽东《选集》
+  citation_title: 毛泽东选集
+  folder: pdfs/《毛泽东选集》
+  sort_order: 40
+  tag_class: mao
+  available: true

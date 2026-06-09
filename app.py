@@ -3839,7 +3839,8 @@ def _page_image_cache_path(source_file: str, page_number: int, query_text: str) 
         stamp = "missing"
     # 缓存版本号 v3：渲染参数（自适应高分辨率 + JPEG 质量）升级后必须改版本号，
     # 否则旧的 1.45× 模糊缓存（含线上已预热的）会继续命中，新逻辑不生效。
-    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v3"
+    # profile tag：毛选高分辨率 profile 用独立 tag，其余书库 tag 为空 → v3 缓存照常命中。
+    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v3{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
     return PAGE_IMAGE_CACHE_DIR / digest[:2] / f"{digest}.jpg"
 
@@ -3855,6 +3856,57 @@ PAGE_IMAGE_TARGET_WIDTH = 1600.0   # 目标渲染像素宽度（适配高分屏 
 PAGE_IMAGE_MIN_SCALE = 1.45        # 缩放下限：不低于历史清晰度，保证「只会更清晰不会更糊」
 PAGE_IMAGE_MAX_SCALE = 3.0         # 缩放上限：把握分寸，控制文件体积 / 渲染耗时 / 内存
 PAGE_IMAGE_JPEG_QUALITY = 90       # JPEG 质量：高分辨率下兼顾文字边缘锐利与体积
+
+# 《毛泽东选集》为纯图像扫描件、原始分辨率偏低、肉眼偏糊。仅对该书库启用「更高渲染分辨率
+# + 更高 JPEG 质量 + 轻度 USM 锐化」profile：以更高倍率重采样恢复扫描原生细节，再做一次
+# 非锐化掩模提升笔画边缘对比。锐化依赖 numpy，按需探测，缺失时安全跳过（绝不让渲染 502）。
+# 其它书库 profile 不变、tag 为空 → 既有 v3 缓存继续命中，无需全站重渲染。
+MAO_RENDER = {
+    "target_width": 2200.0, "min_scale": 2.0, "max_scale": 3.6,
+    "jpeg_quality": 94, "sharpen": 0.8, "tag": "+mao1",
+}
+_MAO_SCAN_PREFIX = "pdfs/《毛泽东选集》/"
+_NUMPY_MODULE = "__unset__"  # 惰性探测结果缓存：模块对象或 None
+
+
+def _numpy_or_none():
+    global _NUMPY_MODULE
+    if _NUMPY_MODULE == "__unset__":
+        try:
+            import numpy as _np  # 仅在可用时启用锐化；服务器未装则优雅降级
+            _NUMPY_MODULE = _np
+        except Exception:
+            _NUMPY_MODULE = None
+    return _NUMPY_MODULE
+
+
+def _render_profile(source_file: str) -> dict:
+    """按书库返回渲染 profile。毛选用高分辨率+锐化；其余沿用历史参数（tag 空、缓存不失效）。"""
+    if _normalize_source_file(source_file).startswith(_MAO_SCAN_PREFIX):
+        return MAO_RENDER
+    return {
+        "target_width": PAGE_IMAGE_TARGET_WIDTH, "min_scale": PAGE_IMAGE_MIN_SCALE,
+        "max_scale": PAGE_IMAGE_MAX_SCALE, "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY,
+        "sharpen": 0.0, "tag": "",
+    }
+
+
+def _unsharp_jpeg_bytes(pix, amount: float, quality: int):
+    """对 PyMuPDF 像素图做一次轻度非锐化掩模（USM），返回 JPEG 字节；numpy 不可用或异常时返回
+    None，调用方回退到原始 pix.tobytes。可分离 [1,2,1]/4 近似高斯模糊，amount 控制锐化强度。"""
+    np = _numpy_or_none()
+    if np is None or amount <= 0:
+        return None
+    try:
+        h, w, n = pix.height, pix.width, pix.n
+        arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(h, w, n).astype(np.float32)
+        blur = (arr * 2 + np.roll(arr, 1, 1) + np.roll(arr, -1, 1)) / 4.0
+        blur = (blur * 2 + np.roll(blur, 1, 0) + np.roll(blur, -1, 0)) / 4.0
+        sharp = np.clip(arr + amount * (arr - blur), 0, 255).astype(np.uint8)
+        out = fitz.Pixmap(pix.colorspace, w, h, sharp.tobytes(), pix.alpha)
+        return out.tobytes("jpg", jpg_quality=quality)
+    except Exception:
+        return None
 
 
 def _render_page_image_to_cache(source_file: str, page_number: int, query_text: str, *, matrix_scale: float = PAGE_IMAGE_MIN_SCALE) -> Path:
@@ -3881,17 +3933,21 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
                 annot.update()
             break
 
-        # 自适应缩放：按页面物理宽度（pt）算出贴近目标像素宽的缩放系数，
-        # 再用下限（matrix_scale，默认即历史 1.45×）和上限（MAX_SCALE）夹住。
-        # 任何异常都安全回退到 matrix_scale，绝不让渲染流程崩溃。
+        # 自适应缩放：按页面物理宽度（pt）算出贴近目标像素宽的缩放系数，再用下限/上限夹住。
+        # profile 按书库选择（毛选高分辨率，其余历史参数）。任何异常都安全回退，绝不崩溃。
+        profile = _render_profile(source_file)
+        lo = max(matrix_scale, profile["min_scale"])
         try:
             page_width_pt = float(page.rect.width)
-            adaptive_scale = PAGE_IMAGE_TARGET_WIDTH / page_width_pt if page_width_pt > 0 else matrix_scale
-            scale = max(matrix_scale, min(adaptive_scale, PAGE_IMAGE_MAX_SCALE))
+            adaptive_scale = profile["target_width"] / page_width_pt if page_width_pt > 0 else lo
+            scale = max(lo, min(adaptive_scale, profile["max_scale"]))
         except Exception:
-            scale = matrix_scale
+            scale = lo
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, annots=True)
-        temp_path.write_bytes(pix.tobytes("jpg", jpg_quality=PAGE_IMAGE_JPEG_QUALITY))
+        data = _unsharp_jpeg_bytes(pix, profile["sharpen"], profile["jpeg_quality"])
+        if data is None:  # numpy 不可用 / 锐化关闭 / 异常 → 直接输出原始像素图
+            data = pix.tobytes("jpg", jpg_quality=profile["jpeg_quality"])
+        temp_path.write_bytes(data)
     temp_path.replace(cache_path)
     return cache_path
 
