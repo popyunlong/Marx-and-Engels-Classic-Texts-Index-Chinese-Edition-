@@ -8,11 +8,12 @@
    Login state comes from the global `current_user` context processor, so no
    backend change is required. All behaviour lives in the external JS/CSS.
    =========================================================================== #}
-<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=3">
+<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=4">
 <div id="marx-mascot-root"
      class="mx-root mx-state-loading"
      data-logged-in="{{ 'true' if current_user else 'false' }}"
      data-name="{{ current_user.display_name if current_user else '' }}"
+     data-uid="{{ current_user.id if current_user else '' }}"
      data-default-docked="{{ 'true' if mascot_default_docked | default(false) else 'false' }}"
      data-ai="{{ 'true' if (state and state.feature_access and state.feature_access.ai) else 'false' }}"
      aria-live="polite">
@@ -277,4 +278,4 @@
     </svg>
   </div>{# /mx-stage #}
 </div>{# /mx-root #}
-<script src="/static/mascot/marx-mascot.js?v=3" defer></script>
+<script src="/static/mascot/marx-mascot.js?v=4" defer></script>

@@ -36,10 +36,11 @@
   var chipHide   = root.querySelector('.mx-chip-hide');
 
   var LS_DOCK   = 'mx-docked-v1';
-  var SS_INTRO  = 'mx-intro-shown-v1';
+  var LS_UID    = 'mx-last-uid-v1';
 
   var isLoggedIn   = root.dataset.loggedIn === 'true';
   var displayName  = (root.dataset.name || '').trim();
+  var userId       = (root.dataset.uid || '').trim();
   var defaultDock  = root.dataset.defaultDocked === 'true';
   var aiAccess     = root.dataset.ai === 'true';
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -334,6 +335,9 @@
   window.MarxMascot = api;
 
   /* ----------------------------------------------------------------- init - */
+  function rememberUser() { try { localStorage.setItem(LS_UID, userId); } catch (e) {} }
+  function forgetUser()   { try { localStorage.setItem(LS_UID, ''); } catch (e) {} }
+
   function init() {
     root.classList.remove('mx-state-loading');
 
@@ -341,24 +345,29 @@
     try { pref = localStorage.getItem(LS_DOCK); } catch (e) {}
     var startDocked = pref === '1' || (pref === null && defaultDock);
 
+    /* "Fresh login" = we are logged in as a user we have not greeted yet.
+       Guest pages (the login page included) reset the marker via forgetUser(),
+       so the welcome fires on EVERY login — every login passes through a
+       logged-out state first — and once when arriving already-logged-in in a
+       browser we have not greeted before. */
+    var lastUid = null;
+    try { lastUid = localStorage.getItem(LS_UID); } catch (e) {}
+    var freshLogin = isLoggedIn && lastUid !== userId;
+
     /* set a sensible resting posture even while docked, for a clean summon */
     setPosture(isLoggedIn ? 'standing' : 'seated');
 
     if (startDocked) {
       root.classList.add('mx-docked');
+      if (isLoggedIn) { rememberUser(); } else { forgetUser(); }
       return;
     }
 
     if (isLoggedIn) {
-      var introShown = false;
-      try { introShown = sessionStorage.getItem(SS_INTRO) === '1'; } catch (e) {}
-      if (!introShown) {
-        try { sessionStorage.setItem(SS_INTRO, '1'); } catch (e) {}
-        playIntro();
-      } else {
-        startCycle();
-      }
+      rememberUser();
+      if (freshLogin) { playIntro(); } else { startCycle(); }
     } else {
+      forgetUser();
       setPosture('seated');     /* guest: seated idle, no action cycle */
     }
   }
