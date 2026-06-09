@@ -264,7 +264,7 @@ try {
     Invoke-Remote "tar -xzf '$remoteArchive' -C '$RemoteDir' && rm -f '$remoteArchive'"
 
     Write-Host "Fixing lightweight permissions ..."
-    Invoke-Remote-BestEffort "cd '$RemoteDir' && chown www-data:www-data *.py templates/*.html scripts/*.py deploy/*.ps1 deploy/*.sh deploy/marx-search-journal-alerts.* deploy/marx-search-journal-send.* config/*.example config/books.yaml config/manifest.yaml config/volumes.yaml config/wenji_toc_overrides.yaml config/quanji_toc_overrides.yaml DEPLOY_SERVER.md 2>/dev/null || true && chmod -R a+rX templates scripts deploy config 2>/dev/null || true && chmod a+r static/vendor/qrcode.min.js 2>/dev/null || true"
+    Invoke-Remote-BestEffort "cd '$RemoteDir' && chown www-data:www-data *.py templates/*.html scripts/*.py deploy/*.ps1 deploy/*.sh deploy/marx-search-journal-alerts.* deploy/marx-search-journal-send.* config/*.example config/books.yaml config/manifest.yaml config/volumes.yaml config/wenji_toc_overrides.yaml config/quanji_toc_overrides.yaml DEPLOY_SERVER.md 2>/dev/null || true && chmod -R a+rX templates scripts deploy config static 2>/dev/null || true && chmod a+r static/vendor/qrcode.min.js 2>/dev/null || true"
     Invoke-Remote-BestEffort "install -d -o www-data -g www-data -m 0700 /var/www/.marx_search_full /var/www/.marx_search_full/page_images"
     if ($FixCachePermissions) {
         Write-Host "Recursively fixing cache permissions because -FixCachePermissions was supplied ..."
