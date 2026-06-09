@@ -284,7 +284,10 @@ class Corpus:
                     "book": book.key,
                     "volume": vol,
                     "source_file": source_file,
-                    "display_title": Path(source_file).stem,
+                    # manifest 可显式给出 display_title（用于文件名无意义的书库，如毛泽东文集 1.pdf）；
+                    # 缺省回退到 PDF 文件名（如马恩文集/列宁等文件名本身即卷题）。
+                    "display_title": (str(item.get("display_title") or "").strip()
+                                      or Path(source_file).stem),
                 }
                 self._manifest_by_file[source_file] = meta
                 self._files_by_book_volume.setdefault((book.key, vol), []).append(source_file)

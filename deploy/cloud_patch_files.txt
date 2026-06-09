@@ -59,6 +59,8 @@ scripts/build_wenji_toc.py
 scripts/build_quanji_toc.py
 scripts/build_toc.py
 scripts/build_mao_index.py
+scripts/build_textbook_index.py
+scripts/build_maowenji_vol6.py
 scripts/check_inline_js.py
 scripts/deployment_smoke.py
 scripts/journal_alert_worker.py

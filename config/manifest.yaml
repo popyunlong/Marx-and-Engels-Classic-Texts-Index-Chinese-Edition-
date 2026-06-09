@@ -257,15 +257,25 @@
 毛泽东文集:
 - file: pdfs/《毛泽东文集》/1.pdf
   volume: 1
+  display_title: 毛泽东文集第一卷
 - file: pdfs/《毛泽东文集》/2.pdf
   volume: 2
+  display_title: 毛泽东文集第二卷
 - file: pdfs/《毛泽东文集》/3.pdf
   volume: 3
+  display_title: 毛泽东文集第三卷
 - file: pdfs/《毛泽东文集》/4.pdf
   volume: 4
+  display_title: 毛泽东文集第四卷
 - file: pdfs/《毛泽东文集》/5.pdf
   volume: 5
+  display_title: 毛泽东文集第五卷
+- file: pdfs/《毛泽东文集》/6.pdf
+  volume: 6
+  display_title: 毛泽东文集第六卷
 - file: pdfs/《毛泽东文集》/7.pdf
   volume: 7
+  display_title: 毛泽东文集第七卷
 - file: pdfs/《毛泽东文集》/8.pdf
   volume: 8
+  display_title: 毛泽东文集第八卷
