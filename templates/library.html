@@ -191,6 +191,7 @@
       border-radius: 999px;
     }
     .book-section-body { padding: 8px 2px 2px; }
+    .toc .toc-loading { padding: 12px 16px; color: var(--muted); font-size: .92rem; }
     @media (max-width: 720px) {
       .topbar, .volume summary {
         grid-template-columns: 1fr;
@@ -347,8 +348,8 @@
               <div class="volume-title">
                 <h2>第 {{ volume.volume }} 卷 · {{ volume.display_title }}</h2>
                 <div class="volume-meta">
-                  {%- if volume.toc_entries -%}
-                  {{ volume.page_count }} 页 · {{ volume.toc_entries|length }} 个目录项
+                  {%- if volume.toc_count -%}
+                  {{ volume.page_count }} 页 · {{ volume.toc_count }} 个目录项
                   {%- else -%}
                   共 {{ volume.page_count }} 页 · 逐页阅读
                   {%- endif -%}
@@ -358,17 +359,13 @@
                 <a class="primary" href="{{ volume.viewer_url }}">打开阅读器</a>
               </div>
             </summary>
-            {% if volume.toc_entries %}
-            <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录">
-              {% for entry in volume.toc_entries %}
-              <a
-                class="level-{{ entry.level if entry.level <= 6 else 6 }}"
-                href="{{ url_for('pdf_viewer', file=volume.source_file, page=entry.pdf_page, section=entry.title, printed=entry.printed_page or '', mode='reader' if reader_mode else 'ai') }}"
-              >
-                <span>{{ entry.title }}</span>
-                <span class="page">{{ entry.printed_page or ('PDF ' ~ entry.pdf_page) }}</span>
-              </a>
-              {% endfor %}
+            {% if volume.toc_count %}
+            {# 目录条目在展开本卷时由 /api/library/volume-toc 懒加载，避免首屏渲染海量目录致卡顿 #}
+            <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录"
+                 data-toc-src="{{ volume.source_file }}"
+                 data-toc-mode="{{ 'reader' if reader_mode else 'ai' }}"
+                 data-loaded="0">
+              <div class="toc-loading">展开加载目录…</div>
             </nav>
             {% else %}
             <div class="empty">
@@ -477,6 +474,57 @@
       });
       input.addEventListener('focus', function () {
         if (input.value.trim().length >= 2 && items.length) panel.hidden = false;
+      });
+    })();
+
+    // 单卷目录懒加载：展开某卷时才向 /api/library/volume-toc 拉取该卷目录并渲染，
+    // 首屏不再内联上万条目录，消除进入阅读器时的卡顿。每卷只拉一次（data-loaded 守卫）。
+    (function () {
+      function renderEntries(nav, results) {
+        nav.textContent = '';
+        if (!results || !results.length) {
+          const e = document.createElement('div');
+          e.className = 'empty';
+          e.textContent = '本卷暂无目录。';
+          nav.appendChild(e);
+          return;
+        }
+        const frag = document.createDocumentFragment();
+        results.forEach(function (r) {
+          const a = document.createElement('a');
+          a.className = 'level-' + (r.level && r.level <= 6 ? r.level : 6);
+          a.href = r.url || '#';
+          const t = document.createElement('span');
+          t.textContent = r.title || '';
+          const p = document.createElement('span');
+          p.className = 'page';
+          p.textContent = r.printed_page ? r.printed_page : ('PDF ' + (r.pdf_page || 1));
+          a.appendChild(t);
+          a.appendChild(p);
+          frag.appendChild(a);
+        });
+        nav.appendChild(frag);
+      }
+      function loadToc(nav) {
+        if (!nav || nav.getAttribute('data-loaded') !== '0') return;
+        nav.setAttribute('data-loaded', '1');
+        const src = nav.getAttribute('data-toc-src');
+        const mode = nav.getAttribute('data-toc-mode') || 'ai';
+        const url = '/api/library/volume-toc?file=' + encodeURIComponent(src) + '&mode=' + encodeURIComponent(mode);
+        fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+          .then(function (resp) { if (!resp.ok) throw new Error(resp.status); return resp.json(); })
+          .then(function (data) { renderEntries(nav, data && data.results); })
+          .catch(function () {
+            nav.setAttribute('data-loaded', '0'); // 允许重试
+            const box = nav.querySelector('.toc-loading') || nav;
+            box.textContent = '目录加载失败，收起后重试。';
+          });
+      }
+      document.querySelectorAll('details.volume').forEach(function (d) {
+        d.addEventListener('toggle', function () {
+          if (!d.open) return;
+          loadToc(d.querySelector('nav.toc[data-toc-src]'));
+        });
       });
     })();
   </script>

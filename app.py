@@ -406,6 +406,7 @@ READER_ENDPOINTS = {
     "serve_pdf",
     "page_image",
     "api_library_toc_suggest",
+    "api_library_volume_toc",
 }
 CSRF_EXEMPT_ENDPOINTS = {
     "zpay_notify",
@@ -5786,9 +5787,10 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
     for book_cfg in BOOK_CONFIGS:
         book = book_cfg.key
         for volume in (corpus.get_volumes(book) if corpus else []):
-            # 目录优先来自预生成的 toc_entries 表；没有预生成时由 search.Corpus 兜底解析 PDF。
-            # 直接展开；命中缓存后无需解析 PDF。
-            toc_entries = [entry.to_dict() for entry in corpus.get_toc_entries(volume.source_file)] if corpus else []
+            # 仅取目录“条数”用于卷头标签；目录条目本身改由 /api/library/volume-toc 在展开该卷时
+            # 按需拉取（见 library.html）。避免每次进阅读器就把上万条目录全量渲染进 DOM 致卡顿，
+            # 也省去每请求物化两万条 dict 的服务端开销。
+            toc_count = len(corpus.get_toc_entries(volume.source_file)) if corpus else 0
             viewer_args = {"file": volume.source_file, "page": 1}
             if basic_reader_mode:
                 viewer_args["mode"] = "reader"
@@ -5800,7 +5802,7 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
                     **_book_payload(book),
                     "source_file": volume.source_file,
                     "page_count": len(volume.pages),
-                    "toc_entries": toc_entries,
+                    "toc_count": toc_count,
                     "viewer_url": url_for("pdf_viewer", **viewer_args),
                     "pdf_url": url_for("serve_pdf", file=volume.source_file),
                 }
@@ -6044,6 +6046,42 @@ def _warm_toc_suggest_index() -> None:
 
 if corpus is not None:
     threading.Thread(target=_warm_toc_suggest_index, name="toc-suggest-warm", daemon=True).start()
+
+
+@app.route("/api/library/volume-toc")
+def api_library_volume_toc():
+    """按需返回单卷目录条目（供阅读器展开某卷时懒加载，避免首屏渲染上万条目录致卡顿）。"""
+    _require_content_feature("library")
+    _require_search()
+    source_file = (request.args.get("file") or "").strip()
+    mode = "reader" if (request.args.get("mode") or "").strip() == "reader" else "ai"
+    volume = corpus.get_volume_by_source_file(source_file) if corpus else None
+    if volume is None:
+        return jsonify({"ok": False, "results": []}), 404
+    results = []
+    for entry in corpus.get_toc_entries(volume.source_file):
+        title = str(getattr(entry, "title", "") or "")
+        pdf_page = int(getattr(entry, "pdf_page", 1) or 1)
+        printed = str(getattr(entry, "printed_page", "") or "")
+        results.append(
+            {
+                "title": title,
+                "level": max(1, min(6, int(getattr(entry, "level", 1) or 1))),
+                "pdf_page": pdf_page,
+                "printed_page": printed,
+                "url": url_for(
+                    "pdf_viewer",
+                    file=volume.source_file,
+                    page=pdf_page,
+                    section=title,
+                    printed=printed,
+                    mode=mode,
+                ),
+            }
+        )
+    resp = jsonify({"ok": True, "results": results})
+    resp.headers["Cache-Control"] = "private, max-age=600"
+    return resp
 
 
 @app.route("/viewer")
