@@ -154,14 +154,43 @@
       background: rgba(255, 255, 255, 0.64);
       border-radius: 8px;
     }
-    .book-group {
-      margin: 14px 4px 0;
-      padding-bottom: 6px;
+    /* 书库分组：整套书库折叠为一个可展开区块，默认收起，避免一页堆叠上百卷 */
+    .book-section { margin: 14px 4px 0; }
+    .book-section:first-of-type { margin-top: 0; }
+    .book-section > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
       font-size: 1.18rem;
+      font-weight: 800;
       color: var(--accent);
-      border-bottom: 2px solid var(--accent-soft);
+      background: var(--panel);
+      border: 1px solid var(--accent-soft);
+      border-left: 4px solid var(--accent);
+      border-radius: 10px;
     }
-    .book-group:first-of-type { margin-top: 0; }
+    .book-section > summary::-webkit-details-marker { display: none; }
+    .book-section > summary::before {
+      content: "▸";
+      color: var(--accent);
+      font-size: .9rem;
+    }
+    .book-section[open] > summary::before { content: "▾"; }
+    .book-section > summary:hover { background: var(--accent-soft); }
+    .book-section .bg-name { flex: 1; }
+    .book-section .bg-count {
+      flex: none;
+      font-size: .82rem;
+      font-weight: 600;
+      color: var(--muted);
+      background: var(--accent-soft);
+      padding: 2px 10px;
+      border-radius: 999px;
+    }
+    .book-section-body { padding: 8px 2px 2px; }
     @media (max-width: 720px) {
       .topbar, .volume summary {
         grid-template-columns: 1fr;
@@ -303,43 +332,52 @@
 
     {% if volumes %}
       <p class="volume-hint">{{ site_text("library.volume_hint") }}</p>
-      {% for volume in volumes %}
-      {% if loop.changed(volume.book) %}
-      <h2 class="book-group">{{ volume.book_title }}</h2>
-      {% endif %}
-      <details class="volume">
+      {# 按书库（book_sort_order 保持既定顺序）折叠为可展开分组，避免一页堆叠上百卷 #}
+      {% for book_so, book_vols in volumes|groupby('book_sort_order') %}
+      {% set book_vols = book_vols|list %}
+      <details class="book-section">
         <summary>
-          <div class="volume-title">
-            <h2>第 {{ volume.volume }} 卷 · {{ volume.display_title }}</h2>
-            <div class="volume-meta">
-              {%- if volume.toc_entries -%}
-              {{ volume.page_count }} 页 · {{ volume.toc_entries|length }} 个目录项
-              {%- else -%}
-              共 {{ volume.page_count }} 页 · 逐页阅读
-              {%- endif -%}
-            </div>
-          </div>
-          <div class="volume-actions">
-            <a class="primary" href="{{ volume.viewer_url }}">打开阅读器</a>
-          </div>
+          <span class="bg-name">{{ book_vols[0].book_title }}</span>
+          <span class="bg-count">{{ book_vols|length }} 卷</span>
         </summary>
-        {% if volume.toc_entries %}
-        <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录">
-          {% for entry in volume.toc_entries %}
-          <a
-            class="level-{{ entry.level if entry.level <= 6 else 6 }}"
-            href="{{ url_for('pdf_viewer', file=volume.source_file, page=entry.pdf_page, section=entry.title, printed=entry.printed_page or '', mode='reader' if reader_mode else 'ai') }}"
-          >
-            <span>{{ entry.title }}</span>
-            <span class="page">{{ entry.printed_page or ('PDF ' ~ entry.pdf_page) }}</span>
-          </a>
+        <div class="book-section-body">
+          {% for volume in book_vols %}
+          <details class="volume">
+            <summary>
+              <div class="volume-title">
+                <h2>第 {{ volume.volume }} 卷 · {{ volume.display_title }}</h2>
+                <div class="volume-meta">
+                  {%- if volume.toc_entries -%}
+                  {{ volume.page_count }} 页 · {{ volume.toc_entries|length }} 个目录项
+                  {%- else -%}
+                  共 {{ volume.page_count }} 页 · 逐页阅读
+                  {%- endif -%}
+                </div>
+              </div>
+              <div class="volume-actions">
+                <a class="primary" href="{{ volume.viewer_url }}">打开阅读器</a>
+              </div>
+            </summary>
+            {% if volume.toc_entries %}
+            <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录">
+              {% for entry in volume.toc_entries %}
+              <a
+                class="level-{{ entry.level if entry.level <= 6 else 6 }}"
+                href="{{ url_for('pdf_viewer', file=volume.source_file, page=entry.pdf_page, section=entry.title, printed=entry.printed_page or '', mode='reader' if reader_mode else 'ai') }}"
+              >
+                <span>{{ entry.title }}</span>
+                <span class="page">{{ entry.printed_page or ('PDF ' ~ entry.pdf_page) }}</span>
+              </a>
+              {% endfor %}
+            </nav>
+            {% else %}
+            <div class="empty">
+              本卷暂未生成目录：点击「打开阅读器」从第 1 页开始逐页浏览正文。
+            </div>
+            {% endif %}
+          </details>
           {% endfor %}
-        </nav>
-        {% else %}
-        <div class="empty">
-          本卷暂未生成目录：点击「打开阅读器」从第 1 页开始逐页浏览正文。
         </div>
-        {% endif %}
       </details>
       {% endfor %}
     {% else %}
