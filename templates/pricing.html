@@ -107,6 +107,21 @@
       display: grid;
       gap: 14px;
       align-content: start;
+      position: relative;
+      overflow: hidden;
+    }
+    .card.has-badge { padding-top: 30px; }
+    .plan-badge {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      padding: 4px 14px;
+      border-radius: 0 0 0 12px;
     }
     .price {
       font-size: 2rem;
@@ -203,18 +218,27 @@
 
     <section class="grid">
       {% for plan in plans %}
-      <article class="card">
+      {% set plan_badge = (plan.badge | default('', true)) | trim %}
+      {% set feature_lines = (plan.features | default('', true)).split('\n') | map('trim') | select | list %}
+      <article class="card{% if plan_badge %} has-badge{% endif %}">
+        {% if plan_badge %}<div class="plan-badge">{{ plan_badge }}</div>{% endif %}
         <div>
           <h2>{{ plan.name }}</h2>
           <div class="price">{{ format_price(plan.price_cents, plan.currency) }}</div>
           <div class="muted">周期：{{ plan.interval_months }} 个月</div>
         </div>
-        <p class="muted">{{ plan.description }}</p>
+        {% if plan.description %}<p class="muted">{{ plan.description }}</p>{% endif %}
         <ul>
+          {% if feature_lines %}
+          {% for line in feature_lines %}
+          <li>{{ line }}</li>
+          {% endfor %}
+          {% else %}
           <li>{{ site_text("pricing.feature_viewer") }}</li>
           <li>{{ site_text("pricing.feature_pdf") }}</li>
           <li>{{ site_text("pricing.feature_ai") }}</li>
           <li>{{ site_text("pricing.feature_account") }}</li>
+          {% endif %}
         </ul>
         <div class="actions">
           {% if current_user and alipay_runtime.enabled %}

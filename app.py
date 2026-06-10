@@ -3492,6 +3492,8 @@ def _handle_plans_submit(*, remote_admin: bool):
             interval_months=_form_int("interval_months", 1),
             description=(request.form.get("description") or "").strip(),
             daily_ai_token_limit=_form_optional_int("daily_ai_token_limit"),
+            features=(request.form.get("features") or "").strip(),
+            badge=(request.form.get("badge") or "").strip(),
             is_active=_form_bool("is_active"),
             sort_order=_form_int("sort_order", 0),
         )

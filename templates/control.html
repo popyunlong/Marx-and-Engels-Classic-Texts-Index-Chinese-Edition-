@@ -1354,7 +1354,9 @@
                 <label class="field">周期月 <input type="number" name="interval_months" value="{{ plan.interval_months }}" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="{{ plan.sort_order }}"></label>
                 <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" value="{{ plan.daily_ai_token_limit if plan.daily_ai_token_limit is not none else '' }}" min="0" placeholder="留空不限额"></label>
-                <label class="field-wide">说明 <textarea name="description">{{ plan.description }}</textarea></label>
+                <label class="field">角标/促销标签 <input type="text" name="badge" value="{{ plan.badge | default('', true) }}" placeholder="如「最受欢迎」，留空不显示"></label>
+                <label class="field-wide">说明（卡片副标题） <textarea name="description">{{ plan.description }}</textarea></label>
+                <label class="field-wide">营销卖点（每行一条，留空则用全站默认卖点） <textarea name="features" rows="4" placeholder="每行一条卖点，例如：&#10;畅读全部 PDF 原文&#10;AI 智能导学不限次&#10;支持期刊新文摘要">{{ plan.features | default('', true) }}</textarea></label>
               </div>
               <div class="actions">
                 <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if plan.is_active %}checked{% endif %}>上架</label>
@@ -1373,7 +1375,9 @@
                 <label class="field">周期月 <input type="number" name="interval_months" value="1" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="50"></label>
                 <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" min="0" placeholder="留空不限额"></label>
-                <label class="field-wide">说明 <textarea name="description"></textarea></label>
+                <label class="field">角标/促销标签 <input type="text" name="badge" placeholder="如「最受欢迎」，留空不显示"></label>
+                <label class="field-wide">说明（卡片副标题） <textarea name="description"></textarea></label>
+                <label class="field-wide">营销卖点（每行一条，留空则用全站默认卖点） <textarea name="features" rows="4" placeholder="每行一条卖点"></textarea></label>
               </div>
               <div class="actions">
                 <label class="checkbox"><input type="checkbox" name="is_active" value="1" checked>上架</label>

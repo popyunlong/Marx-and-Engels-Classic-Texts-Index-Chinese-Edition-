@@ -132,6 +132,8 @@ def init_membership_db() -> Path:
                 interval_months INTEGER NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
                 daily_ai_token_limit INTEGER,
+                features TEXT NOT NULL DEFAULT '',
+                badge TEXT NOT NULL DEFAULT '',
                 is_active INTEGER NOT NULL DEFAULT 1,
                 sort_order INTEGER NOT NULL DEFAULT 0
             );
@@ -280,6 +282,12 @@ def init_membership_db() -> Path:
         plan_columns = _table_columns(conn, "plans")
         if "daily_ai_token_limit" not in plan_columns:
             conn.execute("ALTER TABLE plans ADD COLUMN daily_ai_token_limit INTEGER")
+        # 每套餐独立营销文案：features=卖点清单（每行一条），badge=角标/促销标签。
+        # 旧库通过 ALTER 补列，默认空＝定价页回退到全站统一的默认卖点，向后兼容。
+        if "features" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN features TEXT NOT NULL DEFAULT ''")
+        if "badge" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN badge TEXT NOT NULL DEFAULT ''")
         # AI 用量审计字段：记录用户真实输入摘要、来源页与客户端 IP，便于后台排查异常用量。
         ai_usage_columns = _table_columns(conn, "ai_usage")
         if "prompt_excerpt" not in ai_usage_columns:
@@ -336,7 +344,8 @@ def list_active_plans() -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT code, name, price_cents, currency, interval_months, description, daily_ai_token_limit
+            SELECT code, name, price_cents, currency, interval_months, description,
+                   daily_ai_token_limit, features, badge
             FROM plans
             WHERE is_active = 1
             ORDER BY sort_order ASC, code ASC
@@ -351,7 +360,7 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
         rows = conn.execute(
             f"""
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, is_active, sort_order
+                   daily_ai_token_limit, features, badge, is_active, sort_order
             FROM plans
             {where}
             ORDER BY sort_order ASC, code ASC
@@ -365,7 +374,7 @@ def get_plan(plan_code: str) -> dict | None:
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, is_active
+                   daily_ai_token_limit, features, badge, is_active
             FROM plans
             WHERE code = ?
             """,
@@ -383,6 +392,8 @@ def upsert_plan(
     interval_months: int,
     description: str = "",
     daily_ai_token_limit: int | None = None,
+    features: str = "",
+    badge: str = "",
     is_active: bool = True,
     sort_order: int = 0,
 ) -> dict:
@@ -395,14 +406,18 @@ def upsert_plan(
         raise ValueError("套餐价格不能小于 0。")
     if daily_ai_token_limit is not None and int(daily_ai_token_limit) < 0:
         raise ValueError("AI token 限额不能小于 0。")
+    # 卖点清单逐行规整：去掉空行与首尾空白，统一以 \n 存储，便于定价页逐行渲染。
+    normalized_features = "\n".join(
+        line.strip() for line in (features or "").replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()
+    )
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO plans(
                 code, name, price_cents, currency, interval_months, description,
-                daily_ai_token_limit, is_active, sort_order
+                daily_ai_token_limit, features, badge, is_active, sort_order
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name,
                 price_cents=excluded.price_cents,
@@ -410,6 +425,8 @@ def upsert_plan(
                 interval_months=excluded.interval_months,
                 description=excluded.description,
                 daily_ai_token_limit=excluded.daily_ai_token_limit,
+                features=excluded.features,
+                badge=excluded.badge,
                 is_active=excluded.is_active,
                 sort_order=excluded.sort_order
             """,
@@ -421,6 +438,8 @@ def upsert_plan(
                 int(interval_months),
                 (description or "").strip(),
                 None if daily_ai_token_limit is None else int(daily_ai_token_limit),
+                normalized_features,
+                (badge or "").strip(),
                 1 if is_active else 0,
                 int(sort_order),
             ),
@@ -428,7 +447,7 @@ def upsert_plan(
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, is_active, sort_order
+                   daily_ai_token_limit, features, badge, is_active, sort_order
             FROM plans
             WHERE code = ?
             """,
