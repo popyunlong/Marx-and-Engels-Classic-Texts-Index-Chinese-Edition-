@@ -167,6 +167,24 @@ class SecurityRegressionTests(unittest.TestCase):
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertIn("feedback_messages", tables)  # 表仍在
 
+    def test_feedback_text_only_form_post_persists(self) -> None:
+        # 回归：前端始终用 FormData 提交，纯文字留言没有文件。服务端不能用 request.files
+        # 判断分支，否则 body 会落到 JSON 分支丢失导致留言提交失败。
+        self._create_active_member("fb-textonly@example.test")
+        self._login("fb-textonly@example.test")
+        token = self._csrf_from("/")
+        app_module._send_account_email = lambda to_email, subject, body: None
+        resp = self.client.post(
+            "/api/feedback/messages",
+            data={"csrf_token": token, "body": "这是一条纯文字留言。"},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.get_json()
+        self.assertTrue(payload["ok"])
+        bodies = [m["body"] for m in payload["thread"]["messages"]]
+        self.assertIn("这是一条纯文字留言。", bodies)
+
     def test_login_post_requires_csrf(self) -> None:
         response = self.client.post("/login", data={"email": "nobody@example.test", "password": "bad"})
         self.assertEqual(response.status_code, 403)

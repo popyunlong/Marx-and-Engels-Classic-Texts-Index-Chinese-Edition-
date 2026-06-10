@@ -6565,8 +6565,10 @@ def api_feedback_message_create():
             window_seconds=RATE_LIMITS["feedback_user"][1],
             message="留言提交过于频繁，请稍后再试。",
         )
-    # 兼容两种提交：multipart/form-data（带图片）与历史的 application/json（纯文本）。
-    if request.files:
+    # 兼容两种提交：multipart/form-data（前端始终用 FormData，含或不含图片）与历史的
+    # application/json（纯文本）。注意不能用 request.files 判断——纯文字留言没有文件，
+    # request.files 为空会错误地落到 JSON 分支导致 body 丢失、留言提交失败。
+    if request.form:
         body = str(request.form.get("body") or "").strip()
     else:
         payload = request.get_json(silent=True) or {}
