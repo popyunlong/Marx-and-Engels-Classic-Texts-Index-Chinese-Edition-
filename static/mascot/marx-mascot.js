@@ -339,7 +339,8 @@
      search/reading/dictionary are the site's bread and butter — they fire
      near-instantly with only a short anti-repeat guard; the rest stay rare. */
   var KIND_COOLDOWN = {
-    search: 60 * 1000, reading: 90 * 1000, dictionary: 60 * 1000,
+    search: 60 * 1000, reading: 90 * 1000,
+    dictionary: 8 * 60 * 1000, dictsearch: 50 * 1000, dictentry: 50 * 1000,
     longread: 30 * 60 * 1000,
     idle: 30 * 60 * 1000, latenight: 6 * 60 * 60 * 1000, library: 15 * 60 * 1000,
     journal: 15 * 60 * 1000, pricing: 15 * 60 * 1000,
@@ -347,7 +348,7 @@
   };
   /* hot kinds skip the global inter-remark gap — a search right after a
      reading remark should still get its own line */
-  var HOT_KINDS = { search: 1, reading: 1, dictionary: 1 };
+  var HOT_KINDS = { search: 1, reading: 1, dictsearch: 1, dictentry: 1 };
 
   function todayKey() {
     var d = new Date();
@@ -563,11 +564,29 @@
       setTimeout(function () { triggerScene('longread', title); }, 12 * 60 * 1000);
     }
 
-    /* dictionary — instant, with the entry name when on an entry page */
+    /* dictionary — three distinct, independently-cooled scenes so the whole
+       flow reacts: landing on an entry's explanation, typing a lookup, and
+       just browsing the index. Entry + search are hot (instant). */
     if (kind === 'dictionary') {
-      var entry = location.pathname.indexOf('/dictionary/entry/') === 0
-        ? (document.title || '').split(' - ')[0].slice(0, 40) : '';
-      setTimeout(function () { triggerScene('dictionary', entry); }, 2500);
+      if (location.pathname.indexOf('/dictionary/entry/') === 0) {
+        var entry = (document.title || '').split(' - ')[0].trim().slice(0, 40);
+        setTimeout(function () { triggerScene('dictentry', entry || '一则词条'); }, 1800);
+      } else {
+        setTimeout(function () { triggerScene('dictionary', ''); }, 9 * 1000);
+        var dictInput = document.getElementById('dictSearchInput');
+        if (dictInput) {
+          var dictTimer = null, lastDictQ = '';
+          dictInput.addEventListener('input', function () {
+            var v = (dictInput.value || '').trim();
+            if (v.length < 2 || v === lastDictQ) { return; }
+            clearTimeout(dictTimer);
+            dictTimer = setTimeout(function () {
+              lastDictQ = v;
+              triggerScene('dictsearch', v.slice(0, 40));
+            }, 1400);
+          });
+        }
+      }
     }
 
     /* page-presence scenes (low-key pages keep the unhurried delay) */

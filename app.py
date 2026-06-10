@@ -7474,7 +7474,9 @@ _MASCOT_SCENE_HINTS: dict[str, str] = {
     "library": "正在书库页面浏览马恩列毛的著作书目",
     "journal": "正在浏览马克思主义研究期刊栏目",
     "pricing": "正在查看会员套餐页面，犹豫要不要支持这个文献站",
-    "dictionary": "正在查阅马克思主义大辞典的词条",
+    "dictionary": "正在马克思主义大辞典的栏目里浏览",
+    "dictsearch": "正在马克思主义大辞典里检索词条：{detail}",
+    "dictentry": "正在研读马克思主义大辞典中『{detail}』这一词条的释义",
     "account": "正在整理自己的账户与订阅设置",
 }
 
