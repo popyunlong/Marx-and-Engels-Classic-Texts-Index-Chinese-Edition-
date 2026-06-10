@@ -326,8 +326,8 @@
   var selfRef = { i: -1 };
 
   var AI_LIMITS = {
-    dailyTotal: 30,                    /* passive AI calls per browser per day */
-    sceneDaily: 12,
+    dailyTotal: 60,                    /* passive AI calls per browser per day */
+    sceneDaily: 30,
     sceneGlobalGapMs: 150 * 1000,
     inviteDaily: 3,
     inviteGapMs: 18 * 60 * 1000,
@@ -335,13 +335,19 @@
     inviteReplyWindowMs: 75 * 1000,
     askMinGapMs: 15 * 1000
   };
-  /* per-scene-kind cooldowns (ms) */
+  /* per-scene-kind cooldowns (ms).
+     search/reading/dictionary are the site's bread and butter — they fire
+     near-instantly with only a short anti-repeat guard; the rest stay rare. */
   var KIND_COOLDOWN = {
-    search: 8 * 60 * 1000, reading: 20 * 60 * 1000, longread: 30 * 60 * 1000,
+    search: 60 * 1000, reading: 90 * 1000, dictionary: 60 * 1000,
+    longread: 30 * 60 * 1000,
     idle: 30 * 60 * 1000, latenight: 6 * 60 * 60 * 1000, library: 15 * 60 * 1000,
-    journal: 15 * 60 * 1000, pricing: 15 * 60 * 1000, dictionary: 10 * 60 * 1000,
+    journal: 15 * 60 * 1000, pricing: 15 * 60 * 1000,
     account: 30 * 60 * 1000
   };
+  /* hot kinds skip the global inter-remark gap — a search right after a
+     reading remark should still get its own line */
+  var HOT_KINDS = { search: 1, reading: 1, dictionary: 1 };
 
   function todayKey() {
     var d = new Date();
@@ -471,7 +477,7 @@
     if (root.classList.contains('mx-docked')) { return false; }
     var s = loadStats();
     if (s.total >= AI_LIMITS.dailyTotal || s.scene >= AI_LIMITS.sceneDaily) { return false; }
-    if (Date.now() - (s.lastSceneTs || 0) < AI_LIMITS.sceneGlobalGapMs) { return false; }
+    if (!HOT_KINDS[kind] && Date.now() - (s.lastSceneTs || 0) < AI_LIMITS.sceneGlobalGapMs) { return false; }
     var kindTs = (s.kinds || {})[kind] || 0;
     if (Date.now() - kindTs < (KIND_COOLDOWN[kind] || 10 * 60 * 1000)) { return false; }
     return true;
@@ -504,25 +510,38 @@
     if (!aiAvailable) { return; }
     var kind = pageKind();
 
-    /* search submit on the home page */
+    /* search submit on the home page — covers exact, fuzzy AND associative
+       (all three share #searchForm); fires right as the results land */
     var form = document.getElementById('searchForm');
     var q = document.getElementById('q');
     if (form && q) {
       form.addEventListener('submit', function () {
         var v = (q.value || '').trim().slice(0, 40);
-        if (v) { setTimeout(function () { triggerScene('search', v); }, 2500); }
+        if (!v) { return; }
+        var activeTab = document.querySelector('.search-mode-tab.active');
+        if (activeTab && activeTab.dataset && activeTab.dataset.mode === 'associative') {
+          v = '（联想检索）' + v;
+        }
+        setTimeout(function () { triggerScene('search', v); }, 1200);
       });
     }
 
-    /* reading scenes in the viewer */
+    /* reading scenes in the viewer — greet the chapter right away */
     if (kind === 'viewer') {
       var title = (document.title || '').split(' - ')[0].slice(0, 40);
-      setTimeout(function () { triggerScene('reading', title); }, 25 * 1000);
+      setTimeout(function () { triggerScene('reading', title); }, 2500);
       setTimeout(function () { triggerScene('longread', title); }, 12 * 60 * 1000);
     }
 
-    /* page-presence scenes */
-    var presence = { library: 1, journal: 1, pricing: 1, dictionary: 1, account: 1 };
+    /* dictionary — instant, with the entry name when on an entry page */
+    if (kind === 'dictionary') {
+      var entry = location.pathname.indexOf('/dictionary/entry/') === 0
+        ? (document.title || '').split(' - ')[0].slice(0, 40) : '';
+      setTimeout(function () { triggerScene('dictionary', entry); }, 2500);
+    }
+
+    /* page-presence scenes (low-key pages keep the unhurried delay) */
+    var presence = { library: 1, journal: 1, pricing: 1, account: 1 };
     if (presence[kind]) {
       setTimeout(function () { triggerScene(kind, ''); }, 9 * 1000);
     }
