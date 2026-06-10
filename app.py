@@ -3943,35 +3943,41 @@ def _page_image_cache_path(source_file: str, page_number: int, query_text: str) 
         stamp = f"{pdf_path.stat().st_mtime_ns}:{pdf_path.stat().st_size}"
     except OSError:
         stamp = "missing"
-    # 缓存版本号 v3：渲染参数（自适应高分辨率 + JPEG 质量）升级后必须改版本号，
-    # 否则旧的 1.45× 模糊缓存（含线上已预热的）会继续命中，新逻辑不生效。
-    # profile tag：毛选高分辨率 profile 用独立 tag，其余书库 tag 为空 → v3 缓存照常命中。
-    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v3{_render_profile(source_file)['tag']}"
+    # 缓存版本号 v4：渲染从「固定目标宽 + 固定倍率上限」升级为「按源原生分辨率自适应」，
+    # 全库渲染结果都变了，必须改版本号，否则旧的 v3 模糊缓存（含线上已预热的）会继续命中、新逻辑不生效。
+    # profile tag：毛选用独立 tag（+mao3）以便日后单独调参；其余库 tag 为空。
+    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v4{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
     return PAGE_IMAGE_CACHE_DIR / digest[:2] / f"{digest}.jpg"
 
 
-# 阅读器页面图像清晰度参数。
-# 历史固定按 1.45×（约 104 DPI）渲染，而阅读器最宽显示到 960px CSS（高分屏 ≈1920 设备像素），
-# 图像被放大显示 → 文字发糊；《全集》《列宁全集》多为扫描件，叠加后更明显。
-# 改为「按目标像素宽度自适应缩放」：让渲染像素宽尽量接近 TARGET_WIDTH，并用 MIN/MAX 夹住，
-# 兼顾清晰度与渲染耗时 / 缓存体积 / 内存（列宁 60 卷）。
-# 注意：刻意只用 PyMuPDF，不引入 Pillow——服务器运行环境（requirements.txt）未安装 Pillow，
-# 若在此路径 import PIL 会触发 ImportError 导致页面渲染 502。
-PAGE_IMAGE_TARGET_WIDTH = 1600.0   # 目标渲染像素宽度（适配高分屏 960px 显示）
-PAGE_IMAGE_MIN_SCALE = 1.45        # 缩放下限：不低于历史清晰度，保证「只会更清晰不会更糊」
-PAGE_IMAGE_MAX_SCALE = 3.0         # 缩放上限：把握分寸，控制文件体积 / 渲染耗时 / 内存
-PAGE_IMAGE_JPEG_QUALITY = 90       # JPEG 质量：高分辨率下兼顾文字边缘锐利与体积
+# 阅读器页面图像清晰度参数（「按源原生分辨率自适应渲染」方案）。
+# 背景：两阅读器最宽显示 960px CSS（高分屏 ≈1920 设备像素）。扫描件每页是一张内嵌图像，
+# 其「原生像素宽」才是真实细节上限。实测三库源分辨率差异极大、单一固定倍率无法兼顾：
+#   · 马恩全集：窄页源 ~1550px(≈300DPI)，旧逻辑被 3.0× 上限卡到 ~1110px → 丢真实细节、发糊；
+#   · 列宁全集：同库各卷源从 675px 到 1630px 不等，固定倍率必然「高清卷渲不够 / 低清卷过上采样」；
+#   · 毛  选 ：纯图像扫描、~700px(96DPI)、无文本层，源本身糊，只能上采样 + 锐化做感知提升。
+# 策略：探测每页原生像素宽，渲染倍率取「不低于源原生（不丢细节）、且不低于显示下限（填满阅读器）」，
+# 再夹到 [MIN, HARD_MAX]；USM 锐化强度按上采样倍数自适应（接近原生→几乎不锐化，避免过锐伪影）。
+# 注意：刻意只用 PyMuPDF（+ 可选 numpy 锐化，缺失则安全跳过），不引入 Pillow——服务器运行环境
+# （requirements.txt）未装 Pillow，若在此路径 import PIL 会触发 ImportError 导致页面渲染 502。
+PAGE_IMAGE_DISPLAY_MIN_PX = 1600.0  # 显示下限像素宽：低清源至少上采样到此宽度以填满阅读器
+PAGE_IMAGE_MIN_SCALE = 1.45         # 缩放下限：不低于历史清晰度，保证「只会更清晰不会更糊」
+PAGE_IMAGE_HARD_MAX_SCALE = 4.8     # 缩放硬上限：护内存/体积（马恩窄页原生≈4.16× 在此之内）
+PAGE_IMAGE_JPEG_QUALITY = 90        # JPEG 质量：高分辨率下兼顾文字边缘锐利与体积
 
-# 《毛泽东选集》为纯图像扫描件、原始分辨率偏低、肉眼偏糊。仅对该书库启用「更高渲染分辨率
-# + 更高 JPEG 质量 + 轻度 USM 锐化」profile：以更高倍率重采样恢复扫描原生细节，再做一次
-# 非锐化掩模提升笔画边缘对比。锐化依赖 numpy，按需探测，缺失时安全跳过（绝不让渲染 502）。
-# 其它书库 profile 不变、tag 为空 → 既有 v3 缓存继续命中，无需全站重渲染。
+# 普通扫描库（马恩全集 / 列宁全集 / 文集 等）：源分辨率高低不一，统一走原生分辨率自适应逻辑。
+# usm_gain/usm_cap：仅在确需上采样的低清源上轻度锐化；高清卷按原生渲染时 USM≈0，绝不过锐。
+DEFAULT_RENDER = {
+    "display_min_px": PAGE_IMAGE_DISPLAY_MIN_PX, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
+    "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.40, "usm_cap": 0.35, "tag": "",
+}
+# 《毛泽东选集》为纯图像扫描件、~700px、无文本层，源即糊、无真实细节可恢复。采用更高显示下限
+# + 更强 USM + 略高 JPEG 质量，在源受限前提下尽量提升观感锐度。锐化依赖 numpy，按需探测，
+# 缺失时安全跳过（绝不让渲染 502）。tag +mao3 使旧 +mao2 缓存失效、按新参数重渲染。
 MAO_RENDER = {
-    "target_width": 2200.0, "min_scale": 2.0, "max_scale": 3.6,
-    # sharpen 0.3：高分辨率重采样本身已显著提升清晰度，USM 仅做轻度提锐；0.8 会过锐
-    # （笔画毛刺/底噪放大）。tag 改 +mao2 使既有过锐缓存失效、按新参数重渲染。
-    "jpeg_quality": 94, "sharpen": 0.3, "tag": "+mao2",
+    "display_min_px": 1900.0, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
+    "jpeg_quality": 94, "usm_gain": 0.50, "usm_cap": 0.55, "tag": "+mao3",
 }
 _MAO_SCAN_PREFIX = "pdfs/《毛泽东选集》/"
 _NUMPY_MODULE = "__unset__"  # 惰性探测结果缓存：模块对象或 None
@@ -3989,14 +3995,10 @@ def _numpy_or_none():
 
 
 def _render_profile(source_file: str) -> dict:
-    """按书库返回渲染 profile。毛选用高分辨率+锐化；其余沿用历史参数（tag 空、缓存不失效）。"""
+    """按书库返回渲染 profile。毛选用更高显示下限 + 更强锐化；其余库共用默认自适应参数。"""
     if _normalize_source_file(source_file).startswith(_MAO_SCAN_PREFIX):
         return MAO_RENDER
-    return {
-        "target_width": PAGE_IMAGE_TARGET_WIDTH, "min_scale": PAGE_IMAGE_MIN_SCALE,
-        "max_scale": PAGE_IMAGE_MAX_SCALE, "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY,
-        "sharpen": 0.0, "tag": "",
-    }
+    return DEFAULT_RENDER
 
 
 def _unsharp_jpeg_bytes(pix, amount: float, quality: int):
@@ -4015,6 +4017,15 @@ def _unsharp_jpeg_bytes(pix, amount: float, quality: int):
         return out.tobytes("jpg", jpg_quality=quality)
     except Exception:
         return None
+
+
+def _native_image_width_px(page) -> int:
+    """页面最大内嵌图像的原生像素宽（扫描件即扫描分辨率，是真实细节上限）。
+    用 get_image_info（不解码像素、开销极小）；无图 / 异常时返回 0，调用方据此回退到显示下限。"""
+    try:
+        return max((info.get("width", 0) for info in page.get_image_info()), default=0)
+    except Exception:
+        return 0
 
 
 def _render_page_image_to_cache(source_file: str, page_number: int, query_text: str, *, matrix_scale: float = PAGE_IMAGE_MIN_SCALE) -> Path:
@@ -4041,19 +4052,27 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
                 annot.update()
             break
 
-        # 自适应缩放：按页面物理宽度（pt）算出贴近目标像素宽的缩放系数，再用下限/上限夹住。
-        # profile 按书库选择（毛选高分辨率，其余历史参数）。任何异常都安全回退，绝不崩溃。
+        # 原生分辨率自适应缩放：渲染倍率「不低于源原生（不丢真实细节）、且不低于显示下限（填满阅读器）」，
+        # 再夹到 [lo, hard_max]；USM 锐化强度按上采样倍数自适应（接近原生→几乎不锐化，避免过锐伪影）。
+        # profile 按书库选择。任何异常都安全回退到下限倍率、不锐化，绝不让渲染崩溃。
         profile = _render_profile(source_file)
-        lo = max(matrix_scale, profile["min_scale"])
+        lo = max(matrix_scale, PAGE_IMAGE_MIN_SCALE)
+        usm = 0.0
         try:
             page_width_pt = float(page.rect.width)
-            adaptive_scale = profile["target_width"] / page_width_pt if page_width_pt > 0 else lo
-            scale = max(lo, min(adaptive_scale, profile["max_scale"]))
+            if page_width_pt <= 0:
+                raise ValueError("non-positive page width")
+            native_px = _native_image_width_px(page)
+            floor_scale = profile["display_min_px"] / page_width_pt
+            native_scale = native_px / page_width_pt if native_px > 0 else floor_scale
+            scale = max(lo, min(max(native_scale, floor_scale), profile["hard_max_scale"]))
+            upsample = scale / native_scale if native_scale > 0 else 1.0
+            usm = max(0.0, min((upsample - 1.0) * profile["usm_gain"], profile["usm_cap"]))
         except Exception:
             scale = lo
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, annots=True)
-        data = _unsharp_jpeg_bytes(pix, profile["sharpen"], profile["jpeg_quality"])
-        if data is None:  # numpy 不可用 / 锐化关闭 / 异常 → 直接输出原始像素图
+        data = _unsharp_jpeg_bytes(pix, usm, profile["jpeg_quality"])
+        if data is None:  # numpy 不可用 / 锐化为 0 / 异常 → 直接输出原始像素图
             data = pix.tobytes("jpg", jpg_quality=profile["jpeg_quality"])
         temp_path.write_bytes(data)
     temp_path.replace(cache_path)
