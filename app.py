@@ -1127,6 +1127,53 @@ def _reader_access_entries() -> list[dict]:
     ]
 
 
+# ---- 首页功能栏「自定义彩色标签」（控制台·内容运营可增删，每张卡片一组）----
+# 原有「已可用 / 登录即可使用 / 开通会员后使用 / 暂未开放」状态 pill 的逻辑完全保留、自动按权限显示；
+# 这里是在其旁边「额外」叠加管理员自定义的彩色小标签（如「新上线」「限时免费」）。默认空＝不显示，
+# 行为与从前一致。数据存设置项 index_feature_tags={"full":[{text,color}],"ai":[...],"journal":[...]}。
+_FEATURE_TAG_CARDS = ("full", "ai", "journal")
+_FEATURE_TAG_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
+_FEATURE_TAG_FALLBACK_COLOR = "#157f4c"
+_FEATURE_TAG_MAX_PER_CARD = 12
+
+
+def _coerce_hex_color(value: object, fallback: str = _FEATURE_TAG_FALLBACK_COLOR) -> str:
+    text = str(value or "").strip()
+    if _FEATURE_TAG_HEX_RE.match(text):
+        return "#" + text.lstrip("#").lower()
+    return fallback
+
+
+def _tag_text_color_for(bg_hex: str) -> str:
+    """按背景亮度选黑/白前景色，保证标签文字在任意底色上都可读。"""
+    try:
+        r, g, b = int(bg_hex[1:3], 16), int(bg_hex[3:5], 16), int(bg_hex[5:7], 16)
+    except (ValueError, IndexError):
+        return "#ffffff"
+    return "#ffffff" if (0.299 * r + 0.587 * g + 0.114 * b) < 150 else "#1f2937"
+
+
+def _get_feature_tags() -> dict[str, list[dict]]:
+    """读取并清洗首页功能栏自定义标签；始终返回三张卡片的键，缺失/异常时为空列表。"""
+    raw = get_setting("index_feature_tags", {})
+    raw = raw if isinstance(raw, dict) else {}
+    result: dict[str, list[dict]] = {}
+    for card in _FEATURE_TAG_CARDS:
+        items = raw.get(card)
+        tags: list[dict] = []
+        if isinstance(items, list):
+            for item in items[:_FEATURE_TAG_MAX_PER_CARD]:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text") or "").strip()[:20]
+                if not text:
+                    continue
+                color = _coerce_hex_color(item.get("color"))
+                tags.append({"text": text, "color": color, "fg": _tag_text_color_for(color)})
+        result[card] = tags
+    return result
+
+
 _READER_ACCESS_STATUS_RANK = {
     "available": 0,
     "login_required": 1,
@@ -3087,6 +3134,8 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_reader_access_url": url_for("admin_reader_access") if remote_admin else "",
         "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
         "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
+        "control_feature_tags_url": url_for("admin_feature_tags") if remote_admin else url_for("control_feature_tags"),
+        "feature_tags": _get_feature_tags(),
         "control_reader_access_ban_url": url_for("admin_reader_access_ban") if remote_admin else "",
         "recent_orders": list_recent_orders(limit=18),
         "recent_subscriptions": list_recent_subscriptions(limit=18),
@@ -3295,6 +3344,37 @@ def _handle_notice_submit(*, remote_admin: bool):
     )
     flash("网站公告已更新。", "success")
     return _management_redirect(remote_admin, "overview")
+
+
+def _handle_feature_tags_submit(*, remote_admin: bool):
+    """首页功能栏自定义彩色标签的保存：每张卡片一组 {text,color}，只动 index_feature_tags 设置项，
+    不影响原有状态 pill 逻辑。仅网站 /admin 可改（本地控制台只负责诊断/同步）。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，首页标签请在网站 /admin 管理。")
+    data: dict[str, list[dict]] = {}
+    for card in _FEATURE_TAG_CARDS:
+        texts = request.form.getlist(f"tag_{card}_text")
+        colors = request.form.getlist(f"tag_{card}_color")
+        items: list[dict] = []
+        for raw_text, raw_color in zip(texts, colors):
+            text = str(raw_text or "").strip()[:20]
+            if not text:
+                continue
+            items.append({"text": text, "color": _coerce_hex_color(raw_color)})
+            if len(items) >= _FEATURE_TAG_MAX_PER_CARD:
+                break
+        data[card] = items
+    set_setting("index_feature_tags", data, updated_by=_management_actor_label(remote_admin))
+    _log_management_action(
+        action="feature_tags.save",
+        target="index.feature_tags",
+        result="success",
+        remote_admin=remote_admin,
+    )
+    flash("首页功能栏标签已更新。", "success")
+    return _management_redirect(remote_admin, "content")
 
 
 def _handle_site_text_scan(*, remote_admin: bool):
@@ -5226,6 +5306,16 @@ def control_notice():
     return _handle_notice_submit(remote_admin=False)
 
 
+@app.post("/admin/feature-tags")
+def admin_feature_tags():
+    return _handle_feature_tags_submit(remote_admin=True)
+
+
+@app.post("/control/feature-tags")
+def control_feature_tags():
+    return _handle_feature_tags_submit(remote_admin=False)
+
+
 @app.get("/admin/content/scan")
 def admin_content_scan():
     return _handle_site_text_scan(remote_admin=True)
@@ -6020,6 +6110,7 @@ def index():
         book_stats=book_stats,
         plans=list_active_plans(),
         reader_entries=_reader_access_entries(),
+        feature_tags=_get_feature_tags(),
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),

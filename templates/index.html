@@ -467,6 +467,24 @@
       color: var(--warn);
       background: var(--warn-bg);
     }
+    /* 功能栏自定义彩色标签：与原状态 pill 同一行排布，颜色由后台逐个设定（内联 style）。 */
+    .reader-status-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .reader-tag {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: var(--entry-status-size);
+      font-weight: 700;
+      line-height: 1.35;
+      white-space: nowrap;
+    }
     .journal-bar .feature-kicker {
       color: var(--accent);
     }
@@ -1372,7 +1390,12 @@
           <section class="feature-bar reader-{{ entry.kind }} {% if entry.disabled %}locked{% endif %}" aria-label="{{ site_text(entry.title_key) }}">
             <div class="feature-copy">
               <div class="feature-kicker">{{ site_text(entry.kicker_key) }}</div>
-              <span class="reader-status">{{ site_text(entry.status_key) }}</span>
+              <div class="reader-status-row">
+                <span class="reader-status">{{ site_text(entry.status_key) }}</span>
+                {% for tag in feature_tags[entry.kind] %}
+                <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+                {% endfor %}
+              </div>
               <h2>{{ site_text(entry.title_key) }}</h2>
               <p>{{ site_text(entry.description_key) }}</p>
             </div>
@@ -1384,6 +1407,13 @@
         <section class="journal-bar" aria-label="期刊新文提醒功能">
           <div class="feature-copy">
             <div class="feature-kicker">{{ site_text("index.journal_kicker") }}</div>
+            {% if feature_tags['journal'] %}
+            <div class="reader-status-row">
+              {% for tag in feature_tags['journal'] %}
+              <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
             <h2>{{ site_text("index.journal_title") }}</h2>
             <p>{{ site_text("index.journal_description") }}</p>
           </div>

@@ -662,6 +662,89 @@
 
         {% if admin_module == "content" %}
         <div class="admin-category">内容运营</div>
+        {% if remote_admin %}
+        <section class="card" id="feature-tags-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>首页功能栏·彩色标签</h2>
+          <p class="section-note">在首页三张功能卡（全文阅读器、AI 导学阅读器、期刊提醒）的状态区，叠加显示你自定义的彩色小标签（如「新上线」「限时免费」）。原有「已可用 / 登录即可使用 / 开通会员后使用」等状态提示保持不变、自动按权限显示，这里只是额外添加。每张卡最多 12 个标签，文字留空的标签保存时会被忽略。</p>
+          <form method="post" action="{{ control_feature_tags_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% set ftag_card_labels = {'full': '全文阅读器卡片', 'ai': 'AI 导学阅读器卡片', 'journal': '期刊提醒卡片'} %}
+            {% for card in ['full', 'ai', 'journal'] %}
+            <div class="ftag-group" style="margin:14px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px">
+              <strong>{{ ftag_card_labels[card] }}</strong>
+              <div class="ftag-rows" data-card="{{ card }}" style="display:grid;gap:8px;margin:10px 0">
+                {% for tag in feature_tags[card] %}
+                <div class="ftag-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <input type="text" name="tag_{{ card }}_text" value="{{ tag.text }}" maxlength="20" placeholder="标签文字，如 新上线" style="flex:1;min-width:140px">
+                  <input type="color" name="tag_{{ card }}_color" value="{{ tag.color }}" title="选择标签颜色" style="width:46px;height:34px;padding:2px">
+                  <span class="ftag-preview" style="display:inline-flex;padding:3px 10px;border-radius:999px;font-weight:700;font-size:13px;background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+                  <button type="button" class="btn secondary ftag-del">删除</button>
+                </div>
+                {% endfor %}
+              </div>
+              <button type="button" class="btn ftag-add" data-card="{{ card }}">＋ 添加标签</button>
+            </div>
+            {% endfor %}
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存标签</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        <script>
+        (function () {
+          var PALETTE = ['#157f4c', '#1d4ed8', '#b45309', '#7b1f1f', '#6d28d9', '#0f766e', '#475569', '#be123c'];
+          function fgFor(hex) {
+            try {
+              var r = parseInt(hex.substr(1, 2), 16), g = parseInt(hex.substr(3, 2), 16), b = parseInt(hex.substr(5, 2), 16);
+              return (0.299 * r + 0.587 * g + 0.114 * b) < 150 ? '#ffffff' : '#1f2937';
+            } catch (e) { return '#ffffff'; }
+          }
+          function wire(row) {
+            var text = row.querySelector('input[type=text]');
+            var color = row.querySelector('input[type=color]');
+            var prev = row.querySelector('.ftag-preview');
+            function sync() {
+              if (!prev) { return; }
+              prev.textContent = text.value || '标签';
+              prev.style.background = color.value;
+              prev.style.color = fgFor(color.value);
+            }
+            text.addEventListener('input', sync);
+            color.addEventListener('input', sync);
+            var del = row.querySelector('.ftag-del');
+            if (del) { del.addEventListener('click', function () { row.remove(); }); }
+            sync();
+          }
+          function makeRow(card) {
+            var div = document.createElement('div');
+            div.className = 'ftag-row';
+            div.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+            var c = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+            div.innerHTML =
+              '<input type="text" name="tag_' + card + '_text" maxlength="20" placeholder="标签文字，如 新上线" style="flex:1;min-width:140px">' +
+              '<input type="color" name="tag_' + card + '_color" value="' + c + '" title="选择标签颜色" style="width:46px;height:34px;padding:2px">' +
+              '<span class="ftag-preview" style="display:inline-flex;padding:3px 10px;border-radius:999px;font-weight:700;font-size:13px"></span>' +
+              '<button type="button" class="btn secondary ftag-del">删除</button>';
+            return div;
+          }
+          var editor = document.getElementById('feature-tags-editor');
+          if (editor) {
+            editor.querySelectorAll('.ftag-row').forEach(wire);
+            editor.querySelectorAll('.ftag-add').forEach(function (btn) {
+              btn.addEventListener('click', function () {
+                var card = btn.getAttribute('data-card');
+                var rows = editor.querySelector('.ftag-rows[data-card="' + card + '"]');
+                if (rows.querySelectorAll('.ftag-row').length >= 12) { return; }
+                var row = makeRow(card);
+                rows.appendChild(row);
+                wire(row);
+              });
+            });
+          }
+        })();
+        </script>
+        {% endif %}
         <section class="card" id="feedback-replies">
           <h2>用户留言回复</h2>
           <p class="section-note">用户在首页留言后会发送提醒到 {{ feedback_admin_email }}。你在这里回复后，系统会给用户邮箱发送回复，并同步显示在首页留言栏。</p>
