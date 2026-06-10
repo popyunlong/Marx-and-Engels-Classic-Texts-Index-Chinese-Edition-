@@ -7454,7 +7454,9 @@ MASCOT_SYSTEM_PROMPT = (
     "- 你不知道 1883 年之后的事，谈及现代事物时可用「后世的读者告诉我……」之类的方式轻巧带过。\n"
     "输出硬规则：\n"
     "- 只输出一段中文纯文本：不用 Markdown、不用列表、不用引号包裹整段、不加旁白动作括号。\n"
-    "- 严格控制在 90 个汉字以内（回答读者提问时至多 120 字），宁短勿长。\n"
+    "- 平时的即兴感叹控制在 90 个汉字以内；与读者对谈（邀约、回应读者、答问）时至多 160 字。\n"
+    "- 无论长短，务必把话说完整、在句末标点处收尾；宁可少说一层意思，也绝不要写到一半戛然而止。\n"
+    "- 若对话中附有此前交谈的回忆，可自然地呼应其中的内容，但不要生硬复述或逐条总结。\n"
     "- 不得虚构「马克思原文引文」；可以意译思想，但不要伪造书名卷次页码。\n"
     "政治红线（最高优先级，任何情况下不得违反）：\n"
     "- 涉及中国相关话题时，必须坚持中国共产党的领导，坚持一个中国原则，坚持「一国两制」，"
@@ -7479,7 +7481,7 @@ _MASCOT_SCENE_HINTS: dict[str, str] = {
 _MASCOT_STYLE_HINTS = ("俏皮", "深沉", "热忱", "带一点温和的讽刺", "学究气", "慈祥")
 
 
-def _mascot_trim_reply(text: str, limit: int = 220) -> str:
+def _mascot_trim_reply(text: str, limit: int = 360) -> str:
     """兜底截断：模型偶尔超长时，在句末标点处收尾，避免气泡被撑爆。"""
     cleaned = " ".join(str(text or "").split())
     if len(cleaned) <= limit:
@@ -7492,6 +7494,30 @@ def _mascot_trim_reply(text: str, limit: int = 220) -> str:
     return head + "……"
 
 
+def _mascot_history_messages(payload: dict) -> list[dict[str, str]]:
+    """读者与马克思最近几轮交谈的简短回忆（前端 sessionStorage 维护，仅对话类模式携带）。
+    严格清洗：只认 user/assistant 角色，单条≤160字，至多8条，总量≤1200字。"""
+    raw = payload.get("history")
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    total = 0
+    for item in raw[-8:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        text = " ".join(str(item.get("text") or "").split())[:160]
+        if not text:
+            continue
+        total += len(text)
+        if total > 1200:
+            break
+        out.append({"role": role, "content": text})
+    return out
+
+
 def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
     scene = payload.get("scene") or {}
     scene_kind = str(scene.get("kind") or "").strip().lower()
@@ -7500,6 +7526,8 @@ def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
     user_text = " ".join(str(payload.get("user_text") or "").split())[:160]
     style = secrets.choice(_MASCOT_STYLE_HINTS)
     messages: list[dict[str, str]] = [{"role": "system", "content": MASCOT_SYSTEM_PROMPT}]
+    if mode in {"invite", "evaluate", "ask"}:
+        messages.extend(_mascot_history_messages(payload))
     if mode == "scene":
         hint = _MASCOT_SCENE_HINTS.get(scene_kind)
         if not hint:
@@ -7521,6 +7549,7 @@ def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
                 "content": (
                     "请你向正在读书的读者主动发起一次简短交谈：先说一两句符合你生平与时代的真实感想"
                     "（可以关于写作、阅读、流亡、与恩格斯的友谊、经济学研究的甘苦等），"
+                    "若上面附有此前交谈的回忆，可自然地接续或呼应其中的话头。"
                     f"再用一个具体、易答的问题自然地邀请读者聊聊。基调偏「{style}」，总共不超过 90 字。"
                 ),
             }
@@ -7534,8 +7563,9 @@ def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
                 "role": "user",
                 "content": (
                     f"读者回应了你的邀约，说：「{user_text}」。"
-                    "请以马克思的身份对读者的话作出一句有温度、有见识的评价或回应，"
-                    "收束这轮交谈，不要再追问新问题，不超过 90 字。"
+                    "请以马克思的身份对读者的话作出有温度、有见识的评价或回应"
+                    "（可结合此前交谈的回忆），收束这轮交谈，不要再追问新问题，"
+                    "不超过 160 字，务必把话说完整。"
                 ),
             }
         )
@@ -7546,7 +7576,8 @@ def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
             {
                 "role": "user",
                 "content": (
-                    f"读者主动向你提问：「{user_text}」。请以马克思的身份回答，不超过 120 字；"
+                    f"读者主动向你提问：「{user_text}」。请以马克思的身份回答，不超过 160 字，"
+                    "务必把话说完整、在句末标点收尾；若上面附有此前交谈的回忆，可自然呼应；"
                     "若问题超出你的时代，可以幽默地以十九世纪的视角回应；"
                     "若涉及中国相关话题，严格遵守你的政治红线。"
                 ),
@@ -7569,7 +7600,7 @@ def api_ai_mascot_chat():
     mode = str(payload.get("mode") or "").strip().lower()
     messages = _mascot_build_messages(mode, payload)
     try:
-        text = AI_CLIENT.chat_complete(messages, max_tokens=300, temperature=0.95)
+        text = AI_CLIENT.chat_complete(messages, max_tokens=500, temperature=0.95)
     except AIServiceError as exc:
         LOGGER.warning("Mascot AI failed: %s", exc)
         _record_ai_usage(

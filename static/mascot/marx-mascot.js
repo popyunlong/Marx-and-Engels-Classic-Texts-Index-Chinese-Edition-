@@ -363,6 +363,24 @@
   }
   function saveStats(s) { try { localStorage.setItem(LS_AI, JSON.stringify(s)); } catch (e) {} }
 
+  /* Short rolling dialogue memory (survives same-tab navigation) so rounds
+     don't feel disconnected. Last 8 lines; server re-validates and caps. */
+  var SS_HIST = 'mx-dialog-history-v1';
+  function loadHist() {
+    try {
+      var h = JSON.parse(sessionStorage.getItem(SS_HIST) || '[]');
+      return Array.isArray(h) ? h : [];
+    } catch (e) { return []; }
+  }
+  function pushHist(role, text) {
+    var t = String(text || '').trim();
+    if (!t) { return; }
+    var h = loadHist();
+    h.push({ role: role, text: t.slice(0, 160) });
+    while (h.length > 8) { h.shift(); }
+    try { sessionStorage.setItem(SS_HIST, JSON.stringify(h)); } catch (e) {}
+  }
+
   function aiCall(payload, cb) {
     var headers = { 'Content-Type': 'application/json' };
     if (csrfToken) { headers['X-CSRF-Token'] = csrfToken; }
@@ -405,7 +423,7 @@
     round = { type: 'invite', invitation: '' }; roundBusy = true;
     say('（马克思放下笔，似乎想同你聊聊）', { sticky: true });
     setThinking(true); setChips('busy');
-    aiCall({ mode: 'invite' }, function (text) {
+    aiCall({ mode: 'invite', history: loadHist() }, function (text) {
       setThinking(false);
       if (!text || !round || round.type !== 'invite') { endRound(); hideBubble(); return; }
       round.invitation = text; roundBusy = false;
@@ -415,8 +433,10 @@
     });
   }
   function concludeInvite(viaSkip) {
-    /* reader stayed silent or skipped: Marx rounds it off locally (no tokens) */
+    /* reader stayed silent or skipped: Marx rounds it off locally (no tokens).
+       Remember the unanswered invitation — next time he may pick up the thread. */
     clearTimeout(replyTimer);
+    if (round && round.invitation) { pushHist('assistant', round.invitation); }
     var line = nextFrom(SELFTALK, selfRef);
     endRound();
     say(line, { duration: 5200 });
@@ -426,10 +446,15 @@
     clearTimeout(replyTimer);
     roundBusy = true; setChips('busy'); setThinking(true);
     say('（他捻着胡须听完了你的话）', { sticky: true });
-    aiCall({ mode: 'evaluate', invitation: inv, user_text: textVal }, function (text) {
+    var prior = loadHist();              /* memory of EARLIER rounds only */
+    pushHist('assistant', inv);
+    pushHist('user', textVal);
+    aiCall({ mode: 'evaluate', invitation: inv, user_text: textVal, history: prior }, function (text) {
       setThinking(false);
       endRound();
-      say(text || '你的话我记下了。思想需要时间发酵，我们改日再谈。', { duration: 11000 });
+      var reply = text || '你的话我记下了。思想需要时间发酵，我们改日再谈。';
+      pushHist('assistant', reply);
+      say(reply, { duration: 12000 });
     });
   }
 
@@ -456,10 +481,14 @@
     s.lastAskTs = Date.now(); saveStats(s);
     roundBusy = true; setChips('busy'); setThinking(true);
     say('（马克思沉吟着）', { sticky: true });
-    aiCall({ mode: 'ask', user_text: textVal }, function (text) {
+    var prior = loadHist();              /* memory of EARLIER exchanges only */
+    pushHist('user', textVal);
+    aiCall({ mode: 'ask', user_text: textVal, history: prior }, function (text) {
       setThinking(false);
       endRound();
-      say(text || '这个问题值得用一整个下午来谈，可惜眼下网络的邮路不通。换个问法试试？', { duration: 14000 });
+      var reply = text || '这个问题值得用一整个下午来谈，可惜眼下网络的邮路不通。换个问法试试？';
+      pushHist('assistant', reply);
+      say(reply, { duration: 15000 });
     });
   }
 
@@ -489,6 +518,7 @@
     s.kinds = s.kinds || {}; s.kinds[kind] = Date.now(); saveStats(s);
     aiCall({ mode: 'scene', scene: { kind: kind, detail: (detail || '').slice(0, 60) } }, function (text) {
       if (!text || round || root.classList.contains('mx-docked')) { return; }
+      pushHist('assistant', text);   /* his ambient lines are memorable too */
       say(text, { duration: 9000 });
       emit('scene', { kind: kind });
     });
