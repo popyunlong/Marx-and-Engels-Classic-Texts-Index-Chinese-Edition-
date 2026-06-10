@@ -6475,6 +6475,9 @@ def pdf_viewer():
     if requested_printed:
         ai_viewer_args["printed"] = requested_printed
     show_ai_panel = viewer_mode != "reader"
+    # 「返回文库目录」按钮：回到进入时的文库目录页（基础阅读器→/reader，AI 导学/引文检索→/library），
+    # 不管用户是点目录条还是从引文检索进来的，都能统一回到可浏览各卷目录的文库页，而非只能回检索首页。
+    library_back_url = url_for("reader") if viewer_mode == "reader" else url_for("library")
     return render_template(
         "viewer.html",
         app_name=APP_NAME,
@@ -6493,6 +6496,7 @@ def pdf_viewer():
         viewer_mode=viewer_mode,
         show_ai_panel=show_ai_panel,
         basic_reader_mode=not show_ai_panel,
+        library_back_url=library_back_url,
         toc_entries=toc_entries,
         current_section=current_section,
         volume=volume,
