@@ -1907,6 +1907,23 @@ def get_admin_dashboard_metrics(
                 "SELECT COUNT(*) FROM ai_usage WHERE day = ? AND success = 0",
                 (day,),
             ),
+            # 改动观察指标：定价页访问（含期刊卡来源）与智谱通道用量，便于按天对比转化路径。
+            "pricing_views_today": scalar(
+                "SELECT COALESCE(SUM(request_count), 0) FROM site_activity WHERE day = ? AND feature IN ('pricing', 'pricing_journal')",
+                (day,),
+            ),
+            "pricing_from_journal_today": scalar(
+                "SELECT COALESCE(SUM(request_count), 0) FROM site_activity WHERE day = ? AND feature = 'pricing_journal'",
+                (day,),
+            ),
+            "zhipu_requests_today": scalar(
+                "SELECT COUNT(*) FROM ai_usage WHERE day = ? AND provider = 'zhipu'",
+                (day,),
+            ),
+            "zhipu_tokens_today": scalar(
+                "SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage WHERE day = ? AND provider = 'zhipu'",
+                (day,),
+            ),
         }
         token_rows = conn.execute(
             """

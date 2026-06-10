@@ -1928,9 +1928,13 @@ def _dashboard_history_sheet_rows(history_rows: list[dict]) -> list[list[object]
         "支付异常",
         "当日搜索",
         "阅读器访问",
+        "定价页访问",
+        "期刊卡进套餐",
         "阅读异常",
         "AI请求",
         "AI token",
+        "智谱请求",
+        "智谱token",
         "AI错误",
         "高Token用户数",
         "期刊订阅",
@@ -1957,9 +1961,13 @@ def _dashboard_history_sheet_rows(history_rows: list[dict]) -> list[list[object]
             item.get("payment_errors_today"),
             item.get("searches_today"),
             item.get("reader_views_today"),
+            item.get("pricing_views_today"),
+            item.get("pricing_from_journal_today"),
             item.get("reader_anomaly_count"),
             item.get("ai_requests_today"),
             item.get("ai_tokens_today"),
+            item.get("zhipu_requests_today"),
+            item.get("zhipu_tokens_today"),
             item.get("ai_errors_today"),
             item.get("high_token_user_count"),
             item.get("journal_subscriptions"),
@@ -2053,6 +2061,10 @@ def _activity_feature_for_request() -> str | None:
         return "reader"
     if endpoint.startswith("api_ai_"):
         return "ai"
+    if endpoint == "pricing":
+        # 定价页访问单独计数；首页期刊卡入口带 from=journal，与顶部导航等其他来源
+        # 区分开，用于观察「期刊卡 → 套餐页」这条转化路径的真实点击量。
+        return "pricing_journal" if (request.args.get("from") or "").strip() == "journal" else "pricing"
     return "site"
 
 

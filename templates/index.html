@@ -1399,8 +1399,9 @@
           <a class="feature-action" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
           {% else %}
           {# 无期刊权限（访客/未开通会员）时，此处即首页第二个会员套餐入口：跟随控制台
-             「会员与权限」的 journal_alerts 实际授权动态切换，开通/勾选后自动变回周报入口。 #}
-          <a class="feature-action" href="{{ url_for('pricing') }}">{{ site_text("index.journal_locked") }}</a>
+             「会员与权限」的 journal_alerts 实际授权动态切换，开通/勾选后自动变回周报入口。
+             from=journal 仅用于后台「期刊卡进套餐」点击计数，与顶部导航来源区分。 #}
+          <a class="feature-action" href="{{ url_for('pricing') }}?from=journal">{{ site_text("index.journal_locked") }}</a>
           {% endif %}
         </section>
 

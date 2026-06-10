@@ -407,8 +407,12 @@
             <div class="stat"><strong>支付异常</strong>{{ dashboard_metrics.payment_errors_today or 0 }}</div>
             <div class="stat"><strong>当日搜索</strong>{{ dashboard_metrics.searches_today or 0 }}</div>
             <div class="stat"><strong>阅读器访问</strong>{{ dashboard_metrics.reader_views_today or 0 }}</div>
+            <div class="stat" title="当日定价页被打开的次数（含所有来源）"><strong>定价页访问</strong>{{ dashboard_metrics.pricing_views_today or 0 }}</div>
+            <div class="stat" title="当日经首页期刊卡片入口进入定价页的次数"><strong>期刊卡进套餐</strong>{{ dashboard_metrics.pricing_from_journal_today or 0 }}</div>
             <div class="stat"><strong>AI 请求</strong>{{ dashboard_metrics.ai_requests_today or 0 }}</div>
             <div class="stat"><strong>AI token</strong>{{ dashboard_metrics.ai_tokens_today or 0 }}</div>
+            <div class="stat" title="当日走智谱 GLM 联网通道的 AI 请求数"><strong>智谱请求</strong>{{ dashboard_metrics.zhipu_requests_today or 0 }}</div>
+            <div class="stat" title="当日智谱通道消耗的估算 token（计入左侧 AI token 总数）"><strong>智谱 token</strong>{{ dashboard_metrics.zhipu_tokens_today or 0 }}</div>
             <div class="stat"><strong>高 token 用户</strong>{{ dashboard_metrics.high_token_user_count or 0 }}</div>
             <div class="stat"><strong>阅读异常</strong>{{ dashboard_metrics.reader_anomaly_count or 0 }}</div>
             <div class="stat"><strong>AI 错误</strong>{{ dashboard_metrics.ai_errors_today or 0 }}</div>
