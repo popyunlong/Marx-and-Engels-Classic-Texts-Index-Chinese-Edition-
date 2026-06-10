@@ -135,6 +135,13 @@ from desktop_sync import (
     save_cache as save_desktop_sync_cache,
     sync as sync_desktop_runtime,
 )
+from dictionary_store import (
+    dictionary_available,
+    dictionary_entry,
+    dictionary_groups,
+    dictionary_stats,
+    dictionary_suggest,
+)
 from feature_access import (
     AUDIENCE_ACCESS_LABELS,
     FEATURE_ACCESS_KEYS,
@@ -445,9 +452,12 @@ ONLINE_PRESENCE_PRUNE_INTERVAL_SECONDS = 60 * 60
 READER_ENDPOINTS = {
     "reader",
     "library",
+    "dictionary",
+    "dictionary_entry_page",
     "pdf_viewer",
     "serve_pdf",
     "page_image",
+    "api_dictionary_suggest",
     "api_library_toc_suggest",
     "api_library_volume_toc",
 }
@@ -921,12 +931,14 @@ def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict):
     if result.get("ok") and pay_url:
         return _render_checkout_page(order, plan, mode="api", pay_url=pay_url)
 
-    # mapi 失败：回退到网关跳转（年度等可用渠道仍可支付）；同时给出可读提示。
-    return _render_checkout_page(
-        order, plan, mode="api", pay_url="",
-        message=f"二维码下单失败：{result.get('msg') or '网关未返回支付链接'}。可点击下方按钮改用网关页面支付。",
-        gateway_url=_legacy_page_pay_url(order, plan, user),
+    # mapi 失败（ZPay 小额/当面付通道偶发不返回二维码）：不要把收银页停在「无二维码」死页，
+    # 直接跳到网关页面——网关页对该金额能稳定渲染二维码，真实用户可继续支付、监控也能取到码。
+    record_payment_event(
+        order_no=order["order_no"], provider="zpay", event_type="create_mapi_fallback_redirect",
+        payload={"order_no": order["order_no"], "plan_code": plan_code, "user_id": user["id"],
+                 "code": result.get("code"), "msg": str(result.get("msg") or "")[:200]},
     )
+    return redirect(_legacy_page_pay_url(order, plan, user))
 
 
 def _is_member_enabled() -> bool:
@@ -1065,6 +1077,8 @@ def _feature_is_available(feature: str) -> bool:
         return bool(BASE_RUNTIME.can_search)
     if feature in {"viewer", "library"}:
         return bool(BASE_RUNTIME.full_resources_ready)
+    if feature == "dictionary":
+        return dictionary_available()
     if feature in {"ai", "associative"}:
         # 联想检索与 AI 导学共用同一个对话模型：模型未配置则二者都不可用。
         return bool(AI_CONFIG.enabled)
@@ -1107,7 +1121,12 @@ def _current_user_allows_all(features: list[str]) -> bool:
 def _reader_access_entry(kind: str, features: list[str], href: str) -> dict:
     policy = _load_access_policy()
     user = getattr(g, "current_user", None)
-    prefix = "index.reader_full" if kind == "full" else "index.reader_ai"
+    prefix_map = {
+        "full": "index.reader_full",
+        "ai": "index.reader_ai",
+        "dictionary": "index.dictionary",
+    }
+    prefix = prefix_map.get(kind, f"index.{kind}")
     available = all(_feature_is_available(feature) for feature in features)
     current_allowed = available and _current_user_allows_all(features)
     registered_user = {"email": "registered-user@local.invalid", "role": "member"}
@@ -1154,6 +1173,7 @@ def _reader_access_entry(kind: str, features: list[str], href: str) -> dict:
 def _reader_access_entries() -> list[dict]:
     return [
         _reader_access_entry("full", ["library"], url_for("reader")),
+        _reader_access_entry("dictionary", ["dictionary"], url_for("dictionary")),
         _reader_access_entry("ai", ["library", "ai"], url_for("library")),
     ]
 
@@ -1162,7 +1182,7 @@ def _reader_access_entries() -> list[dict]:
 # 原有「已可用 / 登录即可使用 / 开通会员后使用 / 暂未开放」状态 pill 的逻辑完全保留、自动按权限显示；
 # 这里是在其旁边「额外」叠加管理员自定义的彩色小标签（如「新上线」「限时免费」）。默认空＝不显示，
 # 行为与从前一致。数据存设置项 index_feature_tags={"full":[{text,color}],"ai":[...],"journal":[...]}。
-_FEATURE_TAG_CARDS = ("full", "ai", "journal")
+_FEATURE_TAG_CARDS = ("full", "dictionary", "ai", "journal")
 _FEATURE_TAG_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 _FEATURE_TAG_FALLBACK_COLOR = "#157f4c"
 _FEATURE_TAG_MAX_PER_CARD = 12
@@ -6168,6 +6188,49 @@ def library():
         reader_mode=False,
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
     )
+
+
+@app.route("/dictionary")
+def dictionary():
+    _require_content_feature("dictionary")
+    stats = dictionary_stats()
+    return render_template(
+        "dictionary.html",
+        app_name=APP_NAME,
+        app_version=APP_VERSION,
+        state=current_view_state(),
+        groups=dictionary_groups(),
+        stats=stats,
+    )
+
+
+@app.route("/dictionary/entry/<path:slug>")
+def dictionary_entry_page(slug: str):
+    _require_content_feature("dictionary")
+    entry = dictionary_entry(slug)
+    if entry is None:
+        abort(404, description="未找到对应的大辞典词条。")
+    return render_template(
+        "dictionary_entry.html",
+        app_name=APP_NAME,
+        app_version=APP_VERSION,
+        state=current_view_state(),
+        entry=entry,
+    )
+
+
+@app.route("/api/dictionary/suggest")
+def api_dictionary_suggest():
+    _require_content_feature("dictionary")
+    raw = (request.args.get("q") or "").strip()
+    results = []
+    for item in dictionary_suggest(raw):
+        payload = dict(item)
+        payload["url"] = url_for("dictionary_entry_page", slug=item["slug"])
+        results.append(payload)
+    resp = jsonify({"ok": True, "results": results})
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
 
 
 # ---- 篇章名称自动补全（搜索全部书库目录） ----
