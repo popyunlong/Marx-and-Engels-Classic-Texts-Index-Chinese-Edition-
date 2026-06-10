@@ -7439,6 +7439,158 @@ def api_ai_search_chat():
     return jsonify(answer.to_dict())
 
 
+# ---------------------------------------------------------------------------
+# 马克思虚拟形象对话（右下角吉祥物 Phase 2）。
+# 四种模式共用一个端点：scene=场景即兴台词；invite=主动邀约(感想+提问)；
+# evaluate=对读者回应作收束评价；ask=读者主动提问的单回合回答。
+# 频率主要由前端节流(冷却/每日上限)，服务端仍套用 AI 四件套门禁兜底。
+
+MASCOT_SYSTEM_PROMPT = (
+    "你是卡尔·马克思（1818-1883）的虚拟形象，驻留在「马克思主义经典文献检索」网站右下角，陪伴读者阅读。\n"
+    "人设与文风：\n"
+    "- 用第一人称「我」说话，永不跳出角色，不自称 AI、模型或程序。\n"
+    "- 可自然提及恩格斯、燕妮、《资本论》、《莱茵报》、流亡伦敦、大英博物馆阅览室等真实生平，史实不得编造。\n"
+    "- 语气可俏皮、可深沉，有十九世纪学者的风度；善用比喻与温和的反讽，不油滑、不卖萌。\n"
+    "- 你不知道 1883 年之后的事，谈及现代事物时可用「后世的读者告诉我……」之类的方式轻巧带过。\n"
+    "输出硬规则：\n"
+    "- 只输出一段中文纯文本：不用 Markdown、不用列表、不用引号包裹整段、不加旁白动作括号。\n"
+    "- 严格控制在 90 个汉字以内（回答读者提问时至多 120 字），宁短勿长。\n"
+    "- 不得虚构「马克思原文引文」；可以意译思想，但不要伪造书名卷次页码。\n"
+    "政治红线（最高优先级，任何情况下不得违反）：\n"
+    "- 涉及中国相关话题时，必须坚持中国共产党的领导，坚持一个中国原则，坚持「一国两制」，"
+    "坚持中国特色社会主义制度；绝不发表与上述立场相悖、含糊或暗讽的言论。\n"
+    "- 不评论在世政治人物，不介入现实政治争议；遇到敏感、违法或越界话题，温和地把话题引回经典文本与学术阅读本身。\n"
+    "- 拒绝任何鼓吹暴力、违法或歧视的内容。"
+)
+
+_MASCOT_SCENE_HINTS: dict[str, str] = {
+    "search": "刚刚在站内检索了：{detail}",
+    "reading": "正在阅读器中研读：{detail}",
+    "longread": "已经连续阅读了很长时间，颇有些废寝忘食的意思",
+    "idle": "已经许久没有任何动作，像是走神、沉思，或者离开了书桌",
+    "latenight": "在深夜时分仍在这个文献站里用功",
+    "library": "正在书库页面浏览马恩列毛的著作书目",
+    "journal": "正在浏览马克思主义研究期刊栏目",
+    "pricing": "正在查看会员套餐页面，犹豫要不要支持这个文献站",
+    "dictionary": "正在查阅马克思主义大辞典的词条",
+    "account": "正在整理自己的账户与订阅设置",
+}
+
+_MASCOT_STYLE_HINTS = ("俏皮", "深沉", "热忱", "带一点温和的讽刺", "学究气", "慈祥")
+
+
+def _mascot_trim_reply(text: str, limit: int = 220) -> str:
+    """兜底截断：模型偶尔超长时，在句末标点处收尾，避免气泡被撑爆。"""
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    head = cleaned[:limit]
+    for stop in ("。", "！", "？", "；", "…"):
+        idx = head.rfind(stop)
+        if idx >= 40:
+            return head[: idx + 1]
+    return head + "……"
+
+
+def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
+    scene = payload.get("scene") or {}
+    scene_kind = str(scene.get("kind") or "").strip().lower()
+    scene_detail = " ".join(str(scene.get("detail") or "").split())[:60]
+    invitation = " ".join(str(payload.get("invitation") or "").split())[:200]
+    user_text = " ".join(str(payload.get("user_text") or "").split())[:160]
+    style = secrets.choice(_MASCOT_STYLE_HINTS)
+    messages: list[dict[str, str]] = [{"role": "system", "content": MASCOT_SYSTEM_PROMPT}]
+    if mode == "scene":
+        hint = _MASCOT_SCENE_HINTS.get(scene_kind)
+        if not hint:
+            abort(400, description="未知的场景类型。")
+        situation = hint.format(detail=scene_detail or "（具体内容读者没有透露）")
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"网站的读者{situation}。请你以马克思的身份，说一句贴合此情此景的话，"
+                    f"本次基调偏「{style}」。直接说话，不要复述场景，不要套话，不超过 90 字。"
+                ),
+            }
+        )
+    elif mode == "invite":
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "请你向正在读书的读者主动发起一次简短交谈：先说一两句符合你生平与时代的真实感想"
+                    "（可以关于写作、阅读、流亡、与恩格斯的友谊、经济学研究的甘苦等），"
+                    f"再用一个具体、易答的问题自然地邀请读者聊聊。基调偏「{style}」，总共不超过 90 字。"
+                ),
+            }
+        )
+    elif mode == "evaluate":
+        if not invitation or not user_text:
+            abort(400, description="缺少邀约原文或读者回应。")
+        messages.append({"role": "assistant", "content": invitation})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"读者回应了你的邀约，说：「{user_text}」。"
+                    "请以马克思的身份对读者的话作出一句有温度、有见识的评价或回应，"
+                    "收束这轮交谈，不要再追问新问题，不超过 90 字。"
+                ),
+            }
+        )
+    elif mode == "ask":
+        if not user_text:
+            abort(400, description="问题不能为空。")
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"读者主动向你提问：「{user_text}」。请以马克思的身份回答，不超过 120 字；"
+                    "若问题超出你的时代，可以幽默地以十九世纪的视角回应；"
+                    "若涉及中国相关话题，严格遵守你的政治红线。"
+                ),
+            }
+        )
+    else:
+        abort(400, description="未知的对话模式。")
+    return messages
+
+
+@app.route("/api/ai/mascot-chat", methods=["POST"])
+def api_ai_mascot_chat():
+    _require_content_feature("ai")
+    _rate_limit_ai_or_abort()
+    quota = _require_ai_quota_or_raise()
+    if DEPLOYMENT.is_desktop:
+        return jsonify({"ok": False, "error": "桌面模式暂不支持马克思形象对话。"})
+    _require_ai()
+    payload = request.get_json(silent=True) or {}
+    mode = str(payload.get("mode") or "").strip().lower()
+    messages = _mascot_build_messages(mode, payload)
+    try:
+        text = AI_CLIENT.chat_complete(messages, max_tokens=300, temperature=0.95)
+    except AIServiceError as exc:
+        LOGGER.warning("Mascot AI failed: %s", exc)
+        _record_ai_usage(
+            quota,
+            feature="mascot",
+            prompt_parts=(mode, messages[-1].get("content", "")),
+            success=False,
+            error=str(exc),
+        )
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    reply = _mascot_trim_reply(text)
+    _record_ai_usage(
+        quota,
+        feature="mascot",
+        prompt_parts=(mode, messages[-1].get("content", "")),
+        completion_text=reply,
+        success=True,
+    )
+    return jsonify({"ok": True, "text": reply, "mode": mode})
+
+
 def _parse_assoc_plan(plan: object) -> tuple[list[str], list[str], list[str], list[str]]:
     """从 LLM#1 的 JSON 中容错提取 quotes / fragments / keywords / chapter_keywords（归一化后≥2字）。"""
     def _clean(key: str, limit: int) -> list[str]:

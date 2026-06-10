@@ -34,15 +34,23 @@
   var closeBtn   = root.querySelector('.mx-close');
   var chipNext   = root.querySelector('.mx-chip-next');
   var chipHide   = root.querySelector('.mx-chip-hide');
+  var chipTalk   = root.querySelector('.mx-chip-talk');
+  var chipSkip   = root.querySelector('.mx-chip-skip');
+  var chipSend   = root.querySelector('.mx-chip-send');
+  var inputRow   = root.querySelector('.mx-input-row');
+  var inputEl    = root.querySelector('.mx-input');
 
   var LS_DOCK   = 'mx-docked-v1';
   var LS_UID    = 'mx-last-uid-v1';
+  var LS_AI     = 'mx-ai-stats-v1';
 
   var isLoggedIn   = root.dataset.loggedIn === 'true';
   var displayName  = (root.dataset.name || '').trim();
   var userId       = (root.dataset.uid || '').trim();
   var defaultDock  = root.dataset.defaultDocked === 'true';
   var aiAccess     = root.dataset.ai === 'true';
+  var csrfToken    = (root.dataset.csrf || '').trim();
+  var aiAvailable  = isLoggedIn && aiAccess;
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ------------------------------------------------------------- content -- */
@@ -221,9 +229,265 @@
     else { say(nextFrom(GUEST_QUOTES, guestRef)); }
   }
 
+  /* =======================================================================
+     DIALOGUE ENGINE (Phase 2) — deepseek-backed, heavily throttled.
+     Modes hit /api/ai/mascot-chat: scene | invite | evaluate | ask.
+     ======================================================================= */
+
+  var SELFTALK = [
+    '罢了，看来你正专注于更要紧的阅读——这正是我乐见的。',
+    '沉默也是一种回答。当年恩格斯不回信时，我也这样安慰自己。',
+    '无妨，问题会自己发酵，改日再谈。',
+    '你继续用功，我在这儿抽我的雪茄。',
+    '思想者各有自己的时区，不打扰了。',
+    '好吧，这个问题留给历史去回答。'
+  ];
+  var selfRef = { i: -1 };
+
+  var AI_LIMITS = {
+    dailyTotal: 30,                    /* passive AI calls per browser per day */
+    sceneDaily: 12,
+    sceneGlobalGapMs: 150 * 1000,
+    inviteDaily: 3,
+    inviteGapMs: 18 * 60 * 1000,
+    inviteFirstDelayMs: 4 * 60 * 1000,
+    inviteReplyWindowMs: 75 * 1000,
+    askMinGapMs: 15 * 1000
+  };
+  /* per-scene-kind cooldowns (ms) */
+  var KIND_COOLDOWN = {
+    search: 8 * 60 * 1000, reading: 20 * 60 * 1000, longread: 30 * 60 * 1000,
+    idle: 30 * 60 * 1000, latenight: 6 * 60 * 60 * 1000, library: 15 * 60 * 1000,
+    journal: 15 * 60 * 1000, pricing: 15 * 60 * 1000, dictionary: 10 * 60 * 1000,
+    account: 30 * 60 * 1000
+  };
+
+  function todayKey() {
+    var d = new Date();
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+  function loadStats() {
+    var s = null;
+    try { s = JSON.parse(localStorage.getItem(LS_AI) || 'null'); } catch (e) {}
+    if (!s || s.day !== todayKey()) {
+      s = { day: todayKey(), total: 0, scene: 0, invite: 0, kinds: {}, lastSceneTs: 0, lastInviteTs: 0, lastAskTs: 0 };
+    }
+    return s;
+  }
+  function saveStats(s) { try { localStorage.setItem(LS_AI, JSON.stringify(s)); } catch (e) {} }
+
+  function aiCall(payload, cb) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (csrfToken) { headers['X-CSRF-Token'] = csrfToken; }
+    fetch('/api/ai/mascot-chat', { method: 'POST', headers: headers, body: JSON.stringify(payload) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { cb(d && d.ok && d.text ? String(d.text) : null); })
+      .catch(function () { cb(null); });
+  }
+
+  /* ----- dialogue UI state ----- */
+  var round = null;          /* null | {type:'invite', invitation} | {type:'ask'} */
+  var roundBusy = false;
+  var replyTimer = null;
+
+  function setChips(mode) {
+    /* mode: 'default' | 'invite' | 'ask' | 'busy' */
+    if (!chipNext) { return; }
+    chipNext.hidden = mode !== 'default';
+    chipTalk.hidden = mode !== 'default';
+    chipSkip.hidden = mode !== 'invite';
+    inputRow.hidden = (mode !== 'invite' && mode !== 'ask');
+    inputEl.disabled = chipSend.disabled = (mode === 'busy');
+  }
+  function setThinking(on) {
+    if (bubble) { bubble.classList.toggle('mx-thinking', !!on); }
+  }
+  function endRound() {
+    clearTimeout(replyTimer);
+    round = null; roundBusy = false;
+    setThinking(false);
+    setChips('default');
+    if (inputEl) { inputEl.value = ''; }
+  }
+  function cancelRound() { endRound(); hideBubble(); }
+
+  /* ----- (2) proactive invitation round ----- */
+  function startInviteRound() {
+    var s = loadStats();
+    s.invite += 1; s.total += 1; s.lastInviteTs = Date.now(); saveStats(s);
+    round = { type: 'invite', invitation: '' }; roundBusy = true;
+    say('（马克思放下笔，似乎想同你聊聊）', { sticky: true });
+    setThinking(true); setChips('busy');
+    aiCall({ mode: 'invite' }, function (text) {
+      setThinking(false);
+      if (!text || !round || round.type !== 'invite') { endRound(); hideBubble(); return; }
+      round.invitation = text; roundBusy = false;
+      say(text, { sticky: true });
+      setChips('invite');
+      replyTimer = setTimeout(function () { concludeInvite(false); }, AI_LIMITS.inviteReplyWindowMs);
+    });
+  }
+  function concludeInvite(viaSkip) {
+    /* reader stayed silent or skipped: Marx rounds it off locally (no tokens) */
+    clearTimeout(replyTimer);
+    var line = nextFrom(SELFTALK, selfRef);
+    endRound();
+    say(line, { duration: 5200 });
+  }
+  function submitInviteReply(textVal) {
+    var inv = round && round.invitation;
+    clearTimeout(replyTimer);
+    roundBusy = true; setChips('busy'); setThinking(true);
+    say('（他捻着胡须听完了你的话）', { sticky: true });
+    aiCall({ mode: 'evaluate', invitation: inv, user_text: textVal }, function (text) {
+      setThinking(false);
+      endRound();
+      say(text || '你的话我记下了。思想需要时间发酵，我们改日再谈。', { duration: 11000 });
+    });
+  }
+
+  /* ----- (3) user-initiated ask round ----- */
+  function startAskRound() {
+    if (!aiAvailable) {
+      say(isLoggedIn ? '与我对谈的权限尚未开通——到会员页看看吧，那里有入场券。'
+                     : '待你登录，我们再促膝长谈。', { duration: 6000 });
+      return;
+    }
+    if (round) { return; }
+    var s = loadStats();
+    if (Date.now() - (s.lastAskTs || 0) < AI_LIMITS.askMinGapMs) {
+      say('稍等，让我先把这口茶喝完。', { duration: 3200 });
+      return;
+    }
+    round = { type: 'ask' };
+    say('请讲，我在听。', { sticky: true });
+    setChips('ask');
+    if (inputEl) { try { inputEl.focus(); } catch (e) {} }
+  }
+  function submitAsk(textVal) {
+    var s = loadStats();
+    s.lastAskTs = Date.now(); saveStats(s);
+    roundBusy = true; setChips('busy'); setThinking(true);
+    say('（马克思沉吟着）', { sticky: true });
+    aiCall({ mode: 'ask', user_text: textVal }, function (text) {
+      setThinking(false);
+      endRound();
+      say(text || '这个问题值得用一整个下午来谈，可惜眼下网络的邮路不通。换个问法试试？', { duration: 14000 });
+    });
+  }
+
+  function submitInput() {
+    if (!round || roundBusy || !inputEl) { return; }
+    var v = (inputEl.value || '').trim().slice(0, 120);
+    if (!v) { return; }
+    if (round.type === 'invite') { submitInviteReply(v); }
+    else if (round.type === 'ask') { submitAsk(v); }
+  }
+
+  /* ----- (1) scene-aware remarks ----- */
+  function sceneEligible(kind) {
+    if (!aiAvailable || document.hidden || round) { return false; }
+    if (root.classList.contains('mx-docked')) { return false; }
+    var s = loadStats();
+    if (s.total >= AI_LIMITS.dailyTotal || s.scene >= AI_LIMITS.sceneDaily) { return false; }
+    if (Date.now() - (s.lastSceneTs || 0) < AI_LIMITS.sceneGlobalGapMs) { return false; }
+    var kindTs = (s.kinds || {})[kind] || 0;
+    if (Date.now() - kindTs < (KIND_COOLDOWN[kind] || 10 * 60 * 1000)) { return false; }
+    return true;
+  }
+  function triggerScene(kind, detail) {
+    if (!sceneEligible(kind)) { return; }
+    var s = loadStats();
+    s.scene += 1; s.total += 1; s.lastSceneTs = Date.now();
+    s.kinds = s.kinds || {}; s.kinds[kind] = Date.now(); saveStats(s);
+    aiCall({ mode: 'scene', scene: { kind: kind, detail: (detail || '').slice(0, 60) } }, function (text) {
+      if (!text || round || root.classList.contains('mx-docked')) { return; }
+      say(text, { duration: 9000 });
+      emit('scene', { kind: kind });
+    });
+  }
+
+  function pageKind() {
+    var p = location.pathname;
+    if (p === '/' || p === '/index') { return 'index'; }
+    if (p.indexOf('/viewer') === 0 || p.indexOf('/reader') === 0 || p.indexOf('/pdf') === 0) { return 'viewer'; }
+    if (p.indexOf('/library') === 0) { return 'library'; }
+    if (p.indexOf('/dictionary') === 0) { return 'dictionary'; }
+    if (p.indexOf('/pricing') === 0) { return 'pricing'; }
+    if (p.indexOf('/journal') === 0 || p.indexOf('/account/journal') === 0) { return 'journal'; }
+    if (p.indexOf('/account') === 0) { return 'account'; }
+    return 'other';
+  }
+
+  function setupSceneTriggers() {
+    if (!aiAvailable) { return; }
+    var kind = pageKind();
+
+    /* search submit on the home page */
+    var form = document.getElementById('searchForm');
+    var q = document.getElementById('q');
+    if (form && q) {
+      form.addEventListener('submit', function () {
+        var v = (q.value || '').trim().slice(0, 40);
+        if (v) { setTimeout(function () { triggerScene('search', v); }, 2500); }
+      });
+    }
+
+    /* reading scenes in the viewer */
+    if (kind === 'viewer') {
+      var title = (document.title || '').split(' - ')[0].slice(0, 40);
+      setTimeout(function () { triggerScene('reading', title); }, 25 * 1000);
+      setTimeout(function () { triggerScene('longread', title); }, 12 * 60 * 1000);
+    }
+
+    /* page-presence scenes */
+    var presence = { library: 1, journal: 1, pricing: 1, dictionary: 1, account: 1 };
+    if (presence[kind]) {
+      setTimeout(function () { triggerScene(kind, ''); }, 9 * 1000);
+    }
+
+    /* late-night studying */
+    var h = new Date().getHours();
+    if (h >= 23 || h < 5) {
+      setTimeout(function () { triggerScene('latenight', ''); }, 45 * 1000);
+    }
+
+    /* idle watcher: 5 min without input, once per page load */
+    var idleFired = false;
+    var idleTimer = null;
+    function resetIdle() {
+      if (idleFired) { return; }
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(function () {
+        idleFired = true;
+        triggerScene('idle', '');
+      }, 5 * 60 * 1000);
+    }
+    ['mousemove', 'keydown', 'scroll', 'click', 'touchstart'].forEach(function (ev) {
+      document.addEventListener(ev, resetIdle, { passive: true });
+    });
+    resetIdle();
+  }
+
+  /* ----- invite scheduler ----- */
+  var loadTs = Date.now();
+  function setupInviteScheduler() {
+    if (!aiAvailable) { return; }
+    setInterval(function () {
+      if (document.hidden || round || root.classList.contains('mx-docked')) { return; }
+      if (Date.now() - loadTs < AI_LIMITS.inviteFirstDelayMs) { return; }
+      var s = loadStats();
+      if (s.total >= AI_LIMITS.dailyTotal || s.invite >= AI_LIMITS.inviteDaily) { return; }
+      if (Date.now() - (s.lastInviteTs || 0) < AI_LIMITS.inviteGapMs) { return; }
+      if (bubble && !bubble.hidden) { return; }   /* don't talk over an open bubble */
+      startInviteRound();
+    }, 60 * 1000);
+  }
+
   /* ------------------------------------------------------- dock / summon -- */
   function dockMascot(withLine) {
     root.classList.add('mx-docked');
+    endRound();
     stopCycle();
     hideBubble();
     try { localStorage.setItem(LS_DOCK, '1'); } catch (e) {}
@@ -256,7 +520,9 @@
   /* ---------------------------------------------------------------- wire -- */
   function onInteract() {
     emit('interact', { loggedIn: isLoggedIn, action: currentAction });
-    /* Phase 2: if a dialogue handler is attached, defer to it instead. */
+    /* an active dialogue round owns the bubble — don't talk over it */
+    if (round) { return; }
+    /* Phase 2: if a custom dialogue handler is attached, defer to it instead. */
     if (typeof api.dialogueHandler === 'function') { api.dialogueHandler(api); return; }
     speakContextual();
   }
@@ -270,7 +536,17 @@
   if (closeBtn) { closeBtn.addEventListener('click', function (e) { e.stopPropagation(); dockMascot(true); }); }
   if (dock) { dock.addEventListener('click', summon); }
   if (chipNext) { chipNext.addEventListener('click', function (e) { e.stopPropagation(); speakContextual(); }); }
-  if (chipHide) { chipHide.addEventListener('click', function (e) { e.stopPropagation(); hideBubble(); }); }
+  if (chipHide) { chipHide.addEventListener('click', function (e) { e.stopPropagation(); cancelRound(); }); }
+  if (chipTalk) { chipTalk.addEventListener('click', function (e) { e.stopPropagation(); startAskRound(); }); }
+  if (chipSkip) { chipSkip.addEventListener('click', function (e) { e.stopPropagation(); concludeInvite(true); }); }
+  if (chipSend) { chipSend.addEventListener('click', function (e) { e.stopPropagation(); submitInput(); }); }
+  if (inputEl) {
+    inputEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); submitInput(); }
+      e.stopPropagation();
+    });
+    inputEl.addEventListener('click', function (e) { e.stopPropagation(); });
+  }
 
   /* pause the loop while the tab is hidden (saves cycles & battery) */
   document.addEventListener('visibilitychange', function () {
@@ -315,9 +591,17 @@
       emit('companion', cfg || {});
       return api;
     },
-    openDialogue: function () {                 /* real conversation (Phase 2) */
+    openDialogue: function () {                 /* real conversation */
       if (typeof api.dialogueHandler === 'function') { return api.dialogueHandler(api); }
-      speakContextual();
+      startAskRound();
+      return api;
+    },
+    triggerScene: function (kind, detail) {     /* let pages fire custom scenes */
+      triggerScene(kind, detail);
+      return api;
+    },
+    startInvite: function () {                  /* manual invitation (ops/testing) */
+      if (aiAvailable && !round && !root.classList.contains('mx-docked')) { startInviteRound(); }
       return api;
     },
 
@@ -370,6 +654,10 @@
       forgetUser();
       setPosture('seated');     /* guest: seated idle, no action cycle */
     }
+
+    /* Phase 2: AI-driven scenes + proactive invitations (throttled) */
+    setupSceneTriggers();
+    setupInviteScheduler();
   }
 
   init();

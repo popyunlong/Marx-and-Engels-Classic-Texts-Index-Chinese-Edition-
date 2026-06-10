@@ -8,7 +8,7 @@
    Login state comes from the global `current_user` context processor, so no
    backend change is required. All behaviour lives in the external JS/CSS.
    =========================================================================== #}
-<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=4">
+<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=5">
 <div id="marx-mascot-root"
      class="mx-root mx-state-loading"
      data-logged-in="{{ 'true' if current_user else 'false' }}"
@@ -16,6 +16,7 @@
      data-uid="{{ current_user.id if current_user else '' }}"
      data-default-docked="{{ 'true' if mascot_default_docked | default(false) else 'false' }}"
      data-ai="{{ 'true' if (state and state.feature_access and state.feature_access.ai) else 'false' }}"
+     data-csrf="{{ csrf_token }}"
      aria-live="polite">
 
   {# --- Collapsed dock ("收纳口"): a small round button to re-summon Marx --- #}
@@ -29,11 +30,17 @@
     <span class="mx-dock-dot"></span>
   </button>
 
-  {# --- Speech bubble (Marx-style remarks) --- #}
+  {# --- Speech bubble (Marx-style remarks + dialogue rounds) --- #}
   <div class="mx-bubble" role="status" hidden>
     <p class="mx-bubble-text"></p>
+    <div class="mx-input-row" hidden>
+      <input type="text" class="mx-input" maxlength="120" placeholder="对马克思先生说点什么……">
+      <button type="button" class="mx-chip mx-chip-send">送出</button>
+    </div>
     <div class="mx-bubble-actions">
       <button type="button" class="mx-chip mx-chip-next">换一句</button>
+      <button type="button" class="mx-chip mx-chip-talk">对话</button>
+      <button type="button" class="mx-chip mx-chip-skip" hidden>先不聊</button>
       <button type="button" class="mx-chip mx-chip-hide">收起</button>
     </div>
     <span class="mx-bubble-tail"></span>
@@ -278,4 +285,4 @@
     </svg>
   </div>{# /mx-stage #}
 </div>{# /mx-root #}
-<script src="/static/mascot/marx-mascot.js?v=4" defer></script>
+<script src="/static/mascot/marx-mascot.js?v=5" defer></script>
