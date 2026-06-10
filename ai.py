@@ -23,8 +23,13 @@ DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
+# 智谱开放平台（bigmodel.cn）：OpenAI 兼容 /chat/completions，作为可选的「联网检索」通道，
+# 与默认 DeepSeek 通道平行存在、互不影响；前台仅持有 ai_web 权限的用户可选。
+ZHIPU_DEFAULT_MODEL = "glm-5.1"
+ZHIPU_DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+ZHIPU_SEARCH_ENGINES = ("search_std", "search_pro", "search_pro_sogou", "search_pro_quark")
+
 SUPPORTED_PROVIDERS = {"zai", "deepseek"}
-SUPPORTED_SEARCH_PROVIDERS = {"disabled", "zai"}
 ZAI_PROVIDER_ALIASES = {"zai", "z.ai", "智谱", "zhipu", "glm"}
 DEEPSEEK_PROVIDER_ALIASES = {"deepseek", "深度求索"}
 
@@ -33,12 +38,12 @@ AI_EDITABLE_KEYS = (
     "model",
     "base_url",
     "api_key",
-    "search_provider",
-    "search_base_url",
-    "search_api_key",
+    "zhipu_api_key",
+    "zhipu_model",
+    "zhipu_base_url",
+    "zhipu_search_engine",
+    "zhipu_search_count",
     "request_timeout_seconds",
-    "default_web_enabled",
-    "web_search_count",
     "max_history_turns",
     "search_history_turns",
     "pdf_history_turns",
@@ -47,9 +52,6 @@ AI_EDITABLE_KEYS = (
     "search_answer_max_tokens",
     "pdf_answer_max_tokens",
     "pdf_quick_answer_max_tokens",
-    "search_web_search_count",
-    "pdf_web_search_count",
-    "pdf_quick_web_search_count",
     "pdf_selected_text_char_limit",
     "pdf_current_text_char_limit",
     "pdf_adjacent_excerpt_char_limit",
@@ -128,14 +130,14 @@ class AIConfig:
     model: str
     base_url: str
     api_key: str
-    search_provider: str
-    search_base_url: str
-    search_api_key: str
-    search_enabled: bool
-    web_search_count: int
+    zhipu_api_key: str
+    zhipu_model: str
+    zhipu_base_url: str
+    zhipu_search_engine: str
+    zhipu_search_count: int
+    zhipu_enabled: bool
     request_timeout_seconds: int
     max_history_turns: int
-    default_web_enabled: bool
     search_history_turns: int
     pdf_history_turns: int
     search_message_char_limit: int
@@ -143,9 +145,6 @@ class AIConfig:
     search_answer_max_tokens: int
     pdf_answer_max_tokens: int
     pdf_quick_answer_max_tokens: int
-    search_web_search_count: int
-    pdf_web_search_count: int
-    pdf_quick_web_search_count: int
     pdf_selected_text_char_limit: int
     pdf_current_text_char_limit: int
     pdf_adjacent_excerpt_char_limit: int
@@ -162,21 +161,15 @@ class AIConfig:
             "provider": self.provider,
             "model": self.model,
             "base_url": self.base_url,
-            "search_provider": self.search_provider,
-            "search_base_url": self.search_base_url,
-            "search_enabled": self.search_enabled,
-            "web_search_count": self.web_search_count,
+            "zhipu_enabled": self.zhipu_enabled,
+            "zhipu_model": self.zhipu_model,
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_history_turns": self.max_history_turns,
-            "default_web_enabled": self.default_web_enabled,
             "search_history_turns": self.search_history_turns,
             "pdf_history_turns": self.pdf_history_turns,
             "search_answer_max_tokens": self.search_answer_max_tokens,
             "pdf_answer_max_tokens": self.pdf_answer_max_tokens,
             "pdf_quick_answer_max_tokens": self.pdf_quick_answer_max_tokens,
-            "search_web_search_count": self.search_web_search_count,
-            "pdf_web_search_count": self.pdf_web_search_count,
-            "pdf_quick_web_search_count": self.pdf_quick_web_search_count,
             "temperature": self.temperature,
             "problems": list(self.problems),
         }
@@ -187,13 +180,13 @@ class AIConfig:
             "model": self.model,
             "base_url": self.base_url,
             "api_key": self.api_key,
-            "search_provider": self.search_provider,
-            "search_base_url": self.search_base_url,
-            "search_api_key": self.search_api_key,
-            "web_search_count": self.web_search_count,
+            "zhipu_api_key": self.zhipu_api_key,
+            "zhipu_model": self.zhipu_model,
+            "zhipu_base_url": self.zhipu_base_url,
+            "zhipu_search_engine": self.zhipu_search_engine,
+            "zhipu_search_count": self.zhipu_search_count,
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_history_turns": self.max_history_turns,
-            "default_web_enabled": self.default_web_enabled,
             "search_history_turns": self.search_history_turns,
             "pdf_history_turns": self.pdf_history_turns,
             "search_message_char_limit": self.search_message_char_limit,
@@ -201,9 +194,6 @@ class AIConfig:
             "search_answer_max_tokens": self.search_answer_max_tokens,
             "pdf_answer_max_tokens": self.pdf_answer_max_tokens,
             "pdf_quick_answer_max_tokens": self.pdf_quick_answer_max_tokens,
-            "search_web_search_count": self.search_web_search_count,
-            "pdf_web_search_count": self.pdf_web_search_count,
-            "pdf_quick_web_search_count": self.pdf_quick_web_search_count,
             "pdf_selected_text_char_limit": self.pdf_selected_text_char_limit,
             "pdf_current_text_char_limit": self.pdf_current_text_char_limit,
             "pdf_adjacent_excerpt_char_limit": self.pdf_adjacent_excerpt_char_limit,
@@ -281,17 +271,6 @@ def _normalize_provider(raw: Any) -> str:
     return provider or DEFAULT_PROVIDER
 
 
-def _normalize_search_provider(raw: Any, model_provider: str) -> str:
-    provider = str(raw or "").strip().lower()
-    if not provider:
-        return "zai" if model_provider == "zai" else "disabled"
-    if provider in {"none", "off", "false", "0", "disabled", "disable"}:
-        return "disabled"
-    if provider in ZAI_PROVIDER_ALIASES:
-        return "zai"
-    return provider
-
-
 def load_ai_config(
     config_path: Path | None = None,
     override_path: Path | None = None,
@@ -324,30 +303,32 @@ def load_ai_config(
         )
         .strip()
     )
-    # Web search is intentionally disabled for this deployment.  The public
-    # reader/search assistants should rely on the configured chat model only.
-    search_provider = "disabled"
-    search_base_url = (
+    # 智谱 GLM（可联网检索）的平行通道：留空 zhipu_api_key 即关闭，对 DeepSeek 主通道零影响。
+    zhipu_api_key = (
         str(
-            os.environ.get("ZAI_SEARCH_BASE_URL")
-            or os.environ.get("APP_AI_SEARCH_BASE_URL")
-            or payload.get("search_base_url")
-            or DEFAULT_BASE_URL
+            os.environ.get("ZHIPU_API_KEY")
+            or os.environ.get("APP_AI_ZHIPU_API_KEY")
+            or payload.get("zhipu_api_key")
+            or ""
+        )
+        .strip()
+    )
+    zhipu_model = _pick_str("APP_AI_ZHIPU_MODEL", payload, "zhipu_model", ZHIPU_DEFAULT_MODEL) or ZHIPU_DEFAULT_MODEL
+    zhipu_base_url = (
+        str(
+            os.environ.get("ZHIPU_BASE_URL")
+            or os.environ.get("APP_AI_ZHIPU_BASE_URL")
+            or payload.get("zhipu_base_url")
+            or ZHIPU_DEFAULT_BASE_URL
         )
         .strip()
         .rstrip("/")
     )
-    search_api_key = (
-        str(
-            os.environ.get("ZAI_SEARCH_API_KEY")
-            or os.environ.get("APP_AI_SEARCH_API_KEY")
-            or payload.get("search_api_key")
-            or (api_key if provider == "zai" and search_provider == "zai" else "")
-        )
-        .strip()
+    zhipu_search_engine = _pick_str(
+        "APP_AI_ZHIPU_SEARCH_ENGINE", payload, "zhipu_search_engine", ZHIPU_SEARCH_ENGINES[0]
     )
+    zhipu_search_count = _pick_int("APP_AI_ZHIPU_SEARCH_COUNT", payload, "zhipu_search_count", 5)
 
-    web_search_count = _pick_int("APP_AI_WEB_SEARCH_COUNT", payload, "web_search_count", 8)
     max_history_turns = _pick_int("APP_AI_MAX_HISTORY_TURNS", payload, "max_history_turns", 12)
     request_timeout_seconds = _pick_int(
         "APP_AI_REQUEST_TIMEOUT_SECONDS",
@@ -355,7 +336,6 @@ def load_ai_config(
         "request_timeout_seconds",
         120,
     )
-    default_web_enabled = False
 
     search_history_turns = _pick_int(
         "APP_AI_SEARCH_HISTORY_TURNS",
@@ -398,24 +378,6 @@ def load_ai_config(
         payload,
         "pdf_quick_answer_max_tokens",
         900,
-    )
-    search_web_search_count = _pick_int(
-        "APP_AI_SEARCH_WEB_COUNT",
-        payload,
-        "search_web_search_count",
-        web_search_count,
-    )
-    pdf_web_search_count = _pick_int(
-        "APP_AI_PDF_WEB_COUNT",
-        payload,
-        "pdf_web_search_count",
-        max(4, min(web_search_count, 8)),
-    )
-    pdf_quick_web_search_count = _pick_int(
-        "APP_AI_PDF_QUICK_WEB_COUNT",
-        payload,
-        "pdf_quick_web_search_count",
-        2,
     )
     pdf_selected_text_char_limit = _pick_int(
         "APP_AI_PDF_SELECTED_TEXT_CHAR_LIMIT",
@@ -463,18 +425,15 @@ def load_ai_config(
     problems: list[str] = []
     if provider not in SUPPORTED_PROVIDERS:
         problems.append(f"当前仅支持 {', '.join(sorted(SUPPORTED_PROVIDERS))} 提供方，收到 provider={provider!r}。")
-    if search_provider not in SUPPORTED_SEARCH_PROVIDERS:
-        problems.append(
-            f"当前仅支持 {', '.join(sorted(SUPPORTED_SEARCH_PROVIDERS))} 联网搜索，"
-            f"收到 search_provider={search_provider!r}。"
-        )
     if not api_key:
         problems.append("未配置 Z.AI API Key，AI 对话功能已禁用。")
-    if search_provider == "zai" and not search_api_key:
-        problems.append("已选择 Z.AI 联网搜索，但未配置 search_api_key，联网搜索将不可用。")
-    if web_search_count < 1:
-        problems.append("web_search_count 必须大于等于 1，已回退为 8。")
-        web_search_count = 8
+    if zhipu_search_engine not in ZHIPU_SEARCH_ENGINES:
+        problems.append(
+            f"智谱联网引擎仅支持 {', '.join(ZHIPU_SEARCH_ENGINES)}，"
+            f"收到 {zhipu_search_engine!r}，已回退为 {ZHIPU_SEARCH_ENGINES[0]}。"
+        )
+        zhipu_search_engine = ZHIPU_SEARCH_ENGINES[0]
+    zhipu_search_count = max(1, min(20, zhipu_search_count))
     if request_timeout_seconds < 5:
         problems.append("request_timeout_seconds 过小，已回退为 120 秒。")
         request_timeout_seconds = 120
@@ -488,9 +447,6 @@ def load_ai_config(
     search_answer_max_tokens = max(300, search_answer_max_tokens)
     pdf_answer_max_tokens = max(300, pdf_answer_max_tokens)
     pdf_quick_answer_max_tokens = max(300, pdf_quick_answer_max_tokens)
-    search_web_search_count = max(1, search_web_search_count)
-    pdf_web_search_count = max(1, pdf_web_search_count)
-    pdf_quick_web_search_count = max(1, pdf_quick_web_search_count)
     pdf_selected_text_char_limit = max(200, pdf_selected_text_char_limit)
     pdf_current_text_char_limit = max(600, pdf_current_text_char_limit)
     pdf_adjacent_excerpt_char_limit = max(60, pdf_adjacent_excerpt_char_limit)
@@ -500,21 +456,21 @@ def load_ai_config(
     temperature = min(1.5, max(0.0, temperature))
 
     enabled = provider in SUPPORTED_PROVIDERS and bool(api_key)
-    search_enabled = False
+    zhipu_enabled = bool(zhipu_api_key)
 
     return AIConfig(
         provider=provider,
         model=model,
         base_url=base_url,
         api_key=api_key,
-        search_provider=search_provider,
-        search_base_url=search_base_url,
-        search_api_key=search_api_key,
-        search_enabled=search_enabled,
-        web_search_count=web_search_count,
+        zhipu_api_key=zhipu_api_key,
+        zhipu_model=zhipu_model,
+        zhipu_base_url=zhipu_base_url,
+        zhipu_search_engine=zhipu_search_engine,
+        zhipu_search_count=zhipu_search_count,
+        zhipu_enabled=zhipu_enabled,
         request_timeout_seconds=request_timeout_seconds,
         max_history_turns=max_history_turns,
-        default_web_enabled=default_web_enabled,
         search_history_turns=search_history_turns,
         pdf_history_turns=pdf_history_turns,
         search_message_char_limit=search_message_char_limit,
@@ -522,9 +478,6 @@ def load_ai_config(
         search_answer_max_tokens=search_answer_max_tokens,
         pdf_answer_max_tokens=pdf_answer_max_tokens,
         pdf_quick_answer_max_tokens=pdf_quick_answer_max_tokens,
-        search_web_search_count=search_web_search_count,
-        pdf_web_search_count=pdf_web_search_count,
-        pdf_quick_web_search_count=pdf_quick_web_search_count,
         pdf_selected_text_char_limit=pdf_selected_text_char_limit,
         pdf_current_text_char_limit=pdf_current_text_char_limit,
         pdf_adjacent_excerpt_char_limit=pdf_adjacent_excerpt_char_limit,
@@ -565,8 +518,14 @@ class ZAIClient:
     def __init__(self, config: AIConfig) -> None:
         self.config = config
 
-    def answer_search_chat(self, messages: list[dict[str, Any]], question: str) -> AIAnswer:
-        self._ensure_enabled()
+    def answer_search_chat(
+        self,
+        messages: list[dict[str, Any]],
+        question: str,
+        provider: str | None = None,
+    ) -> AIAnswer:
+        use_zhipu = provider == "zhipu"
+        self._ensure_enabled(provider)
         history = self._trim_messages(
             messages,
             max_turns=self.config.search_history_turns,
@@ -575,14 +534,24 @@ class ZAIClient:
         warnings: list[str] = []
         sources: list[dict[str, str]] = []
 
-        prompt = (
-            "请回答用户的问题。\n"
-            "要求：\n"
-            "1. 使用中文回答，尽量准确、完整、结构清晰。\n"
-            "2. 不要声称已经联网检索，也不要编造具体来源链接。\n"
-            "3. 如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n\n"
-            f"用户问题：{question}"
-        )
+        if use_zhipu:
+            prompt = (
+                "请回答用户的问题。\n"
+                "要求：\n"
+                "1. 使用中文回答，尽量准确、完整、结构清晰。\n"
+                "2. 已为你启用联网检索：涉及实时信息或外部资料时，优先依据检索结果作答，"
+                "并在正文中注明所依据来源的标题；检索结果不足时如实说明，绝不编造来源或链接。\n\n"
+                f"用户问题：{question}"
+            )
+        else:
+            prompt = (
+                "请回答用户的问题。\n"
+                "要求：\n"
+                "1. 使用中文回答，尽量准确、完整、结构清晰。\n"
+                "2. 不要声称已经联网检索，也不要编造具体来源链接。\n"
+                "3. 如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n\n"
+                f"用户问题：{question}"
+            )
         answer = self.chat_complete(
             [
                 {
@@ -593,6 +562,8 @@ class ZAIClient:
                 {"role": "user", "content": prompt},
             ],
             max_tokens=self.config.search_answer_max_tokens,
+            provider=provider,
+            sources_out=sources,
         )
         return AIAnswer(
             answer_markdown=answer,
@@ -702,6 +673,28 @@ class ZAIClient:
                 parsed = []
         return parsed if isinstance(parsed, list) else []
 
+    def _pdf_chat_instructions(self, quick_mode: bool, use_zhipu: bool) -> str:
+        style_instructions = (
+            "请直接给出 4-8 句的快速讲解，优先说明本页重点、关键概念与用户当前疑问。"
+            if quick_mode
+            else "请按要点分段讲解，先解释原文，再补充必要背景、概念关系和阅读提示。"
+        )
+        web_instruction = (
+            "3. 已为你启用联网检索：可结合检索结果补充背景或最新研究，引用网络资料时在正文注明来源标题；"
+            "检索结果与原文无关时以本地上下文为准，绝不编造来源或链接。\n"
+            if use_zhipu
+            else "3. 可以补充必要背景，但不要声称已经联网检索，也不要编造具体来源链接。\n"
+        )
+        return (
+            "请围绕用户当前阅读的 PDF 页面进行讲解。\n"
+            "要求：\n"
+            "1. 优先解释用户选中的内容；未选中时解释当前页主旨。\n"
+            "2. 回答必须先基于本地 PDF 上下文，不要脱离页面内容空谈。\n"
+            f"{web_instruction}"
+            "4. 使用中文回答，避免编造，必要时指出依据来自本页或相邻页。\n"
+            f"6. {style_instructions}\n\n"
+        )
+
     def answer_pdf_chat(
         self,
         messages: list[dict[str, Any]],
@@ -712,8 +705,10 @@ class ZAIClient:
         web_enabled: bool,
         quick_mode: bool = False,
         page_context: dict[str, Any] | None = None,
+        provider: str | None = None,
     ) -> AIAnswer:
-        self._ensure_enabled()
+        use_zhipu = provider == "zhipu"
+        self._ensure_enabled(provider)
         history_turns = (
             max(2, min(self.config.pdf_history_turns, 4))
             if quick_mode
@@ -736,21 +731,10 @@ class ZAIClient:
             page_context,
             quick_mode=quick_mode,
         )
-        style_instructions = (
-            "请直接给出 4-8 句的快速讲解，优先说明本页重点、关键概念与用户当前疑问。"
-            if quick_mode
-            else "请按要点分段讲解，先解释原文，再补充必要背景、概念关系和阅读提示。"
-        )
         prompt = (
-            "请围绕用户当前阅读的 PDF 页面进行讲解。\n"
-            "要求：\n"
-            "1. 优先解释用户选中的内容；未选中时解释当前页主旨。\n"
-            "2. 回答必须先基于本地 PDF 上下文，不要脱离页面内容空谈。\n"
-            "3. 可以补充必要背景，但不要声称已经联网检索，也不要编造具体来源链接。\n"
-            "4. 使用中文回答，避免编造，必要时指出依据来自本页或相邻页。\n"
-            f"6. {style_instructions}\n\n"
-            f"本地 PDF 上下文：\n{local_context}\n\n"
-            f"用户问题：{question}"
+            self._pdf_chat_instructions(quick_mode, use_zhipu)
+            + f"本地 PDF 上下文：\n{local_context}\n\n"
+            + f"用户问题：{question}"
         )
         answer = self.chat_complete(
             [
@@ -766,11 +750,13 @@ class ZAIClient:
                 if quick_mode
                 else self.config.pdf_answer_max_tokens
             ),
+            provider=provider,
+            sources_out=sources,
         )
         return AIAnswer(
             answer_markdown=answer,
             sources=sources,
-            used_web=False,
+            used_web=bool(sources),
             warnings=warnings,
         )
 
@@ -784,8 +770,10 @@ class ZAIClient:
         web_enabled: bool,
         quick_mode: bool = False,
         page_context: dict[str, Any] | None = None,
+        provider: str | None = None,
     ) -> tuple[list[dict[str, str]], int, list[dict[str, str]], list[str]]:
-        self._ensure_enabled()
+        use_zhipu = provider == "zhipu"
+        self._ensure_enabled(provider)
         history_turns = (
             max(2, min(self.config.pdf_history_turns, 4))
             if quick_mode
@@ -808,21 +796,10 @@ class ZAIClient:
             page_context,
             quick_mode=quick_mode,
         )
-        style_instructions = (
-            "请直接给出 4-8 句快速讲解，优先说明本页重点、关键概念与用户当前疑问。"
-            if quick_mode
-            else "请按要点分段讲解，先解释原文，再补充必要背景、概念关系和阅读提示。"
-        )
         prompt = (
-            "请围绕用户当前阅读的 PDF 页面进行讲解。\n"
-            "要求：\n"
-            "1. 优先解释用户选中的内容；未选中时解释当前页主旨。\n"
-            "2. 回答必须先基于本地 PDF 上下文，不要脱离页面内容空谈。\n"
-            "3. 可以补充必要背景，但不要声称已经联网检索，也不要编造具体来源链接。\n"
-            "4. 使用中文回答，避免编造，必要时指出依据来自本页或相邻页。\n"
-            f"6. {style_instructions}\n\n"
-            f"本地 PDF 上下文：\n{local_context}\n\n"
-            f"用户问题：{question}"
+            self._pdf_chat_instructions(quick_mode, use_zhipu)
+            + f"本地 PDF 上下文：\n{local_context}\n\n"
+            + f"用户问题：{question}"
         )
         max_tokens = (
             self.config.pdf_quick_answer_max_tokens
@@ -843,29 +820,45 @@ class ZAIClient:
             warnings,
         )
 
-    def search_web(self, query: str, count_override: int | None = None) -> list[dict[str, str]]:
-        if self.config.search_provider != "zai" or not self.config.search_api_key:
-            return []
-        payload = {
-            "search_engine": "search-prime",
-            "search_query": query,
-            "count": max(1, int(count_override or self.config.search_web_search_count)),
+    def _route(self, provider: str | None) -> dict[str, str]:
+        """按调用方选择的通道返回 (base_url, api_key, model, label)。None/其他＝默认主通道。"""
+        if provider == "zhipu":
+            return {
+                "base_url": self.config.zhipu_base_url,
+                "api_key": self.config.zhipu_api_key,
+                "model": self.config.zhipu_model,
+                "label": "智谱AI",
+            }
+        return {
+            "base_url": self.config.base_url,
+            "api_key": self.config.api_key,
+            "model": self.config.model,
+            "label": self.config.provider,
         }
-        data = self._post_json(
-            "/web_search",
-            payload,
-            base_url=self.config.search_base_url,
-            api_key=self.config.search_api_key,
-            service_label="Z.AI search",
-        )
-        results = data.get("search_result") or []
+
+    def _zhipu_web_search_tools(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "web_search",
+                "web_search": {
+                    "enable": True,
+                    "search_engine": self.config.zhipu_search_engine,
+                    "search_result": True,
+                    "count": self.config.zhipu_search_count,
+                },
+            }
+        ]
+
+    def _zhipu_sources_from_payload(self, data: dict[str, Any]) -> list[dict[str, str]]:
+        """从智谱响应中提取联网检索来源（开启 search_result 时返回在顶层 web_search 数组）。"""
+        results = data.get("web_search") or []
         sources: list[dict[str, str]] = []
         for item in results:
             if not isinstance(item, dict):
                 continue
             source = {
                 "title": str(item.get("title") or "").strip(),
-                "link": str(item.get("link") or "").strip(),
+                "link": str(item.get("link") or item.get("url") or "").strip(),
                 "site": str(item.get("media") or "").strip(),
                 "date": str(item.get("publish_date") or "").strip(),
                 "snippet": str(item.get("content") or "").strip(),
@@ -874,15 +867,49 @@ class ZAIClient:
                 sources.append(source)
         return sources
 
-    def chat_complete(self, messages: list[dict[str, str]], max_tokens: int, temperature: float | None = None) -> str:
-        payload = {
-            "model": self.config.model,
+    def chat_complete(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float | None = None,
+        provider: str | None = None,
+        sources_out: list[dict[str, str]] | None = None,
+    ) -> str:
+        use_zhipu = provider == "zhipu"
+        route = self._route(provider)
+        payload: dict[str, Any] = {
+            "model": route["model"],
             "messages": messages,
             "stream": False,
             "temperature": self.config.temperature if temperature is None else temperature,
             "max_tokens": max_tokens,
         }
-        data = self._post_json("/chat/completions", payload)
+        if use_zhipu:
+            # 选智谱即自动联网；关闭深度思考保证响应速度与输出干净（不混入 reasoning）。
+            payload["tools"] = self._zhipu_web_search_tools()
+            payload["thinking"] = {"type": "disabled"}
+        try:
+            data = self._post_json(
+                "/chat/completions",
+                payload,
+                base_url=route["base_url"],
+                api_key=route["api_key"],
+                service_label=route["label"],
+            )
+        except AIServiceError:
+            if not use_zhipu:
+                raise
+            # 降级重试：个别模型/账号不支持 web_search 工具时，去掉 tools 仍可对话（不联网）。
+            payload.pop("tools", None)
+            data = self._post_json(
+                "/chat/completions",
+                payload,
+                base_url=route["base_url"],
+                api_key=route["api_key"],
+                service_label=route["label"],
+            )
+        if use_zhipu and sources_out is not None:
+            sources_out.extend(self._zhipu_sources_from_payload(data))
         choices = data.get("choices") or []
         if not choices:
             raise AIServiceError("模型未返回任何内容。")
@@ -897,21 +924,58 @@ class ZAIClient:
             raise AIServiceError("模型返回了空内容。")
         return text
 
-    def chat_complete_stream(self, messages: list[dict[str, str]], max_tokens: int) -> Iterator[str]:
-        payload = {
-            "model": self.config.model,
+    def chat_complete_stream(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        provider: str | None = None,
+        meta_out: dict[str, Any] | None = None,
+    ) -> Iterator[str]:
+        use_zhipu = provider == "zhipu"
+        tools = self._zhipu_web_search_tools() if use_zhipu else None
+        yielded = [False]
+        try:
+            yield from self._stream_chat_once(
+                messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded
+            )
+        except AIServiceError:
+            # 联网工具不被支持等首包失败：未输出任何内容时去掉 tools 降级重试一次。
+            if not use_zhipu or yielded[0]:
+                raise
+            yield from self._stream_chat_once(
+                messages, max_tokens, provider=provider, tools=None, meta_out=meta_out, yielded=yielded
+            )
+
+    def _stream_chat_once(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        *,
+        provider: str | None,
+        tools: list[dict[str, Any]] | None,
+        meta_out: dict[str, Any] | None,
+        yielded: list[bool],
+    ) -> Iterator[str]:
+        use_zhipu = provider == "zhipu"
+        route = self._route(provider)
+        payload: dict[str, Any] = {
+            "model": route["model"],
             "messages": messages,
             "stream": True,
             "temperature": self.config.temperature,
             "max_tokens": max_tokens,
         }
-        url = f"{self.config.base_url}/chat/completions"
+        if tools:
+            payload["tools"] = tools
+        if use_zhipu:
+            payload["thinking"] = {"type": "disabled"}
+        url = f"{route['base_url']}/chat/completions"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib_request.Request(
             url,
             data=body,
             headers={
-                "Authorization": f"Bearer {self.config.api_key}",
+                "Authorization": f"Bearer {route['api_key']}",
                 "Content-Type": "application/json",
                 "Accept-Language": "zh-CN,zh",
             },
@@ -930,6 +994,8 @@ class ZAIClient:
                         payload = json.loads(data)
                     except json.JSONDecodeError:
                         continue
+                    if use_zhipu and meta_out is not None and payload.get("web_search"):
+                        meta_out["sources"] = self._zhipu_sources_from_payload(payload)
                     for choice in payload.get("choices") or []:
                         delta = choice.get("delta") or choice.get("message") or {}
                         text = (
@@ -938,6 +1004,7 @@ class ZAIClient:
                             or self._coerce_message_content(choice.get("text"))
                         )
                         if text:
+                            yielded[0] = True
                             yield text
         except urllib_error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -950,13 +1017,17 @@ class ZAIClient:
                 or payload.get("error", {}).get("message")
                 or f"HTTP {exc.code}"
             )
-            raise AIServiceError(f"{self.config.provider} 请求失败：{message}") from exc
+            raise AIServiceError(f"{route['label']} 请求失败：{message}") from exc
         except urllib_error.URLError as exc:
-            raise AIServiceError(f"无法连接 {self.config.provider} 服务：{exc.reason}") from exc
+            raise AIServiceError(f"无法连接 {route['label']} 服务：{exc.reason}") from exc
         except TimeoutError as exc:
-            raise AIServiceError(f"{self.config.provider} 请求超时，请稍后重试。") from exc
+            raise AIServiceError(f"{route['label']} 请求超时，请稍后重试。") from exc
 
-    def _ensure_enabled(self) -> None:
+    def _ensure_enabled(self, provider: str | None = None) -> None:
+        if provider == "zhipu":
+            if not self.config.zhipu_enabled:
+                raise AIServiceError("智谱 AI 通道尚未配置，请先在控制台「智能服务」中填写智谱 API Key。")
+            return
         if not self.config.enabled:
             raise AIServiceError("AI 对话功能尚未配置，请先在 config/ai.yaml、APPDATA 覆盖配置或环境变量中设置 Z.AI API Key。")
 

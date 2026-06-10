@@ -66,6 +66,9 @@ from ai import (
     AI_OVERRIDE_PATH,
     DEFAULT_MODEL as AI_DEFAULT_MODEL,
     DEFAULT_PROVIDER as AI_DEFAULT_PROVIDER,
+    ZHIPU_DEFAULT_MODEL,
+    ZHIPU_DEFAULT_BASE_URL,
+    ZHIPU_SEARCH_ENGINES,
     AIServiceError,
     ZAIClient,
     load_ai_config,
@@ -601,6 +604,9 @@ def _public_ai_runtime_payload(*, allow_details: bool | None = None) -> dict:
         "model": model if enabled else "",
         "problems": problems[:1],
         "status": "enabled" if enabled else "unconfigured",
+        # 智谱联网通道：仅当服务端配置了智谱 Key 且当前用户具有 ai_web 权限时，前端才显示模型切换。
+        "zhipu_enabled": bool(not DEPLOYMENT.is_desktop and AI_CONFIG.zhipu_enabled),
+        "zhipu_model": str(AI_CONFIG.zhipu_model or "") if not DEPLOYMENT.is_desktop else "",
     }
 
 
@@ -1049,7 +1055,19 @@ def _feature_is_available(feature: str) -> bool:
         return bool(BASE_RUNTIME.full_resources_ready)
     if feature == "ai":
         return bool(AI_CONFIG.enabled)
+    if feature == "ai_web":
+        # 智谱联网通道随基础 AI 一起开关：基础 AI 不可用或智谱未配 Key 时整体不可用。
+        return bool(AI_CONFIG.enabled and AI_CONFIG.zhipu_enabled)
     return True
+
+
+def _ai_web_access_enabled() -> bool:
+    """当前请求者是否可使用智谱联网通道：管理员始终可用（便于验证），其余按 ai_web 权限位。"""
+    if not _feature_is_available("ai_web"):
+        return False
+    if _is_admin_user(getattr(g, "current_user", None)):
+        return True
+    return _feature_effective_for_user("ai_web")
 
 
 def _policy_allows_all(policy: dict, features: list[str], user: dict | None) -> bool:
@@ -2409,6 +2427,7 @@ def _record_ai_usage(
     completion_text: str = "",
     success: bool = True,
     error: str = "",
+    provider: str = "",
 ) -> None:
     # 豁免的监控程序：其 AI 调用不计入 ai_usage(总览 AI 请求/token/高用量名单)。
     if has_request_context() and _is_monitoring_request():
@@ -2426,13 +2445,17 @@ def _record_ai_usage(
         )
         source_ref = _ai_usage_source_ref(prompt_parts)
         client_ip = _client_ip() if has_request_context() else ""
+        if provider == "zhipu":
+            usage_provider, usage_model = "zhipu", AI_CONFIG.zhipu_model
+        else:
+            usage_provider, usage_model = AI_CONFIG.provider, AI_CONFIG.model
         record_ai_usage(
             user_id=int(user["id"]) if user else None,
             session_key=str((quota or {}).get("session_key") or _visitor_session_key()),
             day=str((quota or {}).get("day") or china_day_text()),
             feature=feature,
-            provider=AI_CONFIG.provider,
-            model=AI_CONFIG.model,
+            provider=usage_provider,
+            model=usage_model,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
@@ -3223,12 +3246,12 @@ def _handle_ai_settings_submit(*, remote_admin: bool):
             "model": (request.form.get("model") or current["model"]).strip() or AI_DEFAULT_MODEL,
             "base_url": (request.form.get("base_url") or current["base_url"]).strip().rstrip("/"),
             "api_key": (request.form.get("api_key") or "").strip(),
-            "search_provider": "disabled",
-            "search_base_url": "",
-            "search_api_key": "",
+            "zhipu_api_key": (request.form.get("zhipu_api_key") or "").strip(),
+            "zhipu_model": (request.form.get("zhipu_model") or current["zhipu_model"]).strip() or ZHIPU_DEFAULT_MODEL,
+            "zhipu_base_url": (request.form.get("zhipu_base_url") or current["zhipu_base_url"]).strip().rstrip("/") or ZHIPU_DEFAULT_BASE_URL,
+            "zhipu_search_engine": (request.form.get("zhipu_search_engine") or current["zhipu_search_engine"]).strip() or ZHIPU_SEARCH_ENGINES[0],
+            "zhipu_search_count": _form_int("zhipu_search_count", int(current["zhipu_search_count"])),
             "request_timeout_seconds": _form_int("request_timeout_seconds", int(current["request_timeout_seconds"])),
-            "default_web_enabled": False,
-            "web_search_count": _form_int("web_search_count", int(current["web_search_count"])),
             "max_history_turns": _form_int("max_history_turns", int(current["max_history_turns"])),
             "search_history_turns": _form_int("search_history_turns", int(current["search_history_turns"])),
             "pdf_history_turns": _form_int("pdf_history_turns", int(current["pdf_history_turns"])),
@@ -3237,9 +3260,6 @@ def _handle_ai_settings_submit(*, remote_admin: bool):
             "search_answer_max_tokens": _form_int("search_answer_max_tokens", int(current["search_answer_max_tokens"])),
             "pdf_answer_max_tokens": _form_int("pdf_answer_max_tokens", int(current["pdf_answer_max_tokens"])),
             "pdf_quick_answer_max_tokens": _form_int("pdf_quick_answer_max_tokens", int(current["pdf_quick_answer_max_tokens"])),
-            "search_web_search_count": _form_int("search_web_search_count", int(current["search_web_search_count"])),
-            "pdf_web_search_count": _form_int("pdf_web_search_count", int(current["pdf_web_search_count"])),
-            "pdf_quick_web_search_count": _form_int("pdf_quick_web_search_count", int(current["pdf_quick_web_search_count"])),
             "pdf_selected_text_char_limit": _form_int("pdf_selected_text_char_limit", int(current["pdf_selected_text_char_limit"])),
             "pdf_current_text_char_limit": _form_int("pdf_current_text_char_limit", int(current["pdf_current_text_char_limit"])),
             "pdf_adjacent_excerpt_char_limit": _form_int("pdf_adjacent_excerpt_char_limit", int(current["pdf_adjacent_excerpt_char_limit"])),
@@ -5123,96 +5143,6 @@ def admin_dashboard_export():
 @app.post("/control/ai")
 def control_ai():
     return _handle_ai_settings_submit(remote_admin=False)
-    _refresh_ai_runtime_if_needed()
-    action = (request.form.get("action") or "save").strip().lower()
-    if action == "reset":
-        reset_ai_overrides()
-        _reload_ai_runtime()
-        flash("AI 覆盖设置已清除，已恢复为项目配置文件/环境变量值。", "success")
-        return redirect(url_for("control", section="ai"))
-
-    current = AI_CONFIG.to_edit_dict()
-    try:
-        values = {
-            "provider": (request.form.get("provider") or current["provider"]).strip() or AI_DEFAULT_PROVIDER,
-            "model": (request.form.get("model") or current["model"]).strip() or AI_DEFAULT_MODEL,
-            "base_url": (request.form.get("base_url") or current["base_url"]).strip().rstrip("/"),
-            "api_key": (request.form.get("api_key") or "").strip(),
-            "search_provider": (request.form.get("search_provider") or current["search_provider"]).strip() or "disabled",
-            "search_base_url": (request.form.get("search_base_url") or current["search_base_url"]).strip().rstrip("/"),
-            "search_api_key": (request.form.get("search_api_key") or "").strip(),
-            "request_timeout_seconds": _form_int("request_timeout_seconds", int(current["request_timeout_seconds"])),
-            "default_web_enabled": _form_bool("default_web_enabled"),
-            "web_search_count": _form_int("web_search_count", int(current["web_search_count"])),
-            "max_history_turns": _form_int("max_history_turns", int(current["max_history_turns"])),
-            "search_history_turns": _form_int("search_history_turns", int(current["search_history_turns"])),
-            "pdf_history_turns": _form_int("pdf_history_turns", int(current["pdf_history_turns"])),
-            "search_message_char_limit": _form_int(
-                "search_message_char_limit",
-                int(current["search_message_char_limit"]),
-            ),
-            "pdf_message_char_limit": _form_int(
-                "pdf_message_char_limit",
-                int(current["pdf_message_char_limit"]),
-            ),
-            "search_answer_max_tokens": _form_int(
-                "search_answer_max_tokens",
-                int(current["search_answer_max_tokens"]),
-            ),
-            "pdf_answer_max_tokens": _form_int(
-                "pdf_answer_max_tokens",
-                int(current["pdf_answer_max_tokens"]),
-            ),
-            "pdf_quick_answer_max_tokens": _form_int(
-                "pdf_quick_answer_max_tokens",
-                int(current["pdf_quick_answer_max_tokens"]),
-            ),
-            "search_web_search_count": _form_int(
-                "search_web_search_count",
-                int(current["search_web_search_count"]),
-            ),
-            "pdf_web_search_count": _form_int(
-                "pdf_web_search_count",
-                int(current["pdf_web_search_count"]),
-            ),
-            "pdf_quick_web_search_count": _form_int(
-                "pdf_quick_web_search_count",
-                int(current["pdf_quick_web_search_count"]),
-            ),
-            "pdf_selected_text_char_limit": _form_int(
-                "pdf_selected_text_char_limit",
-                int(current["pdf_selected_text_char_limit"]),
-            ),
-            "pdf_current_text_char_limit": _form_int(
-                "pdf_current_text_char_limit",
-                int(current["pdf_current_text_char_limit"]),
-            ),
-            "pdf_adjacent_excerpt_char_limit": _form_int(
-                "pdf_adjacent_excerpt_char_limit",
-                int(current["pdf_adjacent_excerpt_char_limit"]),
-            ),
-            "pdf_quick_selected_text_char_limit": _form_int(
-                "pdf_quick_selected_text_char_limit",
-                int(current["pdf_quick_selected_text_char_limit"]),
-            ),
-            "pdf_quick_current_text_char_limit": _form_int(
-                "pdf_quick_current_text_char_limit",
-                int(current["pdf_quick_current_text_char_limit"]),
-            ),
-            "pdf_quick_adjacent_excerpt_char_limit": _form_int(
-                "pdf_quick_adjacent_excerpt_char_limit",
-                int(current["pdf_quick_adjacent_excerpt_char_limit"]),
-            ),
-            "temperature": _form_float("temperature", float(current["temperature"])),
-        }
-    except ValueError:
-        flash("AI 设置中包含无效数字，请检查后再保存。", "warning")
-        return redirect(url_for("control", section="ai"))
-
-    save_ai_overrides(values)
-    _reload_ai_runtime()
-    flash("AI 设置已保存，并已在当前运行中立即生效。", "success")
-    return redirect(url_for("control", section="ai"))
 
 
 @app.post("/control/site-texts")
@@ -6114,6 +6044,7 @@ def index():
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
+        ai_web_access_enabled=_ai_web_access_enabled(),
         feedback_thread=feedback_thread,
     )
 
@@ -6504,6 +6435,7 @@ def pdf_viewer():
         highlight_text=highlight_text,
         ai_upsell=_ai_reader_upsell(url_for("pdf_viewer", **ai_viewer_args)),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
+        ai_web_access_enabled=_ai_web_access_enabled(),
     )
 
 
@@ -7304,6 +7236,21 @@ def api_search_chapter_hits():
     )
 
 
+def _resolve_ai_provider_or_abort(payload: dict) -> str:
+    """解析前端选择的 AI 通道。默认/deepseek → ""（主通道）；zhipu → 校验 ai_web 权限后放行。
+
+    智谱通道与 DeepSeek 主通道互不影响：权限位 ai_web 单独管控（默认全站关闭），
+    管理员经 _require_content_feature 的管理豁免天然可用，便于线上验证。
+    """
+    raw = str((payload or {}).get("provider") or "").strip().lower()
+    if raw in {"", "default", "deepseek"}:
+        return ""
+    if raw in {"zhipu", "glm", "zai"}:
+        _require_content_feature("ai_web")
+        return "zhipu"
+    abort(400, description="未知的 AI 模型选择。")
+
+
 @app.route("/api/ai/search-chat", methods=["POST"])
 def api_ai_search_chat():
     _require_content_feature("ai")
@@ -7334,12 +7281,13 @@ def api_ai_search_chat():
             return jsonify({"ok": False, "error": str(exc)}), 502
     _require_ai()
     payload = request.get_json(silent=True) or {}
+    ai_provider = _resolve_ai_provider_or_abort(payload)
     question = " ".join(str(payload.get("question") or "").split())
     messages = payload.get("messages") or []
     if not question:
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
     try:
-        answer = AI_CLIENT.answer_search_chat(messages, question)
+        answer = AI_CLIENT.answer_search_chat(messages, question, provider=ai_provider or None)
     except AIServiceError as exc:
         LOGGER.warning("Search AI failed: %s", exc)
         _record_ai_usage(
@@ -7348,6 +7296,7 @@ def api_ai_search_chat():
             prompt_parts=(messages, question),
             success=False,
             error=str(exc),
+            provider=ai_provider,
         )
         return jsonify({"ok": False, "error": str(exc)}), 502
     _record_ai_usage(
@@ -7356,6 +7305,7 @@ def api_ai_search_chat():
         prompt_parts=(messages, question),
         completion_text=answer.answer_markdown,
         success=True,
+        provider=ai_provider,
     )
     return jsonify(answer.to_dict())
 
@@ -7557,6 +7507,7 @@ def api_ai_pdf_chat():
             return jsonify({"ok": False, "error": str(exc)}), 502
     _require_ai()
     payload = request.get_json(silent=True) or {}
+    ai_provider = _resolve_ai_provider_or_abort(payload)
     source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
     page = max(1, int(payload.get("page") or 1))
     question = " ".join(str(payload.get("question") or "").split())
@@ -7577,6 +7528,7 @@ def api_ai_pdf_chat():
             web_enabled=web_enabled,
             quick_mode=quick_mode,
             page_context=page_context,
+            provider=ai_provider or None,
         )
     except AIServiceError as exc:
         LOGGER.warning("PDF AI failed: %s", exc)
@@ -7586,6 +7538,7 @@ def api_ai_pdf_chat():
             prompt_parts=(messages, question, selected_text, page_context),
             success=False,
             error=str(exc),
+            provider=ai_provider,
         )
         return jsonify({"ok": False, "error": str(exc)}), 502
     _record_ai_usage(
@@ -7594,6 +7547,7 @@ def api_ai_pdf_chat():
         prompt_parts=(messages, question, selected_text, page_context),
         completion_text=answer.answer_markdown,
         success=True,
+        provider=ai_provider,
     )
     return jsonify(answer.to_dict())
 
@@ -7659,10 +7613,12 @@ def api_ai_pdf_chat_stream():
         )
 
     _require_ai()
+    ai_provider = _resolve_ai_provider_or_abort(payload)
     page_context = _get_page_context_payload(source_file, page)
 
     def _generate():
         chunks: list[str] = []
+        stream_meta: dict = {}
         try:
             model_messages, max_tokens, sources, warnings = AI_CLIENT.prepare_pdf_chat(
                 messages=messages,
@@ -7673,8 +7629,11 @@ def api_ai_pdf_chat_stream():
                 web_enabled=web_enabled,
                 quick_mode=quick_mode,
                 page_context=page_context,
+                provider=ai_provider or None,
             )
-            for text in AI_CLIENT.chat_complete_stream(model_messages, max_tokens):
+            for text in AI_CLIENT.chat_complete_stream(
+                model_messages, max_tokens, provider=ai_provider or None, meta_out=stream_meta
+            ):
                 chunks.append(text)
                 yield _sse_event("delta", {"text": text})
             answer_text = "".join(chunks)
@@ -7686,13 +7645,14 @@ def api_ai_pdf_chat_stream():
                 prompt_parts=(messages, question, selected_text, page_context),
                 completion_text=answer_text,
                 success=True,
+                provider=ai_provider,
             )
             yield _sse_event(
                 "done",
                 {
                     "ok": True,
                     "answer_markdown": answer_text,
-                    "sources": sources,
+                    "sources": (stream_meta.get("sources") or sources),
                     "warnings": warnings,
                 },
             )
@@ -7705,6 +7665,7 @@ def api_ai_pdf_chat_stream():
                 completion_text="".join(chunks),
                 success=False,
                 error=str(exc),
+                provider=ai_provider,
             )
             yield _sse_event("error", {"ok": False, "error": str(exc)})
 

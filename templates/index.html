@@ -1486,6 +1486,16 @@
           <div class="ai-lock-note">{{ site_text("index.ai_member_locked") }}</div>
           {% endif %}
 
+          {% if ai_access_enabled and ai_web_access_enabled %}
+          <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin:6px 0 2px">
+            <label for="aiProviderSelect" style="font-size:13px;white-space:nowrap">选择模型</label>
+            <select id="aiProviderSelect" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:13px">
+              <option value="deepseek">DeepSeek（默认，不联网）</option>
+              <option value="zhipu">智谱 {{ ai_runtime.zhipu_model or "GLM-5.1" }}（可联网检索）</option>
+            </select>
+          </div>
+          {% endif %}
+
           <div class="chat-box" id="aiMessages"></div>
 
           <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not ai_access_enabled %}disabled{% endif %}></textarea>
@@ -1511,6 +1521,7 @@
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ ai_access_enabled | tojson }};
+  const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   const feedbackEnabled = {{ (current_user is not none) | tojson }};
   const initialFeedbackThread = {{ feedback_thread | tojson }};
   const aiLockedMessage = {{ site_text("index.ai_member_locked") | tojson }};
@@ -2433,6 +2444,37 @@
     aiMessages.scrollTop = aiMessages.scrollHeight;
   }
 
+  // AI 通道选择：默认 DeepSeek；持有「AI 联网（智谱）」权限时可切换智谱 GLM（选中即自动联网检索）。
+  const aiProviderSelect = document.getElementById('aiProviderSelect');
+  const AI_PROVIDER_KEY = 'marx-ai-provider-v1';
+
+  function currentAiProvider() {
+    return (aiWebAccessEnabled && aiProviderSelect && aiProviderSelect.value === 'zhipu') ? 'zhipu' : 'deepseek';
+  }
+
+  function updateAiStatusLine() {
+    if (!aiRuntime.enabled || !aiAccessEnabled) return;
+    if (currentAiProvider() === 'zhipu') {
+      const zhipuName = aiRuntime.zhipu_model || 'GLM-5.1';
+      aiModelBadge.textContent = '智谱 ' + zhipuName;
+      aiStatus.textContent = `已启用 智谱 ${zhipuName}，联网检索已开启，回答可引用网络来源。`;
+    } else {
+      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
+      aiStatus.textContent = `已启用 ${aiRuntime.model || 'AI 导学'}，当前已关闭联网检索。`;
+    }
+  }
+
+  if (aiProviderSelect) {
+    try {
+      const savedProvider = localStorage.getItem(AI_PROVIDER_KEY);
+      if (savedProvider === 'zhipu' || savedProvider === 'deepseek') aiProviderSelect.value = savedProvider;
+    } catch (_) {}
+    aiProviderSelect.addEventListener('change', () => {
+      try { localStorage.setItem(AI_PROVIDER_KEY, aiProviderSelect.value); } catch (_) {}
+      updateAiStatusLine();
+    });
+  }
+
   async function loadAiRuntime() {
     try {
       const resp = await fetch('/api/ai/runtime');
@@ -2452,10 +2494,7 @@
     }
 
     if (aiRuntime.enabled) {
-      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
-      aiStatus.textContent = aiAccessEnabled
-        ? `已启用 ${aiRuntime.model || 'AI 导学'}，当前已关闭联网检索。`
-        : '非会员不能使用 AI 导学问答；请登录并开通会员后使用。';
+      updateAiStatusLine();
       aiSendBtn.disabled = !aiAccessEnabled;
       aiPrompt.disabled = !aiAccessEnabled;
       aiInsertSearchBtn.disabled = false;
@@ -2488,7 +2527,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question,
-          messages: historyMessages
+          messages: historyMessages,
+          provider: currentAiProvider()
         })
       });
       const data = await resp.json();

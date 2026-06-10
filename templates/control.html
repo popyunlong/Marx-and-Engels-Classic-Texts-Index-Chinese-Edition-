@@ -632,7 +632,22 @@
               <label class="field">模型 <input type="text" name="model" value="{{ ai_settings.model }}"></label>
               <label class="field-wide">Base URL <input type="text" name="base_url" value="{{ ai_settings.base_url }}"></label>
               <label class="field-wide">API Key <input type="text" name="api_key" value="{{ ai_settings.api_key }}"></label>
-              <div class="field-wide section-note">联网检索已关闭，AI 只使用上方配置的对话模型。请在这里保留 deepseek 配置即可。</div>
+              <div class="field-wide section-note">上方为默认对话通道（DeepSeek），首页随心问、阅读器导学与联想检索都用它。</div>
+            </div>
+            <h3 style="margin-top:18px">智谱 GLM·联网检索通道（可选）</h3>
+            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中即自动联网检索（按次另计费，引擎档位价格见智谱开放平台）。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。</p>
+            <div class="form-grid">
+              <label class="field">智谱模型 <input type="text" name="zhipu_model" value="{{ ai_settings.zhipu_model }}" placeholder="glm-5.1"></label>
+              <label class="field">联网引擎
+                <select name="zhipu_search_engine">
+                  {% for engine in ["search_std", "search_pro", "search_pro_sogou", "search_pro_quark"] %}
+                  <option value="{{ engine }}" {% if ai_settings.zhipu_search_engine == engine %}selected{% endif %}>{{ engine }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field">联网结果条数 <input type="number" name="zhipu_search_count" value="{{ ai_settings.zhipu_search_count }}" min="1" max="20"></label>
+              <label class="field-wide">智谱 Base URL <input type="text" name="zhipu_base_url" value="{{ ai_settings.zhipu_base_url }}" placeholder="https://open.bigmodel.cn/api/paas/v4"></label>
+              <label class="field-wide">智谱 API Key <input type="text" name="zhipu_api_key" value="{{ ai_settings.zhipu_api_key }}" placeholder="留空＝关闭智谱联网通道"></label>
             </div>
             <div class="form-grid wide-3" style="margin-top:14px">
               <label class="field">超时秒数 <input type="number" name="request_timeout_seconds" value="{{ ai_settings.request_timeout_seconds }}" min="5"></label>

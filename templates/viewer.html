@@ -936,6 +936,15 @@
             <input type="checkbox" id="webToggle" hidden>
             <span id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</span>
           </div>
+          {% if ai_access_enabled and ai_web_access_enabled %}
+          <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin-top:6px">
+            <label for="aiProviderSelect" style="font-size:12px;white-space:nowrap">选择模型</label>
+            <select id="aiProviderSelect" style="flex:1;min-width:0;padding:4px 6px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:12px">
+              <option value="deepseek">DeepSeek（默认，不联网）</option>
+              <option value="zhipu">智谱 {{ ai_runtime.zhipu_model or "GLM-5.1" }}（可联网检索）</option>
+            </select>
+          </div>
+          {% endif %}
         </div>
         <div class="ai-content ai-top-content">
           <div class="selected-box">
@@ -972,6 +981,7 @@
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ ai_access_enabled | tojson }};
+  const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   const aiLockedMessage = {{ site_text("index.ai_member_locked") | tojson }};
   const aiUnavailableMessage = {{ site_text("index.ai_unavailable") | tojson }};
   const aiLockedExample = '示例：选中正文中的一句话后，AI 导学可以解释概念、梳理论证脉络，并提示与前后页的关联。当前账号尚未开放 AI 导学，因此这里只展示示例，不能发送问题。';
@@ -1601,6 +1611,37 @@
     renderSelectedText();
   }
 
+  // AI 通道选择：默认 DeepSeek；持有「AI 联网（智谱）」权限时可切换智谱 GLM（选中即自动联网检索）。
+  const aiProviderSelect = document.getElementById('aiProviderSelect');
+  const AI_PROVIDER_KEY = 'marx-ai-provider-v1';
+
+  function currentAiProvider() {
+    return (aiWebAccessEnabled && aiProviderSelect && aiProviderSelect.value === 'zhipu') ? 'zhipu' : 'deepseek';
+  }
+
+  function updateAiStatusLine() {
+    if (!aiRuntime.enabled || !aiAccessEnabled) return;
+    if (currentAiProvider() === 'zhipu') {
+      const zhipuName = aiRuntime.zhipu_model || 'GLM-5.1';
+      aiModelBadge.textContent = '智谱 ' + zhipuName;
+      aiStatus.textContent = `已启用 智谱 ${zhipuName}，联网检索已开启：讲解以本页文本为主，可联网补充背景并注明来源。`;
+    } else {
+      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
+      aiStatus.textContent = `已启用 ${aiRuntime.model || 'AI 导学'}。当前已关闭联网检索，AI 将基于本页和相邻页文本讲解。`;
+    }
+  }
+
+  if (aiProviderSelect) {
+    try {
+      const savedProvider = localStorage.getItem(AI_PROVIDER_KEY);
+      if (savedProvider === 'zhipu' || savedProvider === 'deepseek') aiProviderSelect.value = savedProvider;
+    } catch (_) {}
+    aiProviderSelect.addEventListener('change', () => {
+      try { localStorage.setItem(AI_PROVIDER_KEY, aiProviderSelect.value); } catch (_) {}
+      updateAiStatusLine();
+    });
+  }
+
   async function loadAiRuntime() {
     try {
       const resp = await fetch('/api/ai/runtime');
@@ -1619,8 +1660,7 @@
     }
 
     if (aiRuntime.enabled) {
-      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
-      aiStatus.textContent = `已启用 ${aiRuntime.model || 'AI 导学'}。当前已关闭联网检索，AI 将基于本页和相邻页文本讲解。`;
+      updateAiStatusLine();
       aiSendBtn.disabled = false;
       aiPrompt.disabled = false;
       explainPageBtn.disabled = false;
@@ -1641,7 +1681,8 @@
       page: currentPageNumber,
       selected_text: selectedText,
       web_enabled: false,
-      quick_mode: quickMode
+      quick_mode: quickMode,
+      provider: currentAiProvider()
     };
   }
 

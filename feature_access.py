@@ -4,22 +4,24 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "ai", "journal_alerts")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "ai", "ai_web", "journal_alerts")
 FEATURE_ACCESS_LABELS = {
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
     "ai": "AI 导学",
+    "ai_web": "AI 联网（智谱）",
     "journal_alerts": "期刊提醒",
 }
-DEFAULT_FEATURE_ACCESS = {key: True for key in FEATURE_ACCESS_KEYS}
+# ai_web（智谱联网通道）默认全站关闭：仅管理员显式勾选（全站/套餐/个人任一层）后才放开。
+DEFAULT_FEATURE_ACCESS = {key: key != "ai_web" for key in FEATURE_ACCESS_KEYS}
 AUDIENCE_ACCESS_LABELS = {
     "guest": "访客",
     "registered": "注册用户",
 }
 DEFAULT_AUDIENCE_ACCESS = {
-    "guest": {"search": True, "viewer": False, "library": False, "ai": False, "journal_alerts": False},
-    "registered": {"search": True, "viewer": False, "library": False, "ai": False, "journal_alerts": False},
+    "guest": {"search": True, "viewer": False, "library": False, "ai": False, "ai_web": False, "journal_alerts": False},
+    "registered": {"search": True, "viewer": False, "library": False, "ai": False, "ai_web": False, "journal_alerts": False},
 }
 
 
