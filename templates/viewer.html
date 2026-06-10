@@ -1258,6 +1258,10 @@
     const url = new URL('/page-image', window.location.origin);
     url.searchParams.set('file', sourceFile);
     url.searchParams.set('page', page);
+    // rev 与服务端渲染版本号联动：渲染参数升级时同步 +1，用以击穿浏览器对 /page-image 的
+    // 24h 缓存（URL 变化即重新拉取，看过的页也立刻显示新清晰度）。服务端忽略 rev、缓存键不含
+    // rev，故不影响服务端缓存命中，仅作用于浏览器端。
+    url.searchParams.set('rev', '5');
     if (queryText) url.searchParams.set('q', queryText);
     if (highlightQueryText && highlightQueryText !== queryText) url.searchParams.set('h', highlightQueryText);
     return url.toString();

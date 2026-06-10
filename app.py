@@ -4102,6 +4102,61 @@ def _prewarm_page_images(source_file: str, page_number: int, query_text: str, pa
     threading.Thread(target=_worker, daemon=True).start()
 
 
+# 页面图缓存按需懒生成、只增不减：每次渲染版本号升级（v3→v4→v5…）旧缓存即成孤儿，永不命中
+# 也不会自动删除；叠加 v5 更高分辨率使单文件更大 → 磁盘会持续增长、有撑爆风险（线上盘仅 39G）。
+# 这里加一个轻量 LRU 软上限：在 /page-image 请求路径上节流触发（最多每 30 分钟一次），后台线程
+# 扫描缓存目录，若总大小超过上限则按文件 mtime（生成时间，近似最久未用）从旧到新删，直到降回
+# 上限的 90% 留缓冲。全程 try/except、走 daemon 线程，绝不阻塞/影响请求；删掉的页下次访问自动重渲染。
+# 上限可经 env MARX_PAGE_IMAGE_CACHE_MAX_BYTES 覆盖，默认 8 GiB。
+PAGE_IMAGE_CACHE_MAX_BYTES = int(os.environ.get("MARX_PAGE_IMAGE_CACHE_MAX_BYTES", str(8 * 1024 ** 3)))
+PAGE_IMAGE_CACHE_PRUNE_INTERVAL_SECONDS = 1800
+_last_page_image_prune: list[float] = [0.0]
+
+
+def _prune_page_image_cache_if_due() -> None:
+    now = time.time()
+    if now - _last_page_image_prune[0] < PAGE_IMAGE_CACHE_PRUNE_INTERVAL_SECONDS:
+        return
+    _last_page_image_prune[0] = now
+
+    def _worker() -> None:
+        try:
+            entries: list[tuple[float, int, str]] = []
+            total = 0
+            for root, _dirs, files in os.walk(PAGE_IMAGE_CACHE_DIR):
+                for name in files:
+                    if not name.endswith(".jpg"):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        stat = os.stat(path)
+                    except OSError:
+                        continue
+                    entries.append((stat.st_mtime, stat.st_size, path))
+                    total += stat.st_size
+            if total <= PAGE_IMAGE_CACHE_MAX_BYTES:
+                return
+            target = int(PAGE_IMAGE_CACHE_MAX_BYTES * 0.9)
+            entries.sort(key=lambda item: item[0])  # 最旧（mtime 最小）先删
+            removed = 0
+            for _mtime, size, path in entries:
+                if total <= target:
+                    break
+                try:
+                    os.remove(path)
+                except OSError:
+                    continue
+                total -= size
+                removed += 1
+            LOGGER.info(
+                "Page image cache pruned: removed %s files, now ~%.2f GiB", removed, total / 1024 ** 3
+            )
+        except Exception as exc:
+            LOGGER.debug("Page image cache prune failed: %s", exc)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 _RELEASE_UPLOAD_ENDPOINTS = frozenset({"admin_desktop_release_upload"})
 _MEDIA_UPLOAD_ENDPOINTS = frozenset({
     "api_feedback_message_create",
@@ -6384,6 +6439,7 @@ def page_image():
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     page_count = len(volume.pages) if volume else page_number
     _prewarm_page_images(source_file, page_number, highlight_text, page_count)
+    _prune_page_image_cache_if_due()
     return send_file(cache_path, mimetype="image/jpeg", conditional=True, max_age=86400)
 
 
