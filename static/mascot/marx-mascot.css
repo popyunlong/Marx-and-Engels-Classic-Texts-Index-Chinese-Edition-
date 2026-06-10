@@ -198,18 +198,51 @@
 .mx-bench-seat, .mx-bench-back, .mx-bench-slat, .mx-bench-leg { fill: #7a5230; }
 .mx-bench-seat { fill: #875d36; }
 
-/* Transform setup — rotate limbs about the shoulder, hat about its brim */
-.mx-arm, .mx-hat, .mx-head, .mx-figure, .mx-beard {
+/* Transform setup — rotate limbs about the shoulder, hat about its brim.
+   Springy cubic-bezier (slight overshoot) keeps pose changes from feeling stamped. */
+.mx-arm, .mx-hat, .mx-head, .mx-figure, .mx-beard, .mx-leg-a, .mx-leg-b {
   transform-box: view-box;
 }
-.mx-arm-l { transform-origin: 60px 92px; transition: transform .5s ease; }
-.mx-arm-r { transform-origin: 100px 92px; transition: transform .5s ease; }
-.mx-hat   { transform-origin: 80px 38px; transition: transform .5s ease; }
+.mx-arm-l { transform-origin: 60px 92px; transition: transform .55s cubic-bezier(.34,1.56,.64,1); }
+.mx-arm-r { transform-origin: 100px 92px; transition: transform .55s cubic-bezier(.34,1.56,.64,1); }
+.mx-hat   { transform-origin: 80px 38px; transition: transform .5s cubic-bezier(.34,1.56,.64,1); }
 .mx-head  { transform-origin: 80px 74px; transition: transform .5s ease; }
 .mx-figure { transform-origin: 80px 190px; }
+.mx-leg-a { transform-origin: 73px 148px; }
+.mx-leg-b { transform-origin: 86px 148px; }
 
-/* Props hidden by default */
-.mx-prop { display: none; }
+/* Always-on organic micro-motion: the beard breathes with him */
+.mx-beard { transform-origin: 80px 66px; animation: mxBeardSway 6.5s ease-in-out infinite; }
+/* When no action owns the head (.mx-neutral set by JS), he glances around idly */
+.mx-root.mx-neutral .mx-head { animation: mxHeadIdle 9s ease-in-out infinite; }
+
+/* Props hidden by default — fade/spring in near the hand instead of popping */
+.mx-prop {
+  visibility: hidden;
+  opacity: 0;
+  transform: scale(.75);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity .3s ease, transform .42s cubic-bezier(.34,1.56,.64,1), visibility 0s .32s;
+}
+.mx-root.mx-act-reading .mx-prop-book,
+.mx-root.mx-act-tea .mx-prop-tea,
+.mx-root.mx-act-march .mx-prop-flag,
+.mx-root.mx-act-writing .mx-prop-write,
+.mx-root.mx-act-cigar .mx-prop-cigar,
+.mx-root.mx-act-chess .mx-prop-chess,
+.mx-root.mx-act-news .mx-prop-news,
+.mx-root.mx-act-toast .mx-prop-toast,
+.mx-root.mx-act-chalk .mx-prop-chalkboard,
+.mx-root.mx-act-chalk .mx-prop-pointer,
+.mx-root.mx-act-letter .mx-prop-letter,
+.mx-root.mx-act-fence .mx-prop-rapier,
+.mx-root.mx-act-doze .mx-prop-doze {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition: opacity .3s ease, transform .42s cubic-bezier(.34,1.56,.64,1);
+}
 
 /* =======================================================================
    POSTURE — seated (guest) vs standing (member)
@@ -238,13 +271,11 @@
    ======================================================================= */
 
 /* Reading 《资本论》 — both hands cradle the book at chest height */
-.mx-root.mx-act-reading .mx-prop-book { display: block; }
 .mx-root.mx-act-reading .mx-arm-l { transform: rotate(-52deg); }
 .mx-root.mx-act-reading .mx-arm-r { transform: rotate(52deg); }
 .mx-root.mx-act-reading .mx-book-page { animation: mxPageFlip 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: left center; }
 
 /* Tea — right hand raised to the face holding a cup */
-.mx-root.mx-act-tea .mx-prop-tea { display: block; }
 .mx-root.mx-act-tea .mx-arm-r { transform: rotate(150deg); }
 .mx-root.mx-act-tea .mx-head { animation: mxSipHead 3s ease-in-out infinite; }
 .mx-root.mx-act-tea .mx-tea-steam { animation: mxSteam 2.4s ease-in-out infinite; }
@@ -255,19 +286,19 @@
 .mx-root.mx-act-speech .mx-head { animation: mxNod .7s ease-in-out infinite; }
 
 /* March — red banner raised */
-.mx-root.mx-act-march .mx-prop-flag { display: block; }
 .mx-root.mx-act-march .mx-arm-r { transform: rotate(-150deg); }
 .mx-root.mx-act-march .mx-flag-cloth { animation: mxFlag 1.2s ease-in-out infinite; transform-box: fill-box; transform-origin: left center; }
 .mx-root.mx-act-march .mx-figure { animation: mxMarch 1.1s ease-in-out infinite; }
+.mx-root.mx-act-march .mx-leg-a { animation: mxStep .55s ease-in-out infinite; }
+.mx-root.mx-act-march .mx-leg-b { animation: mxStep .55s ease-in-out infinite; animation-delay: -.275s; }
+.mx-root.mx-act-march .mx-arm-l { animation: mxArmSwingL .55s ease-in-out infinite; }
 
 /* Writing — quill in the right hand over a manuscript, left hand steadies it */
-.mx-root.mx-act-writing .mx-prop-write { display: block; }
 .mx-root.mx-act-writing .mx-arm-l { transform: rotate(-28deg); }
 .mx-root.mx-act-writing .mx-arm-r { transform: rotate(45deg); }
 .mx-root.mx-act-writing .mx-quill { animation: mxWrite 1.6s ease-in-out infinite; transform-box: fill-box; transform-origin: bottom left; }
 
 /* Cigar — a thoughtful smoke at the face */
-.mx-root.mx-act-cigar .mx-prop-cigar { display: block; }
 .mx-root.mx-act-cigar .mx-arm-r { transform: rotate(150deg); }
 .mx-root.mx-act-cigar .mx-cigar-smoke { animation: mxSmoke 3.2s linear infinite; }
 
@@ -276,27 +307,21 @@
 .mx-root.mx-act-ponder .mx-head { transform: rotate(-5deg); }
 
 /* Chess — right hand hovers a low board */
-.mx-root.mx-act-chess .mx-prop-chess { display: block; }
 .mx-root.mx-act-chess .mx-arm-r { animation: mxChess 2.6s ease-in-out infinite; }
 
 /* Newspaper — both hands hold an open sheet */
-.mx-root.mx-act-news .mx-prop-news { display: block; }
 .mx-root.mx-act-news .mx-arm-l { transform: rotate(-50deg); }
 .mx-root.mx-act-news .mx-arm-r { transform: rotate(50deg); }
 .mx-root.mx-act-news .mx-prop-news { animation: mxNews 4s ease-in-out infinite; }
 
 /* Toast — raise a glass to the face */
-.mx-root.mx-act-toast .mx-prop-toast { display: block; }
 .mx-root.mx-act-toast .mx-arm-r { transform: rotate(-150deg); }
 .mx-root.mx-act-toast .mx-figure { animation: mxSway 2.6s ease-in-out infinite; }
 
 /* Chalkboard — derive surplus value, pointer to a board on the left */
-.mx-root.mx-act-chalk .mx-prop-chalkboard,
-.mx-root.mx-act-chalk .mx-prop-pointer { display: block; }
 .mx-root.mx-act-chalk .mx-arm-r { transform: rotate(95deg); }
 
 /* Letter — write to Engels, both hands hold the sheet */
-.mx-root.mx-act-letter .mx-prop-letter { display: block; }
 .mx-root.mx-act-letter .mx-arm-l { transform: rotate(-50deg); }
 .mx-root.mx-act-letter .mx-arm-r { transform: rotate(50deg); }
 .mx-root.mx-act-letter .mx-head { animation: mxRead 3.4s ease-in-out infinite; }
@@ -310,12 +335,41 @@
 .mx-root.mx-act-wave .mx-arm-r { animation: mxWave .6s ease-in-out infinite; }
 
 /* Doze — a short nap */
-.mx-root.mx-act-doze .mx-prop-doze { display: block; }
 .mx-root.mx-act-doze .mx-head { transform: rotate(10deg) translateY(2px); }
 .mx-root.mx-act-doze .mx-figure { animation: mxBreathe 5.6s ease-in-out infinite; }
 .mx-root.mx-act-doze .mx-zzz { animation: mxZzz 3s ease-in-out infinite; }
 .mx-root.mx-act-doze .mx-zzz-2 { animation-delay: .6s; }
 .mx-root.mx-act-doze .mx-zzz-3 { animation-delay: 1.2s; }
+
+/* Stretch — a long writer's stretch, both arms thrown up */
+.mx-root.mx-act-stretch .mx-arm-l { transform: rotate(150deg); }
+.mx-root.mx-act-stretch .mx-arm-r { transform: rotate(-150deg); }
+.mx-root.mx-act-stretch .mx-figure { animation: mxStretch 3.4s ease-in-out infinite; }
+.mx-root.mx-act-stretch .mx-head { transform: rotate(-4deg) translateY(-1px); }
+
+/* Bow — a gentleman's bow, hat lifted, hand to chest */
+.mx-root.mx-act-bow .mx-figure { animation: mxBow 4.2s ease-in-out infinite; }
+.mx-root.mx-act-bow .mx-arm-r { transform: rotate(55deg); }
+.mx-root.mx-act-bow .mx-arm-l { transform: rotate(18deg); }
+.mx-root.mx-act-bow .mx-hat { animation: mxDoffSoft 4.2s ease-in-out infinite; }
+
+/* Gaze — hand shading the brow, scanning the horizon */
+.mx-root.mx-act-gaze .mx-arm-r { transform: rotate(168deg); }
+.mx-root.mx-act-gaze .mx-head { animation: mxGazeHead 4.6s ease-in-out infinite; }
+
+/* Fence — student-days rapier drill: en garde, then lunge */
+.mx-root.mx-act-fence .mx-arm-r { animation: mxFenceThrust 1.5s ease-in-out infinite; }
+.mx-root.mx-act-fence .mx-arm-l { transform: rotate(130deg); }
+.mx-root.mx-act-fence .mx-figure { animation: mxFenceLunge 1.5s ease-in-out infinite; }
+.mx-root.mx-act-fence .mx-leg-a { transform: rotate(-10deg); }
+.mx-root.mx-act-fence .mx-leg-b { transform: rotate(8deg); }
+
+/* Walking (stroll along the bottom of the page; class set by JS) */
+.mx-root.mx-walking .mx-leg-a { animation: mxStep .6s ease-in-out infinite; }
+.mx-root.mx-walking .mx-leg-b { animation: mxStep .6s ease-in-out infinite; animation-delay: -.3s; }
+.mx-root.mx-walking .mx-arm-l { animation: mxArmSwingL .6s ease-in-out infinite; }
+.mx-root.mx-walking .mx-arm-r { animation: mxArmSwingR .6s ease-in-out infinite; }
+.mx-root.mx-walking .mx-figure { animation: mxWalkBob .3s ease-in-out infinite; }
 
 /* --------------------------------------------------- prop fills ---------- */
 .mx-book-cover { fill: #7a2222; }
@@ -354,6 +408,8 @@
 .mx-pointer-stick { stroke: #4a3a22; stroke-width: 1.6; stroke-linecap: round; }
 .mx-wax { fill: var(--mx-accent); }
 .mx-zzz { fill: #8a7a5a; font: 700 11px "Times New Roman", serif; opacity: 0; }
+.mx-rapier-blade { stroke: #9aa3ad; stroke-width: 2; stroke-linecap: round; }
+.mx-rapier-guard { fill: #c9a227; stroke: #8a7a5a; stroke-width: .8; }
 
 /* =======================================================================
    KEYFRAMES
@@ -387,6 +443,26 @@
 @keyframes mxWave { 0%,100% { transform: rotate(-148deg); } 50% { transform: rotate(-170deg); } }
 @keyframes mxZzz { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
 @keyframes mxThinkDots { 0% { content: ""; } 33% { content: "·"; } 66% { content: "··"; } 100% { content: "···"; } }
+
+/* Organic micro-motion + walk cycle + new actions */
+@keyframes mxBeardSway { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(1.2deg); } 70% { transform: rotate(-1deg); } }
+@keyframes mxHeadIdle {
+  0%, 28%, 78%, 100% { transform: rotate(0); }
+  10% { transform: rotate(-4deg); }
+  20% { transform: rotate(2deg); }
+  55% { transform: rotate(3.5deg); }
+  68% { transform: rotate(1deg); }
+}
+@keyframes mxStep { 0%, 100% { transform: rotate(13deg); } 50% { transform: rotate(-13deg); } }
+@keyframes mxArmSwingL { 0%, 100% { transform: rotate(10deg); } 50% { transform: rotate(-12deg); } }
+@keyframes mxArmSwingR { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(12deg); } }
+@keyframes mxWalkBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes mxStretch { 0%, 100% { transform: scaleY(1); } 35%, 65% { transform: scaleY(1.035) translateY(-2px); } }
+@keyframes mxBow { 0%, 100% { transform: rotate(0); } 30%, 55% { transform: rotate(9deg) translateY(1px); } }
+@keyframes mxDoffSoft { 0%, 100% { transform: none; } 30%, 55% { transform: translateY(-14px) rotate(-10deg); } }
+@keyframes mxGazeHead { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+@keyframes mxFenceThrust { 0%, 100% { transform: rotate(-55deg); } 40%, 55% { transform: rotate(-88deg); } }
+@keyframes mxFenceLunge { 0%, 100% { transform: translateX(0); } 40%, 55% { transform: translateX(7px); } }
 
 /* =======================================================================
    Responsive + reduced motion

@@ -8,7 +8,7 @@
    Login state comes from the global `current_user` context processor, so no
    backend change is required. All behaviour lives in the external JS/CSS.
    =========================================================================== #}
-<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=5">
+<link rel="stylesheet" href="/static/mascot/marx-mascot.css?v=6">
 <div id="marx-mascot-root"
      class="mx-root mx-state-loading"
      data-logged-in="{{ 'true' if current_user else 'false' }}"
@@ -82,12 +82,16 @@
       {# ---- Figure: order = legs, coat, arms(behind), props(behind), torso details, head, beard, hat, arms(front), props(front) ---- #}
       <g class="mx-figure">
 
-        {# Standing legs #}
+        {# Standing legs — split into two swingable groups for walk cycles #}
         <g class="mx-legs mx-legs-stand">
-          <rect x="68" y="146" width="11" height="38" rx="4" class="mx-trouser"/>
-          <rect x="81" y="146" width="11" height="38" rx="4" class="mx-trouser"/>
-          <path d="M64 184 q-2 6 6 6 h10 q3 0 3-4 v-3 h-19z" class="mx-shoe"/>
-          <path d="M77 184 q-2 6 6 6 h10 q3 0 3-4 v-3 h-19z" class="mx-shoe"/>
+          <g class="mx-leg-a">
+            <rect x="68" y="146" width="11" height="38" rx="4" class="mx-trouser"/>
+            <path d="M64 184 q-2 6 6 6 h10 q3 0 3-4 v-3 h-19z" class="mx-shoe"/>
+          </g>
+          <g class="mx-leg-b">
+            <rect x="81" y="146" width="11" height="38" rx="4" class="mx-trouser"/>
+            <path d="M77 184 q-2 6 6 6 h10 q3 0 3-4 v-3 h-19z" class="mx-shoe"/>
+          </g>
         </g>
         {# Seated legs (thighs forward + shins down) #}
         <g class="mx-legs mx-legs-sit">
@@ -162,10 +166,16 @@
           <ellipse cx="80" cy="8" rx="17" ry="4" class="mx-hat-top"/>
         </g>
 
-        {# Right arm (viewer's right), origin at shoulder — the "acting" arm #}
+        {# Right arm (viewer's right), origin at shoulder — the "acting" arm.
+           Hand-held props that must FOLLOW the moving arm live inside this group. #}
         <g class="mx-arm mx-arm-r">
           <path d="M100 92 q9 6 11 26 q1 8 -4 10 q-5 1 -6 -6 q-2 -16 -7 -24 z" fill="url(#mxCoat)"/>
           <circle cx="105" cy="128" r="5.2" class="mx-hand"/>
+          {# Rapier (Marx fenced in his student days) — anchored to the hand #}
+          <g class="mx-prop mx-prop-rapier">
+            <line x1="107" y1="126" x2="148" y2="116" class="mx-rapier-blade"/>
+            <circle cx="109" cy="125.5" r="3.4" class="mx-rapier-guard"/>
+          </g>
         </g>
 
         {# ---- Props drawn IN FRONT of the body ---- #}
@@ -285,4 +295,4 @@
     </svg>
   </div>{# /mx-stage #}
 </div>{# /mx-root #}
-<script src="/static/mascot/marx-mascot.js?v=5" defer></script>
+<script src="/static/mascot/marx-mascot.js?v=6" defer></script>

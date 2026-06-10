@@ -69,7 +69,11 @@
     { id: 'letter',  label: '致信恩格斯' },
     { id: 'pacing',  label: '踱步思索' },
     { id: 'wave',    label: '挥手致意' },
-    { id: 'doze',    label: '伏案小憩' }
+    { id: 'doze',    label: '伏案小憩' },
+    { id: 'stretch', label: '伸个懒腰' },
+    { id: 'bow',     label: '行个绅士礼' },
+    { id: 'gaze',    label: '远眺' },
+    { id: 'fence',   label: '练一回击剑' }
   ];
 
   var QUOTES = [
@@ -150,6 +154,7 @@
   var currentAction = null;
   function playAction(id) {
     clearActions();
+    root.classList.toggle('mx-neutral', !id);   /* idle head-glance only when no action */
     if (id) {
       root.classList.add('mx-act-' + id);
       currentAction = id;
@@ -177,7 +182,8 @@
     cycleTimer = setTimeout(tick, delay);
   }
   function tick() {
-    if (root.classList.contains('mx-docked')) { return; }
+    if (root.classList.contains('mx-docked') || strolling) { return; }
+    if (canStroll() && Math.random() < 0.14) { startStroll(); return; }
     playAction(nextActionId());
     scheduleNext();
   }
@@ -189,7 +195,82 @@
   function stopCycle() {
     clearTimeout(cycleTimer);
     clearActions();
+    root.classList.add('mx-neutral');
     currentAction = null;
+  }
+
+  /* --------------------------------------------------------------- stroll -- */
+  /* Occasionally Marx leaves his corner and strolls along the bottom edge,
+     pauses to gaze, then walks home. Pure transform on .mx-stage — the page
+     itself is never touched. Skipped on small screens and reduced-motion. */
+  var strolling = false;
+  var lastStrollTs = 0;
+  var strollTimers = [];
+  function canStroll() {
+    return !reduceMotion && !document.hidden && !round &&
+           posture === 'standing' &&
+           !root.classList.contains('mx-docked') &&
+           window.innerWidth >= 900 &&
+           (Date.now() - lastStrollTs) > 6 * 60 * 1000;
+  }
+  function strollWait(fn, ms) { strollTimers.push(setTimeout(fn, ms)); }
+  function startStroll() {
+    strolling = true;
+    lastStrollTs = Date.now();
+    clearTimeout(cycleTimer);
+    clearActions();
+    root.classList.remove('mx-neutral');
+    hideBubble();
+    var maxD = Math.min(360, Math.floor(window.innerWidth * 0.42));
+    var dist = 120 + Math.floor(Math.random() * Math.max(60, maxD - 120));
+    var dur = dist / 52;                       /* ~52 px/s — an unhurried pace */
+    root.classList.add('mx-walking');
+    showCaption('出门遛个弯');
+    stage.style.transition = 'transform ' + dur + 's linear';
+    stage.style.transform = 'translateX(-' + dist + 'px)';
+    emit('stroll', { phase: 'out', dist: dist });
+    strollWait(function () {
+      if (!strolling) { return; }
+      root.classList.remove('mx-walking');
+      playAction('gaze');                      /* pause at the far point */
+      strollWait(function () {
+        if (!strolling) { return; }
+        clearActions();
+        root.classList.add('mx-walking');
+        stage.style.transition = 'transform ' + dur + 's linear';
+        stage.style.transform = 'translateX(0)';
+        strollWait(function () { if (strolling) { finishStroll(); } }, dur * 1000 + 80);
+      }, 4500);
+    }, dur * 1000 + 80);
+  }
+  function finishStroll() {
+    strolling = false;
+    strollTimers.forEach(clearTimeout); strollTimers = [];
+    root.classList.remove('mx-walking');
+    stage.style.transition = '';
+    stage.style.transform = '';
+    emit('stroll', { phase: 'home' });
+    tick();                                    /* resume the action cycle */
+  }
+  function cancelStroll(immediate) {
+    if (!strolling) { return; }
+    strolling = false;
+    strollTimers.forEach(clearTimeout); strollTimers = [];
+    root.classList.remove('mx-walking');
+    clearActions();
+    currentAction = null;
+    if (immediate) {
+      stage.style.transition = 'none';
+      stage.style.transform = '';
+      /* flush so the next transition isn't swallowed */
+      void stage.offsetWidth;
+      stage.style.transition = '';
+    } else {
+      stage.style.transition = 'transform .8s ease';
+      stage.style.transform = 'translateX(0)';
+      setTimeout(function () { stage.style.transition = ''; }, 850);
+    }
+    scheduleNext();
   }
 
   /* ------------------------------------------------------------- bubble --- */
@@ -386,7 +467,7 @@
 
   /* ----- (1) scene-aware remarks ----- */
   function sceneEligible(kind) {
-    if (!aiAvailable || document.hidden || round) { return false; }
+    if (!aiAvailable || document.hidden || round || strolling) { return false; }
     if (root.classList.contains('mx-docked')) { return false; }
     var s = loadStats();
     if (s.total >= AI_LIMITS.dailyTotal || s.scene >= AI_LIMITS.sceneDaily) { return false; }
@@ -474,7 +555,7 @@
   function setupInviteScheduler() {
     if (!aiAvailable) { return; }
     setInterval(function () {
-      if (document.hidden || round || root.classList.contains('mx-docked')) { return; }
+      if (document.hidden || round || strolling || root.classList.contains('mx-docked')) { return; }
       if (Date.now() - loadTs < AI_LIMITS.inviteFirstDelayMs) { return; }
       var s = loadStats();
       if (s.total >= AI_LIMITS.dailyTotal || s.invite >= AI_LIMITS.inviteDaily) { return; }
@@ -486,6 +567,7 @@
 
   /* ------------------------------------------------------- dock / summon -- */
   function dockMascot(withLine) {
+    cancelStroll(true);
     root.classList.add('mx-docked');
     endRound();
     stopCycle();
@@ -520,6 +602,8 @@
   /* ---------------------------------------------------------------- wire -- */
   function onInteract() {
     emit('interact', { loggedIn: isLoggedIn, action: currentAction });
+    /* clicked mid-stroll: he hurries home first, then chats */
+    if (strolling) { cancelStroll(false); }
     /* an active dialogue round owns the bubble — don't talk over it */
     if (round) { return; }
     /* Phase 2: if a custom dialogue handler is attached, defer to it instead. */
@@ -601,7 +685,11 @@
       return api;
     },
     startInvite: function () {                  /* manual invitation (ops/testing) */
-      if (aiAvailable && !round && !root.classList.contains('mx-docked')) { startInviteRound(); }
+      if (aiAvailable && !round && !strolling && !root.classList.contains('mx-docked')) { startInviteRound(); }
+      return api;
+    },
+    stroll: function () {                       /* manual stroll (ops/testing) */
+      if (!strolling && posture === 'standing' && !round && !root.classList.contains('mx-docked')) { startStroll(); }
       return api;
     },
 
@@ -611,6 +699,7 @@
         posture: posture,
         action: currentAction,
         docked: root.classList.contains('mx-docked'),
+        strolling: strolling,
         loggedIn: isLoggedIn
       };
     }
@@ -653,6 +742,7 @@
     } else {
       forgetUser();
       setPosture('seated');     /* guest: seated idle, no action cycle */
+      root.classList.add('mx-neutral');
     }
 
     /* Phase 2: AI-driven scenes + proactive invitations (throttled) */
