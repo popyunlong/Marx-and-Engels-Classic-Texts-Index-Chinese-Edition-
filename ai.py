@@ -574,6 +574,7 @@ class ZAIClient:
             max_tokens=self.config.search_answer_max_tokens,
             provider=provider,
             sources_out=sources,
+            web_search_query=self.zhipu_search_query(question) if use_zhipu else None,
         )
         return AIAnswer(
             answer_markdown=answer,
@@ -762,6 +763,7 @@ class ZAIClient:
             ),
             provider=provider,
             sources_out=sources,
+            web_search_query=self.zhipu_search_query(question, page_context) if use_zhipu else None,
         )
         return AIAnswer(
             answer_markdown=answer,
@@ -846,18 +848,36 @@ class ZAIClient:
             "label": self.config.provider,
         }
 
-    def _zhipu_web_search_tools(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "type": "web_search",
-                "web_search": {
-                    "enable": True,
-                    "search_engine": self.config.zhipu_search_engine,
-                    "search_result": True,
-                    "count": self.config.zhipu_search_count,
-                },
-            }
-        ]
+    def zhipu_search_query(self, question: str, page_context: dict[str, Any] | None = None) -> str:
+        """为强制联网生成简短检索词：用户问题 +（阅读场景）篇章/书名，截到 70 字以内。"""
+        parts = [str(question or "").strip()]
+        if page_context:
+            section_title = str(page_context.get("section_title") or "").strip()
+            display_title = str(page_context.get("display_title") or "").strip()
+            parts.append(section_title or display_title)
+        query = " ".join(part for part in parts if part)
+        return " ".join(query.split())[:70]
+
+    def _zhipu_web_search_tools(
+        self,
+        search_query: str | None = None,
+        *,
+        forced: bool = True,
+    ) -> list[dict[str, Any]]:
+        web_search: dict[str, Any] = {
+            "enable": True,
+            "search_engine": self.config.zhipu_search_engine,
+            "search_result": True,
+            "count": self.config.zhipu_search_count,
+        }
+        if forced:
+            # 强制每次执行联网检索，不依赖模型自判断（实测自判断经常选择不搜）。
+            # forced_search 为平台扩展参数、search_query 为经典“按指定词必搜”参数；
+            # 两者都带上，任一生效即达成强制；都不被支持时由调用方降级到基础联网档。
+            web_search["forced_search"] = True
+            if search_query:
+                web_search["search_query"] = search_query
+        return [{"type": "web_search", "web_search": web_search}]
 
     def _zhipu_sources_from_payload(self, data: dict[str, Any]) -> list[dict[str, str]]:
         """从智谱响应中提取联网检索来源（开启 search_result 时返回在顶层 web_search 数组）。"""
@@ -877,6 +897,18 @@ class ZAIClient:
                 sources.append(source)
         return sources
 
+    def _zhipu_tool_stages(self, web_search_query: str | None) -> list[list[dict[str, Any]] | None]:
+        """智谱联网的三级降级序列：强制联网 → 基础联网（模型自判断）→ 纯对话。
+
+        强制档带 forced_search/search_query 扩展参数；若账号/模型不接受导致请求失败，
+        退基础档仍保留联网能力；基础档也失败才退纯对话，保证任何情况下问答可用。
+        """
+        return [
+            self._zhipu_web_search_tools(web_search_query, forced=True),
+            self._zhipu_web_search_tools(forced=False),
+            None,
+        ]
+
     def chat_complete(
         self,
         messages: list[dict[str, str]],
@@ -884,40 +916,37 @@ class ZAIClient:
         temperature: float | None = None,
         provider: str | None = None,
         sources_out: list[dict[str, str]] | None = None,
+        web_search_query: str | None = None,
     ) -> str:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
-        payload: dict[str, Any] = {
-            "model": route["model"],
-            "messages": messages,
-            "stream": False,
-            "temperature": self.config.temperature if temperature is None else temperature,
-            "max_tokens": max_tokens,
-        }
-        if use_zhipu:
-            # 选智谱即自动联网；关闭深度思考保证响应速度与输出干净（不混入 reasoning）。
-            payload["tools"] = self._zhipu_web_search_tools()
-            payload["thinking"] = {"type": "disabled"}
-        try:
-            data = self._post_json(
-                "/chat/completions",
-                payload,
-                base_url=route["base_url"],
-                api_key=route["api_key"],
-                service_label=route["label"],
-            )
-        except AIServiceError:
-            if not use_zhipu:
-                raise
-            # 降级重试：个别模型/账号不支持 web_search 工具时，去掉 tools 仍可对话（不联网）。
-            payload.pop("tools", None)
-            data = self._post_json(
-                "/chat/completions",
-                payload,
-                base_url=route["base_url"],
-                api_key=route["api_key"],
-                service_label=route["label"],
-            )
+        tool_stages = self._zhipu_tool_stages(web_search_query) if use_zhipu else [None]
+        data: dict[str, Any] = {}
+        for stage_index, tools in enumerate(tool_stages):
+            payload: dict[str, Any] = {
+                "model": route["model"],
+                "messages": messages,
+                "stream": False,
+                "temperature": self.config.temperature if temperature is None else temperature,
+                "max_tokens": max_tokens,
+            }
+            if tools:
+                payload["tools"] = tools
+            if use_zhipu:
+                # 关闭深度思考保证响应速度与输出干净（不混入 reasoning）。
+                payload["thinking"] = {"type": "disabled"}
+            try:
+                data = self._post_json(
+                    "/chat/completions",
+                    payload,
+                    base_url=route["base_url"],
+                    api_key=route["api_key"],
+                    service_label=route["label"],
+                )
+                break
+            except AIServiceError:
+                if stage_index == len(tool_stages) - 1:
+                    raise
         if use_zhipu and sources_out is not None:
             sources_out.extend(self._zhipu_sources_from_payload(data))
         choices = data.get("choices") or []
@@ -940,21 +969,22 @@ class ZAIClient:
         max_tokens: int,
         provider: str | None = None,
         meta_out: dict[str, Any] | None = None,
+        web_search_query: str | None = None,
     ) -> Iterator[str]:
         use_zhipu = provider == "zhipu"
-        tools = self._zhipu_web_search_tools() if use_zhipu else None
+        tool_stages = self._zhipu_tool_stages(web_search_query) if use_zhipu else [None]
         yielded = [False]
-        try:
-            yield from self._stream_chat_once(
-                messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded
-            )
-        except AIServiceError:
-            # 联网工具不被支持等首包失败：未输出任何内容时去掉 tools 降级重试一次。
-            if not use_zhipu or yielded[0]:
-                raise
-            yield from self._stream_chat_once(
-                messages, max_tokens, provider=provider, tools=None, meta_out=meta_out, yielded=yielded
-            )
+        for stage_index, tools in enumerate(tool_stages):
+            try:
+                yield from self._stream_chat_once(
+                    messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded
+                )
+                return
+            except AIServiceError:
+                # 首包即失败（强制参数/联网工具不被支持等）且未输出任何内容时，逐级降级重试；
+                # 已经吐过增量就不能换档重来（会输出重复内容），原样抛出由路由层兜底。
+                if yielded[0] or stage_index == len(tool_stages) - 1:
+                    raise
 
     def _stream_chat_once(
         self,

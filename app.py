@@ -7766,7 +7766,13 @@ def api_ai_pdf_chat_stream():
                 provider=ai_provider or None,
             )
             for text in AI_CLIENT.chat_complete_stream(
-                model_messages, max_tokens, provider=ai_provider or None, meta_out=stream_meta
+                model_messages,
+                max_tokens,
+                provider=ai_provider or None,
+                meta_out=stream_meta,
+                web_search_query=(
+                    AI_CLIENT.zhipu_search_query(question, page_context) if ai_provider == "zhipu" else None
+                ),
             ):
                 chunks.append(text)
                 yield _sse_event("delta", {"text": text})
