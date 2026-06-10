@@ -381,16 +381,28 @@ n_quanji = len(corpus.books.get("全集", [])) if corpus else 0
 # 静态文案扫描发现不了，因此后台「内容运营」一直无法编辑。这里给每个书目注册一个可选
 # 覆盖 key（默认留空＝继续自动显示实时卷数，填写后即整段替换该 pill 文字），让它们和其他
 # 文案一样能在后台编辑。
+# 首页顶部「卷数 pill」固定文案（书目 key → 展示文字，含版次年份）。默认即显示这些固定
+# 文字；后台「站点文案·首页」仍可逐条覆盖，覆盖留空则回退到这里的固定文案，固定文案也留空
+# 才回退到「短标题 + 实时卷数 + 卷」的自动格式。这样即使后台被清空，首页依然显示固定文案。
+_FIXED_PILL_TEXT = {
+    "文集": "《马克思恩格斯文集》10卷2009年版",
+    "全集": "《马克思恩格斯全集》50卷中文第一版",
+    "列宁全集": "《列宁全集》60卷中文第二版",
+    "毛泽东选集": "《毛泽东选集》4卷1991年版",
+    "毛泽东文集": "《毛泽东文集》8卷1993年版",
+}
 _book_pill_definitions = []
 for _pill_index, _book_item in enumerate(book_stats, start=1):
     _pill_key = f"index.stat_book_{_pill_index}"
     _book_item["text_key"] = _pill_key
+    _fixed_pill = _FIXED_PILL_TEXT.get(_book_item["key"], "")
+    _book_item["fixed_pill"] = _fixed_pill
     _book_pill_definitions.append(
         SiteTextDefinition(
             _pill_key,
             "首页",
-            f"首页顶部卷数 pill：{_book_item['short_title']}（留空＝自动显示实时卷数）",
-            "",
+            f"首页顶部卷数 pill：{_book_item['short_title']}（留空＝显示固定版次文案，再留空＝自动卷数）",
+            _fixed_pill,
             multiline=False,
         )
     )

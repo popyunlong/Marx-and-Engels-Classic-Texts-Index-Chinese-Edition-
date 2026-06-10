@@ -1269,7 +1269,7 @@
         <div class="stat">{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</div>
         <div class="stat">{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</div>
         {% for item in book_stats %}
-        <div class="stat">{{ site_text(item.text_key) or (item.short_title ~ " " ~ item.count ~ " 卷") }}</div>
+        <div class="stat">{{ site_text(item.text_key) or item.fixed_pill or (item.short_title ~ " " ~ item.count ~ " 卷") }}</div>
         {% endfor %}
       </div>
     </section>
