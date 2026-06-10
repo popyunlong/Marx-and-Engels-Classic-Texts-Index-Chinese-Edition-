@@ -635,7 +635,7 @@
               <div class="field-wide section-note">上方为默认对话通道（DeepSeek），首页随心问、阅读器导学与联想检索都用它。</div>
             </div>
             <h3 style="margin-top:18px">智谱 GLM·联网检索通道（可选）</h3>
-            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中即自动联网检索（按次另计费，引擎档位价格见智谱开放平台）。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。</p>
+            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中即自动联网检索（按次另计费，引擎档位价格见智谱开放平台）。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。「每日 token 限额/人」是智谱通道的独立子配额（默认 30000，约 8~12 次阅读讲解），超限后用户切回 DeepSeek 即可继续，0＝不限。</p>
             <div class="form-grid">
               <label class="field">智谱模型 <input type="text" name="zhipu_model" value="{{ ai_settings.zhipu_model }}" placeholder="glm-5.1"></label>
               <label class="field">联网引擎
@@ -646,6 +646,7 @@
                 </select>
               </label>
               <label class="field">联网结果条数 <input type="number" name="zhipu_search_count" value="{{ ai_settings.zhipu_search_count }}" min="1" max="20"></label>
+              <label class="field">每日 token 限额/人 <input type="number" name="zhipu_daily_token_limit" value="{{ ai_settings.zhipu_daily_token_limit }}" min="0" step="1000" title="智谱通道每用户每日估算 token 子配额，0＝不限；超限后用户可切回 DeepSeek 继续使用"></label>
               <label class="field-wide">智谱 Base URL <input type="text" name="zhipu_base_url" value="{{ ai_settings.zhipu_base_url }}" placeholder="https://open.bigmodel.cn/api/paas/v4"></label>
               <label class="field-wide">智谱 API Key <input type="text" name="zhipu_api_key" value="{{ ai_settings.zhipu_api_key }}" placeholder="留空＝关闭智谱联网通道"></label>
             </div>

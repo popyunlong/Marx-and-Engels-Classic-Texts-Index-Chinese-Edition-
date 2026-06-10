@@ -43,6 +43,7 @@ AI_EDITABLE_KEYS = (
     "zhipu_base_url",
     "zhipu_search_engine",
     "zhipu_search_count",
+    "zhipu_daily_token_limit",
     "request_timeout_seconds",
     "max_history_turns",
     "search_history_turns",
@@ -135,6 +136,7 @@ class AIConfig:
     zhipu_base_url: str
     zhipu_search_engine: str
     zhipu_search_count: int
+    zhipu_daily_token_limit: int
     zhipu_enabled: bool
     request_timeout_seconds: int
     max_history_turns: int
@@ -185,6 +187,7 @@ class AIConfig:
             "zhipu_base_url": self.zhipu_base_url,
             "zhipu_search_engine": self.zhipu_search_engine,
             "zhipu_search_count": self.zhipu_search_count,
+            "zhipu_daily_token_limit": self.zhipu_daily_token_limit,
             "request_timeout_seconds": self.request_timeout_seconds,
             "max_history_turns": self.max_history_turns,
             "search_history_turns": self.search_history_turns,
@@ -328,6 +331,11 @@ def load_ai_config(
         "APP_AI_ZHIPU_SEARCH_ENGINE", payload, "zhipu_search_engine", ZHIPU_SEARCH_ENGINES[0]
     )
     zhipu_search_count = _pick_int("APP_AI_ZHIPU_SEARCH_COUNT", payload, "zhipu_search_count", 5)
+    # 智谱通道每用户每日 token 子配额（估算口径，约 8~12 次阅读讲解）；0＝不限。
+    # GLM-5.1 输出价约 ¥24/百万 tokens + 联网按次计费，须有独立闸门控制成本。
+    zhipu_daily_token_limit = _pick_int(
+        "APP_AI_ZHIPU_DAILY_TOKEN_LIMIT", payload, "zhipu_daily_token_limit", 30000
+    )
 
     max_history_turns = _pick_int("APP_AI_MAX_HISTORY_TURNS", payload, "max_history_turns", 12)
     request_timeout_seconds = _pick_int(
@@ -434,6 +442,7 @@ def load_ai_config(
         )
         zhipu_search_engine = ZHIPU_SEARCH_ENGINES[0]
     zhipu_search_count = max(1, min(20, zhipu_search_count))
+    zhipu_daily_token_limit = max(0, zhipu_daily_token_limit)
     if request_timeout_seconds < 5:
         problems.append("request_timeout_seconds 过小，已回退为 120 秒。")
         request_timeout_seconds = 120
@@ -468,6 +477,7 @@ def load_ai_config(
         zhipu_base_url=zhipu_base_url,
         zhipu_search_engine=zhipu_search_engine,
         zhipu_search_count=zhipu_search_count,
+        zhipu_daily_token_limit=zhipu_daily_token_limit,
         zhipu_enabled=zhipu_enabled,
         request_timeout_seconds=request_timeout_seconds,
         max_history_turns=max_history_turns,

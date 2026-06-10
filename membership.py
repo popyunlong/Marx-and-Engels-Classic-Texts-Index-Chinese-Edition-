@@ -1612,19 +1612,32 @@ def record_ai_usage(
         conn.commit()
 
 
-def get_ai_token_usage(*, day: str | None = None, user_id: int | None = None, session_key: str = "") -> int:
+def get_ai_token_usage(
+    *,
+    day: str | None = None,
+    user_id: int | None = None,
+    session_key: str = "",
+    provider: str = "",
+) -> int:
+    """当日估算 token 用量合计。provider 非空时仅统计该通道（如 \"zhipu\"），用于通道级子配额。"""
     day_value = (day or china_day_text()).strip()
+    provider_value = (provider or "").strip()
+    where = "WHERE day = ?"
+    params: list[object] = [day_value]
+    if user_id:
+        where += " AND user_id = ?"
+        params.append(int(user_id))
+    else:
+        where += " AND session_key = ?"
+        params.append((session_key or "").strip())
+    if provider_value:
+        where += " AND provider = ?"
+        params.append(provider_value)
     with _connect() as conn:
-        if user_id:
-            value = conn.execute(
-                "SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage WHERE day = ? AND user_id = ?",
-                (day_value, int(user_id)),
-            ).fetchone()[0]
-        else:
-            value = conn.execute(
-                "SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage WHERE day = ? AND session_key = ?",
-                (day_value, (session_key or "").strip()),
-            ).fetchone()[0]
+        value = conn.execute(
+            f"SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage {where}",
+            tuple(params),
+        ).fetchone()[0]
     return int(value or 0)
 
 

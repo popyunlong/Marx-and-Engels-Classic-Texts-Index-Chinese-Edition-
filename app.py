@@ -2387,8 +2387,8 @@ def _estimate_tokens_from_text(*parts: object) -> int:
 
 
 class _AIQuotaExceeded(Exception):
-    def __init__(self, *, used: int, limit: int, reset_at: str):
-        super().__init__("今日 AI token 已达到限额。")
+    def __init__(self, *, used: int, limit: int, reset_at: str, message: str = "今日 AI token 已达到限额。"):
+        super().__init__(message)
         self.used = used
         self.limit = limit
         self.reset_at = reset_at
@@ -2404,6 +2404,34 @@ def _require_ai_quota_or_raise() -> dict:
     if limit is not None and used >= int(limit):
         raise _AIQuotaExceeded(used=used, limit=int(limit), reset_at=reset_at)
     return {"day": day, "session_key": session_key, "used": used, **limit_info}
+
+
+def _require_zhipu_quota_or_raise(quota: dict) -> None:
+    """智谱通道的每日 token 子配额（全局默认，控制台「智能服务」可调，0＝不限）。
+
+    智谱用量同时计入总配额与本子配额：总闸门照旧，这里只多一道针对高价通道的闸。
+    超限仅挡智谱——用户切回 DeepSeek 即可继续使用。管理员豁免，便于线上验证。
+    """
+    limit = int(AI_CONFIG.zhipu_daily_token_limit or 0)
+    if limit <= 0:
+        return
+    user = getattr(g, "current_user", None)
+    if _is_admin_user(user):
+        return
+    used = get_ai_token_usage(
+        day=str(quota.get("day") or ""),
+        user_id=int(user["id"]) if user else None,
+        session_key=str(quota.get("session_key") or ""),
+        provider="zhipu",
+    )
+    if used >= limit:
+        _, _, _, reset_at = _beijing_day_bounds()
+        raise _AIQuotaExceeded(
+            used=used,
+            limit=limit,
+            reset_at=reset_at,
+            message="今日智谱联网额度已用完，可切换 DeepSeek 模型继续使用，明日额度自动恢复。",
+        )
 
 
 def _ai_usage_source_ref(prompt_parts: tuple[object, ...]) -> str:
@@ -3251,6 +3279,7 @@ def _handle_ai_settings_submit(*, remote_admin: bool):
             "zhipu_base_url": (request.form.get("zhipu_base_url") or current["zhipu_base_url"]).strip().rstrip("/") or ZHIPU_DEFAULT_BASE_URL,
             "zhipu_search_engine": (request.form.get("zhipu_search_engine") or current["zhipu_search_engine"]).strip() or ZHIPU_SEARCH_ENGINES[0],
             "zhipu_search_count": _form_int("zhipu_search_count", int(current["zhipu_search_count"])),
+            "zhipu_daily_token_limit": _form_int("zhipu_daily_token_limit", int(current["zhipu_daily_token_limit"])),
             "request_timeout_seconds": _form_int("request_timeout_seconds", int(current["request_timeout_seconds"])),
             "max_history_turns": _form_int("max_history_turns", int(current["max_history_turns"])),
             "search_history_turns": _form_int("search_history_turns", int(current["search_history_turns"])),
@@ -4417,7 +4446,7 @@ def handle_redirect(error):
 def handle_ai_quota_exceeded(error):
     payload = {
         "ok": False,
-        "error": "今日 AI token 已达到限额。",
+        "error": str(error) or "今日 AI token 已达到限额。",
         "used_tokens": error.used,
         "daily_limit": error.limit,
         "reset_at": error.reset_at,
@@ -7282,6 +7311,8 @@ def api_ai_search_chat():
     _require_ai()
     payload = request.get_json(silent=True) or {}
     ai_provider = _resolve_ai_provider_or_abort(payload)
+    if ai_provider == "zhipu":
+        _require_zhipu_quota_or_raise(quota)
     question = " ".join(str(payload.get("question") or "").split())
     messages = payload.get("messages") or []
     if not question:
@@ -7508,6 +7539,8 @@ def api_ai_pdf_chat():
     _require_ai()
     payload = request.get_json(silent=True) or {}
     ai_provider = _resolve_ai_provider_or_abort(payload)
+    if ai_provider == "zhipu":
+        _require_zhipu_quota_or_raise(quota)
     source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
     page = max(1, int(payload.get("page") or 1))
     question = " ".join(str(payload.get("question") or "").split())
@@ -7614,6 +7647,8 @@ def api_ai_pdf_chat_stream():
 
     _require_ai()
     ai_provider = _resolve_ai_provider_or_abort(payload)
+    if ai_provider == "zhipu":
+        _require_zhipu_quota_or_raise(quota)
     page_context = _get_page_context_payload(source_file, page)
 
     def _generate():
