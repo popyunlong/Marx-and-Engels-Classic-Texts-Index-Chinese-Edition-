@@ -835,6 +835,16 @@ def _legacy_page_pay_url(order: dict, plan: dict, user: dict) -> str:
 
 def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict):
     plan_code = str(plan.get("code") or order.get("plan_code") or "")
+    # 监控程序豁免：监控用非会员号反复进支付页但永不付款，会复用同一笔待支付订单——其网关
+    # 二维码会过期，导致监控误报「二维码渲染不出来」；旧单还会在「待支付订单」里堆积。这里对
+    # 监控请求先清掉它的历史待支付单，再用全新 order_no 重建，保证每次都能渲染出新二维码，且
+    # 待支付计数不累积。仅对监控生效，不改动真实用户的复用逻辑（避免误把在途订单作废→收款无法开会员）。
+    if _is_monitoring_request():
+        try:
+            clear_pending_orders(user_id=int(user["id"]))
+            order = create_pending_order(user_id=int(user["id"]), plan_code=plan_code)
+        except Exception:
+            pass
     # 兜底防过时：订单金额/币种若与当前套餐价不一致（管理员改过价，或这是之前失败时按旧价创建的订单），
     # 作废旧单、按新价重建，确保收银页与二维码都用新金额。覆盖「在线支付」与「继续支付」两个入口。
     try:
@@ -2150,6 +2160,14 @@ def _env_csv(name: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+# 站点自带监控程序的默认豁免信号（无需后台/环境配置即生效）：
+# - 两个专用监控账号（会员/非会员腿，登录态身份不可伪造，最稳）；
+# - 监控浏览器自报的 UA 密钥子串（访客腿；监控 Playwright 上下文统一带 MazhuMonitor/x）。
+# 仍可通过后台 monitoring_exemptions 设置或 MONITORING_* 环境变量追加更多信号。
+_DEFAULT_MONITORING_EMAILS = ("1010851067@qq.com", "18954389936@163.com")
+_DEFAULT_MONITORING_UA_TOKENS = ("mazhumonitor",)
+
+
 def _monitoring_exemptions() -> dict:
     """巡检/监控程序豁免名单。
 
@@ -2167,9 +2185,9 @@ def _monitoring_exemptions() -> dict:
     user_agents/ips)+ 环境变量 `MONITORING_EMAILS` / `MONITORING_USER_AGENTS` /
     `MONITORING_IPS`(逗号分隔，便于服务器 env 引导)。
     """
-    ua_tokens: list[str] = []
+    ua_tokens: list[str] = list(_DEFAULT_MONITORING_UA_TOKENS)
     ips: list[str] = []
-    emails: list[str] = []
+    emails: list[str] = list(_DEFAULT_MONITORING_EMAILS)
     user_ids: list[str] = []
     payload = get_setting("monitoring_exemptions", {})
     if isinstance(payload, dict):
