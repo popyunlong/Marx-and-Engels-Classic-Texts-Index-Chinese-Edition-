@@ -1065,7 +1065,8 @@ def _feature_is_available(feature: str) -> bool:
         return bool(BASE_RUNTIME.can_search)
     if feature in {"viewer", "library"}:
         return bool(BASE_RUNTIME.full_resources_ready)
-    if feature == "ai":
+    if feature in {"ai", "associative"}:
+        # 联想检索与 AI 导学共用同一个对话模型：模型未配置则二者都不可用。
         return bool(AI_CONFIG.enabled)
     if feature == "ai_web":
         # 智谱联网通道随基础 AI 一起开关：基础 AI 不可用或智谱未配 Key 时整体不可用。
@@ -3692,13 +3693,18 @@ def _handle_ai_access_toggle(*, remote_admin: bool):
     current = dict(users.get(email) or {})
     if action == "unban":
         # 恢复为「跟随全站默认」，而非强制允许，避免越权覆盖套餐/全站策略。
+        # associative 同步恢复：封禁时是一起停的（见下），解封也一起回到继承态。
         current["ai"] = None
+        current["associative"] = None
         result = "unban"
         message = f"已恢复 {email} 的 AI 使用权限（跟随全站默认）。"
     else:
+        # 「暂停 AI」语义覆盖全部 AI 能力：导学/随心问（ai）与联想检索（associative，
+        # 已拆分为独立权限位）一并停用，避免封禁后仍可经联想检索消耗 AI 配额。
         current["ai"] = False
+        current["associative"] = False
         result = "ban"
-        message = f"已暂停 {email} 的 AI 使用：阅读器 AI 导学与首页随心问均不可用，其余功能不受影响。"
+        message = f"已暂停 {email} 的 AI 使用：阅读器 AI 导学、首页随心问与联想检索均不可用，其余功能不受影响。"
     users[email] = current
     set_setting("access_policy", policy, updated_by=_management_actor_label(remote_admin))
     _log_management_action(
@@ -6099,6 +6105,7 @@ def index():
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
+        assoc_access_enabled=bool(_feature_is_available("associative") and _feature_effective_for_user("associative")),
         ai_web_access_enabled=_ai_web_access_enabled(),
         feedback_thread=feedback_thread,
     )
@@ -7432,9 +7439,10 @@ def api_search_associative():
     """联想检索：AI 提取线索 → 在真实语料中接地定位 → AI 重排并解释。
 
     引文不可伪造：仅渲染 corpus.locate_associative 产出的真实命中；AI 只输出检索串与
-    “在候选里选哪几条”。鉴权顺序与 /api/ai/search-chat 完全一致。
+    “在候选里选哪几条”。鉴权顺序与 /api/ai/search-chat 一致，但走独立的 associative
+    权限位（自 ai 拆分而来，可单独向访客/注册用户/套餐开放）。
     """
-    _require_content_feature("ai")
+    _require_content_feature("associative")
     _rate_limit_ai_or_abort()
     quota = _require_ai_quota_or_raise()
     if DEPLOYMENT.is_desktop:

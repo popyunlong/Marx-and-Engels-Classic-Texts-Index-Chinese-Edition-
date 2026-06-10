@@ -1500,6 +1500,7 @@
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ ai_access_enabled | tojson }};
+  const assocAccessEnabled = {{ assoc_access_enabled | default(ai_access_enabled) | tojson }};
   const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   const feedbackEnabled = {{ (current_user is not none) | tojson }};
   const initialFeedbackThread = {{ feedback_thread | tojson }};
@@ -2271,7 +2272,7 @@
   }
 
   async function doAssociativeSearch(text) {
-    if (!aiAccessEnabled) {
+    if (!assocAccessEnabled) {
       renderEmpty({{ site_text('search.assoc_no_ai') | tojson }});
       return;
     }
@@ -2558,7 +2559,7 @@
   }
 
   modeTabs.forEach(tab => {
-    if (tab.dataset.mode === 'associative' && !aiAccessEnabled) {
+    if (tab.dataset.mode === 'associative' && !assocAccessEnabled) {
       tab.disabled = true;
       tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
     }

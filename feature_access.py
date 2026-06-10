@@ -4,12 +4,13 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "ai", "ai_web", "journal_alerts")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "ai", "associative", "ai_web", "journal_alerts")
 FEATURE_ACCESS_LABELS = {
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
     "ai": "AI 导学",
+    "associative": "联想检索",
     "ai_web": "AI 联网（智谱）",
     "journal_alerts": "期刊提醒",
 }
@@ -20,9 +21,17 @@ AUDIENCE_ACCESS_LABELS = {
     "registered": "注册用户",
 }
 DEFAULT_AUDIENCE_ACCESS = {
-    "guest": {"search": True, "viewer": False, "library": False, "ai": False, "ai_web": False, "journal_alerts": False},
-    "registered": {"search": True, "viewer": False, "library": False, "ai": False, "ai_web": False, "journal_alerts": False},
+    "guest": {"search": True, "viewer": False, "library": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
+    "registered": {"search": True, "viewer": False, "library": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
 }
+
+
+def _inherit_associative_from_ai(values: dict) -> None:
+    """迁移兼容：「联想检索」由「AI 导学」拆分而来。已保存的策略里没有 associative 键时，
+    继承同层 ai 的取值，保证拆分上线瞬间所有人的可用性与拆分前完全一致；管理员在后台
+    保存任一层权限后会写入显式值，此后两者即可独立配置。"""
+    if "associative" not in values and "ai" in values:
+        values["associative"] = values["ai"]
 
 
 def load_access_policy(*, include_saved: bool = True) -> dict:
@@ -40,6 +49,9 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
         for key in FEATURE_ACCESS_KEYS:
             if key in raw_global:
                 global_defaults[key] = bool(raw_global[key])
+        if raw_global and "associative" not in raw_global:
+            # 旧策略无 associative 键：继承全站 ai 的取值（见 _inherit_associative_from_ai 说明）。
+            global_defaults["associative"] = global_defaults["ai"]
 
     user_overrides: dict[str, dict[str, bool | None]] = {}
     raw_users = policy.get("users")
@@ -48,11 +60,13 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
             normalized_email = normalize_email(str(email))
             if not normalized_email or not isinstance(values, dict):
                 continue
-            user_overrides[normalized_email] = {
+            normalized_values: dict[str, bool | None] = {
                 key: (None if values.get(key) is None else bool(values.get(key)))
                 for key in FEATURE_ACCESS_KEYS
                 if key in values
             }
+            _inherit_associative_from_ai(normalized_values)
+            user_overrides[normalized_email] = normalized_values
 
     plan_rules: dict[str, dict[str, bool]] = {}
     raw_plans = policy.get("plans")
@@ -61,11 +75,13 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
             normalized_code = str(plan_code or "").strip()
             if not normalized_code or not isinstance(values, dict):
                 continue
-            plan_rules[normalized_code] = {
+            normalized_plan: dict[str, bool] = {
                 key: bool(values[key])
                 for key in FEATURE_ACCESS_KEYS
                 if key in values
             }
+            _inherit_associative_from_ai(normalized_plan)
+            plan_rules[normalized_code] = normalized_plan
 
     audience_rules = {name: dict(values) for name, values in DEFAULT_AUDIENCE_ACCESS.items()}
     raw_audience = policy.get("audience")
@@ -77,6 +93,8 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
             for key in FEATURE_ACCESS_KEYS:
                 if key in values:
                     audience_rules[audience_key][key] = bool(values[key])
+            if "associative" not in values and "ai" in values:
+                audience_rules[audience_key]["associative"] = bool(values["ai"])
 
     return {
         "global": global_defaults,
