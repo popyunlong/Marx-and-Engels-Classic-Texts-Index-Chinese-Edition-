@@ -135,21 +135,6 @@
       gap: 10px;
       flex-wrap: wrap;
     }
-    .plan-grid {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    }
-    .plan-card {
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 14px;
-      background: #fbf8f2;
-    }
-    .plan-card strong {
-      display: block;
-      margin-bottom: 6px;
-    }
     .flash-stack {
       display: grid;
       gap: 10px;
@@ -1286,24 +1271,15 @@
       {% else %}
       <p>{{ site_text("index.member_guest") }}</p>
       {% endif %}
+      {# 套餐与价格不在首页直接陈列（避免推销感）：订阅入口收敛为顶部导航「会员套餐」
+         与下方期刊卡片（按权限动态显示）。这里只保留账号状态与中性的下一步动作。 #}
       <div class="member-actions">
-        <a class="mini-btn" href="{{ url_for('pricing') }}">查看会员方案</a>
         {% if current_user %}
         <a class="mini-btn" href="{{ url_for('account') }}">进入会员中心</a>
         {% else %}
         <a class="mini-btn" href="{{ url_for('register') }}">先注册账号</a>
         {% endif %}
       </div>
-      {% if plans %}
-      <div class="plan-grid">
-        {% for plan in plans %}
-        <div class="plan-card">
-          <strong>{{ plan.name }}</strong>
-          <div class="muted">{{ format_price(plan.price_cents, plan.currency) }} / {{ plan.interval_months }} 个月</div>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
     </section>
 
     <div class="grid">
@@ -1422,7 +1398,9 @@
              邮箱确认/订阅按钮已去除——是否收到综述邮件由控制台受众/权限决定，无需用户确认邮箱。 #}
           <a class="feature-action" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
           {% else %}
-          <a class="feature-action disabled" aria-disabled="true" href="#">{{ site_text("index.journal_locked") }}</a>
+          {# 无期刊权限（访客/未开通会员）时，此处即首页第二个会员套餐入口：跟随控制台
+             「会员与权限」的 journal_alerts 实际授权动态切换，开通/勾选后自动变回周报入口。 #}
+          <a class="feature-action" href="{{ url_for('pricing') }}">{{ site_text("index.journal_locked") }}</a>
           {% endif %}
         </section>
 
