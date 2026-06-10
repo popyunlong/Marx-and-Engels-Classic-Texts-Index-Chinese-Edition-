@@ -1388,7 +1388,7 @@ class Corpus:
         pages = vol.pages[start_pi:end_pi + 1]
 
         context = self._extract_context(pages, q_raw, occurrence_index)
-        citation = self._make_citation(vol.book, vol.volume, pages)
+        citation = self._make_citation(vol.book, vol.volume, pages, source_file=vol.source_file)
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
         book_cfg = self.get_book_config(vol.book)
 
@@ -1429,8 +1429,11 @@ class Corpus:
         # 兜底：截取开头
         return raw[:200].replace("\n", " ")
 
-    def _make_citation(self, book: str, volume: int, pages: list[Page]) -> str:
-        year = self.volumes_cfg.get(book, {}).get(volume, "")
+    def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
+        # 分册年份优先：同一卷分多册、各册年份不同的（如马恩《全集》第 26 卷三册），按 source_file
+        # 在 file_years 里单独取年份；未命中再回退到「卷→年」映射。
+        file_years = self.volumes_cfg.get("file_years") or {}
+        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
         book_cfg = self.get_book_config(book)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")

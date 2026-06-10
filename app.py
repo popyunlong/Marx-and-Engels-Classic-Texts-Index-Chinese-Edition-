@@ -3998,7 +3998,7 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     previous_text = volume.pages[page_index - 1].raw_text if page_index > 0 else ""
     next_text = volume.pages[page_index + 1].raw_text if page_index < len(volume.pages) - 1 else ""
     section_title = corpus.get_section_for_page(source_file, page_number) if corpus else None
-    citation = corpus._make_citation(volume.book, volume.volume, [page_obj]) if corpus else ""
+    citation = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file) if corpus else ""
     page_label = page_obj.printed_page or f"PDF-{page_number}"
 
     return {
