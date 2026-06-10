@@ -4,11 +4,12 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "ai", "associative", "ai_web", "journal_alerts")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "ai", "associative", "ai_web", "journal_alerts")
 FEATURE_ACCESS_LABELS = {
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
+    "dictionary": "马克思主义大辞典",
     "ai": "AI 导学",
     "associative": "联想检索",
     "ai_web": "AI 联网（智谱）",
@@ -21,8 +22,8 @@ AUDIENCE_ACCESS_LABELS = {
     "registered": "注册用户",
 }
 DEFAULT_AUDIENCE_ACCESS = {
-    "guest": {"search": True, "viewer": False, "library": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
-    "registered": {"search": True, "viewer": False, "library": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
+    "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
+    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "associative": False, "ai_web": False, "journal_alerts": False},
 }
 
 

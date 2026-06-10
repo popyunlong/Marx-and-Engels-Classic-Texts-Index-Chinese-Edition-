@@ -1,5 +1,7 @@
 data/*
 !data/corpus.sqlite.sha256
+!data/dictionary.sqlite
+!data/dictionary_polish_report.json
 !data/release.json
 pdfs/*/*.pdf
 .deps_installed

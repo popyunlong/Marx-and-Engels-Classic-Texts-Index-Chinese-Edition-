@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ entry.title }} - {{ site_text("dictionary.heading") }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f3f5f6;
+      --panel: #ffffff;
+      --panel-soft: #f6f8f9;
+      --line: #d8dee3;
+      --text: #20262d;
+      --muted: #65717d;
+      --accent: #157f4c;
+      --accent-deep: #0f6d40;
+      --accent-soft: #e6f3ec;
+      --warn: #9a621a;
+      --warn-bg: #fff7df;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: var(--bg);
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, .94);
+      backdrop-filter: blur(10px);
+    }
+    .brand { display: grid; gap: 2px; min-width: 0; }
+    .brand strong { font-size: 1.05rem; }
+    .brand span { color: var(--muted); font-size: .9rem; }
+    .nav { display: flex; gap: 10px; flex-wrap: wrap; }
+    .nav a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      border-radius: 999px;
+      padding: 8px 14px;
+      text-decoration: none;
+      color: var(--accent);
+      border: 1px solid rgba(21, 127, 76, .35);
+      background: white;
+      font-weight: 700;
+    }
+    .nav a.primary {
+      color: white;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    main {
+      width: min(900px, calc(100% - 32px));
+      margin: 24px auto 52px;
+      display: grid;
+      gap: 16px;
+    }
+    article, .citation {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+    }
+    article { padding: 24px; }
+    .kicker {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      color: #52606c;
+      background: #e8edf1;
+      font-size: .86rem;
+      font-weight: 700;
+    }
+    .pill.review { color: var(--warn); background: var(--warn-bg); }
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(1.65rem, 4vw, 2.35rem);
+      line-height: 1.35;
+    }
+    .content {
+      display: grid;
+      gap: 14px;
+      color: var(--text);
+      font-size: 1.04rem;
+      line-height: 1.95;
+    }
+    .content p { margin: 0; }
+    .citation {
+      display: grid;
+      gap: 8px;
+      padding: 18px 20px;
+      border-left: 4px solid var(--accent);
+      background: linear-gradient(180deg, #ffffff, var(--panel-soft));
+    }
+    .citation strong { color: #52606c; }
+    .citation p { margin: 0; color: var(--muted); line-height: 1.75; }
+    @media (max-width: 720px) {
+      .topbar { display: grid; padding: 12px 16px; }
+      main { width: min(100% - 24px, 900px); margin-top: 16px; }
+      article { padding: 18px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>{{ site_text("dictionary.heading") }}</strong>
+      <span>{{ app_name }} · {{ app_version }}</span>
+    </div>
+    <nav class="nav">
+      <a href="{{ url_for('dictionary') }}">返回词条目录</a>
+      <a class="primary" href="/?restore=1">返回检索</a>
+    </nav>
+  </header>
+
+  <main>
+    <article>
+      <div class="kicker">
+        <span class="pill">{{ entry.letter }} 栏目</span>
+        <span class="pill">第 {{ entry.start_page }}{% if entry.end_page and entry.end_page != entry.start_page %}-{{ entry.end_page }}{% endif %} 页</span>
+        {% if entry.needs_review %}
+        <span class="pill review">抽取疑点已标记</span>
+        {% endif %}
+      </div>
+      <h1>{{ entry.title }}</h1>
+      <div class="content">
+        {% for paragraph in entry.paragraphs %}
+        <p>{{ paragraph }}</p>
+        {% else %}
+        <p>该词条解释内容暂未抽取成功。</p>
+        {% endfor %}
+      </div>
+    </article>
+
+    <section class="citation">
+      <strong>对应书籍页码引文</strong>
+      <p>{{ entry.citation }}</p>
+    </section>
+  </main>
+  {% include "_marx_mascot.html" %}
+</body>
+</html>
