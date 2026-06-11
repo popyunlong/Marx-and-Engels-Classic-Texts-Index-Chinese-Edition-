@@ -2576,6 +2576,15 @@
     });
   });
 
+  // 点击「开始检索」后把结果区滚入视野：#results 在页面靠下，doSearch/doAssociativeSearch
+  // 都会先同步 renderEmpty 出加载态，所以此刻滚动已有内容可见，随后结果就地填充不再跳动。
+  function scrollToResults() {
+    const anchor = (bookTabsEl && !bookTabsEl.hidden) ? bookTabsEl : out;
+    if (!anchor) return;
+    const top = anchor.getBoundingClientRect().top + window.pageYOffset - 76;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+
   function runActiveSearch() {
     const text = q.value.trim();
     if (!text) return;
@@ -2584,6 +2593,7 @@
     } else {
       doSearch(text);
     }
+    scrollToResults();
   }
 
   form.addEventListener('submit', e => {
