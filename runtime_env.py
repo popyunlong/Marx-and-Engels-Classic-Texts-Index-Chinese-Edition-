@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import yaml
 
 
-APP_NAME = "马克思恩格斯文集全集检索程序"
+APP_NAME = "马克思主义文库词句检索程序"
 APP_VERSION = "1.1.0"
 APP_ID = "marx_search_full"
 APP_TOKEN_HEADER = "X-App-Token"
