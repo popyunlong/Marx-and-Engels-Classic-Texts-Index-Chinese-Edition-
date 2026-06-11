@@ -401,6 +401,8 @@ _FIXED_PILL_TEXT = {
     "邓小平文选": "《邓小平文选》3卷1993—1994年版",
     "江泽民文选": "《江泽民文选》3卷2006年版",
     "胡锦涛文选": "《胡锦涛文选》3卷2016年版",
+    # 注意：界面文案统一用《治国理政》，全名仅出现在引文（citation_title），勿改。
+    "治国理政": "《治国理政》5卷2014—2025年版",
 }
 _book_pill_definitions = []
 for _pill_index, _book_item in enumerate(book_stats, start=1):

@@ -309,3 +309,19 @@
 - file: pdfs/胡锦涛文选/胡锦涛文选（第三卷）_B_01016724_001.pdf
   volume: 3
   display_title: 胡锦涛文选第三卷
+治国理政:
+- file: pdfs/《治国理政》/《治国理政》第一卷.pdf
+  volume: 1
+  display_title: 治国理政第一卷
+- file: pdfs/《治国理政》/《治国理政》第二卷.pdf
+  volume: 2
+  display_title: 治国理政第二卷
+- file: pdfs/《治国理政》/《治国理政》第三卷.pdf
+  volume: 3
+  display_title: 治国理政第三卷
+- file: pdfs/《治国理政》/《治国理政》第四卷.pdf
+  volume: 4
+  display_title: 治国理政第四卷
+- file: pdfs/《治国理政》/《治国理政》第五卷.pdf
+  volume: 5
+  display_title: 治国理政第五卷

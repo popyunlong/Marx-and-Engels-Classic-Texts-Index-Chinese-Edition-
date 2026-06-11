@@ -78,6 +78,14 @@ VOLUMES = [
         "sidecar": "data/huxuan_vol3_ocr.jsonl",
         "toc": "refresh_printed",
     },
+    {
+        "id": "zgl_vol3",
+        "book": "治国理政",
+        "volume": 3,
+        "source_file": "pdfs/《治国理政》/《治国理政》第三卷.pdf",
+        "sidecar": "data/zgl_vol3_ocr.jsonl",
+        "toc": "detect",
+    },
 ]
 
 # 篇首页特征：开头(去页码后)即「篇名（一九××年…日/月）」。日期可为时间段
@@ -189,8 +197,9 @@ def detect_toc(rows: list[tuple]) -> list[dict]:
 
 # ---- 印刷目录页解析（邓1/邓2 等无书签卷的目录权威来源）----
 # 目录页版式：标题（可跨行，行尾常带点引线/页码区间），下一行为「（一九××年…日）」日期括注。
-_TOC_TRAIL = re.compile(r"[·⋯…\.、\s\d—一–\-]+$")
-_TOC_HEADER = re.compile(r"^(目录|邓小平文选|第[一二三四]卷)$")
+_TOC_TRAIL = re.compile(r"[·⋯…\.、：:\s\d—一–\-]+$")
+_TOC_HEADER = re.compile(r"^(目录|邓小平文选|习近平谈治国理政|治国理政|第[一二三四五]卷)$")
+_TOC_SECTION = re.compile(r"^[一二三四五六七八九十]{1,3}、")
 
 
 def _flat_norm(s: str) -> str:
@@ -206,6 +215,16 @@ def parse_printed_toc(texts: dict[int, str], first_body_pdf: int) -> list[str]:
             start = i
             break
     if start is None:
+        # 回退：目录页特征 = 单页含 ≥2 条「日期括注独行」（扫描 OCR 偶尔丢失「目录」标题行）
+        for i in range(1, min(first_body_pdf, 30)):
+            lines = [l.strip() for l in (texts.get(i) or "").splitlines() if l.strip()]
+            ndates = sum(1 for l in lines
+                         if _DATE.search(re.sub(r"\s+", "", l))
+                         and len(re.sub(r"[（(].*?[)）]", "", re.sub(r"\s+", "", l)).strip()) <= 2)
+            if ndates >= 2:
+                start = i
+                break
+    if start is None:
         return []
     titles: list[str] = []
     acc: list[str] = []
@@ -214,6 +233,8 @@ def parse_printed_toc(texts: dict[int, str], first_body_pdf: int) -> list[str]:
             l = line.strip()
             if not l or _TOC_HEADER.match(l):
                 continue
+            if _TOC_SECTION.match(l) and not acc:
+                continue  # 专题头（治国理政），不计入篇名
             flat = re.sub(r"\s+", "", l)
             if _DATE.search(flat) and len(re.sub(r"[（(].*?[)）]", "", flat).strip()) <= 2:
                 # 日期行 → 收束当前条目

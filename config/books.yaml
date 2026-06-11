@@ -81,3 +81,16 @@ books:
   sort_order: 80
   tag_class: hu
   available: true
+# 《治国理政》5 卷（外文出版社）：界面展示一律用《治国理政》（title/short_title），
+# 仅引文文本用全名（citation_title），勿改动这一分流。
+# 卷1/5 为扫描图+文字层、卷2/4 为纯文本 PDF（卷4 书签乱码不可用，目录由
+# build_scan_volumes 的 detect_db 模式从正文识别覆盖）、卷3 纯扫描走 OCR sidecar 注入。
+- key: 治国理政
+  title: 《治国理政》
+  short_title: 《治国理政》
+  citation_title: 习近平谈治国理政
+  folder: pdfs/《治国理政》
+  sort_order: 90
+  tag_class: zgl
+  publisher: 外文出版社
+  available: true
