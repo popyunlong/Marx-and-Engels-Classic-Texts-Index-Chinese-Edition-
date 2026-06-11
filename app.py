@@ -91,6 +91,7 @@ from membership import (
     get_admin_dashboard_first_day,
     get_admin_dashboard_metrics,
     get_ai_token_usage,
+    get_user_zhipu_limit,
     get_plan,
     get_user_ai_limit,
     get_user_by_email,
@@ -2452,16 +2453,18 @@ def _require_ai_quota_or_raise() -> dict:
 
 
 def _require_zhipu_quota_or_raise(quota: dict) -> None:
-    """智谱通道的每日 token 子配额（全局默认，控制台「智能服务」可调，0＝不限）。
+    """智谱通道的每日 token 子配额，按套餐分级（套餐管理可按套餐单设；未设＝跟随
+    智能服务里的全局默认；任一层填 0＝不限）。
 
     智谱用量同时计入总配额与本子配额：总闸门照旧，这里只多一道针对高价通道的闸。
     超限仅挡智谱——用户切回 DeepSeek 即可继续使用。管理员豁免，便于线上验证。
     """
-    limit = int(AI_CONFIG.zhipu_daily_token_limit or 0)
-    if limit <= 0:
-        return
     user = getattr(g, "current_user", None)
     if _is_admin_user(user):
+        return
+    plan_limit = get_user_zhipu_limit(int(user["id"])) if user else None
+    limit = int(AI_CONFIG.zhipu_daily_token_limit or 0) if plan_limit is None else int(plan_limit)
+    if limit <= 0:
         return
     used = get_ai_token_usage(
         day=str(quota.get("day") or ""),
@@ -3525,6 +3528,7 @@ def _handle_plans_submit(*, remote_admin: bool):
             interval_months=_form_int("interval_months", 1),
             description=(request.form.get("description") or "").strip(),
             daily_ai_token_limit=_form_optional_int("daily_ai_token_limit"),
+            daily_zhipu_token_limit=_form_optional_int("daily_zhipu_token_limit"),
             features=(request.form.get("features") or "").strip(),
             badge=(request.form.get("badge") or "").strip(),
             is_active=_form_bool("is_active"),

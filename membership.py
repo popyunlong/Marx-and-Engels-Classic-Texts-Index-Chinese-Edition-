@@ -282,6 +282,20 @@ def init_membership_db() -> Path:
         plan_columns = _table_columns(conn, "plans")
         if "daily_ai_token_limit" not in plan_columns:
             conn.execute("ALTER TABLE plans ADD COLUMN daily_ai_token_limit INTEGER")
+        if "daily_zhipu_token_limit" not in plan_columns:
+            # 智谱（GLM 联网通道）每日 token 子配额按套餐分级。建列时按套餐时长一次性
+            # 初始化为与套餐营销文案一致的默认值（月 3 万/季 6 万/年 10 万），后台可改；
+            # NULL＝跟随智能服务里的全局默认，0＝该套餐不限。
+            conn.execute("ALTER TABLE plans ADD COLUMN daily_zhipu_token_limit INTEGER")
+            conn.execute(
+                """
+                UPDATE plans SET daily_zhipu_token_limit = CASE
+                    WHEN interval_months >= 12 THEN 100000
+                    WHEN interval_months >= 3 THEN 60000
+                    ELSE 30000
+                END
+                """
+            )
         # 每套餐独立营销文案：features=卖点清单（每行一条），badge=角标/促销标签。
         # 旧库通过 ALTER 补列，默认空＝定价页回退到全站统一的默认卖点，向后兼容。
         if "features" not in plan_columns:
@@ -345,7 +359,7 @@ def list_active_plans() -> list[dict]:
         rows = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, features, badge
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge
             FROM plans
             WHERE is_active = 1
             ORDER BY sort_order ASC, code ASC
@@ -360,7 +374,7 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
         rows = conn.execute(
             f"""
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, features, badge, is_active, sort_order
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
             FROM plans
             {where}
             ORDER BY sort_order ASC, code ASC
@@ -374,7 +388,7 @@ def get_plan(plan_code: str) -> dict | None:
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, features, badge, is_active
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active
             FROM plans
             WHERE code = ?
             """,
@@ -392,6 +406,7 @@ def upsert_plan(
     interval_months: int,
     description: str = "",
     daily_ai_token_limit: int | None = None,
+    daily_zhipu_token_limit: int | None = None,
     features: str = "",
     badge: str = "",
     is_active: bool = True,
@@ -406,6 +421,8 @@ def upsert_plan(
         raise ValueError("套餐价格不能小于 0。")
     if daily_ai_token_limit is not None and int(daily_ai_token_limit) < 0:
         raise ValueError("AI token 限额不能小于 0。")
+    if daily_zhipu_token_limit is not None and int(daily_zhipu_token_limit) < 0:
+        raise ValueError("智谱每日限额不能小于 0。")
     # 卖点清单逐行规整：去掉空行与首尾空白，统一以 \n 存储，便于定价页逐行渲染。
     normalized_features = "\n".join(
         line.strip() for line in (features or "").replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()
@@ -415,9 +432,9 @@ def upsert_plan(
             """
             INSERT INTO plans(
                 code, name, price_cents, currency, interval_months, description,
-                daily_ai_token_limit, features, badge, is_active, sort_order
+                daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name,
                 price_cents=excluded.price_cents,
@@ -425,6 +442,7 @@ def upsert_plan(
                 interval_months=excluded.interval_months,
                 description=excluded.description,
                 daily_ai_token_limit=excluded.daily_ai_token_limit,
+                daily_zhipu_token_limit=excluded.daily_zhipu_token_limit,
                 features=excluded.features,
                 badge=excluded.badge,
                 is_active=excluded.is_active,
@@ -438,6 +456,7 @@ def upsert_plan(
                 int(interval_months),
                 (description or "").strip(),
                 None if daily_ai_token_limit is None else int(daily_ai_token_limit),
+                None if daily_zhipu_token_limit is None else int(daily_zhipu_token_limit),
                 normalized_features,
                 (badge or "").strip(),
                 1 if is_active else 0,
@@ -447,7 +466,7 @@ def upsert_plan(
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, features, badge, is_active, sort_order
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
             FROM plans
             WHERE code = ?
             """,
@@ -1744,6 +1763,33 @@ def get_user_ai_limit(user_id: int | None) -> dict:
         "user_override": None if user_override is None else int(user_override),
         "plan_limit": None if plan_limit is None else int(plan_limit),
     }
+
+
+def get_user_zhipu_limit(user_id: int | None) -> int | None:
+    """当前用户的智谱每日 token 子配额（套餐级）。
+
+    返回套餐的 daily_zhipu_token_limit：None＝该套餐未单设（或无套餐/未登录），
+    调用方回退到智能服务里的全局默认；0＝该套餐不限。
+    """
+    if not user_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT p.daily_zhipu_token_limit AS plan_limit
+            FROM subscriptions s
+            JOIN plans p ON p.code = s.plan_code
+            WHERE s.user_id = ?
+              AND s.status = 'active'
+              AND s.expires_at > ?
+            ORDER BY s.expires_at DESC, s.created_at DESC, s.id DESC
+            LIMIT 1
+            """,
+            (int(user_id), utc_now_text()),
+        ).fetchone()
+    if row is None or row["plan_limit"] is None:
+        return None
+    return int(row["plan_limit"])
 
 
 def get_admin_dashboard_first_day() -> str:
