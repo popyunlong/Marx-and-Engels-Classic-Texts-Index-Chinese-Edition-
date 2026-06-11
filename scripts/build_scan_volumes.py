@@ -86,6 +86,25 @@ VOLUMES = [
         "sidecar": "data/zgl_vol3_ocr.jsonl",
         "toc": "detect",
     },
+    # 卷2 扫描版（2022-09 版本）：书签为「页码书签」（1..569 → pdf−19），无篇章书签，
+    # 目录由 OCR 正文识别 + 印刷目录页补齐；build_toc 会插入数字垃圾目录，本脚本覆盖之。
+    {
+        "id": "zgl_vol2",
+        "book": "治国理政",
+        "volume": 2,
+        "source_file": "pdfs/《治国理政》/《治国理政》第二卷.pdf",
+        "sidecar": "data/zgl_vol2_ocr.jsonl",
+        "toc": "detect",
+    },
+    # 卷4 扫描版：134 条干净篇章书签（build_toc 写入），此处仅回填 printed_page。
+    {
+        "id": "zgl_vol4",
+        "book": "治国理政",
+        "volume": 4,
+        "source_file": "pdfs/《治国理政》/《治国理政》第四卷.pdf",
+        "sidecar": "data/zgl_vol4_ocr.jsonl",
+        "toc": "refresh_printed",
+    },
 ]
 
 # 篇首页特征：开头(去页码后)即「篇名（一九××年…日/月）」。日期可为时间段
@@ -356,6 +375,11 @@ def main() -> None:
                 )
                 msg += f"；识别目录 {len(toc)} 条（印刷目录补齐 {added} 条）"
             elif spec["toc"] == "refresh_printed":
+                # 书名页书签会把全名带进界面目录（治国理政文案分流要求），删除之；不动正文篇名。
+                conn.execute(
+                    "DELETE FROM toc_entries WHERE book=? AND volume=? AND title LIKE '%习近平谈治国理政%'",
+                    (spec["book"], spec["volume"]),
+                )
                 cur = conn.execute(
                     "UPDATE toc_entries SET printed_page = ("
                     "  SELECT p.printed_page FROM pages p"

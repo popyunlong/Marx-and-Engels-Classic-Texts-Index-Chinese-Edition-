@@ -33,9 +33,9 @@ BOOK = "治国理政"
 
 # synth: none=页码已可检测不动 pages；const=印刷页=pdf−恒定偏移（重排版与纸书逐页对应）；
 # interp=逐篇锚点分段线性插值（重排版页密度与纸书漂移，目录页码=纸书页码）
+# 注：卷2/卷4 已于 2026-06-11 换为扫描版（OCR sidecar + build_scan_volumes 注入，
+# 卷4 目录走书签），不再经本脚本处理；仅剩卷5（扫描+文字层、无书签）。
 VOLS = {
-    2: {"source_file": "pdfs/《治国理政》/《治国理政》第二卷.pdf", "synth": "interp"},
-    4: {"source_file": "pdfs/《治国理政》/《治国理政》第四卷.pdf", "synth": "interp"},
     5: {"source_file": "pdfs/《治国理政》/《治国理政》第五卷.pdf", "synth": "none"},
 }
 
