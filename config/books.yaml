@@ -50,3 +50,34 @@ books:
   sort_order: 50
   tag_class: maowenji
   available: true
+# 《邓小平文选》3 卷：第 1、2 卷为扫描件（无文本层，~1650px 原生，正文走本地 OCR
+# sidecar 注入，scripts/build_scan_volumes.py）；第 3 卷为文本层 PDF，书签目录完整，
+# 走标准文本书库流程。第 1、2 卷无书签，目录由 OCR 正文「篇名（日期）」识别推导。
+- key: 邓小平文选
+  title: 《邓小平文选》
+  short_title: 邓小平《文选》
+  citation_title: 邓小平文选
+  folder: pdfs/邓小平文选
+  sort_order: 60
+  tag_class: deng
+  available: true
+# 《江泽民文选》3 卷：均为文本层 PDF，书签目录完整，走标准文本书库流程
+# （build_textbook_index + build_toc）。
+- key: 江泽民文选
+  title: 《江泽民文选》
+  short_title: 江泽民《文选》
+  citation_title: 江泽民文选
+  folder: pdfs/江泽民文选
+  sort_order: 70
+  tag_class: jiang
+  available: true
+# 《胡锦涛文选》3 卷：均为扫描件（无文本层，~725px 低清原生），但书签目录完整
+# （目录走 build_toc 书签路线），正文走本地 OCR sidecar 注入（build_scan_volumes.py）。
+- key: 胡锦涛文选
+  title: 《胡锦涛文选》
+  short_title: 胡锦涛《文选》
+  citation_title: 胡锦涛文选
+  folder: pdfs/胡锦涛文选
+  sort_order: 80
+  tag_class: hu
+  available: true

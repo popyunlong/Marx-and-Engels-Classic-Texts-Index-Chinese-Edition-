@@ -39,6 +39,45 @@ MANIFEST = ROOT / "config" / "manifest.yaml"
 HASH_PATH = BUILD_DB_PATH.with_suffix(BUILD_DB_PATH.suffix + ".sha256")
 
 
+def _looks_per_char(raw: str) -> bool:
+    """文本层是否为「逐字一行」式（如《邓小平文选》第3卷：每个汉字单独成行）。"""
+    lines = [l.strip() for l in raw.splitlines() if l.strip()]
+    if len(lines) < 50:
+        return False
+    avg = sum(len(l) for l in lines) / len(lines)
+    return avg < 2.5
+
+
+def reflow_char_lines(page) -> str:
+    """按 span 中心 y 坐标把逐字 span 重组为视觉行（保持提取顺序，不按 x 重排）。
+
+    仅用于逐字一行的文本层；正常文本层直接用 get_text("text") 原文。
+    """
+    d = page.get_text("dict")
+    out_lines: list[str] = []
+    cur: list[str] = []
+    cur_y: float | None = None
+    for blk in d.get("blocks", []):
+        for line in blk.get("lines", []):
+            for sp in line.get("spans", []):
+                t = (sp.get("text") or "").strip()
+                if not t:
+                    continue
+                y0, y1 = sp["bbox"][1], sp["bbox"][3]
+                yc = (y0 + y1) / 2
+                h = max(1.0, y1 - y0)
+                if cur_y is None or abs(yc - cur_y) <= h * 0.6:
+                    cur.append(t)
+                    cur_y = yc if cur_y is None else (cur_y * 0.8 + yc * 0.2)
+                else:
+                    out_lines.append("".join(cur))
+                    cur = [t]
+                    cur_y = yc
+    if cur:
+        out_lines.append("".join(cur))
+    return "\n".join(out_lines)
+
+
 def update_hash() -> None:
     digest = hashlib.sha256()
     with BUILD_DB_PATH.open("rb") as fh:
@@ -71,6 +110,8 @@ def build_book(book: str) -> int:
         with fitz.open(pdf_path) as doc:
             for i, page in enumerate(doc, start=1):
                 raw = page.get_text("text")
+                if _looks_per_char(raw):
+                    raw = reflow_char_lines(page)
                 printed = detect_printed_page_from_page(page)
                 if printed and not printed.startswith("pre-"):
                     detected += 1

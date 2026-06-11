@@ -398,6 +398,9 @@ _FIXED_PILL_TEXT = {
     "列宁全集": "《列宁全集》60卷中文第二版",
     "毛泽东选集": "《毛泽东选集》4卷1991年版",
     "毛泽东文集": "《毛泽东文集》8卷1993年版",
+    "邓小平文选": "《邓小平文选》3卷1993—1994年版",
+    "江泽民文选": "《江泽民文选》3卷2006年版",
+    "胡锦涛文选": "《胡锦涛文选》3卷2016年版",
 }
 _book_pill_definitions = []
 for _pill_index, _book_item in enumerate(book_stats, start=1):
@@ -1656,6 +1659,57 @@ def _highlight_terms(query_text: str) -> list[str]:
             seen.add(item)
             ordered.append(item)
     return ordered
+
+
+def _per_char_term_rects(page, terms: list[str]) -> list:
+    """逐字文本层（如《邓小平文选》第3卷：每个汉字单独成 span/行）上 search_for 失效时的
+    高亮兜底：把单字 span 平铺成连续字符串后手工定位词项，按行合并字符框。
+    仅在「绝大多数 span 不超过 2 字」时启用，普通文本层不会进入此路径。"""
+    try:
+        d = page.get_text("dict")
+    except Exception:
+        return []
+    entries: list[tuple[str, fitz.Rect]] = []
+    for blk in d.get("blocks", []):
+        for line in blk.get("lines", []):
+            for sp in line.get("spans", []):
+                t = re.sub(r"\s+", "", sp.get("text") or "")
+                if not t:
+                    continue
+                entries.append((t, fitz.Rect(sp["bbox"])))
+    if len(entries) < 30:
+        return []
+    if sum(1 for t, _ in entries if len(t) <= 2) < len(entries) * 0.8:
+        return []
+    flat = ""
+    offsets: list[int] = []
+    for t, _ in entries:
+        offsets.append(len(flat))
+        flat += t
+    rects: list = []
+    for term in terms:
+        compact = term.replace(" ", "")
+        if len(compact) < 2:
+            continue
+        start = flat.find(compact)
+        while start != -1 and len(rects) < 12:
+            end = start + len(compact)
+            cur = None
+            for (t, r), off in zip(entries, offsets):
+                if off + len(t) <= start or off >= end:
+                    continue
+                if cur is not None and abs(r.y0 - cur.y0) < max(r.height, cur.height) * 0.6:
+                    cur |= r
+                else:
+                    if cur is not None:
+                        rects.append(cur)
+                    cur = fitz.Rect(r)
+            if cur is not None:
+                rects.append(cur)
+            start = flat.find(compact, end)
+        if rects:
+            break
+    return rects[:12]
 
 
 def _clean_text(value: str, limit: int | None = None) -> str:
@@ -4231,6 +4285,7 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
             abort(404, description="请求页码超出 PDF 范围。")
         page = doc[page_number - 1]
 
+        highlight_done = False
         for term in _highlight_terms(query_text):
             rects = page.search_for(term, quads=False)
             if not rects:
@@ -4240,7 +4295,15 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
                 annot.set_colors(stroke=(1.0, 0.86, 0.2))
                 annot.set_opacity(0.45)
                 annot.update()
+            highlight_done = True
             break
+        if not highlight_done and query_text:
+            # 逐字文本层兜底（search_for 在单字 span 布局上找不到多字词项）
+            for rect in _per_char_term_rects(page, _highlight_terms(query_text)):
+                annot = page.add_highlight_annot(rect)
+                annot.set_colors(stroke=(1.0, 0.86, 0.2))
+                annot.set_opacity(0.45)
+                annot.update()
 
         # 原生分辨率自适应缩放：渲染倍率「不低于源原生（不丢真实细节）、且不低于显示下限（填满阅读器）」，
         # 再夹到 [lo, hard_max]；USM 锐化强度按上采样倍数自适应（接近原生→几乎不锐化，避免过锐伪影）。

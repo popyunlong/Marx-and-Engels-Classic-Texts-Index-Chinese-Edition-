@@ -279,3 +279,33 @@
 - file: pdfs/《毛泽东文集》/8.pdf
   volume: 8
   display_title: 毛泽东文集第八卷
+邓小平文选:
+- file: pdfs/邓小平文选/邓小平文选（第1卷）1994年版.pdf
+  volume: 1
+  display_title: 邓小平文选第一卷
+- file: pdfs/邓小平文选/邓小平文选（第2卷）1994年版.pdf
+  volume: 2
+  display_title: 邓小平文选第二卷
+- file: pdfs/邓小平文选/邓小平文选（第3卷）1994年版.pdf
+  volume: 3
+  display_title: 邓小平文选第三卷
+江泽民文选:
+- file: pdfs/江泽民文选/江泽民文选（第1卷）2006年版.pdf
+  volume: 1
+  display_title: 江泽民文选第一卷
+- file: pdfs/江泽民文选/江泽民文选（第2卷）2006年版.pdf
+  volume: 2
+  display_title: 江泽民文选第二卷
+- file: pdfs/江泽民文选/江泽民文选（第3卷）2006年版.pdf
+  volume: 3
+  display_title: 江泽民文选第三卷
+胡锦涛文选:
+- file: pdfs/胡锦涛文选/胡锦涛文选（第一卷）_B_01016717_001.pdf
+  volume: 1
+  display_title: 胡锦涛文选第一卷
+- file: pdfs/胡锦涛文选/胡锦涛文选（第二卷）_B_01016720_001.pdf
+  volume: 2
+  display_title: 胡锦涛文选第二卷
+- file: pdfs/胡锦涛文选/胡锦涛文选（第三卷）_B_01016724_001.pdf
+  volume: 3
+  display_title: 胡锦涛文选第三卷
