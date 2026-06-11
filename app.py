@@ -1182,7 +1182,7 @@ def _reader_access_entries() -> list[dict]:
 # ---- 首页功能栏「自定义彩色标签」（控制台·内容运营可增删，每张卡片一组）----
 # 原有「已可用 / 登录即可使用 / 开通会员后使用 / 暂未开放」状态 pill 的逻辑完全保留、自动按权限显示；
 # 这里是在其旁边「额外」叠加管理员自定义的彩色小标签（如「新上线」「限时免费」）。默认空＝不显示，
-# 行为与从前一致。数据存设置项 index_feature_tags={"full":[{text,color}],"ai":[...],"journal":[...]}。
+# 行为与从前一致。数据存设置项 index_feature_tags={"full":[{text,color}],"dictionary":[...],"ai":[...],"journal":[...]}。
 _FEATURE_TAG_CARDS = ("full", "dictionary", "ai", "journal")
 _FEATURE_TAG_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 _FEATURE_TAG_FALLBACK_COLOR = "#157f4c"
@@ -1206,7 +1206,7 @@ def _tag_text_color_for(bg_hex: str) -> str:
 
 
 def _get_feature_tags() -> dict[str, list[dict]]:
-    """读取并清洗首页功能栏自定义标签；始终返回三张卡片的键，缺失/异常时为空列表。"""
+    """读取并清洗首页功能栏自定义标签；始终返回四张卡片的键，缺失/异常时为空列表。"""
     raw = get_setting("index_feature_tags", {})
     raw = raw if isinstance(raw, dict) else {}
     result: dict[str, list[dict]] = {}
