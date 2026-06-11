@@ -7976,13 +7976,17 @@ def api_ai_pdf_chat_stream():
                 success=True,
                 provider=ai_provider,
             )
+            done_sources = stream_meta.get("sources") or sources
+            done_warnings = list(warnings)
+            if ai_provider == "zhipu" and not done_sources:
+                done_warnings.append("本次未获取到联网检索来源（检索服务暂不可用或已降级），讲解基于本页文本与模型自身知识。")
             yield _sse_event(
                 "done",
                 {
                     "ok": True,
                     "answer_markdown": answer_text,
-                    "sources": (stream_meta.get("sources") or sources),
-                    "warnings": warnings,
+                    "sources": done_sources,
+                    "warnings": done_warnings,
                 },
             )
         except AIServiceError as exc:

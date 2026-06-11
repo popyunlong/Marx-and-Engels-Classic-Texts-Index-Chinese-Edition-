@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from collections import OrderedDict
@@ -61,6 +62,9 @@ AI_EDITABLE_KEYS = (
     "pdf_quick_adjacent_excerpt_char_limit",
     "temperature",
 )
+
+
+LOGGER = logging.getLogger("marx.ai")
 
 
 class AIServiceError(RuntimeError):
@@ -576,6 +580,9 @@ class ZAIClient:
             sources_out=sources,
             web_search_query=self.zhipu_search_query(question) if use_zhipu else None,
         )
+        if use_zhipu and not sources:
+            # 联网失效必须对用户可见：否则模型可能按提示词“演”出参考来源说明，造成已联网的假象。
+            warnings.append("本次未获取到联网检索来源（检索服务暂不可用或已降级），回答基于模型自身知识。")
         return AIAnswer(
             answer_markdown=answer,
             sources=sources,
@@ -765,6 +772,8 @@ class ZAIClient:
             sources_out=sources,
             web_search_query=self.zhipu_search_query(question, page_context) if use_zhipu else None,
         )
+        if use_zhipu and not sources:
+            warnings.append("本次未获取到联网检索来源（检索服务暂不可用或已降级），讲解基于本页文本与模型自身知识。")
         return AIAnswer(
             answer_markdown=answer,
             sources=sources,
@@ -944,9 +953,11 @@ class ZAIClient:
                     service_label=route["label"],
                 )
                 break
-            except AIServiceError:
+            except AIServiceError as exc:
                 if stage_index == len(tool_stages) - 1:
                     raise
+                # 降级必须可观测：否则“联网悄悄失效”无从排查（journalctl 可查到这行）。
+                LOGGER.warning("zhipu chat stage %d failed, degrading: %s", stage_index, exc)
         if use_zhipu and sources_out is not None:
             sources_out.extend(self._zhipu_sources_from_payload(data))
         choices = data.get("choices") or []
@@ -980,11 +991,12 @@ class ZAIClient:
                     messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded
                 )
                 return
-            except AIServiceError:
+            except AIServiceError as exc:
                 # 首包即失败（强制参数/联网工具不被支持等）且未输出任何内容时，逐级降级重试；
                 # 已经吐过增量就不能换档重来（会输出重复内容），原样抛出由路由层兜底。
                 if yielded[0] or stage_index == len(tool_stages) - 1:
                     raise
+                LOGGER.warning("zhipu stream stage %d failed, degrading: %s", stage_index, exc)
 
     def _stream_chat_once(
         self,
