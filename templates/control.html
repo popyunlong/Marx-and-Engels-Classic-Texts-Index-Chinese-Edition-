@@ -654,6 +654,13 @@
               <label class="field-wide">智谱 Base URL <input type="text" name="zhipu_base_url" value="{{ ai_settings.zhipu_base_url }}" placeholder="https://open.bigmodel.cn/api/paas/v4"></label>
               <label class="field-wide">智谱 API Key <input type="text" name="zhipu_api_key" value="{{ ai_settings.zhipu_api_key }}" placeholder="留空＝关闭智谱联网通道"></label>
             </div>
+            {% if remote_admin %}
+            <div class="actions" style="margin-top:12px">
+              <button class="btn" type="button" id="zhipuSelftestBtn">智谱联网自检</button>
+              <span class="section-note" id="zhipuSelftestStatus" style="margin-left:8px">用「已保存」的配置直测智谱：定位是账户没搜索资源、Key 不对，还是检索没注入（改完 Key 请先保存再测；每次自检产生一次检索计费）。</span>
+            </div>
+            <pre id="zhipuSelftestResult" style="display:none;white-space:pre-wrap;background:rgba(123,31,31,0.06);padding:12px;border-radius:10px;margin-top:10px;font-size:13px;line-height:1.7"></pre>
+            {% endif %}
             <div class="form-grid wide-3" style="margin-top:14px">
               <label class="field">超时秒数 <input type="number" name="request_timeout_seconds" value="{{ ai_settings.request_timeout_seconds }}" min="5"></label>
               <label class="field">历史轮数 <input type="number" name="max_history_turns" value="{{ ai_settings.max_history_turns }}" min="1"></label>
@@ -1689,6 +1696,42 @@
   <script>
     const section = new URLSearchParams(window.location.search).get('section');
     if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' });
+
+    (function () {
+      const btn = document.getElementById('zhipuSelftestBtn');
+      if (!btn) return;
+      const status = document.getElementById('zhipuSelftestStatus');
+      const box = document.getElementById('zhipuSelftestResult');
+      btn.addEventListener('click', function () {
+        btn.disabled = true;
+        status.textContent = '自检中…（直连智谱实测，约 5～30 秒）';
+        box.style.display = 'none';
+        fetch('/admin/zhipu-selftest', { headers: { 'Accept': 'application/json' } })
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            btn.disabled = false;
+            if (!data.ok) {
+              status.textContent = '自检失败：' + (data.error || '未知错误');
+              return;
+            }
+            const r = data.report || {};
+            status.textContent = '自检完成。';
+            const lines = [
+              '结论：' + (r.verdict || ''),
+              '',
+              '· 独立检索端点 /web_search：' + (r.endpoint_ok ? ('正常，返回 ' + r.endpoint_results + ' 条结果') : ('失败 —— ' + r.endpoint_error)),
+              '· 强制联网对话：' + (r.chat_ok ? ('调用成功，来源 ' + r.chat_sources + ' 条，prompt_tokens=' + r.chat_prompt_tokens + '（约11=检索未注入，>1000=已注入）') : ('失败 —— ' + r.chat_error)),
+              '· 当前配置：model=' + (r.model || '') + '，engine=' + (r.search_engine || '') + '，base=' + (r.base_url || ''),
+            ];
+            box.textContent = lines.join('\n');
+            box.style.display = 'block';
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            status.textContent = '自检请求异常：' + err;
+          });
+      });
+    })();
 
     (function () {
       const panel = document.getElementById('ai-usage-detail');

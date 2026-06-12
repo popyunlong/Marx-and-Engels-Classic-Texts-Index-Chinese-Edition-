@@ -5441,6 +5441,26 @@ def admin_reader_access_ban():
     return _handle_reader_access_ban(remote_admin=True)
 
 
+@app.get("/admin/zhipu-selftest")
+def admin_zhipu_selftest():
+    """智谱联网通道一键自检：直接调独立检索端点 + 最小化强制联网对话，把确切原因
+    （如账户搜索资源耗尽的 1113 报错、Key 无效、检索未注入的 prompt_tokens 指纹）
+    返回给后台，不再需要登服务器看日志。会产生一次真实检索与少量 token 计费。"""
+    _require_admin()
+    try:
+        report = AI_CLIENT.zhipu_web_selftest()
+    except Exception as exc:  # 自检绝不能把后台搞挂
+        LOGGER.warning("zhipu selftest crashed: %s", exc)
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    _log_management_action(
+        action="ai.zhipu_selftest",
+        target="zhipu",
+        result=str(report.get("verdict") or "")[:200],
+        remote_admin=True,
+    )
+    return jsonify({"ok": True, "report": report})
+
+
 @app.get("/admin/ai-usage")
 def admin_ai_usage():
     """返回某用户最近 AI 请求明细的 JSON，供总览页“查看用量详情”弹窗使用。"""

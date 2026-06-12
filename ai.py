@@ -918,6 +918,98 @@ class ZAIClient:
             None,
         ]
 
+    def zhipu_web_selftest(self) -> dict[str, Any]:
+        """智谱联网通道一键自检（管理后台用）：三项硬指标定位“为什么没联网”。
+
+        联网搜索是智谱平台侧执行的独立计费产品：账户无搜索资源时，对话内
+        web_search 工具会被平台静默跳过（HTTP 200、不报错、forced_search 也救不了），
+        只有独立 /web_search 端点会给出真实错误码（如 1113「您账户无可用资源包，请充值」）。
+        prompt_tokens 是第二重指纹：约 11 为检索未注入，>1000 为已注入。
+        """
+        result: dict[str, Any] = {
+            "enabled": self.config.zhipu_enabled,
+            "model": self.config.zhipu_model,
+            "base_url": self.config.zhipu_base_url,
+            "search_engine": self.config.zhipu_search_engine,
+            "endpoint_ok": False,
+            "endpoint_error": "",
+            "endpoint_results": 0,
+            "chat_ok": False,
+            "chat_error": "",
+            "chat_sources": 0,
+            "chat_prompt_tokens": None,
+            "verdict": "",
+        }
+        if not self.config.zhipu_enabled:
+            result["verdict"] = "未配置智谱 API Key，通道整体关闭。"
+            return result
+        try:
+            data = self._post_json(
+                "/web_search",
+                {
+                    "search_engine": self.config.zhipu_search_engine,
+                    "search_query": "马克思 生平",
+                    "count": 1,
+                },
+                base_url=self.config.zhipu_base_url,
+                api_key=self.config.zhipu_api_key,
+                service_label="智谱AI",
+            )
+            result["endpoint_ok"] = True
+            result["endpoint_results"] = len(data.get("search_result") or [])
+        except AIServiceError as exc:
+            result["endpoint_error"] = str(exc)
+        try:
+            data = self._post_json(
+                "/chat/completions",
+                {
+                    "model": self.config.zhipu_model,
+                    "messages": [{"role": "user", "content": "用一句话说明马克思的出生年份与出生地。"}],
+                    "stream": False,
+                    "max_tokens": 96,
+                    "thinking": {"type": "disabled"},
+                    "tools": self._zhipu_web_search_tools("马克思 出生年份 出生地", forced=True),
+                },
+                base_url=self.config.zhipu_base_url,
+                api_key=self.config.zhipu_api_key,
+                service_label="智谱AI",
+            )
+            result["chat_ok"] = True
+            result["chat_sources"] = len(self._zhipu_sources_from_payload(data))
+            usage = data.get("usage") or {}
+            if isinstance(usage, dict) and usage.get("prompt_tokens") is not None:
+                result["chat_prompt_tokens"] = int(usage["prompt_tokens"])
+        except AIServiceError as exc:
+            result["chat_error"] = str(exc)
+        result["verdict"] = self._zhipu_selftest_verdict(result)
+        return result
+
+    @staticmethod
+    def _zhipu_selftest_verdict(result: dict[str, Any]) -> str:
+        if not result["endpoint_ok"]:
+            error = str(result["endpoint_error"])
+            if "1113" in error or "资源包" in error or "充值" in error:
+                return (
+                    "智谱账户没有可用的联网搜索资源（资源包耗尽或余额不足），平台因此在对话中"
+                    "静默跳过检索。去智谱开放平台给该 Key 所属账户充值/购买搜索资源包即可恢复，"
+                    "代码与本页配置无需改动。"
+                )
+            if "401" in error or "令牌" in error or "apikey" in error.lower() or "鉴权" in error:
+                return "智谱 API Key 无效或已过期：请核对上方 Key 是否为充值账户的 Key，重新粘贴后保存再测。"
+            return f"独立检索端点调用失败：{error}"
+        if not result["chat_ok"]:
+            return f"检索端点正常，但对话调用失败：{result['chat_error']}"
+        if result["chat_sources"] > 0:
+            return "联网检索一切正常：对话返回了真实检索来源。若用户仍反馈无来源，请核对其所用功能与权限。"
+        prompt_tokens = result["chat_prompt_tokens"]
+        if prompt_tokens is not None and int(prompt_tokens) < 200:
+            return (
+                f"检索端点单独调用可用，但对话内检索未注入（prompt_tokens={prompt_tokens}，"
+                "正常注入应 >1000）：平台静默跳过了 web_search 工具，常见于账户搜索资源不足、"
+                "或当前模型/引擎组合暂不支持对话内检索，请到智谱控制台核对资源与模型公告。"
+            )
+        return "对话已注入检索内容但未提取到来源列表，可能是响应字段变化，请保留本结果联系开发者排查。"
+
     def chat_complete(
         self,
         messages: list[dict[str, str]],
