@@ -639,7 +639,7 @@
               <div class="field-wide section-note">上方为默认对话通道（DeepSeek），首页随心问、阅读器导学与联想检索都用它。</div>
             </div>
             <h3 style="margin-top:18px">智谱 GLM·联网检索通道（可选）</h3>
-            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中后<strong>每次提问都强制执行联网检索</strong>（不依赖模型自行判断；每次产生按次检索费，引擎档位价格见智谱开放平台）。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。「每日 token 限额/人」是智谱通道子配额的<strong>全局默认值</strong>（默认 30000，约 8~12 次阅读讲解）；「套餐管理」里可按套餐单设「智谱每日限额」覆盖它（已按月 3 万/季 6 万/年 10 万初始化）。超限后用户切回 DeepSeek 即可继续，0＝不限。</p>
+            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中后<strong>每次提问都强制执行联网检索</strong>——由服务端直调智谱独立检索端点并把结果注入对话（不受平台「Coding套餐 &gt; 资源包 &gt; 余额」抵扣顺序影响，不依赖模型自行判断；每次产生按次检索费，引擎档位价格见智谱开放平台），直查失败时自动退回对话内检索三级降级。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。「每日 token 限额/人」是智谱通道子配额的<strong>全局默认值</strong>（默认 30000，约 8~12 次阅读讲解）；「套餐管理」里可按套餐单设「智谱每日限额」覆盖它（已按月 3 万/季 6 万/年 10 万初始化）。超限后用户切回 DeepSeek 即可继续，0＝不限。</p>
             <div class="form-grid">
               <label class="field">智谱模型 <input type="text" name="zhipu_model" value="{{ ai_settings.zhipu_model }}" placeholder="glm-5.1"></label>
               <label class="field">联网引擎
@@ -1719,8 +1719,8 @@
             const lines = [
               '结论：' + (r.verdict || ''),
               '',
-              '· 独立检索端点 /web_search：' + (r.endpoint_ok ? ('正常，返回 ' + r.endpoint_results + ' 条结果') : ('失败 —— ' + r.endpoint_error)),
-              '· 强制联网对话：' + (r.chat_ok ? ('调用成功，来源 ' + r.chat_sources + ' 条，prompt_tokens=' + r.chat_prompt_tokens + '（约11=检索未注入，>1000=已注入）') : ('失败 —— ' + r.chat_error)),
+              '· 联网主链路（服务端直查 /web_search）：' + (r.endpoint_ok ? ('正常，返回 ' + r.endpoint_results + ' 条结果') : ('失败 —— ' + r.endpoint_error)),
+              '· 对话内检索（兜底档）：' + (r.chat_ok ? ('调用成功，来源 ' + r.chat_sources + ' 条，prompt_tokens=' + r.chat_prompt_tokens + '（约11=检索未注入，>1000=已注入）') : ('失败 —— ' + r.chat_error)),
               '· 当前配置：model=' + (r.model || '') + '，engine=' + (r.search_engine || '') + '，base=' + (r.base_url || ''),
             ];
             box.textContent = lines.join('\n');

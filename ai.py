@@ -888,23 +888,106 @@ class ZAIClient:
                 web_search["search_query"] = search_query
         return [{"type": "web_search", "web_search": web_search}]
 
+    @staticmethod
+    def _zhipu_source_from_item(item: dict[str, Any]) -> dict[str, str]:
+        """智谱检索结果单条 → 站内统一来源结构（对话内 web_search 与独立端点 search_result 同构）。"""
+        return {
+            "title": str(item.get("title") or "").strip(),
+            "link": str(item.get("link") or item.get("url") or "").strip(),
+            "site": str(item.get("media") or "").strip(),
+            "date": str(item.get("publish_date") or "").strip(),
+            "snippet": str(item.get("content") or "").strip(),
+        }
+
     def _zhipu_sources_from_payload(self, data: dict[str, Any]) -> list[dict[str, str]]:
         """从智谱响应中提取联网检索来源（开启 search_result 时返回在顶层 web_search 数组）。"""
-        results = data.get("web_search") or []
         sources: list[dict[str, str]] = []
-        for item in results:
+        for item in data.get("web_search") or []:
             if not isinstance(item, dict):
                 continue
-            source = {
-                "title": str(item.get("title") or "").strip(),
-                "link": str(item.get("link") or item.get("url") or "").strip(),
-                "site": str(item.get("media") or "").strip(),
-                "date": str(item.get("publish_date") or "").strip(),
-                "snippet": str(item.get("content") or "").strip(),
-            }
+            source = self._zhipu_source_from_item(item)
             if source["title"] or source["link"]:
                 sources.append(source)
         return sources
+
+    def _zhipu_standalone_search(self, query: str) -> tuple[list[dict[str, str]], str]:
+        """服务端直调智谱独立检索端点 /web_search。返回 (来源列表, 错误信息)。
+
+        对话内 web_search 工具的检索费走平台「Coding套餐 > 资源包 > 余额」的抵扣优先级：
+        账户挂着不含联网功能的 token 资源包时，检索会被平台静默跳过（HTTP 200、无来源、
+        不报错）。独立端点计费独立、失败有明确错误码（如 1113 需充值），因此联网主链路
+        改为先在这里检索、把结果注入对话，对话内检索只作兜底。
+        """
+        cleaned = " ".join(str(query or "").split())[:70]
+        if not cleaned:
+            return [], "检索词为空"
+        try:
+            data = self._post_json(
+                "/web_search",
+                {
+                    "search_engine": self.config.zhipu_search_engine,
+                    "search_query": cleaned,
+                    "search_intent": False,
+                    "count": max(1, min(20, self.config.zhipu_search_count)),
+                },
+                base_url=self.config.zhipu_base_url,
+                api_key=self.config.zhipu_api_key,
+                service_label="智谱AI",
+            )
+        except AIServiceError as exc:
+            return [], str(exc)
+        sources: list[dict[str, str]] = []
+        for item in data.get("search_result") or []:
+            if not isinstance(item, dict):
+                continue
+            source = self._zhipu_source_from_item(item)
+            if source["title"] or source["link"]:
+                sources.append(source)
+        if not sources:
+            return [], "检索调用成功但没有返回任何结果"
+        return sources, ""
+
+    def _zhipu_grounded_messages(
+        self,
+        messages: list[dict[str, str]],
+        sources: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        """把服务端检索结果注入对话（紧跟首条 system 指令），模型据此回答并标注来源。"""
+        lines = [
+            "以下是针对用户最新问题、刚刚由服务端联网检索到的网页结果。请优先依据这些结果回答；"
+            "引用其中信息时标注来源序号（如 [2]）或网站名；结果未覆盖的部分再用自身知识补充并说明。"
+        ]
+        for index, source in enumerate(sources, 1):
+            head = f"[{index}] {source['title'] or source['link']}"
+            meta = "，".join(bit for bit in (source["site"], source["date"]) if bit)
+            if meta:
+                head += f"（{meta}）"
+            block = [head]
+            snippet = source["snippet"][:600]
+            if snippet:
+                block.append(snippet)
+            if source["link"]:
+                block.append(f"链接：{source['link']}")
+            lines.append("\n".join(block))
+        grounding = {"role": "system", "content": "\n\n".join(lines)}
+        out = list(messages or [])
+        insert_at = 1 if out and str(out[0].get("role") or "") == "system" else 0
+        out.insert(insert_at, grounding)
+        return out
+
+    def _zhipu_grounding_or_stages(
+        self,
+        messages: list[dict[str, str]],
+        web_search_query: str | None,
+    ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[list[dict[str, Any]] | None]]:
+        """智谱联网主链路：先服务端直查；成功→注入对话且不再带检索工具，
+        失败→记日志并退回原对话内检索三级降级。返回 (messages, 来源, tool_stages)。"""
+        if web_search_query:
+            grounded_sources, search_error = self._zhipu_standalone_search(web_search_query)
+            if grounded_sources:
+                return self._zhipu_grounded_messages(messages, grounded_sources), grounded_sources, [None]
+            LOGGER.warning("zhipu standalone search failed, falling back to in-chat web_search: %s", search_error)
+        return messages, [], self._zhipu_tool_stages(web_search_query)
 
     def _zhipu_tool_stages(self, web_search_query: str | None) -> list[list[dict[str, Any]] | None]:
         """智谱联网的三级降级序列：强制联网 → 基础联网（模型自判断）→ 纯对话。
@@ -949,6 +1032,7 @@ class ZAIClient:
                 {
                     "search_engine": self.config.zhipu_search_engine,
                     "search_query": "马克思 生平",
+                    "search_intent": False,
                     "count": 1,
                 },
                 base_url=self.config.zhipu_base_url,
@@ -990,25 +1074,28 @@ class ZAIClient:
             error = str(result["endpoint_error"])
             if "1113" in error or "资源包" in error or "充值" in error:
                 return (
-                    "智谱账户没有可用的联网搜索资源（资源包耗尽或余额不足），平台因此在对话中"
-                    "静默跳过检索。去智谱开放平台给该 Key 所属账户充值/购买搜索资源包即可恢复，"
-                    "代码与本页配置无需改动。"
+                    "联网主链路不可用：智谱账户没有可用的联网搜索资源（注意平台抵扣顺序为"
+                    "「Coding套餐 > 资源包 > 余额」，挂着不含联网的资源包也可能触发此错）。"
+                    "去智谱开放平台核对余额与资源包后再测，代码与本页配置无需改动。"
                 )
             if "401" in error or "令牌" in error or "apikey" in error.lower() or "鉴权" in error:
                 return "智谱 API Key 无效或已过期：请核对上方 Key 是否为充值账户的 Key，重新粘贴后保存再测。"
-            return f"独立检索端点调用失败：{error}"
+            return f"联网主链路（服务端直查 /web_search）失败：{error}"
         if not result["chat_ok"]:
-            return f"检索端点正常，但对话调用失败：{result['chat_error']}"
+            return f"联网主链路正常（服务端直查可用），但对话调用失败：{result['chat_error']}"
         if result["chat_sources"] > 0:
-            return "联网检索一切正常：对话返回了真实检索来源。若用户仍反馈无来源，请核对其所用功能与权限。"
+            return (
+                "联网检索一切正常：服务端直查与对话内检索（兜底档）都可用。"
+                "若用户仍反馈无来源，请核对其所用功能与权限。"
+            )
         prompt_tokens = result["chat_prompt_tokens"]
         if prompt_tokens is not None and int(prompt_tokens) < 200:
             return (
-                f"检索端点单独调用可用，但对话内检索未注入（prompt_tokens={prompt_tokens}，"
-                "正常注入应 >1000）：平台静默跳过了 web_search 工具，常见于账户搜索资源不足、"
-                "或当前模型/引擎组合暂不支持对话内检索，请到智谱控制台核对资源与模型公告。"
+                "联网功能正常：主链路（服务端直查+注入对话）可用，用户不受影响。"
+                f"仅对话内检索兜底档被平台静默跳过（prompt_tokens={prompt_tokens}，正常注入应 >1000），"
+                "常见于「资源包优先抵扣」把检索费路由到不含联网的资源包；主链路已绕开该问题。"
             )
-        return "对话已注入检索内容但未提取到来源列表，可能是响应字段变化，请保留本结果联系开发者排查。"
+        return "服务端直查可用；对话内兜底档已注入但未提取到来源列表，可能是响应字段变化，不影响主链路。"
 
     def chat_complete(
         self,
@@ -1021,7 +1108,11 @@ class ZAIClient:
     ) -> str:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
-        tool_stages = self._zhipu_tool_stages(web_search_query) if use_zhipu else [None]
+        grounded_sources: list[dict[str, str]] = []
+        if use_zhipu:
+            messages, grounded_sources, tool_stages = self._zhipu_grounding_or_stages(messages, web_search_query)
+        else:
+            tool_stages = [None]
         data: dict[str, Any] = {}
         for stage_index, tools in enumerate(tool_stages):
             payload: dict[str, Any] = {
@@ -1051,7 +1142,7 @@ class ZAIClient:
                 # 降级必须可观测：否则“联网悄悄失效”无从排查（journalctl 可查到这行）。
                 LOGGER.warning("zhipu chat stage %d failed, degrading: %s", stage_index, exc)
         if use_zhipu and sources_out is not None:
-            sources_out.extend(self._zhipu_sources_from_payload(data))
+            sources_out.extend(grounded_sources or self._zhipu_sources_from_payload(data))
         choices = data.get("choices") or []
         if not choices:
             raise AIServiceError("模型未返回任何内容。")
@@ -1075,7 +1166,12 @@ class ZAIClient:
         web_search_query: str | None = None,
     ) -> Iterator[str]:
         use_zhipu = provider == "zhipu"
-        tool_stages = self._zhipu_tool_stages(web_search_query) if use_zhipu else [None]
+        if use_zhipu:
+            messages, grounded_sources, tool_stages = self._zhipu_grounding_or_stages(messages, web_search_query)
+            if grounded_sources and meta_out is not None:
+                meta_out["sources"] = grounded_sources
+        else:
+            tool_stages = [None]
         yielded = [False]
         for stage_index, tools in enumerate(tool_stages):
             try:
