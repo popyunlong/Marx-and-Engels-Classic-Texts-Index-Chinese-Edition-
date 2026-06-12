@@ -95,6 +95,13 @@
       font-size: clamp(1.65rem, 4vw, 2.35rem);
       line-height: 1.35;
     }
+    .english-name {
+      margin: -8px 0 16px;
+      color: var(--muted);
+      font-size: 1.02rem;
+      font-style: italic;
+      line-height: 1.6;
+    }
     .content {
       display: grid;
       gap: 14px;
@@ -141,6 +148,9 @@
         {% endif %}
       </div>
       <h1>{{ entry.title }}</h1>
+      {% if entry.english %}
+      <p class="english-name">{{ entry.english }}</p>
+      {% endif %}
       <div class="content">
         {% for paragraph in entry.paragraphs %}
         <p>{{ paragraph }}</p>
