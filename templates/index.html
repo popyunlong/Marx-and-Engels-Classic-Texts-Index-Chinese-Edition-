@@ -332,6 +332,19 @@
       color: #15314f; line-height: 1.6; font-size: .92rem;
     }
     .assoc-note .assoc-conf { font-weight: 700; white-space: nowrap; }
+    .fuzzy-badge {
+      display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
+      font-size: .76rem; font-weight: 800; vertical-align: middle; color: #4a3300;
+      background: linear-gradient(180deg, #ffe9b8, #f5d27a);
+      border: 1px solid rgba(150,108,16,.35);
+      box-shadow: 0 1px 0 rgba(255,255,255,.5) inset;
+    }
+    .fuzzy-notice {
+      margin: 6px 0 10px; padding: 9px 12px; border-radius: 10px;
+      background: linear-gradient(180deg, #fdf3da, #f8e8be);
+      border: 1px solid rgba(150,108,16,.32); border-left: 3px solid var(--oil-gold);
+      color: #4a3a12; line-height: 1.65; font-size: .92rem;
+    }
     .reader-entry-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -1989,6 +2002,13 @@
     return { volume, chapter };
   }
 
+  function fuzzyNoticeHtml(items) {
+    // 近似匹配仅在精确零命中时由后端触发，同一响应内的结果类型是同质的。
+    const fuzzy = Array.isArray(items) && items.length && items.every(item => item.match_type === 'fuzzy');
+    if (!fuzzy) return '';
+    return `<div class="fuzzy-notice">未找到与检索词<strong>逐字一致</strong>的原文，以下为容错近似命中（与检索词至多相差 2 字）。差异可能来自检索词或扫描件 OCR 的个别错字，请打开正文核对。</div>`;
+  }
+
   function renderHitRow(hit, indexKey) {
     const section = hit.section_title
       ? `<div class="section">所属篇章：${esc(hit.section_title)}</div>`
@@ -2003,9 +2023,12 @@
     const weightBadge = hit.associative_weight != null
       ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
       : '';
+    const fuzzyBadge = hit.match_type === 'fuzzy'
+      ? `<span class="fuzzy-badge">近似匹配${hit.fuzzy_errors != null ? ` · 相差 ${esc(String(hit.fuzzy_errors))} 字` : ''}</span>`
+      : '';
     return `
       <article class="hit${weightBadge ? ' assoc-hit' : ''}">
-        <div class="loc">${bookTitle} 第 ${hit.volume} 卷 · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${weightBadge}</div>
+        <div class="loc">${bookTitle} 第 ${hit.volume} 卷 · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${weightBadge}${fuzzyBadge}</div>
         ${assocNote}
         ${section}
         <div class="ctx">${renderCtx(hit.context)}</div>
@@ -2186,6 +2209,7 @@
     if (displayMode === 'direct') {
       out.innerHTML = `
         <div class="result-head"><h2>检索结果</h2></div>
+        ${fuzzyNoticeHtml(groups)}
         ${groups.map((hit, index) => renderHitRow(hit, `direct-${index}`)).join('')}
       `;
       return;
@@ -2202,9 +2226,12 @@
         ? `<div class="section">所属篇章：${esc(group.section_title)}</div>`
         : '<div class="section">所属篇章：未识别</div>';
       const bookTitle = group.book_title || group.book_short_title || `《${group.book || '资料'}》`;
+      const groupFuzzyBadge = group.match_type === 'fuzzy'
+        ? `<span class="fuzzy-badge">近似匹配${group.fuzzy_errors != null ? ` · 相差 ${esc(String(group.fuzzy_errors))} 字` : ''}</span>`
+        : '';
       return `
         <section class="group-card">
-          <div class="loc">${bookTitle} 第 ${group.volume} 卷</div>
+          <div class="loc">${bookTitle} 第 ${group.volume} 卷${groupFuzzyBadge}</div>
           ${section}
           <div class="muted">共 ${group.count} 处命中</div>
           <div class="row">
@@ -2237,6 +2264,7 @@
 
     out.innerHTML = `
       <div class="result-head"><h2>检索结果</h2></div>
+      ${fuzzyNoticeHtml(groups)}
       ${groupPager}
       ${cards}
       ${groupPager}

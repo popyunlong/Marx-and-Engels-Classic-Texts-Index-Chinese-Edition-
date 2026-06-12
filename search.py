@@ -21,14 +21,19 @@ from pathlib import Path
 import fitz
 import yaml
 from rapidfuzz import fuzz
+from rapidfuzz.distance import Levenshtein
 
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
 
 
 MIN_QUERY_LEN = 2         # 归一化后少于此长度不检索，避免海量误命中
-MIN_FUZZY_QUERY_LEN = 4   # 过短查询只做精确匹配，避免模糊结果爆炸
-FUZZY_THRESHOLD = 85      # 模糊匹配的分数下限
+# 近似匹配（OCR 容错兜底，仅在精确零命中时触发）：语义是「容错的精确」——命中片段与
+# 查询的真实编辑距离必须 ≤ 容错字数 K，K 按查询长度计算。短查询的偶然碰撞率高且手动
+# 校正成本低，故直接不做近似。
+MIN_FUZZY_QUERY_LEN = 10  # 归一化后短于此长度不做近似匹配
+FUZZY_MAX_ERRORS = 2      # 容错字数上限（编辑距离）
+FUZZY_ERROR_STEP = 10     # 每满 10 个归一化字符容 1 个错字（10-19 字容 1 错，≥20 字容 2 错）
 CTX_PAD = 40              # 上下文前后字符数
 MAX_TOC_SCAN_PAGES = 40
 DEFAULT_GROUP_LIMIT = 30
@@ -59,6 +64,46 @@ ASSOC_FRAG_PER = 10            # 单个片段最多取的精确命中数
 ASSOC_FRAG_TOTAL_CAP = 24      # 单次联想检索最多实际检索的片段数（控成本，模型片段优先）
 ASSOC_SHINGLE_CAP = 8          # 单条候选原文最多生成的自动切片数
 ASSOC_CHAPTER_MAX = 16         # 篇章定向检索最多命中的篇章数（防泛标题词匹配过多）
+
+def _fuzzy_allowed_errors(q_len: int) -> int:
+    """按查询长度计算近似匹配允许的错字数（0 表示不做近似）。"""
+    if q_len < MIN_FUZZY_QUERY_LEN:
+        return 0
+    return min(FUZZY_MAX_ERRORS, q_len // FUZZY_ERROR_STEP)
+
+
+def _substring_edit_distance(needle: str, haystack: str, max_errors: int) -> int | None:
+    """needle 与 haystack 任意子串的最小编辑距离（半全局对齐）；超过 max_errors 返回 None。
+
+    haystack 只取候选窗口加少量 padding（几十至几百字符），纯 Python DP 可承受。
+    行最小值随行号单调不减，可据此提前终止。
+    """
+    n, m = len(needle), len(haystack)
+    if n == 0:
+        return 0
+    prev = [0] * (m + 1)  # 空 needle 对任意起点：距离 0（起点空隙免费）
+    for i in range(1, n + 1):
+        ch = needle[i - 1]
+        cur = [i] + [0] * m
+        row_min = i
+        for j in range(1, m + 1):
+            cost = 0 if ch == haystack[j - 1] else 1
+            v = prev[j - 1] + cost
+            v2 = prev[j] + 1
+            if v2 < v:
+                v = v2
+            v3 = cur[j - 1] + 1
+            if v3 < v:
+                v = v3
+            cur[j] = v
+            if v < row_min:
+                row_min = v
+        if row_min > max_errors:
+            return None
+        prev = cur
+    best = min(prev)
+    return best if best <= max_errors else None
+
 
 _NUMERIC_TITLE_RE = re.compile(r"^[0-9IVXLCDMivxlcdm\s\-—–\.]+$")
 _TOC_RANGE_RE = re.compile(
@@ -181,6 +226,7 @@ class Hit:
     context: str
     citation: str
     section_title: str | None
+    fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
 
     def to_dict(self) -> dict:
         return {
@@ -196,6 +242,7 @@ class Hit:
             "printed_pages": [p.printed_page for p in self.pages],
             "match_type": self.match_type,
             "score": self.score,
+            "fuzzy_errors": self.fuzzy_errors,
             "context": self.context,
             "citation": self.citation,
             "section_title": self.section_title,
@@ -217,6 +264,7 @@ class HitGroup:
     match_type: str
     score: int
     hits: list[Hit]
+    fuzzy_errors: int | None = None  # 近似匹配组内最小错字数
 
     def to_dict(self, page_size: int = GROUP_PAGE_SIZE, preview_count: int = GROUP_PREVIEW_COUNT) -> dict:
         total = len(self.hits)
@@ -233,6 +281,7 @@ class HitGroup:
             "section_title": self.section_title,
             "match_type": self.match_type,
             "score": self.score,
+            "fuzzy_errors": self.fuzzy_errors,
             "count": total,
             "page_size": page_size,
             "preview_count": preview_count,
@@ -874,22 +923,43 @@ class Corpus:
     # 模糊匹配
     # ------------------------------------------------------------------
     def _fuzzy_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = None) -> tuple[list[Hit], bool]:
+        """近似匹配兜底（仅在精确零命中时调用）：容错 OCR 错字，但保持「精确」的指向性。
+
+        partial_ratio 是字符重叠率，常用字偶然重叠就能让无关段落拿到高分（碰瓷命中），
+        故它只用作快速候选定位；权威过滤是真实编辑距离 ≤ K——结果集里留下的命中在数学上
+        保证与查询至多差 K 个字。
+        """
         hits: list[Hit] = []
         truncated = False
+        max_errors = _fuzzy_allowed_errors(len(q_norm))
+        if max_errors <= 0:
+            return hits, truncated
+        # partial_ratio 为 InDel 比率：K 个替换 ≈ 2K 个删插、窗口长 ≈ 查询长，
+        # 故 K 错字对应分数约 100*(1-K/L)。放宽半个错字防对齐边界抖动漏真命中，
+        # 多放进来的候选由编辑距离复核拦截。
+        cutoff = max(0.0, 100.0 * (1.0 - (max_errors + 0.5) / len(q_norm)))
+        pad = max_errors + 2
         for vol in self.books.get(book, []):
             if limit is not None and len(hits) >= limit:
                 truncated = True
                 break
             res = fuzz.partial_ratio_alignment(
-                q_norm, vol.norm_full, score_cutoff=FUZZY_THRESHOLD
+                q_norm, vol.norm_full, score_cutoff=cutoff
             )
             if res is None:
                 continue
-            score = int(res.score)
-            if score < FUZZY_THRESHOLD:
-                continue
+            # 编辑距离复核：先按对齐窗口原样算（C 实现，快路径），失败再用带 padding
+            # 的半全局对齐兜住对齐边界偏移。
+            span = vol.norm_full[res.dest_start:res.dest_end]
+            dist = Levenshtein.distance(q_norm, span, score_cutoff=max_errors)
+            if dist > max_errors:
+                window = vol.norm_full[max(0, res.dest_start - pad):res.dest_end + pad]
+                dist = _substring_edit_distance(q_norm, window, max_errors)
+                if dist is None:
+                    continue
             hits.append(self._make_hit(
-                vol, res.dest_start, res.dest_end, "fuzzy", score, q_raw
+                vol, res.dest_start, res.dest_end, "fuzzy", int(res.score), q_raw,
+                fuzzy_errors=dist,
             ))
         return hits, truncated
 
@@ -1332,6 +1402,7 @@ class Corpus:
         for key, group_hits in grouped.items():
             first = group_hits[0]
             group_id = f"{first.book}|{first.volume}|{first.source_file}|{first.section_title or ''}|{first.match_type}"
+            error_counts = [hit.fuzzy_errors for hit in group_hits if hit.fuzzy_errors is not None]
             groups.append(
                 HitGroup(
                     group_id=group_id,
@@ -1347,6 +1418,7 @@ class Corpus:
                     match_type=first.match_type,
                     score=max(hit.score for hit in group_hits),
                     hits=group_hits,
+                    fuzzy_errors=min(error_counts) if error_counts else None,
                 )
             )
 
@@ -1388,13 +1460,19 @@ class Corpus:
         score: int,
         q_raw: str,
         occurrence_index: int = 0,
+        fuzzy_errors: int | None = None,
     ) -> Hit:
         norm_end = max(norm_end, norm_start + 1)
         start_pi = vol.page_index_at(norm_start)
         end_pi = vol.page_index_at(norm_end - 1)
         pages = vol.pages[start_pi:end_pi + 1]
 
-        context = self._extract_context(pages, q_raw, occurrence_index)
+        # 近似命中：高亮定位必须用语料侧的命中片段（它与页面原文逐字一致），
+        # 不能用带错字的用户查询——否则逐字正则必失配，退化为「页首 200 字、无高亮」。
+        highlight_src = q_raw
+        if match_type == "fuzzy":
+            highlight_src = vol.norm_full[norm_start:norm_end]
+        context = self._extract_context(pages, highlight_src, occurrence_index)
         citation = self._make_citation(vol.book, vol.volume, pages, source_file=vol.source_file)
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
         book_cfg = self.get_book_config(vol.book)
@@ -1414,6 +1492,7 @@ class Corpus:
             context=context,
             citation=citation,
             section_title=section_title,
+            fuzzy_errors=fuzzy_errors,
         )
 
     def _extract_context(self, pages: list[Page], q_raw: str, occurrence_index: int = 0) -> str:
