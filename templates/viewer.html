@@ -1862,6 +1862,26 @@
     tocPanel.open = false;
   });
 
+  // 目录面板防出屏：面板锚定在「目录」按钮上（默认 right:0 向左展开），页面放大或
+  // 工具行换行后按钮可能贴近屏幕左缘，520px 的面板会被推出视口。打开时实测边界，
+  // 越界则用 transform 水平回拉（不依赖锚定方向，左右两侧都钳制）。
+  function clampTocSheet() {
+    if (!tocPanel || !tocPanel.open) return;
+    const sheet = tocPanel.querySelector('.toc-sheet');
+    if (!sheet) return;
+    sheet.style.transform = '';
+    const rect = sheet.getBoundingClientRect();
+    const pad = 12;
+    let shift = 0;
+    if (rect.left < pad) shift = pad - rect.left;
+    else if (rect.right > window.innerWidth - pad) shift = (window.innerWidth - pad) - rect.right;
+    if (shift) sheet.style.transform = `translateX(${shift}px)`;
+  }
+  if (tocPanel) {
+    tocPanel.addEventListener('toggle', clampTocSheet);
+    window.addEventListener('resize', clampTocSheet);
+  }
+
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && tocPanel?.open) tocPanel.open = false;
   });
