@@ -2003,10 +2003,14 @@
   }
 
   function fuzzyNoticeHtml(items) {
-    // 近似匹配仅在精确零命中时由后端触发，同一响应内的结果类型是同质的。
-    const fuzzy = Array.isArray(items) && items.length && items.every(item => item.match_type === 'fuzzy');
-    if (!fuzzy) return '';
-    return `<div class="fuzzy-notice">未找到与检索词<strong>逐字一致</strong>的原文，以下为容错近似命中（与检索词至多相差 2 字）。差异可能来自检索词或扫描件 OCR 的个别错字，请打开正文核对。</div>`;
+    // 全模糊=精确零命中时的整体兜底；混合=部分书库逐字命中、零命中书库按近似补位。
+    const list = Array.isArray(items) ? items : [];
+    const fuzzyCount = list.filter(item => item.match_type === 'fuzzy').length;
+    if (!fuzzyCount) return '';
+    if (fuzzyCount === list.length) {
+      return `<div class="fuzzy-notice">未找到与检索词<strong>逐字一致</strong>的原文，以下为容错近似命中（与检索词至多相差 2 字）。差异可能来自检索词或扫描件 OCR 的个别错字，请打开正文核对。</div>`;
+    }
+    return `<div class="fuzzy-notice">部分书库未逐字命中，已补充标注「<strong>近似匹配</strong>」的结果（与检索词至多相差 2 字，差异常为扫描件 OCR 错字），请打开正文核对。</div>`;
   }
 
   function renderHitRow(hit, indexKey) {

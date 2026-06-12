@@ -792,10 +792,19 @@ class Corpus:
             return []
 
         exact: list[Hit] = []
+        books_with_exact: set[str] = set()
         for book in self.books:
             book_hits, _ = self._exact_in_book(book, q_norm, q, limit=EXACT_HITS_PER_BOOK)
+            if book_hits:
+                books_with_exact.add(book)
             exact.extend(book_hits)
         if exact:
+            # 与 search_grouped 同义：零命中的书库补做近似兜底（见彼处注释）。
+            for book in self.books:
+                if book in books_with_exact:
+                    continue
+                partial, _ = self._fuzzy_in_book(book, q_norm, q)
+                exact.extend(partial)
             exact.sort(key=lambda h: (self.book_sort_order(h.book), h.volume))
             return self._dedupe_hits(exact)[:max_results]
 
@@ -830,14 +839,27 @@ class Corpus:
 
         hits: list[Hit] = []
         truncated = False
+        books_with_exact: set[str] = set()
         exact_limit = max_hits if max_hits is not None else EXACT_HITS_PER_BOOK
         for book in self.books:
             book_hits, book_truncated = self._exact_in_book(
                 book, q_norm, q, limit=exact_limit
             )
+            if book_hits:
+                books_with_exact.add(book)
             hits.extend(book_hits)
             truncated = truncated or book_truncated
         if hits:
+            # 按书库补位的近似兜底：同一段话在各书库扫描件里的 OCR 错字不一致，
+            # 查询可能恰好与某书库的文本层逐字一致（连错字都一致），却与另一书库
+            # 差一两个字。若因「全库有精确命中」就整体关掉近似，后者会被静默压掉。
+            # 故仅对零命中的书库补扫；截断意味着海量命中（将走篇章聚合通道），不补。
+            if not truncated:
+                for book in self.books:
+                    if book in books_with_exact:
+                        continue
+                    partial, _ = self._fuzzy_in_book(book, q_norm, q)
+                    hits.extend(partial)
             return self._group_hits(
                 q,
                 self._dedupe_hits(hits),
