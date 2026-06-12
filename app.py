@@ -6484,38 +6484,6 @@ def api_library_toc_suggest():
             }
         )
     return jsonify({"ok": True, "results": results})
-    matches: list[tuple] = []
-    for item in _get_toc_suggest_index():
-        pos = item["norm"].find(qn)
-        if pos < 0:
-            continue
-        # 排序键：命中位置靠前者优先 → 标题更短者 → 书库配置顺序 → 卷序靠前。
-        matches.append((pos, len(item["title"]), item.get("book_sort_order", 9999), item["volume"], item))
-    matches.sort(key=lambda m: (m[0], m[1], m[2], m[3]))
-    results = []
-    for _, _, _, _, item in matches[:20]:
-        results.append(
-            {
-                "title": item["title"],
-                "book": item["book"],
-                "book_title": item["book_title"],
-                "book_short_title": item["book_short_title"],
-                "book_sort_order": item["book_sort_order"],
-                "tag_class": item["tag_class"],
-                "volume": item["volume"],
-                "page": item["pdf_page"],
-                "printed": item["printed_page"],
-                "url": url_for(
-                    "pdf_viewer",
-                    file=item["source_file"],
-                    page=item["pdf_page"],
-                    section=item["title"],
-                    printed=item["printed_page"],
-                    mode=("reader" if mode == "reader" else "ai"),
-                ),
-            }
-        )
-    return jsonify({"ok": True, "results": results})
 
 
 def _warm_toc_suggest_index() -> None:

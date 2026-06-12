@@ -1117,7 +1117,11 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(orders, sorted(orders))
         self.assertEqual(results[0]["book"], "\u6587\u96c6")
 
-    def test_library_toc_suggest_collapses_exact_large_title_matches(self) -> None:
+    def test_library_toc_suggest_exact_title_ranks_first_without_collapsing(self) -> None:
+        # \u81ea a1d629a \u8d77\uff0c\u7cbe\u786e\u6807\u9898\u547d\u4e2d\u4e0d\u518d\u300c\u6298\u53e0\u300d\u6389\u5176\u5b83\u547d\u4e2d\uff08\u65e7\u89c4\u5219\u4f1a\u8ba9\u4f4e\u4f18\u5148\u7ea7
+        # \u4e66\u5e93\u91cc\u6070\u597d\u540c\u540d\u7684\u77ed\u6807\u9898\u628a\u6587\u96c6/\u5168\u96c6\u7684\u76f8\u5173\u7bc7\u7ae0\u5168\u90e8\u6324\u6389\uff0c\u89c1 app.py
+        # api_library_toc_suggest \u5185\u6ce8\u91ca\uff09\u3002\u65b0\u5951\u7ea6\uff1a\u7cbe\u786e\u547d\u4e2d\u6392\u5728\u6700\u524d\uff0c\u7ed3\u679c\u6309
+        # \u4e66\u5e93\u914d\u7f6e\u987a\u5e8f\u5206\u5c42\uff0c\u540c\u4e00\u4e66\u5e93\u5185 \u7cbe\u786e>\u524d\u7f00>\u5b50\u4e32\uff0c\u5e8f\u8a00\u7b49\u76f8\u5173\u7bc7\u7ae0\u4fdd\u7559\u3002
         app_module.set_setting(
             "access_policy",
             {"audience": {"registered": {"search": True, "library": True, "ai": True}}},
@@ -1133,8 +1137,24 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         results = resp.get_json()["results"]
         self.assertGreaterEqual(len(results), 1)
-        self.assertTrue(all(app_module._toc_norm(row["title"]) == app_module._toc_norm(query) for row in results))
-        self.assertTrue(all("\u63d2\u56fe" not in row["title"] for row in results))
+        qn = app_module._toc_norm(query)
+        # \u7cbe\u786e\u547d\u4e2d\u6392\u5728\u9996\u4f4d\uff0c\u4e14\u4e0d\u662f\u63d2\u56fe\u7b49\u9644\u5c5e\u6761\u76ee\u3002
+        self.assertEqual(app_module._toc_norm(results[0]["title"]), qn)
+        self.assertNotIn("\u63d2\u56fe", results[0]["title"])
+        # \u7ed3\u679c\u6309\u4e66\u5e93\u914d\u7f6e\u987a\u5e8f\u5206\u5c42\uff08\u6587\u96c6\u2192\u5168\u96c6\u2192\u2026\u2026\uff09\u3002
+        orders = [row["book_sort_order"] for row in results]
+        self.assertEqual(orders, sorted(orders))
+        # \u540c\u4e00\u4e66\u5e93\u5185\uff1a\u7cbe\u786e(0) > \u524d\u7f00(1) > \u5b50\u4e32(2)\uff0c\u4e0d\u5141\u8bb8\u4e71\u5e8f\u3002
+        def _rank(row: dict) -> int:
+            norm = app_module._toc_norm(row["title"])
+            if norm == qn:
+                return 0
+            return 1 if norm.startswith(qn) else 2
+        for book in {row["book"] for row in results}:
+            ranks = [_rank(row) for row in results if row["book"] == book]
+            self.assertEqual(ranks, sorted(ranks))
+        # \u53cd\u6298\u53e0\u5b88\u62a4\uff1a\u5b58\u5728\u7cbe\u786e\u547d\u4e2d\u65f6\uff0c\u76f8\u5173\u7684\u975e\u7cbe\u786e\u7bc7\u7ae0\uff08\u5404\u7248\u5e8f\u8a00\u7b49\uff09\u4ecd\u4fdd\u7559\u3002
+        self.assertTrue(any(_rank(row) != 0 for row in results))
 
     def test_homepage_chapter_search_guest_reader_then_member_ai(self) -> None:
         app_module.set_setting(
