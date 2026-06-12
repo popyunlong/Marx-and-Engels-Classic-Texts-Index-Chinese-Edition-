@@ -191,8 +191,32 @@ def build_rows(spec: dict, texts: dict[int, str]) -> tuple[list[tuple], str]:
         rows.append((book, vol, source_file, i, printed, raw, normalize(raw)))
 
     if const_offset is None:
-        filled = fill_missing_printed_pages(rows)
-        strategy += f"，顺序补全 {filled} 页"
+        # 邻居偏移补全：检测点缺失页取前/后最近检测点的偏移，两侧一致才回填；
+        # 不一致（无页码插页带，偏移在此跳变）保持 None。首/尾延伸段用单侧偏移。
+        # 比 fill_missing 的顺序补全更稳：开篇未检出段、卷末索引段都能按邻段偏移补齐。
+        # 只用「偏移获得 ≥3 个检测点支持」的可信锚点（前置目录页自带页码会产生杂散偏移）
+        trusted = [(i, v) for i, v in detections if offsets[i - v] >= 3]
+        det_pages = [i for i, _v in trusted]
+        det_off = {i: i - v for i, v in trusted}
+        import bisect
+        filled = 0
+        for idx in range(len(rows)):
+            b, v_, sf, i, printed, raw, norm = rows[idx]
+            if printed is not None or not norm:
+                continue
+            k = bisect.bisect_left(det_pages, i)
+            off_prev = det_off[det_pages[k - 1]] if k > 0 else None
+            off_next = det_off[det_pages[k]] if k < len(det_pages) else None
+            off = None
+            if off_prev is not None and off_next is not None:
+                if off_prev == off_next:
+                    off = off_prev
+            else:
+                off = off_prev if off_prev is not None else off_next
+            if off is not None and i - off >= 1:
+                rows[idx] = (b, v_, sf, i, str(i - off), raw, norm)
+                filled += 1
+        strategy += f"，邻居偏移补全 {filled} 页"
     return rows, strategy
 
 

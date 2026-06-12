@@ -1350,10 +1350,17 @@ class Corpus:
                 )
             )
 
+        def _front_matter_penalty(group: HitGroup) -> int:
+            # 同卷内：有印刷页码的正文命中优先于目录/前置页命中（后者引文只能按 PDF 页码降级）。
+            first_page = group.hits[0].pages[0]
+            printed = first_page.printed_page
+            return 0 if (printed and not str(printed).startswith("pre-")) else 1
+
         groups.sort(
             key=lambda group: (
                 group.book_sort_order,
                 group.volume,
+                _front_matter_penalty(group),
                 group.hits[0].pages[0].pdf_page,
                 -len(group.hits),
             )
