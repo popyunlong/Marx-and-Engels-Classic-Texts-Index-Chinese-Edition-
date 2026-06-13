@@ -1105,6 +1105,7 @@ class ZAIClient:
         provider: str | None = None,
         sources_out: list[dict[str, str]] | None = None,
         web_search_query: str | None = None,
+        allow_reasoning_fallback: bool = True,
     ) -> str:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
@@ -1149,7 +1150,9 @@ class ZAIClient:
         message = choices[0].get("message") or {}
         content = message.get("content")
         text = self._coerce_message_content(content).strip()
-        if not text:
+        if not text and allow_reasoning_fallback:
+            # 仅在调用方允许时才回退到 reasoning_content；否则宁可判空，
+            # 避免把模型的「思考过程」当成正式答复输出（如吉祥物气泡）。
             text = self._coerce_message_content(message.get("reasoning_content")).strip()
         if not text:
             text = self._coerce_message_content(choices[0].get("text")).strip()
