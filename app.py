@@ -1732,6 +1732,82 @@ def _per_char_term_rects(page, terms: list[str]) -> list:
     return rects[:12]
 
 
+def _anchored_highlight_rects(page, query_text: str, *, max_rects: int = 80, max_occurrences: int = 8) -> list:
+    """在页面「字符级文本框」上用归一化逐字锚定来定位高亮区域，按行合并为矩形。
+
+    引文检索是在语料的 normalized_text（NFKC + 去掉所有标点与空白）上命中的；这里对页面
+    同样做归一化逐字索引，命中串即可在页面字符序列里**整体**定位——天然跨行，且不受空格、
+    标点、换行差异影响。这正是修复点：page.search_for 把整句（尤其含空格的长句）当一个
+    连续子串去找，跨行/有空格时常匹配失败，于是退化为只高亮某个短片段、甚至完全不高亮。
+
+    返回的矩形按「同一行的连续命中字符」合并。整串若不连续（如同段多词共现），再退化为
+    逐词分别锚定，使每个关键词各自标亮。
+    """
+    target = " ".join((query_text or "").split())
+    if not target:
+        return []
+    try:
+        raw = page.get_text("rawdict")
+    except Exception:
+        return []
+    flat: list[str] = []
+    bboxes: list = []
+    for blk in raw.get("blocks", []):
+        for line in blk.get("lines", []):
+            for sp in line.get("spans", []):
+                for ch in sp.get("chars", []):
+                    nch = normalize(ch.get("c") or "")
+                    if not nch:
+                        continue  # 标点/空白：归一化后为空，不参与定位也不产生框
+                    bbox = ch.get("bbox")
+                    for c in nch:  # NFKC 偶有一字展开多字，逐字复用同一字框
+                        flat.append(c)
+                        bboxes.append(bbox)
+    if not flat:
+        return []
+    flat_str = "".join(flat)
+
+    def _line_rects(start: int, end: int) -> list:
+        out: list = []
+        cur = None
+        for bb in bboxes[start:end]:
+            if bb is None:
+                continue
+            r = fitz.Rect(bb)
+            if cur is not None and abs(r.y0 - cur.y0) < max(r.height, cur.height, 1.0) * 0.6:
+                cur |= r  # 同一行：并入
+            else:
+                if cur is not None:
+                    out.append(cur)
+                cur = fitz.Rect(r)
+        if cur is not None:
+            out.append(cur)
+        return out
+
+    def _locate_all(needle: str) -> list:
+        out: list = []
+        if len(needle) < 2:
+            return out
+        i = flat_str.find(needle)
+        n = 0
+        while i != -1 and n < max_occurrences:
+            out.extend(_line_rects(i, i + len(needle)))
+            n += 1
+            i = flat_str.find(needle, i + len(needle))
+        return out
+
+    rects = _locate_all(normalize(target))
+    if not rects and " " in target:
+        seen: set[str] = set()
+        for word in target.split():
+            wnorm = normalize(word)
+            if len(wnorm) < 2 or wnorm in seen:
+                continue
+            seen.add(wnorm)
+            rects.extend(_locate_all(wnorm))
+    return rects[:max_rects]
+
+
 def _clean_text(value: str, limit: int | None = None) -> str:
     text = re.sub(r"\s+", " ", (value or "")).strip()
     if limit is not None and len(text) > limit:
@@ -4202,10 +4278,10 @@ def _page_image_cache_path(source_file: str, page_number: int, query_text: str) 
         stamp = f"{pdf_path.stat().st_mtime_ns}:{pdf_path.stat().st_size}"
     except OSError:
         stamp = "missing"
-    # 缓存版本号 v5：v4 对低清扫描叠加了 USM 锐化、反而放大底噪显得更糊；v5 普通库改为不锐化、
-    # 毛选锐化减弱。渲染结果变了必须改版本号，否则旧 v4（过锐）缓存继续命中、新逻辑不生效。
-    # profile tag：毛选用独立 tag（+mao4）以便日后单独调参；其余库 tag 为空。
-    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v5{_render_profile(source_file)['tag']}"
+    # 缓存版本号 v6：v6 把高亮改为「归一化逐字锚定」（修复长句在页图上不标亮/只标亮片段）。
+    # v5 曾把普通库改为不锐化、毛选锐化减弱。渲染/高亮结果变了必须改版本号，否则旧缓存继续命中、
+    # 新逻辑不生效。profile tag：毛选用独立 tag（+mao4）以便日后单独调参；其余库 tag 为空。
+    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v6{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
     return PAGE_IMAGE_CACHE_DIR / digest[:2] / f"{digest}.jpg"
 
@@ -4306,17 +4382,29 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
         page = doc[page_number - 1]
 
         highlight_done = False
-        for term in _highlight_terms(query_text):
-            rects = page.search_for(term, quads=False)
-            if not rects:
-                continue
-            for rect in rects[:12]:
-                annot = page.add_highlight_annot(rect)
-                annot.set_colors(stroke=(1.0, 0.86, 0.2))
-                annot.set_opacity(0.45)
-                annot.update()
-            highlight_done = True
-            break
+        # 主路径：归一化逐字锚定，跨行整句高亮（修复长句 search_for 整串匹配失败的问题）。
+        if query_text:
+            anchored_rects = _anchored_highlight_rects(page, query_text)
+            if anchored_rects:
+                for rect in anchored_rects:
+                    annot = page.add_highlight_annot(rect)
+                    annot.set_colors(stroke=(1.0, 0.86, 0.2))
+                    annot.set_opacity(0.45)
+                    annot.update()
+                highlight_done = True
+        # 兜底一：search_for（短词/个别词项快路径；锚定因文本层修订等原因失配时仍可命中）
+        if not highlight_done:
+            for term in _highlight_terms(query_text):
+                rects = page.search_for(term, quads=False)
+                if not rects:
+                    continue
+                for rect in rects[:12]:
+                    annot = page.add_highlight_annot(rect)
+                    annot.set_colors(stroke=(1.0, 0.86, 0.2))
+                    annot.set_opacity(0.45)
+                    annot.update()
+                highlight_done = True
+                break
         if not highlight_done and query_text:
             # 逐字文本层兜底（search_for 在单字 span 布局上找不到多字词项）
             for rect in _per_char_term_rects(page, _highlight_terms(query_text)):
