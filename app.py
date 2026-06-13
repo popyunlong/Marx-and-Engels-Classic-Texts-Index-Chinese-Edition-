@@ -1663,6 +1663,24 @@ def _highlight_terms(query_text: str) -> list[str]:
     return ordered
 
 
+def _split_cooc_keywords(query_text: str) -> list[str]:
+    """同段多词检索：把输入按空白与常见中英标点切成多个关键词，去重并丢弃归一化后过短者。
+
+    归一化后长度 < 2 的词（如单个汉字/字母）区分度太低、共现近乎处处命中，故剔除。
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in re.split(r"[\s，。；：、“”‘’？！,.!?;:()（）【】《》·\-—_/|]+", query_text or ""):
+        token = token.strip()
+        if not token:
+            continue
+        if len(normalize(token)) < 2 or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
 def _per_char_term_rects(page, terms: list[str]) -> list:
     """逐字文本层（如《邓小平文选》第3卷：每个汉字单独成 span/行）上 search_for 失效时的
     高亮兜底：把单字 span 平铺成连续字符串后手工定位词项，按行合并字符框。
@@ -6909,9 +6927,16 @@ def api_pdf_page_context():
     return jsonify({"ok": True, "context": context})
 
 
-def _attach_viewer_payload(hit: dict, q_for_viewer: str, viewer_allowed: bool) -> dict:
+def _attach_viewer_payload(
+    hit: dict,
+    q_for_viewer: str,
+    viewer_allowed: bool,
+    highlight_override: str | None = None,
+) -> dict:
     hit.update(_book_payload(str(hit.get("book") or "")))
-    highlight_text = _hit_highlight_text(hit, q_for_viewer)
+    # 同段多词：context 里有多处 [[H]]，_hit_highlight_text 只会取第一处而漏掉其它关键词；
+    # 此时直接用空格分隔的关键词串，阅读器 _highlight_terms 会逐词在页图上高亮。
+    highlight_text = highlight_override if highlight_override else _hit_highlight_text(hit, q_for_viewer)
     hit["highlight_text"] = highlight_text
     printed_pages = [
         page for page in hit.get("printed_pages", []) if page and not str(page).startswith("pre-")
@@ -7237,9 +7262,22 @@ def api_search():
     if book_filter not in BOOK_CONFIG_BY_KEY:
         book_filter = ""
 
+    # 同段多词检索（标准检索的「同段多词」开关）：把输入拆成多个关键词，定位全部词共现于
+    # 邻近段落的真实命中。纯子串/共现，与单子串的篇章聚合通道不兼容，故下面两个聚合分支均跳过。
+    mode = str(payload.get("mode") or "").strip().lower()
+    cooc = mode in {"cooccurrence", "cooc", "multi"}
+    cooc_keywords: list[str] = []
+    if cooc:
+        cooc_keywords = _split_cooc_keywords(q)
+        if len(cooc_keywords) < 2:
+            return jsonify({
+                "ok": False,
+                "error": "同段多词检索请输入两个及以上关键词（用空格分隔）。",
+            }), 400
+
     # 短词海量命中专用通道：完整聚合全部卷/篇章的准确命中数（C 层级计数，约 0.1 秒），
     # 命中详情交由 /api/search/chapter-hits 按需分页物化，从而“全部呈现”又不拖垮服务。
-    if not DEPLOYMENT.is_desktop and len(q_norm) <= SHORT_QUERY_CHAPTER_MAX_LEN:
+    if not cooc and not DEPLOYMENT.is_desktop and len(q_norm) <= SHORT_QUERY_CHAPTER_MAX_LEN:
         payload_chaptered = _chaptered_search_payload(
             q, book_filter, requested_group_page, viewer_allowed, user
         )
@@ -7247,7 +7285,10 @@ def api_search():
             return jsonify(payload_chaptered)
 
     try:
-        grouped = corpus.search_grouped(q, group_limit=1000000, max_hits=None)
+        if cooc:
+            grouped = corpus.search_cooccurrence_grouped(cooc_keywords, group_limit=1000000)
+        else:
+            grouped = corpus.search_grouped(q, group_limit=1000000, max_hits=None)
     except Exception as exc:
         LOGGER.warning("Search failed for query=%r user=%s: %s", q[:80], user.get("id") if user else "guest", exc)
         return jsonify({"ok": False, "error": "查询解析失败，请调整关键词后重试。"}), 400
@@ -7255,16 +7296,21 @@ def api_search():
     # 长词海量命中：常规分组路径会按 EXACT_HITS_PER_BOOK(200/库) 截断；一旦发生截断，
     # 改走与短词相同的“完整篇章聚合”通道——给出全部卷/篇章的完整命中计数，详情按需展开，
     # 从而彻底消除 200 条/库 的截断、命中全部可达（不一次性物化以保稳定）。
-    if not DEPLOYMENT.is_desktop and grouped.get("truncated"):
+    if not cooc and not DEPLOYMENT.is_desktop and grouped.get("truncated"):
         payload_chaptered = _chaptered_search_payload(
             q, book_filter, requested_group_page, viewer_allowed, user
         )
         if payload_chaptered is not None:
             return jsonify(payload_chaptered)
 
+    # 同段多词：context 含多处高亮，阅读器高亮用空格分隔的关键词串逐词命中。
+    cooc_highlight = q_for_viewer if cooc else None
     all_groups = []
     for group in grouped["groups"]:
-        hits = [_attach_viewer_payload(hit, q_for_viewer, viewer_allowed) for hit in group["hits"]]
+        hits = [
+            _attach_viewer_payload(hit, q_for_viewer, viewer_allowed, highlight_override=cooc_highlight)
+            for hit in group["hits"]
+        ]
         group["hits"] = hits
         all_groups.append(group)
 
@@ -7303,7 +7349,8 @@ def api_search():
     response_group_count = len(all_groups)
 
     if (
-        not DEPLOYMENT.is_desktop
+        not cooc
+        and not DEPLOYMENT.is_desktop
         and effective_total_hits > DIRECT_RESULTS_THRESHOLD
         and len(q_norm) <= SHORT_QUERY_CHAPTER_MAX_LEN
     ):

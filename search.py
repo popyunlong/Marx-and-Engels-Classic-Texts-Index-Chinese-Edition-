@@ -65,6 +65,12 @@ ASSOC_FRAG_TOTAL_CAP = 24      # 单次联想检索最多实际检索的片段�
 ASSOC_SHINGLE_CAP = 8          # 单条候选原文最多生成的自动切片数
 ASSOC_CHAPTER_MAX = 16         # 篇章定向检索最多命中的篇章数（防泛标题词匹配过多）
 
+# 同段多词检索（标准检索的「同段多词」开关）：要求若干关键词全部出现在邻近段落窗口内。
+# 纯 Python，复用共现滑窗；三重封顶约束在线请求成本。
+COOC_PER_VOL = 30              # 单卷最多取的非重叠共现窗口数
+COOC_TOTAL_CAP = 600          # 全语料最多取的共现命中数（超出标 truncated）
+COOC_CTX_MAXLEN = 220         # 同段多词上下文片段最大字符数（以最密集关键词簇为中心）
+
 def _fuzzy_allowed_errors(q_len: int) -> int:
     """按查询长度计算近似匹配允许的错字数（0 表示不做近似）。"""
     if q_len < MIN_FUZZY_QUERY_LEN:
@@ -899,6 +905,127 @@ class Corpus:
             truncated,
         )
 
+    def search_cooccurrence_grouped(
+        self,
+        keywords: list[str],
+        group_limit: int = DEFAULT_GROUP_LIMIT,
+        page_size: int = GROUP_PAGE_SIZE,
+        window: int = ASSOC_KEYWORD_WINDOW,
+    ) -> dict:
+        """同段多词检索：返回「全部关键词共现于邻近窗口」的真实命中，结构与 search_grouped 一致。
+
+        语义是「容错的精确」之外的另一种精确——每处命中都保证全部关键词逐字出现在同一
+        ~window 字的近邻段落内。产出真实 Hit 后交给 _group_hits，从而复用既有分组/分页/
+        摘要/阅读器高亮的全部前后端设施。
+        """
+        seen: set[str] = set()
+        kws: list[str] = []
+        for k in keywords or []:
+            kn = normalize(str(k or ""))
+            if len(kn) < MIN_QUERY_LEN or kn in seen:
+                continue
+            seen.add(kn)
+            kws.append(kn)
+            if len(kws) >= ASSOC_MAX_KEYWORDS:
+                break
+        query = " ".join(dict.fromkeys(str(k or "").strip() for k in (keywords or []) if str(k or "").strip()))
+        if len(kws) < 2:
+            return {
+                "query": query,
+                "total_hits": 0,
+                "group_count": 0,
+                "truncated": False,
+                "groups": [],
+            }
+
+        hits: list[Hit] = []
+        truncated = False
+        for book in self.books:
+            for vol in self.books.get(book, []):
+                nf = vol.norm_full
+                if any(kn not in nf for kn in kws):
+                    continue
+                for ws, we, anchor in self._cooccurrence_windows(vol, kws, window=window):
+                    hits.append(
+                        self._make_hit(vol, ws, we, "exact", 100, anchor, highlight_terms=kws)
+                    )
+                    if len(hits) >= COOC_TOTAL_CAP:
+                        truncated = True
+                        break
+                if truncated:
+                    break
+            if truncated:
+                break
+
+        return self._group_hits(
+            query, self._dedupe_hits(hits), group_limit, page_size, truncated
+        )
+
+    def _cooccurrence_windows(
+        self,
+        vol: Volume,
+        kws_norm: list[str],
+        *,
+        window: int = ASSOC_KEYWORD_WINDOW,
+        occ_cap: int = ASSOC_KW_OCC_CAP,
+        per_vol_cap: int = COOC_PER_VOL,
+    ) -> list[tuple[int, int, str]]:
+        """枚举某卷内「全部关键词共现于 ≤window 字窗口」的多处非重叠最小窗口。
+
+        与 keyword_cooccurrence 同源（先成员过滤、再收集出现位置、双指针滑窗），但那里每卷
+        只取一个最佳窗口；此处要求覆盖**全部** distinct 关键词，并沿正文连续吐出多处非重叠窗口，
+        供同段多词检索逐处呈现。
+        """
+        nf = vol.norm_full
+        n_kw = len(kws_norm)
+        occ: list[tuple[int, int]] = []  # (pos, kw_id)
+        for kid, kn in enumerate(kws_norm):
+            start = 0
+            cnt = 0
+            klen = len(kn)
+            while cnt < occ_cap:
+                i = nf.find(kn, start)
+                if i < 0:
+                    break
+                occ.append((i, kid))
+                start = i + klen
+                cnt += 1
+        if len(occ) < n_kw:
+            return []
+        occ.sort()
+
+        results: list[tuple[int, int, str]] = []
+        counts: dict[int, int] = {}
+        distinct = 0
+        left = 0
+        last_emit_end = -1
+        for right in range(len(occ)):
+            pos_r, kid_r = occ[right]
+            counts[kid_r] = counts.get(kid_r, 0) + 1
+            if counts[kid_r] == 1:
+                distinct += 1
+            # 收缩左端：剔除冗余出现，得到以 right 结尾的最小覆盖窗口
+            while distinct == n_kw and counts[occ[left][1]] > 1:
+                counts[occ[left][1]] -= 1
+                left += 1
+            if distinct < n_kw:
+                continue
+            win_start = occ[left][0]
+            win_end = pos_r + len(kws_norm[kid_r])
+            if win_end - win_start > window or win_start < last_emit_end:
+                continue
+            # 高亮锚点取窗口内最长关键词，确保 context 高亮落在真实命中上
+            anchor = max(
+                (kws_norm[k] for (p, k) in occ if win_start <= p < win_end),
+                key=len,
+                default=kws_norm[kid_r],
+            )
+            results.append((win_start, win_end, anchor))
+            last_emit_end = win_end
+            if len(results) >= per_vol_cap:
+                break
+        return results
+
     def _dedupe_hits(self, hits: list[Hit]) -> list[Hit]:
         unique: list[Hit] = []
         seen: set[tuple] = set()
@@ -1483,18 +1610,23 @@ class Corpus:
         q_raw: str,
         occurrence_index: int = 0,
         fuzzy_errors: int | None = None,
+        highlight_terms: list[str] | None = None,
     ) -> Hit:
         norm_end = max(norm_end, norm_start + 1)
         start_pi = vol.page_index_at(norm_start)
         end_pi = vol.page_index_at(norm_end - 1)
         pages = vol.pages[start_pi:end_pi + 1]
 
-        # 近似命中：高亮定位必须用语料侧的命中片段（它与页面原文逐字一致），
-        # 不能用带错字的用户查询——否则逐字正则必失配，退化为「页首 200 字、无高亮」。
-        highlight_src = q_raw
-        if match_type == "fuzzy":
-            highlight_src = vol.norm_full[norm_start:norm_end]
-        context = self._extract_context(pages, highlight_src, occurrence_index)
+        # 同段多词：需同时高亮若干关键词，走多词上下文提取（每个词各自标注）。
+        if highlight_terms:
+            context = self._extract_context_multi(pages, highlight_terms)
+        else:
+            # 近似命中：高亮定位必须用语料侧的命中片段（它与页面原文逐字一致），
+            # 不能用带错字的用户查询——否则逐字正则必失配，退化为「页首 200 字、无高亮」。
+            highlight_src = q_raw
+            if match_type == "fuzzy":
+                highlight_src = vol.norm_full[norm_start:norm_end]
+            context = self._extract_context(pages, highlight_src, occurrence_index)
         citation = self._make_citation(vol.book, vol.volume, pages, source_file=vol.source_file)
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
         book_cfg = self.get_book_config(vol.book)
@@ -1536,6 +1668,68 @@ class Corpus:
             return snippet.replace("\n", " ").strip()
         # 兜底：截取开头
         return raw[:200].replace("\n", " ")
+
+    def _extract_context_multi(self, pages: list[Page], terms: list[str]) -> str:
+        """同段多词上下文：在所在页原文里把每个关键词的每处出现都用 [[H]] 标注，
+        并以「关键词最密集的一段」为中心截取上下文。
+
+        与 _extract_context 一样用「字之间允许任意非字词字符」的宽松正则匹配（兼容
+        OCR 在字间插入的空白/标点），故归一化命中能在原始 raw 文本上重新定位并高亮。
+        """
+        raw = "\n".join(p.raw_text for p in pages)
+        spans: list[tuple[int, int, int]] = []  # (start, end, term_id)
+        for tid, term in enumerate(terms):
+            keep = [c for c in term if not _STRIP_RE.match(c)]
+            if not keep:
+                continue
+            pattern = r"\W*".join(re.escape(c) for c in keep)
+            spans.extend((m.start(), m.end(), tid) for m in re.finditer(pattern, raw))
+        if not spans:
+            return raw[:200].replace("\n", " ")
+        spans.sort()
+        # 合并重叠/相接区间，避免嵌套 [[H]]（保留覆盖到的关键词集合，用于定位最佳窗口）
+        merged: list[list] = []  # [start, end, set(term_ids)]
+        for s, e, tid in spans:
+            if merged and s <= merged[-1][1]:
+                if e > merged[-1][1]:
+                    merged[-1][1] = e
+                merged[-1][2].add(tid)
+            else:
+                merged.append([s, e, {tid}])
+        # 选最佳 ~COOC_CTX_MAXLEN 字窗口为中心：先看窗口内**不同关键词数**最多（确保各词都在视野内），
+        # 同样多再比命中次数；保证「无产阶级 革命」这类多词的每个词都在截出的上下文里被高亮。
+        best_idx = 0
+        best_key = (-1, -1)
+        for i, (s, _e, _ids) in enumerate(merged):
+            ids: set = set()
+            cnt = 0
+            for (s2, _e2, ids2) in merged:
+                if s <= s2 < s + COOC_CTX_MAXLEN:
+                    ids |= ids2
+                    cnt += 1
+            key = (len(ids), cnt)
+            if key > best_key:
+                best_key = key
+                best_idx = i
+        anchor_start = merged[best_idx][0]
+        a = max(0, anchor_start - CTX_PAD)
+        b = min(len(raw), a + COOC_CTX_MAXLEN + CTX_PAD)
+        pieces: list[str] = []
+        cur = a
+        for s, e, _ids in merged:
+            if e <= a or s >= b:
+                continue
+            s = max(s, a)
+            e = min(e, b)
+            if s < cur:  # 与上一段被裁剪后相接，跳过
+                continue
+            pieces.append(raw[cur:s])
+            pieces.append("[[H]]")
+            pieces.append(raw[s:e])
+            pieces.append("[[/H]]")
+            cur = e
+        pieces.append(raw[cur:b])
+        return "".join(pieces).replace("\n", " ").strip()
 
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
         # 分册年份优先：同一卷分多册、各册年份不同的（如马恩《全集》第 26 卷三册），按 source_file

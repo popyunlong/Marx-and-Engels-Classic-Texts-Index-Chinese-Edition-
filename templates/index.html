@@ -234,6 +234,15 @@
     }
     .search-mode-tab:disabled { opacity: .5; cursor: not-allowed; }
 
+    /* 同段多词开关（仅标准检索可见）：小字、低调，默认关闭则行为同旧 */
+    .cooc-toggle {
+      display: flex; align-items: center; gap: 7px;
+      margin: 8px 0 2px; font-size: .86rem; color: var(--muted);
+      cursor: pointer; user-select: none;
+    }
+    .cooc-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+    .cooc-toggle.hidden { display: none; }
+
     /* ===================================================================== */
     /* 联想检索 · 意大利油画风（典雅蓝 + 古金 + 繁复条纹）。仅作用于联想模式与其结果， */
     /* 标准检索视觉零改动。配色：群青/普鲁士蓝底，象牙卷帙，安提克金描边与金线斜纹。      */
@@ -1312,6 +1321,9 @@
               <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">联想检索</button>
             </div>
             <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
+            <label class="cooc-toggle" id="coocToggle">
+              <input type="checkbox" id="coocCheckbox"> 同段多词检索（用空格分隔多个词，查找同一段落内同时出现的全部词）
+            </label>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>开始检索</button>
               {% if state.remote_quit_enabled %}
@@ -1538,6 +1550,8 @@
   const form = document.getElementById('searchForm');
   const q = document.getElementById('q');
   const submitBtn = document.getElementById('submitBtn');
+  const coocToggle = document.getElementById('coocToggle');
+  const coocCheckbox = document.getElementById('coocCheckbox');
   const out = document.getElementById('results');
   const bookTabsEl = document.getElementById('searchBookTabs');
   const aiMessages = document.getElementById('aiMessages');
@@ -2282,13 +2296,17 @@
     }
     const groupPage = Math.max(1, Number(options.groupPage || 1));
     const book = options.book || '';
+    // 同段多词模式：实时读复选框（书库筛选/翻页复用 doSearch 时自动保持）；options.mode 供恢复检索态用
+    const mode = (options.mode != null)
+      ? options.mode
+      : ((coocCheckbox && coocCheckbox.checked) ? 'cooccurrence' : '');
     submitBtn.disabled = true;
     renderEmpty('检索中，请稍候...');
     try {
       const resp = await apiFetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: text, group_page: groupPage, book })
+        body: JSON.stringify({ q: text, group_page: groupPage, book, mode })
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -2296,13 +2314,14 @@
         updateBookTabs(null);
         return;
       }
+      const isCooc = (mode === 'cooccurrence');
       if (!data.results.length) {
         renderEmpty('未找到匹配结果。');
         updateBookTabs(data);
-        saveSearchState(Object.assign({ query: text, mode: 'empty', message: '未找到匹配结果。' }, data));
+        saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: '未找到匹配结果。' }, data));
         return;
       }
-      const payload = Object.assign({ query: text, mode: 'results' }, data);
+      const payload = Object.assign({ query: text, mode: 'results', searchCooc: isCooc }, data);
       renderResults(payload);
       updateBookTabs(payload);
       saveSearchState(payload);
@@ -2598,6 +2617,8 @@
       q.classList.remove('brainstorm');
       q.setAttribute('placeholder', STANDARD_PLACEHOLDER);
     }
+    // 同段多词开关仅在标准检索下露出（联想检索另有提取逻辑，不适用）
+    if (coocToggle) coocToggle.classList.toggle('hidden', associative);
   }
 
   modeTabs.forEach(tab => {
@@ -2696,7 +2717,8 @@
       const payload = loadSearchState();
       const query = (payload && payload.query) || q.value.trim();
       if (!query) return;
-      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '' });
+      const mode = (payload && payload.searchCooc) ? 'cooccurrence' : '';
+      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode });
     });
   }
 
@@ -2789,7 +2811,8 @@
       const query = payload.query || q.value.trim();
       const nextPage = Math.max(1, Number(groupListPager.dataset.page || 1));
       if (!query) return;
-      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '' });
+      const mode = payload.searchCooc ? 'cooccurrence' : '';
+      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '', mode });
       return;
     }
 
@@ -2808,6 +2831,7 @@
     const payload = loadSearchState();
     if (payload.mode === 'results' && Array.isArray(payload.results)) {
       q.value = payload.query || '';
+      if (coocCheckbox) coocCheckbox.checked = !!payload.searchCooc;  // 回填开关，保证翻页/筛选续用同段多词
       renderResults(payload);
       updateBookTabs(payload);
     }
