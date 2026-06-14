@@ -4318,12 +4318,13 @@ DEFAULT_RENDER = {
     "display_min_px": PAGE_IMAGE_DISPLAY_MIN_PX, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
     "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.5, "usm_cap": 0.5,
     "levels": (45.0, 200.0), "clean_min_upsample": 1.2,
-    # 低清页清洗时把渲染目标抬到 2000px（1600px 仍低于阅读器 960CSS≈1920 视网膜目标，结果像素不够
-    # 仍发糊；2000px 让笔画有更多像素、清洗后明显更清）。clean_hard_max 放宽到 5.6 容纳最窄的低清页。
-    # 这俩**只在 clean 分支生效**，高清/原生页用上面的 display_min/hard_max → 缩放不变、输出逐字节一致。
+    # 清洗页渲染目标 = 1600px（与 display_min 一致）。曾试 2000px 更锐，但配合「tag 升级=全站缓存全冷」
+    # 时每次阅读都触发更重的冷渲染，叠加邻页预热的无界线程把 CPU 打满、整站卡死（线上事故）。降回 1600px
+    # 减轻单页渲染开销；清晰度由 LUT 背景增白保证（消灰雾/黑文字，纯 PyMuPDF 即生效）。日后缓存稳定且
+    # 确认服务器算力充裕，可再上调此值。clean_hard_max 放宽到 5.6 容纳最窄的低清页。
     # 关键：levels 背景增白用**字节 LUT（纯 PyMuPDF，无需 numpy）**完成——服务器未装 numpy，故增白是
     # 真正在线上生效的那一半；USM 需卷积、仅在装了 numpy 的环境（桌面/开发）锦上添花，缺失则安全跳过。
-    "clean_display_min_px": 2000.0, "clean_hard_max_scale": 5.6,
+    "clean_display_min_px": 1600.0, "clean_hard_max_scale": 5.6,
     "photo_mid_max": 0.25, "tag": "+hd3",
 }
 # 《毛泽东选集》为纯图像扫描件、~700px、无文本层、粗黑体印刷，源即糊、无真实细节可恢复。用更高
@@ -4548,8 +4549,14 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
     return cache_path
 
 
+# 邻页预热：每次 /page-image 会再起一个 daemon 线程渲染相邻页。问题是它**绕过 waitress 的线程上限**，
+# 高并发 + 缓存全冷（版本号/ tag 升级后）时会瞬间炸出大量并发渲染把 CPU 打满、整站请求排队卡死。
+# 故默认**关闭**，仅在缓存预热稳定后可经 env MARX_PAGE_IMAGE_PREWARM=1 重新开启。
+PAGE_IMAGE_PREWARM_ENABLED = os.environ.get("MARX_PAGE_IMAGE_PREWARM", "0") == "1"
+
+
 def _prewarm_page_images(source_file: str, page_number: int, query_text: str, page_count: int) -> None:
-    if query_text:
+    if not PAGE_IMAGE_PREWARM_ENABLED or query_text:
         return
 
     candidates = [p for p in (page_number - 1, page_number + 1) if 1 <= p <= page_count]
