@@ -4321,6 +4321,21 @@ MAO_RENDER = {
     "jpeg_quality": 94, "usm_gain": 0.30, "usm_cap": 0.30, "tag": "+mao4",
 }
 _MAO_SCAN_PREFIX = "pdfs/《毛泽东选集》/"
+
+# 邓小平 / 江泽民 / 胡锦涛文选 与《治国理政》：均为**清白底**现代扫描件（区别于列宁的灰底扫描），
+# 原生分辨率偏低（实测胡选 ~724px、《治国理政》部分扫描卷 ~880px），按显示下限上采样到 ~1900px
+# 后若完全不锐化（DEFAULT 的 usm=0）则文字边缘明显发糊。这些扫描背景是**纯白**而非列宁那种灰底，
+# 故 USM 只增强笔画边缘、不会把灰底噪点一并放大成毛刺（v5 取消 DEFAULT 锐化正是为列宁灰底而设，
+# 不适用于此处）。这里按上采样倍数自适应启用 USM：低清扫描卷（upsample 大）得到较强锐化，已是
+# 高清的卷（邓1 ~1698px）或文本层页（native=0 → upsample≈1）自动 ≈0、不过锐。tag +wxsel1 使这些
+# 书旧的「无锐化」缓存（tag 为空）失效、按新参数重渲染；其余书库缓存不受影响。
+MODERN_SCAN_RENDER = {
+    "display_min_px": 1900.0, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
+    "jpeg_quality": 92, "usm_gain": 0.6, "usm_cap": 0.6, "tag": "+wxsel1",
+}
+_MODERN_SCAN_PREFIXES = (
+    "pdfs/邓小平文选/", "pdfs/江泽民文选/", "pdfs/胡锦涛文选/", "pdfs/《治国理政》/",
+)
 _NUMPY_MODULE = "__unset__"  # 惰性探测结果缓存：模块对象或 None
 
 
@@ -4336,9 +4351,13 @@ def _numpy_or_none():
 
 
 def _render_profile(source_file: str) -> dict:
-    """按书库返回渲染 profile。毛选用更高显示下限 + 更强锐化；其余库共用默认自适应参数。"""
-    if _normalize_source_file(source_file).startswith(_MAO_SCAN_PREFIX):
+    """按书库返回渲染 profile。毛选纯图扫描用更高显示下限 + 锐化；邓/江/胡文选与《治国理政》这类
+    清白底现代扫描用自适应 USM 救低清；其余库（马恩/列宁/文集等，含灰底扫描）共用默认无锐化参数。"""
+    norm = _normalize_source_file(source_file)
+    if norm.startswith(_MAO_SCAN_PREFIX):
         return MAO_RENDER
+    if norm.startswith(_MODERN_SCAN_PREFIXES):
+        return MODERN_SCAN_RENDER
     return DEFAULT_RENDER
 
 
