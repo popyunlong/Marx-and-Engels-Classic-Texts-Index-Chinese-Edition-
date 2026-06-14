@@ -1314,13 +1314,15 @@
     <div class="grid">
       <div class="left-stack">
         <section class="panel">
-          <h2>{{ site_text("index.search_title") }}</h2>
           {% if feature_tags['citation'] %}
-          <div class="reader-status-row" style="margin-bottom:10px">
+          <div class="reader-status-row" style="margin-bottom:6px">
+            <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
             {% for tag in feature_tags['citation'] %}
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
           </div>
+          {% else %}
+          <h2>{{ site_text("index.search_title") }}</h2>
           {% endif %}
           <form id="searchForm">
             <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
@@ -1381,13 +1383,15 @@
           .chapter-search-hint { margin-top: 8px; }
         </style>
         <section class="panel chapter-search-panel" aria-label="篇章直达搜索">
-          <h2>{{ site_text('index.chapter_search_title') }}</h2>
           {% if feature_tags['chapter'] %}
-          <div class="reader-status-row" style="margin-bottom:10px">
+          <div class="reader-status-row" style="margin-bottom:6px">
+            <h2 style="margin:0">{{ site_text('index.chapter_search_title') }}</h2>
             {% for tag in feature_tags['chapter'] %}
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
           </div>
+          {% else %}
+          <h2>{{ site_text('index.chapter_search_title') }}</h2>
           {% endif %}
           {% if chapter_search.available %}
           <div class="chapter-search" data-mode="{{ chapter_search.mode }}">
