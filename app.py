@@ -4316,8 +4316,13 @@ PAGE_IMAGE_JPEG_QUALITY = 90        # JPEG 质量：高分辨率下兼顾文字�
 # 输出与旧版逐字节一致（已实测文集/全集/列宁vol03 byte-identical）。tag +hd1 使旧缓存失效、重渲染。
 DEFAULT_RENDER = {
     "display_min_px": PAGE_IMAGE_DISPLAY_MIN_PX, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
-    "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.55, "usm_cap": 0.6,
-    "levels": (30.0, 212.0), "clean_min_upsample": 1.2, "photo_mid_max": 0.25, "tag": "+hd1",
+    "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.8, "usm_cap": 0.85,
+    "levels": (32.0, 202.0), "clean_min_upsample": 1.2,
+    # 低清页清洗时把渲染目标抬到 2000px（1600px 仍低于阅读器 960CSS≈1920 视网膜目标，锐化结果像素不够
+    # 仍发糊；2000px 让笔画有更多像素、清洗后明显更锐）。clean_hard_max 放宽到 5.6 容纳最窄的低清页。
+    # 这俩**只在 clean 分支生效**，高清/原生页用上面的 display_min/hard_max → 缩放不变、输出逐字节一致。
+    "clean_display_min_px": 2000.0, "clean_hard_max_scale": 5.6,
+    "photo_mid_max": 0.25, "tag": "+hd2",
 }
 # 《毛泽东选集》为纯图像扫描件、~700px、无文本层、粗黑体印刷，源即糊、无真实细节可恢复。用更高
 # 显示下限 + **轻度** USM + 略高 JPEG 质量提升观感（粗黑体能受益、且不像列宁灰底那样易出毛刺；
@@ -4472,7 +4477,13 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
             clean_min_upsample = profile.get("clean_min_upsample")
             if clean_min_upsample is not None:
                 if upsample >= clean_min_upsample:
-                    levels = profile.get("levels")  # 低清页：背景增白 + USM
+                    # 低清页：抬高渲染目标（更多像素让锐化结果更清），再背景增白 + 自适应 USM
+                    clean_floor = profile.get("clean_display_min_px", profile["display_min_px"]) / page_width_pt
+                    clean_max = profile.get("clean_hard_max_scale", profile["hard_max_scale"])
+                    scale = max(lo, min(max(native_scale, clean_floor), clean_max))
+                    upsample = scale / native_scale if native_scale > 0 else 1.0
+                    usm = max(0.0, min((upsample - 1.0) * profile["usm_gain"], profile["usm_cap"]))
+                    levels = profile.get("levels")
                 else:
                     usm = 0.0  # 高清/原生页：维持历史「无清洗」行为，输出逐字节一致
         except Exception:
