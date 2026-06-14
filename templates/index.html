@@ -1315,6 +1315,13 @@
       <div class="left-stack">
         <section class="panel">
           <h2>{{ site_text("index.search_title") }}</h2>
+          {% if feature_tags['citation'] %}
+          <div class="reader-status-row" style="margin-bottom:10px">
+            {% for tag in feature_tags['citation'] %}
+            <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
           <form id="searchForm">
             <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
               <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">标准检索</button>
@@ -1375,6 +1382,13 @@
         </style>
         <section class="panel chapter-search-panel" aria-label="篇章直达搜索">
           <h2>{{ site_text('index.chapter_search_title') }}</h2>
+          {% if feature_tags['chapter'] %}
+          <div class="reader-status-row" style="margin-bottom:10px">
+            {% for tag in feature_tags['chapter'] %}
+            <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
           {% if chapter_search.available %}
           <div class="chapter-search" data-mode="{{ chapter_search.mode }}">
             <input id="chapterSearchInput" type="search" autocomplete="off" spellcheck="false"
