@@ -83,8 +83,8 @@ try {
     Write-Host "Fixing permissions ..."
     Invoke-Remote "chown -R www-data:www-data '$RemoteDir/static_library' && chmod -R a+rX '$RemoteDir/static_library'"
 
-    Write-Host "Verifying remote content ..."
-    Invoke-Remote "c=`$(find '$RemoteDir/static_library' -type f | wc -l); echo `"remote files=`$c (local=$localCount)`"; test `"`$c`" -ge $localCount"
+    Write-Host "Verifying remote content (expect >= $localCount files) ..."
+    Invoke-Remote "test `$(find '$RemoteDir/static_library' -type f | wc -l) -ge $localCount && echo static_library_verified"
 } finally {
     if (Test-Path $archive) { Remove-Item -LiteralPath $archive -Force }
 }
