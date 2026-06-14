@@ -58,6 +58,29 @@
     .btn.dl { font-weight: 700; box-shadow: 0 6px 16px rgba(143, 29, 29, 0.26); }
     .btn.dl:hover { background: var(--accent-deep); }
     .hero .btn { color: #fff8f0; border-color: rgba(255,255,255,.28); background: transparent; }
+    .hero .btn:hover { background: rgba(255,255,255,.12); }
+    /* 历史期数下拉：嵌在 hero 深红底上，浅色文字 */
+    .issues { margin-top: 16px; border-top: 1px solid rgba(255,255,255,.18); padding-top: 12px; }
+    .issues > summary {
+      cursor: pointer; color: #ffe9e0; font-weight: 700; list-style: none;
+      display: inline-flex; align-items: center; gap: 6px; user-select: none;
+    }
+    .issues > summary::-webkit-details-marker { display: none; }
+    .issues > summary::before { content: "▸"; transition: transform .15s ease; }
+    .issues[open] > summary::before { transform: rotate(90deg); }
+    .issue-list { display: grid; gap: 8px; margin-top: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    .issue {
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+      padding: 10px 12px; border-radius: 10px; text-decoration: none;
+      color: #fff5ef; background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.18);
+    }
+    .issue:hover { background: rgba(255,255,255,.16); }
+    .issue.current { background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.5); }
+    .issue-no { font-weight: 800; }
+    .issue-range { font-size: 13px; opacity: .9; }
+    .issue-sent { font-size: 12px; opacity: .72; }
+    .issue-cur { font-size: 12px; background: rgba(255,255,255,.85); color: var(--accent-deep); border-radius: 999px; padding: 1px 8px; font-weight: 700; }
     a { color: var(--accent); }
     /* 综述排版（与阅读器「AI 讲解」一致的 .msg-body 风格，配本页暖红色调） */
     .msg-body { display: grid; gap: 12px; line-height: 1.85; font-size: 1rem; color: var(--text); }
@@ -92,17 +115,35 @@
     <section class="hero">
       <div class="hero-row">
         <div>
-          <h1>本期期刊新文</h1>
+          <h1>{% if is_historical %}历史期 · 期刊新文{% else %}本期期刊新文{% endif %}</h1>
           {% if batch %}
-          <p>抓取窗口 {{ (batch.period_start or "")[:10] }} ~ {{ (batch.period_end or "")[:10] }}，共 {{ articles|length }} 篇。下列为本期收录的公开发表新文（题目、作者、摘要、GB/T 7714-2015 引文）。</p>
+          <p>抓取窗口 {{ (batch.period_start or "")[:10] }} ~ {{ (batch.period_end or "")[:10] }}{% if batch.sent_at %} · 发送于 {{ batch.sent_at[:10] }}{% endif %}，共 {{ articles|length }} 篇。下列为该期收录的公开发表新文（题目、作者、摘要、GB/T 7714-2015 引文）。</p>
           {% else %}
           <p>本期暂无收录文章，请稍后再来查看。</p>
           {% endif %}
         </div>
         <div class="actions">
+          {% if prev_batch %}<a class="btn" href="?d={{ prev_batch.id }}" title="查阅上一期">← 上一期</a>{% endif %}
+          {% if next_batch %}<a class="btn" href="?d={{ next_batch.id }}" title="查阅下一期">下一期 →</a>{% endif %}
+          {% if is_historical %}<a class="btn" href="{{ url_for('journal_alerts_latest') }}">回到本期</a>{% endif %}
           <a class="btn" href="/">返回首页</a>
         </div>
       </div>
+      {% if public_batches %}
+      <details class="issues"{% if is_historical %} open{% endif %}>
+        <summary>翻阅历史期数（共 {{ public_batches|length }} 期）</summary>
+        <div class="issue-list">
+          {% for b in public_batches %}
+          <a class="issue{% if b.id == viewing_id %} current{% endif %}" href="?d={{ b.id }}">
+            <span class="issue-no">第 {{ public_batches|length - loop.index0 }} 期</span>
+            <span class="issue-range">{{ (b.period_start or "")[:10] }} ~ {{ (b.period_end or "")[:10] }}</span>
+            {% if b.sent_at %}<span class="issue-sent">发送 {{ b.sent_at[:10] }}</span>{% endif %}
+            {% if b.id == viewing_id %}<span class="issue-cur">当前查看</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
     </section>
 
     {% if review_html %}

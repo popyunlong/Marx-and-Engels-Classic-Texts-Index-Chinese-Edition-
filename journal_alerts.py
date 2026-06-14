@@ -1246,6 +1246,20 @@ def list_recent_batches(limit: int = 12) -> list[dict]:
     return [_digest_row(row) or {} for row in rows]
 
 
+def list_public_batches(limit: int = 60) -> list[dict]:
+    """对外可翻阅的历史期：已发送（当前留存的本期）+ 已归档（更早各期），按 id 新→旧。
+
+    在建批次（collecting/reviewing/ready_to_send）不在此列——它们尚未对外发送，
+    只能在审核预览中出现，不应作为「历史期数」被枚举。供前台「翻阅历史期数」用。"""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM journal_digests WHERE status IN ('sent', 'archived') "
+            "ORDER BY id DESC LIMIT ?",
+            (max(1, int(limit)),),
+        ).fetchall()
+    return [_digest_row(row) or {} for row in rows]
+
+
 def open_batch(settings: dict | None = None, *, period_days: int | None = None) -> dict:
     """开新批次：归档之前未发送的批次及其文章，再插入一行 collecting 批次。"""
     settings = settings or load_alert_settings()

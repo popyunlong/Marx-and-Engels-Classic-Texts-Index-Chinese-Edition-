@@ -190,6 +190,7 @@ from journal_alerts import (
     list_journal_sources,
     list_recent_articles as list_recent_journal_articles,
     list_recent_batches,
+    list_public_batches,
     list_recent_delivery_logs as list_recent_journal_delivery_logs,
     list_recent_runs as list_recent_journal_runs,
     list_recent_subscriptions as list_recent_journal_subscriptions,
@@ -5507,29 +5508,67 @@ def journal_alerts_unsubscribe_token(token: str):
 
 @app.route("/journal-alerts/latest")
 def journal_alerts_latest():
-    # 首页「期刊订阅」栏目入口：展示本期（当前批次）已发布文章。
+    # 首页「期刊订阅」栏目入口：展示本期（当前批次）已发布文章；
+    # 支持 ?d=<批次id> 查阅上一期/历史期数（仅限已发送/已归档批次，防越权枚举草稿）。
     # 严格按控制台「期刊提醒」权限放行（访客/未授权 → 403）。
     if not _feature_effective_for_user("journal_alerts"):
         abort(403, description="当前账号暂未开放期刊提醒权限。")
-    # 优先展示最近一次已发送批次（发送后留存到下一期发送）；尚无发送则展示当前在建批次以便预览。
-    batch = latest_public_batch()
+
+    # 对外可翻阅的历史期（新→旧，含本期已发送 + 历史归档）。
+    public_batches = list_public_batches()
+
+    # 默认展示「本期」：最近一次已发送批次（留存到下次发送），尚无发送则退回在建批次预览。
+    default_batch = latest_public_batch()
+
+    # ?d 指定历史期：必须命中公开期列表，否则视为不可见/不存在。
+    requested_id = request.args.get("d", type=int)
+    if requested_id is not None:
+        batch = next((b for b in public_batches if int(b["id"]) == requested_id), None)
+        if batch is None:
+            abort(404, description="未找到该期内容，或该期暂不可查阅。")
+    else:
+        batch = default_batch
+
     articles: list[dict] = []
     if batch:
-        # 已批准/已发送(ready) 优先；若本批尚未审核，则展示待审(pending_review) 以便预览。
+        # 已批准/已发送(ready) 优先；历史归档批次的文章为 archived 态，需一并纳入；
+        # 当批尚未审核时回退 pending_review 以便预览。
         articles = batch_articles(int(batch["id"]), statuses=("ready",))
         if not articles:
-            articles = batch_articles(int(batch["id"]), statuses=("ready", "pending_review"))
+            articles = batch_articles(int(batch["id"]), statuses=("ready", "pending_review", "archived"))
     review_html = ""
     if batch and str(batch.get("review_status") or "") == "approved":
         review_html = str(batch.get("review_html") or "")
+
+    # 翻页：在公开期列表中定位当前批次，更旧者为「上一期」、更新者为「下一期」。
+    # 若当前展示的是在建批次（不在公开列表），其「上一期」即最新一次已发送批次。
+    prev_batch = next_batch = None
+    if batch:
+        ids = [int(b["id"]) for b in public_batches]
+        bid = int(batch["id"])
+        if bid in ids:
+            i = ids.index(bid)
+            prev_batch = public_batches[i + 1] if i + 1 < len(public_batches) else None
+            next_batch = public_batches[i - 1] if i - 1 >= 0 else None
+        elif public_batches:
+            prev_batch = public_batches[0]
+
+    is_historical = bool(
+        batch and default_batch and int(batch["id"]) != int(default_batch["id"])
+    )
     return render_template(
         "journal_latest.html",
-        title="本期期刊新文",
+        title=("历史期 · 期刊新文" if is_historical else "本期期刊新文"),
         app_name=APP_NAME,
         state=current_view_state(),
         batch=batch,
         articles=articles,
         review_html=review_html,
+        public_batches=public_batches,
+        prev_batch=prev_batch,
+        next_batch=next_batch,
+        is_historical=is_historical,
+        viewing_id=(int(batch["id"]) if batch else None),
         can_subscribe=bool(_feature_effective_for_user("journal_alerts") and load_smtp_config().enabled),
     )
 
