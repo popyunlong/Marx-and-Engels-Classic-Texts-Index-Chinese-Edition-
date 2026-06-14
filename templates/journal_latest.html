@@ -53,6 +53,10 @@
     }
     .primary { color: #fff; background: var(--accent); }
     .primary:hover { background: var(--accent-deep); }
+    .item-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    /* 「下载 PDF」醒目主按钮：加重字重 + 暖红投影，从信息栏中跳出来 */
+    .btn.dl { font-weight: 700; box-shadow: 0 6px 16px rgba(143, 29, 29, 0.26); }
+    .btn.dl:hover { background: var(--accent-deep); }
     .hero .btn { color: #fff8f0; border-color: rgba(255,255,255,.28); background: transparent; }
     a { color: var(--accent); }
     /* 综述排版（与阅读器「AI 讲解」一致的 .msg-body 风格，配本页暖红色调） */
@@ -124,7 +128,12 @@
             {% endif %}
           </div>
           {% if article.citation_gb2015 %}<div class="cite">{{ article.citation_gb2015 }}</div>{% endif %}
-          {% if article.url %}<div style="margin-top:8px"><a href="{{ article.url }}" target="_blank" rel="noopener">查看来源 ↗</a></div>{% endif %}
+          {% if article.pdf_url or article.url %}
+          <div class="item-actions">
+            {% if article.pdf_url %}<a class="btn primary dl" href="/journal-alerts/pdf/{{ article.id }}">⬇ 下载 PDF</a>{% endif %}
+            {% if article.url %}<a class="btn" href="{{ article.url }}" target="_blank" rel="noopener">查看来源 ↗</a>{% endif %}
+          </div>
+          {% endif %}
         </section>
         {% else %}
         <div class="item muted">本期暂无文章。</div>

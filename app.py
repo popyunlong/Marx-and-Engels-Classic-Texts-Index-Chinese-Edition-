@@ -178,6 +178,8 @@ from journal_alerts import (
     deliver_ready_articles as deliver_ready_journal_articles,
     generate_batch_review,
     get_batch,
+    get_public_article as get_public_journal_article,
+    _ncpssd_opener as journal_ncpssd_opener,
     latest_public_batch,
     ncpssd_detail_probe,
     journal_abstract_diag,
@@ -358,6 +360,8 @@ PAYMENT_CONFIG = load_zpay_config(DEPLOYMENT.public_base_url)
 PAYMENT_CLIENT = ZPayClient(PAYMENT_CONFIG)
 ALLOWED_SOURCE_FILES = load_allowed_source_files()
 PAGE_IMAGE_CACHE_DIR = APPDATA_DIR / "page_images"
+# 期刊文献 PDF 的按需镜像缓存（点击下载时首次拉取并落盘，之后本地直发）。
+JOURNAL_PDF_CACHE_DIR = APPDATA_DIR / "journal_pdfs"
 corpus = Corpus.load_default() if BASE_RUNTIME.can_search else None
 if corpus is not None:
     # 后台预热篇章分段缓存：避免首个短词海量检索因一次性构建分段而出现卡顿。
@@ -497,6 +501,8 @@ RATE_LIMITS = {
     # 正常读者/校园 NAT 远不及此，只拦单 IP 的高频批量抓取。可经 env 覆盖。
     "reader_view_ip": (200, 60),
     "reader_pageimg_ip": (1500, 60),
+    # 期刊文献 PDF 下载（每次可能触发远端镜像，较重）：单 IP 收紧。
+    "reader_journalpdf_ip": (40, 60),
 }
 # 极端真实 IP 扒站者的保守自动封禁阈值(双高：日总量 且 单分钟峰值)。仅封公网 IP actor，
 # 永不封登录会员/内网/监控；可经设置 reader_auto_ban 或 env 调整、DISABLE_READER_AUTO_BAN 关闭。
@@ -2810,7 +2816,11 @@ def _rate_limit_page_image_or_abort() -> None:
 
 def _reader_ip_rate(kind: str) -> tuple[int, int]:
     """阅读内容端点按 IP 限速的(阈值, 窗口秒)。可经 env 覆盖（"limit,window"）。"""
-    env_name = {"view": "READER_VIEW_IP_RATE", "pageimg": "READER_PAGEIMG_IP_RATE"}.get(kind, "")
+    env_name = {
+        "view": "READER_VIEW_IP_RATE",
+        "pageimg": "READER_PAGEIMG_IP_RATE",
+        "journalpdf": "READER_JOURNALPDF_IP_RATE",
+    }.get(kind, "")
     raw = str(os.environ.get(env_name) or "").strip() if env_name else ""
     if raw and "," in raw:
         try:
@@ -2818,7 +2828,8 @@ def _reader_ip_rate(kind: str) -> tuple[int, int]:
             return max(1, int(limit_s.strip())), max(1, int(window_s.strip()))
         except ValueError:
             pass
-    return RATE_LIMITS["reader_view_ip" if kind == "view" else "reader_pageimg_ip"]
+    bucket = {"view": "reader_view_ip", "journalpdf": "reader_journalpdf_ip"}.get(kind, "reader_pageimg_ip")
+    return RATE_LIMITS[bucket]
 
 
 def _rate_limit_reader_ip_or_abort(kind: str) -> None:
@@ -4628,6 +4639,145 @@ def _prune_page_image_cache_if_due() -> None:
     threading.Thread(target=_worker, daemon=True).start()
 
 
+# ---------------------------------------------------------------------------
+# 期刊文献 PDF：按需镜像 + 本地直发（复用 page-image 的缓存/LRU 清理范式）
+# ---------------------------------------------------------------------------
+JOURNAL_PDF_MAX_BYTES = int(os.environ.get("MARX_JOURNAL_PDF_MAX_BYTES", str(80 * 1024 ** 2)))  # 单文件上限 80MB
+JOURNAL_PDF_CACHE_MAX_BYTES = int(os.environ.get("MARX_JOURNAL_PDF_CACHE_MAX_BYTES", str(4 * 1024 ** 3)))  # 软上限 4GiB
+JOURNAL_PDF_CACHE_PRUNE_INTERVAL_SECONDS = 1800
+JOURNAL_PDF_FETCH_TIMEOUT = 30
+_JOURNAL_PDF_FETCH_SEMAPHORE = threading.Semaphore(int(os.environ.get("MARX_JOURNAL_PDF_FETCH_CONCURRENCY", "3")))
+_last_journal_pdf_prune: list[float] = [0.0]
+_JOURNAL_PDF_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def _journal_pdf_cache_path(article_id: int) -> Path:
+    return JOURNAL_PDF_CACHE_DIR / f"{int(article_id)}.pdf"
+
+
+def _is_ncpssd_landing_url(url: str) -> bool:
+    """NCPSSD 文章页(非直链 PDF)：全文受登录+瑞数 WAF 限制，应直接跳转源站而非无谓抓取。"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.netloc.endswith("ncpssd.cn") and "/Literature/articleinfo" in parsed.path
+
+
+def _mirror_journal_pdf_to_cache(article_id: int, pdf_url: str) -> Path | None:
+    """把远端 PDF 拉取并缓存到本地；成功返回缓存路径，非 PDF/被拦/超限/失败返回 None。
+
+    None 由路由翻译成“跳转源站”，绝不把 HTML 落地页当 PDF 直发。NCPSSD 直链走带
+    Cookie/WAF 的共享 opener，其余用浏览器 UA 的标准请求。"""
+    if not pdf_url.lower().startswith(("http://", "https://")):
+        return None
+    cache_path = _journal_pdf_cache_path(article_id)
+    if cache_path.exists() and cache_path.stat().st_size > 0:
+        return cache_path
+    with _JOURNAL_PDF_FETCH_SEMAPHORE:  # 限流并发镜像，防批量点击打满网络/磁盘
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            return cache_path  # 排队期间已被其他线程镜像好
+        try:
+            host = urlparse(pdf_url).netloc
+        except ValueError:
+            return None
+        req = urllib.request.Request(
+            pdf_url,
+            headers={"User-Agent": _JOURNAL_PDF_BROWSER_UA, "Accept": "application/pdf,*/*",
+                     "Referer": "https://www.ncpssd.cn/" if host.endswith("ncpssd.cn") else pdf_url},
+        )
+        opener = journal_ncpssd_opener() if host.endswith("ncpssd.cn") else urllib.request.build_opener()
+        temp_path = cache_path.with_name(f"{cache_path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            with opener.open(req, timeout=JOURNAL_PDF_FETCH_TIMEOUT) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                head = resp.read(8)
+                # 只接受 PDF：Content-Type 标注 pdf，或正文以 %PDF- 魔数开头；HTML 落地页一律拒绝。
+                is_pdf = "application/pdf" in ctype or head.startswith(b"%PDF")
+                if not is_pdf and "application/octet-stream" not in ctype:
+                    return None
+                JOURNAL_PDF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                total = len(head)
+                with open(temp_path, "wb") as fh:
+                    fh.write(head)
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > JOURNAL_PDF_MAX_BYTES:
+                            raise ValueError("pdf exceeds size cap")
+                        fh.write(chunk)
+            if total < 5 or not head.startswith(b"%PDF"):
+                # 兜底：octet-stream 但实非 PDF（魔数不符）→ 视为失败，跳转源站。
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+                return None
+            os.replace(temp_path, cache_path)
+            return cache_path
+        except Exception as exc:
+            LOGGER.info("Journal PDF mirror failed (%s): %s", pdf_url, exc)
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+            return None
+
+
+def _prune_journal_pdf_cache_if_due() -> None:
+    now = time.time()
+    if now - _last_journal_pdf_prune[0] < JOURNAL_PDF_CACHE_PRUNE_INTERVAL_SECONDS:
+        return
+    _last_journal_pdf_prune[0] = now
+
+    def _worker() -> None:
+        try:
+            entries: list[tuple[float, int, str]] = []
+            total = 0
+            for root, _dirs, files in os.walk(JOURNAL_PDF_CACHE_DIR):
+                for name in files:
+                    if not name.endswith(".pdf"):
+                        continue
+                    path = os.path.join(root, name)
+                    try:
+                        stat = os.stat(path)
+                    except OSError:
+                        continue
+                    entries.append((stat.st_mtime, stat.st_size, path))
+                    total += stat.st_size
+            if total <= JOURNAL_PDF_CACHE_MAX_BYTES:
+                return
+            target = int(JOURNAL_PDF_CACHE_MAX_BYTES * 0.9)
+            entries.sort(key=lambda item: item[0])  # 最旧（mtime 最小）先删
+            removed = 0
+            for _mtime, size, path in entries:
+                if total <= target:
+                    break
+                try:
+                    os.remove(path)
+                except OSError:
+                    continue
+                total -= size
+                removed += 1
+            LOGGER.info("Journal PDF cache pruned: removed %s files, now ~%.2f GiB", removed, total / 1024 ** 3)
+        except Exception as exc:
+            LOGGER.debug("Journal PDF cache prune failed: %s", exc)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def _journal_pdf_download_name(article: dict) -> str:
+    """据文章标题生成安全的下载文件名（去掉路径/控制字符，限长）。"""
+    title = str(article.get("title_zh") or article.get("title") or "").strip()
+    safe = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", title).strip()[:80]
+    return f"{safe or 'article'}.pdf"
+
+
 _RELEASE_UPLOAD_ENDPOINTS = frozenset({"admin_desktop_release_upload"})
 _MEDIA_UPLOAD_ENDPOINTS = frozenset({
     "api_feedback_message_create",
@@ -5381,6 +5531,36 @@ def journal_alerts_latest():
         articles=articles,
         review_html=review_html,
         can_subscribe=bool(_feature_effective_for_user("journal_alerts") and load_smtp_config().enabled),
+    )
+
+
+@app.route("/journal-alerts/pdf/<int:article_id>")
+def journal_alerts_pdf(article_id: int):
+    """文献 PDF 按需下载：首次拉取并镜像到本地后直发；拿不到真 PDF 时优雅跳转源站。
+    与「本期新文」页同权限（期刊提醒），仅对可对外的文章开放，防越权枚举草稿。"""
+    if not _feature_effective_for_user("journal_alerts"):
+        abort(403, description="当前账号暂未开放期刊提醒权限。")
+    _rate_limit_reader_ip_or_abort("journalpdf")
+    article = get_public_journal_article(article_id)
+    if not article:
+        abort(404, description="未找到该文献。")
+    pdf_url = str(article.get("pdf_url") or "").strip()
+    if not pdf_url:
+        abort(404, description="该文献暂无可下载的 PDF。")
+    # NCPSSD 文章页（全文受登录+WAF 限制）：直接跳转源站阅读，不做无谓镜像。
+    if _is_ncpssd_landing_url(pdf_url):
+        return redirect(pdf_url)
+    cache_path = _mirror_journal_pdf_to_cache(article_id, pdf_url)
+    _prune_journal_pdf_cache_if_due()
+    if cache_path is None:
+        return redirect(pdf_url)  # 镜像失败（非 PDF/被拦/超限）→ 跳转来源
+    return send_file(
+        cache_path,
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name=_journal_pdf_download_name(article),
+        conditional=True,
+        max_age=86400,
     )
 
 

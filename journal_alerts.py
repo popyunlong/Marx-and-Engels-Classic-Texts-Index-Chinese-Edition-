@@ -95,6 +95,14 @@ CN_JOURNAL_SOURCE_DEFAULTS: dict[str, dict[str, Any]] = {
     "国外理论动态": {"issn": "1674-1277"},
     "红旗文稿": {"issn": "2095-1817"},
     "理论视野": {"issn": "1008-1747"},
+    # —— 政治经济学相关刊（2026-06 新增）——
+    "当代经济研究": {"issn": "1005-2674"},   # 吉林财大·中国《资本论》研究会会刊
+    "政治经济学评论": {"issn": "1674-7542"}, # 中国人民大学
+    "政治经济学季刊": {"issn": "2097-1516"}, # 清华大学·CSSCI 集刊（已获 CN 刊号）
+    "经济纵横": {"issn": "1007-7685"},        # 吉林省社科院
+    # 《政治经济学报》（孟捷主编）为 ISBN 集刊，无 ISSN/CN，亦未在 NCPSSD 期刊库；
+    # 保持 manual（控制台显示“待补充来源”），管理员可在 /admin 补录来源后启用自动抓取。
+    "政治经济学报": {},
 }
 
 
@@ -117,6 +125,12 @@ CN_JOURNAL_NCPSSD_GCH: dict[str, str] = {
     "求是": "91584X",
     "红旗文稿": "81256A",
     "教学与研究": "96928X",
+    # —— 政治经济学相关刊（2026-06 新增，逐刊核对 刊名+ISSN ↔ NCPSSD gch 一致）——
+    "当代经济研究": "97946X",
+    "经济纵横": "92389X",
+    "政治经济学季刊": "73151X",
+    # 《政治经济学评论》（ISSN 1674-7542）未在 NCPSSD 期刊库核到 gch，
+    # 故走 ISSN→OpenAlex 兜底（见 _default_source）；管理员核到 gch 后可在控制台改配。
 }
 
 # 这些为权威/官方刊物，默认标记为可信来源（抓到即自动发送，无需人工审核）。
@@ -179,6 +193,12 @@ DEFAULT_JOURNAL_SOURCES: tuple[dict[str, Any], ...] = (
     _default_source("国外理论动态"),
     _default_source("红旗文稿"),
     _default_source("理论视野"),
+    # —— 政治经济学相关期刊（2026-06 新增）——
+    _default_source("当代经济研究"),
+    _default_source("政治经济学评论"),
+    _default_source("政治经济学季刊"),
+    _default_source("政治经济学报"),
+    _default_source("经济纵横"),
     {
         "name": "Historical Materialism: Research in Critical Marxist Theory",
         "language": "en",
@@ -643,6 +663,7 @@ def init_journal_alerts_db() -> Path:
                 citation_gb2015 TEXT NOT NULL DEFAULT '',
                 doi TEXT NOT NULL DEFAULT '',
                 url TEXT NOT NULL DEFAULT '',
+                pdf_url TEXT NOT NULL DEFAULT '',
                 published_at TEXT NOT NULL DEFAULT '',
                 volume TEXT NOT NULL DEFAULT '',
                 issue TEXT NOT NULL DEFAULT '',
@@ -737,6 +758,8 @@ def init_journal_alerts_db() -> Path:
         _ensure_column(conn, "journal_articles", "batch_id", "INTEGER")
         _ensure_column(conn, "journal_articles", "ai_discipline", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "journal_articles", "ai_problem_type", "TEXT NOT NULL DEFAULT ''")
+        # 文献 PDF 下载链接（OpenAlex 开放获取 / NCPSSD 全文，尽力而为；为空则前端不显示下载按钮）。
+        _ensure_column(conn, "journal_articles", "pdf_url", "TEXT NOT NULL DEFAULT ''")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_journal_articles_batch ON journal_articles(batch_id, status)"
         )
@@ -1326,6 +1349,22 @@ def batch_articles(digest_id: int, statuses: tuple[str, ...] | None = None) -> l
     return [_article_row(row) for row in rows]
 
 
+# 可对外（含 PDF 下载）开放的文章状态：已发布/审核预览/已归档（旧邮件链接仍可用），
+# 排除草稿态（待翻译）与人工忽略，避免越权枚举未发布稿件。
+_PUBLIC_ARTICLE_STATUSES = ("ready", "pending_review", "archived")
+
+
+def get_public_article(article_id: int) -> dict | None:
+    """按 id 取一篇“可对外”的文章（供 PDF 下载路由用），非公开态返回 None。"""
+    placeholders = ",".join("?" for _ in _PUBLIC_ARTICLE_STATUSES)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT * FROM journal_articles WHERE id = ? AND status IN ({placeholders})",
+            (int(article_id), *_PUBLIC_ARTICLE_STATUSES),
+        ).fetchone()
+    return _article_row(row) if row else None
+
+
 def set_article_classification(article_id: int, discipline: str, problem_type: str) -> None:
     with _connect() as conn:
         conn.execute(
@@ -1486,6 +1525,14 @@ def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
         doi = str(item.get("doi") or "").strip()
         if doi.lower().startswith("https://doi.org/"):
             doi = doi[16:]
+        # 开放获取 PDF：best_oa_location 优先，其次 open_access.oa_url / primary_location.pdf_url。
+        best_oa = item.get("best_oa_location") or {}
+        pdf_url = str(
+            best_oa.get("pdf_url")
+            or (item.get("open_access") or {}).get("oa_url")
+            or location.get("pdf_url")
+            or ""
+        ).strip()
         abstract = _openalex_abstract(item.get("abstract_inverted_index"))
         if not abstract and doi and crossref_budget > 0:
             crossref_budget -= 1
@@ -1499,6 +1546,7 @@ def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
                 "authors": [a for a in authors if a],
                 "doi": doi,
                 "url": str(location.get("landing_page_url") or item.get("id") or "").strip(),
+                "pdf_url": pdf_url,
                 "published_at": str(item.get("publication_date") or "").strip(),
                 "volume": str((item.get("biblio") or {}).get("volume") or "").strip(),
                 "issue": str((item.get("biblio") or {}).get("issue") or "").strip(),
@@ -1762,7 +1810,31 @@ def fetch_ncpssd_detail(lngid: str) -> dict:
         "issue": str(data.get("num") or "").strip(),
         "published_at": published,
         "keywords": _strip_tags(html.unescape(str(data.get("keywordc") or ""))).strip(),
+        "pdf_url": _ncpssd_pdf_url(data),
     }
+
+
+def _ncpssd_pdf_url(data: dict) -> str:
+    """从 NCPSSD 详情数据解析全文 PDF 链接（尽力而为）。
+
+    NCPSSD 多数全文需登录 + 受瑞数 WAF 保护：`pdfurl`/`fileaddress` 仅对开放内容直出，
+    此时返回可直接下载的真链；否则若 `pdfsize>0`（确有 PDF），回退到文章页地址，
+    由下载路由尝试镜像、失败则跳转源站，至少给用户一条到全文的直达路径。空字符串=无。"""
+    direct = str(data.get("pdfurl") or data.get("fileaddress") or "").strip()
+    if direct:
+        return urllib.parse.urljoin("https://www.ncpssd.cn/", direct) if direct.startswith("/") else direct
+    try:
+        pdf_size = int(str(data.get("pdfsize") or "0").strip() or "0")
+    except (TypeError, ValueError):
+        pdf_size = 0
+    lngid = str(data.get("lngid") or data.get("id") or "").strip()
+    if pdf_size > 0 and lngid:
+        return (
+            "https://www.ncpssd.cn/Literature/articleinfo?id="
+            + urllib.parse.quote(lngid)
+            + "&type=journalArticle"
+        )
+    return ""
 
 
 def journal_abstract_coverage() -> dict:
@@ -2167,10 +2239,10 @@ def upsert_article(
                 """
                 INSERT INTO journal_articles(
                     source_id, journal_name, language, title, title_zh, abstract, abstract_zh,
-                    authors_json, citation_gb2015, doi, url, published_at, volume, issue, pages,
+                    authors_json, citation_gb2015, doi, url, pdf_url, published_at, volume, issue, pages,
                     dedupe_key, status, metadata_json, batch_id, first_seen_at, updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(source["id"]),
@@ -2184,6 +2256,7 @@ def upsert_article(
                     normalized["citation_gb2015"],
                     normalized.get("doi") or "",
                     normalized.get("url") or "",
+                    normalized.get("pdf_url") or "",
                     normalized.get("published_at") or "",
                     normalized.get("volume") or "",
                     normalized.get("issue") or "",
@@ -2287,6 +2360,9 @@ def _apply_article_detail(article: dict, detail: dict) -> dict | None:
     for key in ("pages", "doi", "issue"):
         if detail.get(key) and not str(article.get(key) or "").strip():
             merged[key] = detail[key]
+    # 全文 PDF：仅在文章尚无 pdf_url 时回填，避免覆盖已解析到的真链。
+    if detail.get("pdf_url") and not str(article.get("pdf_url") or "").strip():
+        merged["pdf_url"] = detail["pdf_url"]
     metadata = dict(article.get("metadata") or {})
     if detail.get("keywords"):
         metadata["keywords"] = detail["keywords"]
@@ -2296,7 +2372,7 @@ def _apply_article_detail(article: dict, detail: dict) -> dict | None:
             """
             UPDATE journal_articles
             SET abstract = ?, authors_json = ?, citation_gb2015 = ?, doi = ?, pages = ?,
-                issue = ?, published_at = ?, metadata_json = ?, updated_at = ?
+                issue = ?, published_at = ?, pdf_url = ?, metadata_json = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -2307,6 +2383,7 @@ def _apply_article_detail(article: dict, detail: dict) -> dict | None:
                 merged.get("pages") or "",
                 merged.get("issue") or "",
                 merged.get("published_at") or "",
+                merged.get("pdf_url") or "",
                 _json_dumps(metadata),
                 utc_now_text(),
                 int(article["id"]),
