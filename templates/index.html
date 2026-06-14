@@ -1431,6 +1431,29 @@
             </div>
             <a class="feature-action {% if entry.disabled %}disabled{% endif %}" {% if entry.disabled %}aria-disabled="true"{% endif %} href="{{ entry.href }}">{{ site_text(entry.action_key) }}</a>
           </section>
+          {% if entry.kind == 'dictionary' and wenku_available %}
+          {# 原文文库卡：按运营要求排在「大辞典」与「AI 导学」之间（整体第 3 位）。
+             自托管静态 HTML 原文库（列宁ПСС 俄文等），含页码级引文；
+             权限随控制台「会员与权限」的 static_library 授权动态切换。 #}
+          <section class="journal-bar" aria-label="原文文库">
+            <div class="feature-copy">
+              <div class="feature-kicker">{{ site_text("index.wenku_kicker") }}</div>
+              <div class="reader-status-row">
+                <span class="reader-status">{{ site_text(wenku_status.status_key) }}</span>
+                {% for tag in feature_tags['wenku'] %}
+                <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
+                {% endfor %}
+              </div>
+              <h2>{{ site_text("index.wenku_title") }}</h2>
+              <p>{{ site_text("index.wenku_description") }}</p>
+            </div>
+            {% if wenku_access_enabled %}
+            <a class="feature-action" href="{{ url_for('wenku_home') }}">{{ site_text("index.wenku_action") }}</a>
+            {% else %}
+            <a class="feature-action" href="{{ url_for('pricing') }}?from=wenku">{{ site_text("index.wenku_locked") }}</a>
+            {% endif %}
+          </section>
+          {% endif %}
           {% endfor %}
         </div>
 
@@ -1457,29 +1480,6 @@
           <a class="feature-action" href="{{ url_for('pricing') }}?from=journal">{{ site_text("index.journal_locked") }}</a>
           {% endif %}
         </section>
-
-        {% if wenku_available %}
-        {# 原文文库卡：自托管静态 HTML 原文库（列宁ПСС 俄文等），含页码级引文。
-           权限随控制台「会员与权限」的 static_library 授权动态切换。 #}
-        <section class="journal-bar" aria-label="原文文库">
-          <div class="feature-copy">
-            <div class="feature-kicker">{{ site_text("index.wenku_kicker") }}</div>
-            <div class="reader-status-row">
-              <span class="reader-status">{{ site_text(wenku_status.status_key) }}</span>
-              {% for tag in feature_tags['wenku'] %}
-              <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
-              {% endfor %}
-            </div>
-            <h2>{{ site_text("index.wenku_title") }}</h2>
-            <p>{{ site_text("index.wenku_description") }}</p>
-          </div>
-          {% if wenku_access_enabled %}
-          <a class="feature-action" href="{{ url_for('wenku_home') }}">{{ site_text("index.wenku_action") }}</a>
-          {% else %}
-          <a class="feature-action" href="{{ url_for('pricing') }}?from=wenku">{{ site_text("index.wenku_locked") }}</a>
-          {% endif %}
-        </section>
-        {% endif %}
 
         <div id="searchBookTabs" class="book-tabs" hidden></div>
         <div id="results"></div>
