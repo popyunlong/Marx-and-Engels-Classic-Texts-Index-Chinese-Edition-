@@ -4304,13 +4304,20 @@ PAGE_IMAGE_HARD_MAX_SCALE = 4.8     # 缩放硬上限：护内存/体积（马�
 PAGE_IMAGE_JPEG_QUALITY = 90        # JPEG 质量：高分辨率下兼顾文字边缘锐利与体积
 
 # 普通扫描库（马恩全集 / 列宁全集 / 文集 等）：源分辨率高低不一，统一走原生分辨率自适应逻辑。
-# **USM=0（不锐化）**：实测列宁 60 卷中约 52 卷源仅 ~700-800px，按原生放大到显示下限本就是
-# 较大插值；再叠 USM 会把扫描底噪/JPEG 颗粒一并放大成毛刺/黑边，肉眼反而"更糊更脏"（用户实测
-# 列宁部分卷不如旧版清晰即此故）。清晰度提升**只靠更高渲染分辨率 + PyMuPDF 的好插值**即可，
-# 锐化对这类灰底扫描得不偿失。高清卷（vol03 等 native≥1600）本就按原生渲染、无需锐化。
+# 实测：文集是 1-bit 双色扫描 native~2042px（原生即高清）、马恩全集灰度 native~1540px（≈原生）、
+# 列宁全集**逐卷分辨率差异极大**（vol03=1630px 高清，但约 52 卷仅 675–880px 低清，vol04=675px）。
+# 高清/接近原生的页（upsample≈1）保持历史行为**不动**；只有**被显著上采样的低清页**（主要是列宁
+# 低清卷）才做清洗，且清洗顺序是关键：
+#   ① 先 levels 背景增白（把灰底/底噪映射到纯白）——这一步正是 v5 取消 USM 的破解：v5 发现「灰底
+#      直接叠 USM 会放大底噪→更脏」，但**先增白再锐化**时背景已是白、USM 无噪可放大，文字边缘却变锐；
+#   ② 再按上采样倍数自适应 USM（upsample 越大锐化越强）。
+#   含图版保护：中间调像素占比过高（照片/插图页）时跳过 levels，避免把照片压暗、丢层次。
+# clean_min_upsample 设上采样阈值：≥1.2（低清被拉伸）才清洗，高清卷/文本层页 upsample≈1 → 完全不动、
+# 输出与旧版逐字节一致（已实测文集/全集/列宁vol03 byte-identical）。tag +hd1 使旧缓存失效、重渲染。
 DEFAULT_RENDER = {
     "display_min_px": PAGE_IMAGE_DISPLAY_MIN_PX, "hard_max_scale": PAGE_IMAGE_HARD_MAX_SCALE,
-    "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.0, "usm_cap": 0.0, "tag": "",
+    "jpeg_quality": PAGE_IMAGE_JPEG_QUALITY, "usm_gain": 0.55, "usm_cap": 0.6,
+    "levels": (30.0, 212.0), "clean_min_upsample": 1.2, "photo_mid_max": 0.25, "tag": "+hd1",
 }
 # 《毛泽东选集》为纯图像扫描件、~700px、无文本层、粗黑体印刷，源即糊、无真实细节可恢复。用更高
 # 显示下限 + **轻度** USM + 略高 JPEG 质量提升观感（粗黑体能受益、且不像列宁灰底那样易出毛刺；
@@ -4361,19 +4368,29 @@ def _render_profile(source_file: str) -> dict:
     return DEFAULT_RENDER
 
 
-def _unsharp_jpeg_bytes(pix, amount: float, quality: int):
-    """对 PyMuPDF 像素图做一次轻度非锐化掩模（USM），返回 JPEG 字节；numpy 不可用或异常时返回
-    None，调用方回退到原始 pix.tobytes。可分离 [1,2,1]/4 近似高斯模糊，amount 控制锐化强度。"""
+def _enhance_jpeg_bytes(pix, *, usm_amount: float, levels, photo_mid_max: float, quality: int):
+    """低清扫描页清洗：先 levels 背景增白（灰底/底噪→纯白），再 USM 锐化，单次 numpy 完成。
+    顺序很关键——先增白再锐化，USM 便无灰底噪点可放大、只锐化文字边缘（这正是「灰底叠 USM 更糊」
+    在 v5 被否后的破解）。含图版保护：中间调像素占比 > photo_mid_max 判为照片/插图页，跳过 levels
+    以免压暗、丢层次（仍可做 USM）。levels=None 时只做 USM。numpy 不可用 / 锐化与增白均无 / 异常
+    时返回 None，调用方回退到原始 pix.tobytes（绝不 502）。"""
     np = _numpy_or_none()
-    if np is None or amount <= 0:
+    if np is None or (levels is None and usm_amount <= 0):
         return None
     try:
         h, w, n = pix.height, pix.width, pix.n
         arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(h, w, n).astype(np.float32)
-        blur = (arr * 2 + np.roll(arr, 1, 1) + np.roll(arr, -1, 1)) / 4.0
-        blur = (blur * 2 + np.roll(blur, 1, 0) + np.roll(blur, -1, 0)) / 4.0
-        sharp = np.clip(arr + amount * (arr - blur), 0, 255).astype(np.uint8)
-        out = fitz.Pixmap(pix.colorspace, w, h, sharp.tobytes(), pix.alpha)
+        if levels is not None:
+            gray = arr[..., 0]
+            mid_frac = float(((gray > 100) & (gray < 210)).mean())
+            if mid_frac <= photo_mid_max:  # 文字页（双峰：大量白 + 少量黑）才增白；照片页跳过
+                bp, wp = levels
+                arr = np.clip((arr - bp) / (wp - bp), 0.0, 1.0) * 255.0
+        if usm_amount > 0:
+            blur = (arr * 2 + np.roll(arr, 1, 1) + np.roll(arr, -1, 1)) / 4.0
+            blur = (blur * 2 + np.roll(blur, 1, 0) + np.roll(blur, -1, 0)) / 4.0
+            arr = arr + usm_amount * (arr - blur)
+        out = fitz.Pixmap(pix.colorspace, w, h, np.clip(arr, 0, 255).astype(np.uint8).tobytes(), pix.alpha)
         return out.tobytes("jpg", jpg_quality=quality)
     except Exception:
         return None
@@ -4435,10 +4452,13 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
 
         # 原生分辨率自适应缩放：渲染倍率「不低于源原生（不丢真实细节）、且不低于显示下限（填满阅读器）」，
         # 再夹到 [lo, hard_max]；USM 锐化强度按上采样倍数自适应（接近原生→几乎不锐化，避免过锐伪影）。
+        # DEFAULT 库另带「低清页清洗」：仅当 upsample ≥ clean_min_upsample（低清被显著拉伸）时启用
+        # levels 背景增白 + USM；高清/原生页（upsample≈1）则强制 usm=0、不增白，输出与历史逐字节一致。
         # profile 按书库选择。任何异常都安全回退到下限倍率、不锐化，绝不让渲染崩溃。
         profile = _render_profile(source_file)
         lo = max(matrix_scale, PAGE_IMAGE_MIN_SCALE)
         usm = 0.0
+        levels = None
         try:
             page_width_pt = float(page.rect.width)
             if page_width_pt <= 0:
@@ -4449,11 +4469,20 @@ def _render_page_image_to_cache(source_file: str, page_number: int, query_text: 
             scale = max(lo, min(max(native_scale, floor_scale), profile["hard_max_scale"]))
             upsample = scale / native_scale if native_scale > 0 else 1.0
             usm = max(0.0, min((upsample - 1.0) * profile["usm_gain"], profile["usm_cap"]))
+            clean_min_upsample = profile.get("clean_min_upsample")
+            if clean_min_upsample is not None:
+                if upsample >= clean_min_upsample:
+                    levels = profile.get("levels")  # 低清页：背景增白 + USM
+                else:
+                    usm = 0.0  # 高清/原生页：维持历史「无清洗」行为，输出逐字节一致
         except Exception:
             scale = lo
         pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, annots=True)
-        data = _unsharp_jpeg_bytes(pix, usm, profile["jpeg_quality"])
-        if data is None:  # numpy 不可用 / 锐化为 0 / 异常 → 直接输出原始像素图
+        data = _enhance_jpeg_bytes(
+            pix, usm_amount=usm, levels=levels,
+            photo_mid_max=profile.get("photo_mid_max", 0.25), quality=profile["jpeg_quality"],
+        )
+        if data is None:  # numpy 不可用 / 无清洗（高清页）/ 异常 → 直接输出原始像素图
             data = pix.tobytes("jpg", jpg_quality=profile["jpeg_quality"])
         temp_path.write_bytes(data)
     temp_path.replace(cache_path)
