@@ -171,6 +171,16 @@ SITE_TEXT_DEFINITIONS = (
     ),
     SiteTextDefinition("index.journal_action", "首页", "期刊提醒功能栏按钮", "管理期刊提醒", multiline=False),
     SiteTextDefinition("index.journal_locked", "首页", "期刊提醒功能栏未开放按钮", "会员订阅", multiline=False),
+    SiteTextDefinition("index.wenku_kicker", "首页", "原文文库功能栏小标题", "原文文库 · 会员专享", multiline=False),
+    SiteTextDefinition("index.wenku_title", "首页", "原文文库功能栏标题", "马列原著 · 原文阅读器", multiline=False),
+    SiteTextDefinition(
+        "index.wenku_description",
+        "首页",
+        "原文文库功能栏说明",
+        "列宁《全集》俄文第五版（55卷）、马恩《全集》历史考证版 MEGA²（德文）原文；内嵌原书页码，一键生成规范引文，并支持中文对照翻译。",
+    ),
+    SiteTextDefinition("index.wenku_action", "首页", "原文文库功能栏按钮", "进入文库", multiline=False),
+    SiteTextDefinition("index.wenku_locked", "首页", "原文文库功能栏未开放按钮", "开通会员后使用", multiline=False),
     SiteTextDefinition("index.notice_title", "首页", "首页公告栏标题", "网站公告", multiline=False),
     SiteTextDefinition(
         "index.notice_body",
