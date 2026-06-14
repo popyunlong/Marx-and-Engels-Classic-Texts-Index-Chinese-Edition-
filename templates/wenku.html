@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>原文文库 - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{--bg:#f4efe7;--panel:#fffdf8;--line:#e3d8c8;--text:#241d17;--muted:#766a5d;--accent:#8f1d1d;--accent-soft:#f4e3dc;}
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--text);font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;background:var(--bg);line-height:1.6;}
+    .topbar{display:flex;align-items:center;gap:14px;padding:13px 24px;border-bottom:1px solid var(--line);background:rgba(255,253,248,.96);position:sticky;top:0;z-index:5;backdrop-filter:blur(8px);}
+    .topbar a.back{color:var(--accent);text-decoration:none;font-size:.92em;white-space:nowrap;}
+    .topbar h1{font-size:1.08em;margin:0;font-weight:600;letter-spacing:.02em;}
+    .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 64px;}
+    .intro{color:var(--muted);margin:0 0 26px;font-size:.94em;}
+
+    .book{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 26px 26px;margin-bottom:26px;box-shadow:0 1px 4px rgba(60,40,20,.05);}
+    .book-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px;}
+    .book-head h2{margin:0;font-size:1.32em;letter-spacing:.01em;}
+    .badge{font-size:.66em;font-weight:700;color:#fff;background:var(--accent);border-radius:6px;padding:2px 7px;letter-spacing:.06em;}
+    .vcount{margin-left:auto;font-size:.8em;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 12px;white-space:nowrap;}
+    .book .sub{color:var(--muted);font-size:.88em;margin:2px 0 0;font-style:italic;}
+    .book .desc{color:var(--muted);font-size:.88em;margin:12px 0 18px;padding-top:14px;border-top:1px dashed var(--line);}
+
+    .grp{font-size:.82em;color:var(--accent);font-weight:600;margin:18px 0 10px;letter-spacing:.04em;}
+    .grp:first-of-type{margin-top:0;}
+    .vols{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:10px;}
+    .vol{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:11px;padding:10px 13px;background:#fff;color:var(--text);text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s;min-height:54px;}
+    .vol:hover{border-color:var(--accent);box-shadow:0 3px 12px rgba(143,29,29,.10);transform:translateY(-1px);}
+    .vol .vnum{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:46px;height:34px;padding:0 8px;background:var(--accent-soft);color:var(--accent);border-radius:8px;font-weight:700;font-size:.86em;white-space:nowrap;}
+    .vol .vdetail{font-size:.85em;line-height:1.35;color:var(--text);overflow:hidden;}
+    .empty{color:var(--muted);}
+  </style>
+</head>
+<body>
+  <div class="topbar"><a class="back" href="/">← 返回首页</a><h1>原文文库</h1></div>
+  <div class="wrap">
+    <p class="intro">原文原版 · 网页直读，文字可检索、可复制 · 每页内嵌原书页码，阅读时一键生成规范引文，并支持中文对照翻译与 AI 导读。</p>
+
+    {% for book in books %}
+    <div class="book">
+      <div class="book-head">
+        <h2>{{ book.title_zh }}</h2>
+        {% if book.badge %}<span class="badge">{{ book.badge }}</span>{% endif %}
+        {% if book.volumes %}<span class="vcount">共 {{ book.volumes|length }} 卷</span>{% endif %}
+      </div>
+      {% if book.title_ru %}<p class="sub">{{ book.title_ru }}</p>{% endif %}
+      {% if book.desc %}<p class="desc">{{ book.desc }}</p>{% endif %}
+
+      {% set ns = namespace(grp='') %}
+      {% for v in book.volumes %}
+        {# 列宁分「著作」「书信」两组，按 label 含 Письма 切换 #}
+        {% if book.lang == 'ru' %}
+          {% set cur = '书信卷' if 'Письма' in v.label else '著作卷' %}
+        {% else %}
+          {% set cur = '' %}
+        {% endif %}
+        {% if cur and cur != ns.grp %}
+          {% set ns.grp = cur %}
+          {% if not loop.first %}</div>{% endif %}
+          <div class="grp">{{ cur }}</div>
+          <div class="vols">
+        {% elif loop.first %}
+          <div class="vols">
+        {% endif %}
+
+        {# 卷号徽标 + 去掉冗余前缀的明细 #}
+        {% set tag = ('Т.' ~ v.n) if book.lang == 'ru' else ('II/' ~ v.n) %}
+        {% if '(' in v.label %}
+          {% set detail = v.label.split('(', 1)[1] %}
+          {% set detail = detail[:-1] if detail.endswith(')') else detail %}
+        {% elif ': ' in v.label %}
+          {% set detail = v.label.split(': ', 1)[1] %}
+        {% else %}
+          {% set detail = v.label %}
+        {% endif %}
+        <a class="vol" href="{{ url_for('wenku_reader', book_key=book.key, vol=v.n) }}" title="{{ v.label }}">
+          <span class="vnum">{{ tag }}</span>
+          <span class="vdetail">{{ detail }}</span>
+        </a>
+
+        {% if loop.last %}</div>{% endif %}
+      {% else %}
+        <span class="empty">（暂无卷次）</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">文库暂无内容。</p>
+    {% endfor %}
+  </div>
+</body>
+</html>

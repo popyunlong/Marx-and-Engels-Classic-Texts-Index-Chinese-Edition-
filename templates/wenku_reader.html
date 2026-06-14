@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ book.title_zh }} · {{ volume.label }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{--bg:#f4efe7;--panel:#fffdf8;--line:#dfd3c4;--text:#241d17;--muted:#70655b;--accent:#8f1d1d;--accent-soft:#f2ded8;}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;}
+    body{display:flex;flex-direction:column;color:var(--text);font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;background:var(--bg);overflow:hidden;}
+    .topbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);background:rgba(255,253,248,.96);}
+    .topbar a.back{color:var(--accent);text-decoration:none;font-size:.9em;white-space:nowrap;}
+    .titlewrap{min-width:0;max-width:30vw;}
+    .titlewrap .t{font-size:1em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .titlewrap .v{font-size:.78em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .spacer{flex:1 1 auto;}
+    .curpage{font-size:.82em;color:var(--muted);border:1px dashed var(--line);border-radius:7px;padding:3px 9px;white-space:nowrap;}
+    .btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:8px;padding:6px 11px;font-size:.85em;cursor:pointer;white-space:nowrap;}
+    .btn:hover{border-color:var(--accent);color:var(--accent);}
+    .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+    .btn.primary:hover{filter:brightness(1.08);color:#fff;}
+    .fgroup{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+    .fgroup .btn{border:0;border-radius:0;}
+    .fgroup .btn+.btn{border-left:1px solid var(--line);}
+    .stage{flex:1 1 auto;display:flex;min-height:0;}
+    iframe#reader{flex:1 1 auto;min-width:0;border:0;background:#EEF0F5;}
+    /* AI 导读抽屉 */
+    #aiPanel{flex:0 0 0;width:0;overflow:hidden;transition:flex-basis .2s,width .2s;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;}
+    #aiPanel.open{flex:0 0 380px;width:380px;}
+    .ai-head{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);font-weight:600;}
+    .ai-head .x{margin-left:auto;cursor:pointer;border:0;background:none;font-size:1.35em;color:var(--muted);line-height:1;padding:0 4px;}
+    .ai-quick{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .ai-quick .ai-hint{font-size:.74em;color:var(--muted);}
+    .ai-engine{border:1px solid var(--line);border-radius:7px;padding:5px 7px;font-size:.8em;background:#fff;color:var(--text);cursor:pointer;}
+    .ai-engine:focus{outline:none;border-color:var(--accent);}
+    .ai-log{flex:1 1 auto;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
+    .ai-msg{font-size:.9em;line-height:1.75;border-radius:10px;padding:10px 12px;max-width:100%;word-break:break-word;}
+    .ai-msg.u{align-self:flex-end;background:var(--accent-soft);color:#5c1414;}
+    .ai-msg.a{align-self:flex-start;background:#fff;border:1px solid var(--line);}
+    .ai-msg.a b{color:var(--accent);}
+    .ai-empty{color:var(--muted);font-size:.85em;text-align:center;margin-top:26px;line-height:1.9;}
+    .ai-input{border-top:1px solid var(--line);padding:10px;display:flex;gap:8px;}
+    .ai-input textarea{flex:1;resize:none;height:46px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:inherit;font-size:.88em;}
+    .ai-input textarea:focus{outline:none;border-color:var(--accent);}
+    /* AI 回复 markdown 渲染（与站内 AI 阅读器一致的排版） */
+    .ai-msg.a h3,.ai-msg.a h4,.ai-msg.a h5{margin:.8em 0 .35em;color:var(--accent);font-weight:700;line-height:1.4;}
+    .ai-msg.a h3{font-size:1.06em;} .ai-msg.a h4{font-size:1em;} .ai-msg.a h5{font-size:.94em;}
+    .ai-msg.a p{margin:.5em 0;}
+    .ai-msg.a ul,.ai-msg.a ol{margin:.45em 0;padding-left:1.4em;}
+    .ai-msg.a li{margin:.22em 0;}
+    .ai-msg.a blockquote{margin:.55em 0;padding:.3em .8em;border-left:3px solid var(--line);color:var(--muted);}
+    .ai-msg.a hr{border:0;border-top:1px solid var(--line);margin:.85em 0;}
+    .ai-msg.a strong{color:var(--accent);}
+    .ai-msg.a code{background:#f3ece2;padding:1px 5px;border-radius:4px;font-size:.9em;}
+    .ai-msg.a pre{background:#2d2a26;color:#f0ece6;padding:10px;border-radius:8px;overflow:auto;font-size:.85em;}
+    .ai-msg.a pre code{background:none;padding:0;color:inherit;}
+    .ai-msg.a a{color:#2563eb;text-decoration:none;}
+    .ai-msg.a a:hover{text-decoration:underline;}
+    .ai-msg.a table{border-collapse:collapse;width:100%;font-size:.9em;margin:.5em 0;}
+    .ai-msg.a th,.ai-msg.a td{border:1px solid var(--line);padding:5px 8px;}
+    .ai-msg.a .markdown-table-wrap{overflow-x:auto;}
+    .ai-src{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:.78em;color:var(--muted);}
+    .ai-src a{color:#2563eb;text-decoration:none;display:block;margin:3px 0;}
+    /* 划词翻译浮窗 */
+    #selPop{position:fixed;z-index:60;display:none;max-width:340px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:6px;}
+    #selPop .sel-body{padding:8px 10px;font-size:.92em;line-height:1.65;color:var(--text);max-height:40vh;overflow:auto;}
+    #selPop .sel-body.err{color:var(--accent);}
+    /* 引文弹窗 */
+    .modal{display:none;position:fixed;inset:0;background:rgba(20,15,10,.45);z-index:50;align-items:center;justify-content:center;padding:20px;}
+    .modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:680px;width:100%;padding:22px 24px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+    .modal h3{margin:0 0 4px;font-size:1.15em;}
+    .modal .hint{color:var(--muted);font-size:.82em;margin:0 0 16px;}
+    .cite-row{margin:0 0 14px;}
+    .cite-row .lab{font-size:.78em;color:var(--muted);margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;}
+    .cite-row .val{background:#fff;border:1px solid var(--line);border-radius:9px;padding:11px 13px;font-size:.92em;line-height:1.6;word-break:break-word;}
+    .warn{display:none;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:8px 12px;font-size:.82em;margin-bottom:12px;}
+    .modal .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="{{ url_for('wenku_home') }}">← 文库</a>
+    <div class="titlewrap">
+      <div class="t">{{ book.title_zh }}</div>
+      <div class="v">{{ volume.label }}</div>
+    </div>
+    <div class="spacer"></div>
+    <span class="curpage">当前页 <b id="curPage">—</b></span>
+    <div class="fgroup">
+      <button class="btn" id="fminus" title="缩小字号">A−</button>
+      <button class="btn" id="fplus" title="放大字号">A+</button>
+    </div>
+    <button class="btn" id="toc" title="本卷目录">目录</button>
+    <button class="btn" id="bilingual" title="整段中文对照翻译（DeepSeek，永久缓存）">对照翻译</button>
+    <button class="btn" id="aiBtn" title="AI 导读（基于当前页原文，中文讲解）">AI 导读</button>
+    <button class="btn primary" id="cite" title="生成本页引文">引用本页</button>
+  </div>
+
+  <div class="stage">
+    <iframe id="reader" title="{{ book.title_zh }} {{ volume.label }}"></iframe>
+    <aside id="aiPanel" aria-label="AI 导读">
+      <div class="ai-head">AI 导读<button class="x" id="aiClose" title="关闭">×</button></div>
+      <div class="ai-quick">
+        <button class="btn primary" id="aiExplain">✦ 解读本页</button>
+        {% if ai_web_allowed %}
+        <select id="aiEngine" class="ai-engine" title="选择 AI 引擎">
+          <option value="deepseek">DeepSeek</option>
+          <option value="zhipu">智谱联网</option>
+        </select>
+        {% endif %}
+        <span class="ai-hint">基于当前页原文</span>
+      </div>
+      <div class="ai-log" id="aiLog">
+        <div class="ai-empty">就当前页 / 本卷向 AI 提问，<br>或点「解读本页」让 AI 讲解这一页。<br><br>AI 依据原文作答，仅供研读参考。</div>
+      </div>
+      <div class="ai-input">
+        <textarea id="aiQ" placeholder="就本页 / 本卷提问，回车发送…"></textarea>
+        <button class="btn primary" id="aiSend">发送</button>
+      </div>
+    </aside>
+  </div>
+
+  <div id="selPop"></div>
+
+  <div class="modal" id="citeModal" role="dialog" aria-modal="true">
+    <div class="box">
+      <h3>引用本页</h3>
+      <p class="hint">页码取自原书内嵌锚点，对应当前阅读位置所在的印刷页。</p>
+      <div class="warn" id="citeWarn">未能从当前视图识别到页码——请把要引用的页滚动到顶部附近后再点「引用本页」。</div>
+      <div class="cite-row">
+        <div class="lab"><span>中文（GB/T 7714）</span><button class="btn" id="copyZh">复制</button></div>
+        <div class="val" id="citeZh"></div>
+      </div>
+      <div class="cite-row">
+        <div class="lab"><span id="altLabel">原文版式</span><button class="btn" id="copyRu">复制</button></div>
+        <div class="val" id="citeRu"></div>
+      </div>
+      <div class="foot"><button class="btn" id="citeClose">关闭</button></div>
+    </div>
+  </div>
+
+  <script>
+    const CFG = {{ wenku_config_json | safe }};
+    const CSRF = {{ csrf_token | tojson }};
+    const AI_WEB = {{ ai_web_allowed | tojson }};
+    const VOL_INDEX = {{ (serve_prefix ~ '/' ~ volume['index']) | tojson }};
+    const SRC_LANG = CFG.lang || 'ru', TGT_LANG = 'zh';
+    const iframe = document.getElementById('reader');
+    let scale = parseFloat(localStorage.getItem('wenku_scale') || '1') || 1;
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function applyFont(){
+      try{ const d = iframe.contentDocument; if(d && d.body) d.body.style.fontSize = Math.round(20*scale) + 'px'; }catch(e){}
+    }
+    function markerNum(el){
+      const t = (el.textContent || '').trim();
+      if(/^\d+$/.test(t)) return t;
+      const m = (el.id || '').match(/^s(\d+)$/i);   // 兼容列宁 s124 与 MEGA 大写 S38（Seite）
+      return m ? m[1] : null;
+    }
+    function detectPage(){
+      let d; try{ d = iframe.contentDocument; }catch(e){ return null; }
+      if(!d) return null;
+      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"]');
+      const offset = 96; let cur = null, first = null;
+      markers.forEach(el=>{
+        const num = markerNum(el); if(num === null) return;
+        if(first === null) first = num;
+        if(el.getBoundingClientRect().top <= offset) cur = num;
+      });
+      return cur !== null ? cur : first;
+    }
+    function updatePageLabel(){
+      const p = detectPage();
+      document.getElementById('curPage').textContent = p ? String(p) : '—';
+      return p;
+    }
+
+    // ---------- 翻译（DeepSeek，永久缓存；命中缓存零成本） ----------
+    async function postTranslate(texts){
+      const r = await fetch("/api/wenku/translate", {
+        method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
+        body: JSON.stringify({texts, src:SRC_LANG, tgt:TGT_LANG})
+      });
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j = await r.json();
+      if(!j.ok) throw new Error(j.error || '翻译失败');
+      return j;
+    }
+
+    // 划词翻译
+    const selPop = document.getElementById('selPop');
+    function hideSel(){ selPop.style.display='none'; selPop.dataset.text=''; }
+    function showSelBubble(x, y, text){
+      selPop.dataset.text = text;
+      selPop.innerHTML = '<button class="btn primary" id="selDo">译 ▸</button>';
+      selPop.style.left = Math.max(8, Math.min(x, window.innerWidth-230)) + 'px';
+      selPop.style.top  = Math.min(y, window.innerHeight-60) + 'px';
+      selPop.style.display = 'block';
+      document.getElementById('selDo').onclick = doSelTranslate;
+    }
+    async function doSelTranslate(){
+      const text = selPop.dataset.text; if(!text) return;
+      selPop.innerHTML = '<div class="sel-body">翻译中…</div>';
+      try{
+        const j = await postTranslate([text]);
+        const zh = (j.translations && j.translations[0]) || '（未获取到译文）';
+        selPop.innerHTML = '<div class="sel-body">'+escapeHtml(zh)+'</div>';
+      }catch(e){
+        selPop.innerHTML = '<div class="sel-body err">翻译失败：'+escapeHtml(e.message||String(e))+'</div>';
+      }
+    }
+    function onIframeMouseUp(){
+      let sel; try{ sel = iframe.contentWindow.getSelection(); }catch(e){ return; }
+      const text = (sel && sel.toString() || '').trim();
+      if(text.length < 2){ if(selPop.dataset.text) hideSel(); return; }
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      const ib = iframe.getBoundingClientRect();
+      showSelBubble(ib.left + rect.left, ib.top + rect.bottom + 6, text);
+    }
+    document.addEventListener('mousedown', e=>{ if(!selPop.contains(e.target)) hideSel(); });
+
+    // 整段对照翻译
+    let bilingual = false, trBusy = false;
+    function setBiBtn(on, label){
+      const b = document.getElementById('bilingual');
+      b.textContent = label; b.classList.toggle('primary', !!on);
+    }
+    function injectZhStyle(){
+      try{
+        const d = iframe.contentDocument; if(!d || !d.head || d.getElementById('wenku-zh-style')) return;
+        const s = d.createElement('style'); s.id = 'wenku-zh-style';
+        s.textContent = '.wenku-zh{color:#7a1620;background:#fbf3ef;border-left:3px solid #d9b8ab;margin:.35em 0 1.1em;padding:.55em .85em;border-radius:0 6px 6px 0;line-height:1.75;}.wenku-zh::before{content:"译 ";font-size:.78em;color:#a23;opacity:.7;}';
+        d.head.appendChild(s);
+      }catch(e){}
+    }
+    function clearBilingual(){ try{ iframe.contentDocument.querySelectorAll('.wenku-zh').forEach(n=>n.remove()); }catch(e){} }
+    function paragraphsNeedingTrans(){
+      const d = iframe.contentDocument; if(!d) return [];
+      const vh = iframe.clientHeight || window.innerHeight;
+      return [...d.querySelectorAll('p')].filter(p=>{
+        if((p.textContent||'').trim().length < 4) return false;
+        const nx = p.nextElementSibling;
+        if(nx && nx.classList && nx.classList.contains('wenku-zh')) return false;
+        const r = p.getBoundingClientRect();
+        return r.top < vh*1.4 && r.bottom > -vh*0.4;   // 当前视口 + 前后一点提前量
+      });
+    }
+    async function runBilingualPass(){
+      if(!bilingual || trBusy) return;
+      const ps = paragraphsNeedingTrans();
+      if(!ps.length) return;
+      trBusy = true; setBiBtn(true, '翻译中…');
+      try{
+        for(let i=0; i<ps.length && bilingual; i+=12){
+          const chunk = ps.slice(i, i+12);
+          const j = await postTranslate(chunk.map(p=>(p.textContent||'').trim()));
+          (j.translations||[]).forEach((zh, k)=>{
+            const p = chunk[k]; if(!zh || !p) return;
+            const nx = p.nextElementSibling;
+            if(nx && nx.classList && nx.classList.contains('wenku-zh')) return;
+            const div = iframe.contentDocument.createElement('div');
+            div.className = 'wenku-zh'; div.textContent = zh; p.after(div);
+          });
+        }
+      }catch(e){ /* 失败静默，下次滚动可重试 */ }
+      trBusy = false; setBiBtn(bilingual, bilingual ? '对照中' : '对照翻译');
+    }
+    document.getElementById('bilingual').onclick = ()=>{
+      bilingual = !bilingual;
+      if(bilingual){ injectZhStyle(); setBiBtn(true, '对照中'); runBilingualPass(); }
+      else { clearBilingual(); setBiBtn(false, '对照翻译'); }
+    };
+
+    // ---------- iframe 生命周期 ----------
+    let scrollTimer = null;
+    function onScroll(){
+      updatePageLabel();
+      if(bilingual){ clearTimeout(scrollTimer); scrollTimer = setTimeout(runBilingualPass, 350); }
+    }
+    function onFrameLoad(){
+      applyFont();
+      updatePageLabel();
+      try{
+        iframe.contentWindow.addEventListener('scroll', onScroll, {passive:true});
+        iframe.contentDocument.addEventListener('mouseup', onIframeMouseUp);
+      }catch(e){}
+      hideSel();
+      if(bilingual){ injectZhStyle(); runBilingualPass(); }   // 翻页后保持对照
+    }
+    iframe.addEventListener('load', onFrameLoad);
+
+    function setScale(s){ scale = Math.max(0.7, Math.min(2.0, Math.round(s*10)/10)); localStorage.setItem('wenku_scale', scale); applyFont(); }
+    document.getElementById('fminus').onclick = ()=> setScale(scale - 0.1);
+    document.getElementById('fplus').onclick  = ()=> setScale(scale + 0.1);
+    document.getElementById('toc').onclick    = ()=> { iframe.src = VOL_INDEX; };
+
+    // ---------- 引文 ----------
+    function fillTpl(tpl, ctx){ return String(tpl||'').replace(/\{(\w+)\}/g, (m,k)=> (ctx[k]!=null ? ctx[k] : '')); }
+    function buildCitations(page){
+      const c = CFG.citation || {}, v = CFG.volume || {};
+      const ctx = Object.assign({}, c, v, {page: page || ''});
+      if(c.tpl_zh){
+        return {zh: fillTpl(c.tpl_zh, ctx), alt: fillTpl(c.tpl_alt || '', ctx)};
+      }
+      // 向后兼容（无模板时的旧列宁内联式）
+      const n = v.n, year = (v.year != null ? v.year : ''), pg = page || '';
+      return {
+        zh: `${c.author_zh||''}. ${c.work_zh||''}：第${n}卷[M]. ${c.edition_zh||''}. ${c.publisher_zh||''}，${year}：${pg}.`,
+        alt: `${c.author_ru||''} ${c.work_ru||''}. ${c.edition_ru||''} Т. ${n}. ${c.publisher_ru||''}, ${year}. С. ${pg}.`,
+      };
+    }
+    function openCite(){
+      const p = updatePageLabel();
+      const cit = buildCitations(p);
+      document.getElementById('citeZh').textContent = cit.zh;
+      document.getElementById('citeRu').textContent = cit.alt;
+      document.getElementById('citeWarn').style.display = p ? 'none' : 'block';
+      document.getElementById('citeModal').style.display = 'flex';
+    }
+    document.getElementById('cite').onclick = openCite;
+    document.getElementById('citeClose').onclick = ()=> { document.getElementById('citeModal').style.display = 'none'; };
+    document.getElementById('citeModal').addEventListener('click', e=>{ if(e.target.id === 'citeModal') e.currentTarget.style.display='none'; });
+
+    function copyText(txt, btn){
+      const ok = ()=>{ const o = btn.textContent; btn.textContent = '已复制'; setTimeout(()=> btn.textContent = o, 1200); };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(ok).catch(()=> fallbackCopy(txt, ok));
+      } else fallbackCopy(txt, ok);
+    }
+    function fallbackCopy(txt, cb){
+      const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(e){} document.body.removeChild(ta); cb && cb();
+    }
+    document.getElementById('copyZh').onclick = function(){ copyText(document.getElementById('citeZh').textContent, this); };
+    document.getElementById('copyRu').onclick = function(){ copyText(document.getElementById('citeRu').textContent, this); };
+
+    // 「原文式」引文标签按书语种切换（列宁=俄文原版式 / MEGA=德文原版式）
+    document.getElementById('altLabel').textContent = (CFG.citation && CFG.citation.alt_label) || '原文版式';
+
+    // ---------- AI 导读（基于当前页原文，DeepSeek） ----------
+    const aiPanel = document.getElementById('aiPanel');
+    const aiLog = document.getElementById('aiLog');
+    let aiBusy = false;
+    function aiOpen(){ aiPanel.classList.add('open'); document.getElementById('aiBtn').classList.add('primary'); }
+    function aiClose(){ aiPanel.classList.remove('open'); document.getElementById('aiBtn').classList.remove('primary'); }
+    document.getElementById('aiBtn').onclick = ()=> aiPanel.classList.contains('open') ? aiClose() : aiOpen();
+    document.getElementById('aiClose').onclick = aiClose;
+
+    function curRef(){
+      const p = detectPage(), vl = (CFG.volume && CFG.volume.label) || '';
+      return [CFG.title_zh, vl, (p ? ('第' + p + '页') : '')].filter(Boolean).join(' · ');
+    }
+    function readingContext(){
+      let d; try{ d = iframe.contentDocument; }catch(e){ return ''; }
+      if(!d) return '';
+      const vh = iframe.clientHeight || window.innerHeight; const parts = [];
+      d.querySelectorAll('p,h2,h3,h4,blockquote,li').forEach(el=>{
+        const r = el.getBoundingClientRect();
+        if(r.bottom > -vh*0.3 && r.top < vh*1.3){ const t = (el.textContent||'').trim(); if(t) parts.push(t); }
+      });
+      let s = parts.join('\n'); return s.length > 3500 ? s.slice(0, 3500) : s;
+    }
+    // ===== markdown 渲染器（与 viewer.html 站内 AI 阅读器同源，保证导读排版一致）=====
+    function esc(s){ return String(s).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+    function escAttr(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function renderInlineMarkdown(text){
+      const placeholders=[]; const stash=html=>{const key=` MD${placeholders.length} `;placeholders.push(html);return key;};
+      let source=String(text||'');
+      source=source
+        .replace(/`([^`]+?)`/g,(_,code)=>stash(`<code>${esc(code)}</code>`))
+        .replace(/!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,(_,label,url)=>renderMarkdownLink(label||'图片链接',url,stash))
+        .replace(/\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,(_,label,url)=>renderMarkdownLink(label,url,stash))
+        .replace(/<((?:https?:\/\/|mailto:)[^>\s]+)>/gi,(_,url)=>renderMarkdownLink(url,url,stash))
+        .replace(/(^|[\s（(])((?:https?:\/\/)[^\s<>()]+[^\s<>().,;:!?，。；：！？）)])/gi,(_,prefix,url)=>`${prefix}${renderMarkdownLink(url,url,stash)}`);
+      return esc(source)
+        .replace(/~~(.+?)~~/g,'<del>$1</del>')
+        .replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>')
+        .replace(/__([^_]+?)__/g,'<strong>$1</strong>')
+        .replace(/(^|[\s（(])\*([^*\n]+?)\*(?=$|[\s，。；：、,.!?;:)）])/g,'$1<em>$2</em>')
+        .replace(/(^|[\s（(])_([^_\n]+?)_(?=$|[\s，。；：、,.!?;:)）])/g,'$1<em>$2</em>')
+        .replace(/ MD(\d+) /g,(_,index)=>placeholders[Number(index)]||'');
+    }
+    function safeMarkdownUrl(url){ const raw=String(url||'').trim(); return /^(https?:\/\/|mailto:|\/|#)/i.test(raw)?raw:''; }
+    function renderMarkdownLink(label,url,stash){
+      const safeUrl=safeMarkdownUrl(url); const safeLabel=esc(label||url||'');
+      if(!safeUrl) return safeLabel;
+      const target=/^(https?:\/\/|mailto:)/i.test(safeUrl)?' target="_blank" rel="noopener noreferrer"':'';
+      return stash(`<a href="${escAttr(safeUrl)}"${target}>${safeLabel}</a>`);
+    }
+    function flushMarkdownParagraph(lines,html){ if(!lines.length) return; html.push(`<p>${lines.map(renderInlineMarkdown).join('<br>')}</p>`); lines.length=0; }
+    function flushMarkdownList(list,html){ if(!list.items.length) return; const tag=list.type==='ol'?'ol':'ul'; html.push(`<${tag}>${list.items.map(renderMarkdownListItem).join('')}</${tag}>`); list.items=[]; list.type=null; }
+    function renderMarkdownListItem(item){
+      const task=String(item||'').match(/^\[([ xX])\]\s+(.+)$/);
+      if(task){ const checked=task[1].toLowerCase()==='x'?' checked':''; return `<li class="task-list-item"><input class="task-checkbox" type="checkbox" disabled${checked}>${renderInlineMarkdown(task[2])}</li>`; }
+      return `<li>${renderInlineMarkdown(item)}</li>`;
+    }
+    function flushMarkdownQuote(quote,html){ if(!quote.length) return; html.push(`<blockquote>${quote.map(renderInlineMarkdown).join('<br>')}</blockquote>`); quote.length=0; }
+    function flushMarkdownBlocks(paragraph,list,quote,html){ flushMarkdownParagraph(paragraph,html); flushMarkdownList(list,html); flushMarkdownQuote(quote,html); }
+    function splitMarkdownTableRow(line){
+      const source=String(line||'').trim(); if(!source||!source.includes('|')) return null;
+      let text=source; if(text.startsWith('|')) text=text.slice(1); if(text.endsWith('|')) text=text.slice(0,-1);
+      const cells=[]; let cell='',escaped=false;
+      for(const char of text){
+        if(char==='|'&&!escaped){ cells.push(cell.trim().replace(/\\\|/g,'|')); cell=''; continue; }
+        if(char==='\\'&&!escaped){ escaped=true; cell+=char; continue; }
+        escaped=false; cell+=char;
+      }
+      cells.push(cell.trim().replace(/\\\|/g,'|')); return cells;
+    }
+    function isMarkdownTableSeparator(line){ const cells=splitMarkdownTableRow(line); return !!cells&&cells.length>1&&cells.every(cell=>/^:?-{3,}:?$/.test(cell.replace(/\s+/g,''))); }
+    function normalizeMarkdownTableCells(cells,columnCount){ return Array.from({length:columnCount},(_,index)=>cells[index]||''); }
+    function markdownTableAlignments(separatorLine,columnCount){
+      const cells=splitMarkdownTableRow(separatorLine)||[];
+      return normalizeMarkdownTableCells(cells,columnCount).map(cell=>{ const c=cell.replace(/\s+/g,''); if(c.startsWith(':')&&c.endsWith(':')) return 'center'; if(c.endsWith(':')) return 'right'; return 'left'; });
+    }
+    function renderMarkdownTable(headerCells,separatorLine,bodyRows){
+      const columnCount=Math.max(headerCells.length,...bodyRows.map(row=>row.length));
+      const alignments=markdownTableAlignments(separatorLine,columnCount);
+      const header=normalizeMarkdownTableCells(headerCells,columnCount).map((cell,index)=>`<th scope="col" style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</th>`).join('');
+      const rows=bodyRows.map(row=>`<tr>${normalizeMarkdownTableCells(row,columnCount).map((cell,index)=>`<td style="text-align:${alignments[index]}">${renderInlineMarkdown(cell)}</td>`).join('')}</tr>`).join('');
+      return `<div class="markdown-table-wrap"><table><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+    function renderMarkdownCodeBlock(code,language){ const lang=String(language||'').trim(); const label=lang?`<span class="code-lang">${esc(lang)}</span>`:''; return `<pre>${label}<code>${esc(code).replace(/\n$/,'')}</code></pre>`; }
+    function renderBasicMarkdown(markdown){
+      const lines=String(markdown||'').replace(/\r\n?/g,'\n').split('\n');
+      const html=[]; const paragraph=[]; const list={type:null,items:[]}; const quote=[];
+      for(let lineIndex=0; lineIndex<lines.length; lineIndex+=1){
+        const line=lines[lineIndex]; const trimmed=line.trim();
+        if(!trimmed){ flushMarkdownBlocks(paragraph,list,quote,html); continue; }
+        const fence=trimmed.match(/^(`{3,}|~{3,})\s*([A-Za-z0-9_+.#-]*)?.*$/);
+        if(fence){
+          flushMarkdownBlocks(paragraph,list,quote,html);
+          const fenceMarker=fence[1][0], fenceLength=fence[1].length, codeLines=[]; lineIndex+=1;
+          while(lineIndex<lines.length){ const candidate=lines[lineIndex].trim(); if(candidate.startsWith(fenceMarker.repeat(fenceLength))) break; codeLines.push(lines[lineIndex]); lineIndex+=1; }
+          html.push(renderMarkdownCodeBlock(codeLines.join('\n'),fence[2]||'')); continue;
+        }
+        const headerCells=splitMarkdownTableRow(trimmed); const separatorLine=lines[lineIndex+1]||'';
+        if(headerCells&&isMarkdownTableSeparator(separatorLine)){
+          flushMarkdownBlocks(paragraph,list,quote,html); const bodyRows=[]; lineIndex+=2;
+          while(lineIndex<lines.length){ const rowText=lines[lineIndex].trim(); const rowCells=rowText?splitMarkdownTableRow(rowText):null; if(!rowCells||isMarkdownTableSeparator(rowText)) break; bodyRows.push(rowCells); lineIndex+=1; }
+          html.push(renderMarkdownTable(headerCells,separatorLine,bodyRows)); lineIndex-=1; continue;
+        }
+        const heading=trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if(heading){ flushMarkdownBlocks(paragraph,list,quote,html); const level=Math.min(Math.max(heading[1].length+2,3),5); html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`); continue; }
+        if(/^([-*_])\s*\1\s*\1(?:\s*\1)*$/.test(trimmed)){ flushMarkdownBlocks(paragraph,list,quote,html); html.push('<hr>'); continue; }
+        const quoted=trimmed.match(/^[>＞]\s*(.+)$/);
+        if(quoted){ flushMarkdownParagraph(paragraph,html); flushMarkdownList(list,html); quote.push(quoted[1]); continue; }
+        const unordered=trimmed.match(/^[-*+]\s+(.+)$/); const ordered=trimmed.match(/^\d+[.)]\s+(.+)$/);
+        if(unordered||ordered){
+          flushMarkdownParagraph(paragraph,html); flushMarkdownQuote(quote,html);
+          const type=ordered?'ol':'ul'; if(list.type&&list.type!==type) flushMarkdownList(list,html);
+          list.type=type; list.items.push((ordered||unordered)[1]); continue;
+        }
+        flushMarkdownList(list,html); flushMarkdownQuote(quote,html); paragraph.push(trimmed);
+      }
+      flushMarkdownBlocks(paragraph,list,quote,html); return html.join('')||'<p></p>';
+    }
+    function aiRenderMd(md){ return renderBasicMarkdown(md); }
+    function aiAddMsg(role, html){
+      const e = aiLog.querySelector('.ai-empty'); if(e) e.remove();
+      const div = document.createElement('div'); div.className = 'ai-msg ' + (role === 'u' ? 'u' : 'a');
+      div.innerHTML = html; aiLog.appendChild(div); aiLog.scrollTop = aiLog.scrollHeight; return div;
+    }
+    async function aiAsk(mode, question){
+      if(aiBusy) return;
+      const context = readingContext();
+      if(mode === 'explain' && !context){ aiOpen(); aiAddMsg('a', '<span style="color:#8f1d1d">未读到当前页正文，请把要解读的段落滚到视野内再试。</span>'); return; }
+      if(mode !== 'explain' && !question) return;
+      aiOpen();
+      aiAddMsg('u', escapeHtml(mode === 'explain' ? ('✦ 解读本页（' + curRef() + '）') : question));
+      const waiting = aiAddMsg('a', '<span style="color:#888">思考中…</span>');
+      aiBusy = true;
+      try{
+        const provider = (document.getElementById('aiEngine') || {}).value || 'deepseek';
+        const r = await fetch("/api/wenku/ai", {
+          method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
+          body: JSON.stringify({mode, question, context, ref: curRef(), lang: SRC_LANG, provider})
+        });
+        const j = await r.json();
+        if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        waiting.innerHTML = aiRenderMd(j.answer || '（无回应）');
+        if(j.sources && j.sources.length){
+          const box = document.createElement('div'); box.className = 'ai-src';
+          box.innerHTML = '联网来源：' + j.sources.map(s=>'<a href="'+escAttr(s.url||'#')+'" target="_blank" rel="noopener">'+esc(s.title||s.url||'来源')+'</a>').join('');
+          waiting.appendChild(box);
+        }
+      }catch(e){
+        waiting.innerHTML = '<span style="color:#8f1d1d">导读失败：' + escapeHtml(e.message || String(e)) + '</span>';
+      }
+      aiBusy = false; aiLog.scrollTop = aiLog.scrollHeight;
+    }
+    document.getElementById('aiExplain').onclick = ()=> aiAsk('explain', '');
+    document.getElementById('aiSend').onclick = ()=>{
+      const ta = document.getElementById('aiQ'), q = (ta.value || '').trim();
+      if(!q) return; ta.value = ''; aiAsk('ask', q);
+    };
+    document.getElementById('aiQ').addEventListener('keydown', e=>{
+      if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); document.getElementById('aiSend').click(); }
+    });
+
+    iframe.src = CFG.serve_prefix + '/' + CFG.start_doc;
+  </script>
+</body>
+</html>

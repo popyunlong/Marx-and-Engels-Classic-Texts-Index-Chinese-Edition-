@@ -225,6 +225,8 @@ from runtime_env import (
     load_deployment_settings,
 )
 from book_config import BookConfig, load_book_configs
+from static_library_web import register_static_library, static_library_has_content
+import wenku_translate
 from search import CHAPTER_HITS_PAGE_SIZE, Corpus
 from site_content import (
     SITE_TEXT_OVERRIDES_PATH,
@@ -1098,6 +1100,9 @@ def _feature_is_available(feature: str) -> bool:
     if feature == "ai_web":
         # 智谱联网通道随基础 AI 一起开关：基础 AI 不可用或智谱未配 Key 时整体不可用。
         return bool(AI_CONFIG.enabled and AI_CONFIG.zhipu_enabled)
+    if feature == "static_library":
+        # 「原文文库」：本地确有镜像内容（static_library/<book>/）才算可用。
+        return static_library_has_content()
     return True
 
 
@@ -5004,7 +5009,7 @@ def add_security_headers(response):
         "img-src 'self' data: blob:; "
         "font-src 'self' data:; "
         "connect-src 'self' https://challenges.cloudflare.com; "
-        "frame-src https://challenges.cloudflare.com; "
+        "frame-src 'self' https://challenges.cloudflare.com; "
         "worker-src 'self' blob:; "
         "object-src 'none'; "
         "base-uri 'self'; "
@@ -6653,6 +6658,8 @@ def index():
         feature_tags=_get_feature_tags(),
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
+        wenku_available=bool(_feature_is_available("static_library")),
+        wenku_access_enabled=bool(_feature_is_available("static_library") and _feature_effective_for_user("static_library")),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
         assoc_access_enabled=bool(_feature_is_available("associative") and _feature_effective_for_user("associative")),
         ai_web_access_enabled=_ai_web_access_enabled(),
@@ -8705,6 +8712,143 @@ def run_waitress() -> None:
     except TypeError:
         LOGGER.warning("waitress 不支持 clear_untrusted_proxy_headers，退回默认启动(真实 IP 透传可能失效)")
         serve(app, **serve_kwargs)
+
+
+# ====== 「原文文库」内置翻译（DeepSeek 俄→中，永久缓存，计入 AI 额度/审计） ======
+wenku_translate.init_db()
+_WENKU_TR_MAX_TEXTS = 30   # 单次请求最多接收段数（含已缓存）
+_WENKU_TR_MAX_NEW = 12     # 单次最多新译段数（封顶每次点击成本）
+_WENKU_SEG_MARK = re.compile(r"\[\[(\d+)\]\]")
+_WENKU_LANG_NAME = {"zh": "简体中文", "ru": "俄文", "de": "德文", "en": "英文"}
+
+
+def _wenku_translate_misses(items: list[str], *, src: str, tgt: str, quota: dict) -> list[str | None]:
+    """对未命中的若干段做一次 DeepSeek 批量翻译；返回与 items 等长的译文列表（缺失为 None）。"""
+    if not items:
+        return []
+    src_name = _WENKU_LANG_NAME.get(src, src)
+    tgt_name = _WENKU_LANG_NAME.get(tgt, tgt)
+    joined = "\n\n".join(f"[[{i + 1}]]\n{t}" for i, t in enumerate(items))
+    max_tokens = max(400, min(4096, sum(len(t) for t in items) + 400))
+    messages = [
+        {"role": "system", "content": f"你是严谨的{src_name}译{tgt_name}专家，只输出译文，不解释、不评论。"},
+        {"role": "user", "content": (
+            f"把下列{src_name}逐段准确译成{tgt_name}，保留专有名词与原意、语句通顺。\n"
+            f"每段以 [[序号]] 开头；请按完全相同的 [[序号]] 标记输出对应译文，段数与顺序必须一致，"
+            f"不要合并或拆分，不要输出原文：\n\n{joined}"
+        )},
+    ]
+    text = AI_CLIENT.chat_complete(
+        messages, max_tokens=max_tokens, temperature=0.2, allow_reasoning_fallback=False
+    )
+    parts = _WENKU_SEG_MARK.split(text)  # [pre, '1', seg1, '2', seg2, ...]
+    by_idx: dict[int, str] = {}
+    for k in range(1, len(parts) - 1, 2):
+        try:
+            by_idx[int(parts[k])] = parts[k + 1].strip()
+        except (ValueError, IndexError):
+            continue
+    _record_ai_usage(quota, feature="wenku_translate", prompt_parts=tuple(items),
+                     completion_text=text, success=True)
+    return [by_idx.get(i + 1) for i in range(len(items))]
+
+
+@app.route("/api/wenku/translate", methods=["POST"])
+def api_wenku_translate():
+    _require_content_feature("static_library")
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get("texts")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        abort(400, description="texts 必须为字符串数组。")
+    texts = [str(t or "").strip() for t in raw][:_WENKU_TR_MAX_TEXTS]
+    if not any(texts):
+        return jsonify({"ok": True, "translations": [], "new": 0, "remaining": 0})
+    src = (str(payload.get("src") or "ru").strip().lower()[:8]) or "ru"
+    tgt = (str(payload.get("tgt") or "zh").strip().lower()[:8]) or "zh"
+    # 缓存永远免费：全命中则不计额度、不调 AI 直接返回。
+    cached = wenku_translate.get_cached(texts, src, tgt)
+    if all((not t) or (t in cached) for t in texts):
+        return jsonify({"ok": True, "translations": [cached.get(t) for t in texts], "new": 0, "remaining": 0})
+    # 有未命中 → 经限流/额度/可用性把关后调 DeepSeek。
+    _rate_limit_ai_or_abort()
+    quota = _require_ai_quota_or_raise()
+    _require_ai()
+    try:
+        result = wenku_translate.translate_aligned(
+            texts, src, tgt,
+            lambda items: _wenku_translate_misses(items, src=src, tgt=tgt, quota=quota),
+            max_new=_WENKU_TR_MAX_NEW,
+            model=AI_CONFIG.model,
+        )
+    except AIServiceError as exc:
+        LOGGER.warning("wenku translate failed: %s", exc)
+        _record_ai_usage(quota, feature="wenku_translate", prompt_parts=tuple(texts),
+                         success=False, error=str(exc))
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    return jsonify({"ok": True, **result})
+
+
+# ====== 「原文文库」AI 导读（DeepSeek / 智谱GLM联网可选，基于当前页原文，计入 AI 额度/审计） ======
+@app.route("/api/wenku/ai", methods=["POST"])
+def api_wenku_ai():
+    _require_content_feature("static_library")
+    _rate_limit_ai_or_abort()
+    quota = _require_ai_quota_or_raise()
+    _require_ai()
+    payload = request.get_json(silent=True) or {}
+    ai_provider = _resolve_ai_provider_or_abort(payload)   # "" = DeepSeek 主通道；"zhipu" 需 ai_web 权限
+    if ai_provider == "zhipu":
+        _require_zhipu_quota_or_raise(quota)
+    use_zhipu = ai_provider == "zhipu"
+    question = str(payload.get("question") or "").strip()[:1000]
+    context = str(payload.get("context") or "").strip()[:4000]
+    ref = str(payload.get("ref") or "").strip()[:200]
+    lang = (str(payload.get("lang") or "ru").strip().lower()[:8]) or "ru"
+    mode = str(payload.get("mode") or "ask").strip()
+    if not question and not context:
+        abort(400, description="缺少问题或正文。")
+    lang_name = _WENKU_LANG_NAME.get(lang, lang)
+    sys_prompt = (
+        "你是马克思列宁主义经典文献的研读助手，面向中文读者。请用简体中文作答，"
+        "以用户提供的【原文片段】为准，准确、有条理、克制；不曲解原文、不杜撰原文没有的内容；"
+        "涉及专业术语先释义再展开；信息不足时如实说明。涉及中国相关话题须严守政治红线。"
+        + ("已为你启用联网检索：可补充可靠的外部背景资料并在正文中标注来源，"
+           "但解读须以原文为准，不得用网络内容替代或曲解原文。" if use_zhipu else "")
+    )
+    if mode == "explain":
+        user = (
+            f"下面是{lang_name}原文片段（出处：{ref or '未注明'}）。请做「导读」："
+            "①一句话概括本段主旨；②逐层解释论证脉络与关键概念；③点明其在马克思主义理论中的位置或意义。\n\n"
+            f"【原文片段】\n{context}"
+        )
+    else:
+        user = (
+            (f"【正在阅读的{lang_name}原文片段，出处：{ref or '未注明'}】\n{context}\n\n" if context else "")
+            + f"读者的问题：{question}\n请结合上述原文（如有）用中文解答。"
+        )
+    sources: list[dict] = []
+    web_query = AI_CLIENT.zhipu_search_query(question or ref or context[:120]) if use_zhipu else None
+    try:
+        text = AI_CLIENT.chat_complete(
+            [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user}],
+            max_tokens=1100, temperature=0.5, provider=ai_provider or None,
+            web_search_query=web_query, sources_out=sources, allow_reasoning_fallback=False,
+        )
+    except AIServiceError as exc:
+        LOGGER.warning("wenku AI failed: %s", exc)
+        _record_ai_usage(quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
+                         success=False, error=str(exc), provider=ai_provider)
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    _record_ai_usage(quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
+                     completion_text=text, success=True, provider=ai_provider)
+    return jsonify({"ok": True, "answer": text, "sources": sources, "provider": ai_provider or "deepseek"})
+
+
+# 「原文文库」（自托管静态 HTML 书库）路由：复用站内会员权限门禁 _require_content_feature。
+# 放在模块末尾注册，确保其依赖的辅助函数均已定义。详见 static_library_web.py。
+register_static_library(app, require_content_feature=_require_content_feature, ai_web_allowed=_ai_web_access_enabled)
 
 
 def main() -> None:

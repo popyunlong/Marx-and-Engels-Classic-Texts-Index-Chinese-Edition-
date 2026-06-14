@@ -15,6 +15,8 @@ runtime_env.py
 search.py
 serve.py
 site_content.py
+static_library_web.py
+wenku_translate.py
 DEPLOY_SERVER.md
 RUNBOOK.md
 templates/account.html
@@ -34,6 +36,8 @@ templates/register.html
 templates/reset_password.html
 templates/viewer.html
 templates/library.html
+templates/wenku.html
+templates/wenku_reader.html
 templates/_marx_mascot.html
 static/vendor/qrcode.min.js
 static/mascot/marx-mascot.css
@@ -56,6 +60,7 @@ deploy/upload_lenin_pdfs.ps1
 deploy/upload_reader_patch.ps1
 deploy/upload_dictionary_patch.ps1
 deploy/upload_to_server.ps1
+deploy/upload_static_library.ps1
 deploy/bootstrap_ubuntu.sh
 deploy/cloud_patch_files.txt
 deploy/cloud_compile_files.txt
@@ -79,5 +84,6 @@ config/zpay.yaml.example
 config/wenji_toc_overrides.yaml
 config/quanji_toc_overrides.yaml
 config/wenji_text_corrections.yaml
+config/static_books.yaml
 data/dictionary.sqlite
 data/dictionary_polish_report.json

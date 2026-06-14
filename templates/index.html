@@ -1459,6 +1459,23 @@
           {% endif %}
         </section>
 
+        {% if wenku_available %}
+        {# 原文文库卡：自托管静态 HTML 原文库（列宁ПСС 俄文等），含页码级引文。
+           权限随控制台「会员与权限」的 static_library 授权动态切换。 #}
+        <section class="journal-bar" aria-label="原文文库">
+          <div class="feature-copy">
+            <div class="feature-kicker">原文文库 · 会员专享</div>
+            <h2>马列原著 · 原文阅读器</h2>
+            <p>列宁《全集》俄文第五版（55卷）、马恩《全集》历史考证版 MEGA²（德文）原文；内嵌原书页码，一键生成规范引文，并支持中文对照翻译。</p>
+          </div>
+          {% if wenku_access_enabled %}
+          <a class="feature-action" href="{{ url_for('wenku_home') }}">进入文库</a>
+          {% else %}
+          <a class="feature-action" href="{{ url_for('pricing') }}?from=wenku">开通会员后使用</a>
+          {% endif %}
+        </section>
+        {% endif %}
+
         <div id="searchBookTabs" class="book-tabs" hidden></div>
         <div id="results"></div>
       </div>

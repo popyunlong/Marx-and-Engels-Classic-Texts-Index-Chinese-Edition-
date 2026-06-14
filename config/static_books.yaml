@@ -1,0 +1,110 @@
+# 自托管「原文文库」书目登记。
+# 内容为纯静态 HTML 文本，置于  static_library/<folder>/  下，
+# 由路由  /wenku/raw/<key>/...  直发（带会员权限硬门禁，见 static_library_web.py）。
+# 每页内嵌原书页码锚点（列宁 id="sNNN" / MEGA id="SNN"），阅读器据此生成「页码级引文」。
+# citation.tpl_zh / tpl_alt 为引文模板，占位符 {key} 取自该卷字段(优先)与 citation 字段；{page} 为当前页。
+# 引文年 year 一律取**各卷书内真实印本年**（列宁=Подписано-к-печати；MEGA=该卷实际出版年）。
+
+books:
+  - key: lenin-ru
+    title_zh: 列宁《全集》（俄文第五版）
+    title_ru: В. И. Ленин. Полное собрание сочинений
+    short_title: 列宁ПСС
+    lang: ru
+    badge: RU
+    desc: 俄文原文（第五版） · 内嵌原书页码，可生成规范引文
+    folder: lenin-ru
+    serve_prefix: /wenku/raw/lenin-ru
+    citation:
+      author_zh: "列宁"
+      author_ru: "Ленин В. И."
+      work_zh: "列宁全集"
+      work_ru: "Полное собрание сочинений"
+      edition_zh: "5版"
+      edition_ru: "5-е изд."
+      publisher_zh: "莫斯科：政治书籍出版社"
+      publisher_ru: "М.: Политиздат"
+      alt_label: "俄文原版式"
+      tpl_zh: "{author_zh}. {work_zh}：第{n}卷[M]. {edition_zh}. {publisher_zh}，{year}：{page}."
+      tpl_alt: "{author_ru} {work_ru}. {edition_ru} Т. {n}. {publisher_ru}, {year}. С. {page}."
+    volumes:
+      - { n: 1, label: "Том 1 (1893–1894)", index: "1/index.html", year: 1967 }
+      - { n: 2, label: "Том 2 (1895–1897)", index: "2/index.html", year: 1967 }
+      - { n: 3, label: "Том 3 (Развитие капитализма в России)", index: "3/index.html", year: 1971 }
+      - { n: 4, label: "Том 4 (1898 – апрель 1901)", index: "4/index.html", year: 1966 }
+      - { n: 5, label: "Том 5 (Май – декабрь 1901)", index: "5/index.html", year: 1967 }
+      - { n: 6, label: "Том 6 (Январь – август 1902)", index: "6/index.html", year: 1963 }
+      - { n: 7, label: "Том 7 (Сентябрь 1902 – сентябрь 1903)", index: "7/index.html", year: 1967 }
+      - { n: 8, label: "Том 8 (Сентябрь 1903 – сентябрь 1904)", index: "8/index.html", year: 1967 }
+      - { n: 9, label: "Том 9 (Июль 1904 – март 1905)", index: "9/index.html", year: 1967 }
+      - { n: 10, label: "Том 10 (Март – июнь 1905)", index: "10/index.html", year: 1967 }
+      - { n: 11, label: "Том 11 (Июль – октябрь 1905)", index: "11/index.html", year: 1960 }
+      - { n: 12, label: "Том 12 (Октябрь 1905 – апрель 1906)", index: "12/index.html", year: 1967 }
+      - { n: 13, label: "Том 13 (Май – сентябрь 1906)", index: "13/index.html", year: 1972 }
+      - { n: 14, label: "Том 14 (Сентябрь 1906 – февраль 1907)", index: "14/index.html", year: 1972 }
+      - { n: 15, label: "Том 15 (Февраль – июнь 1907)", index: "15/index.html", year: 1972 }
+      - { n: 16, label: "Том 16 (Июнь 1907 – март 1908)", index: "16/index.html", year: 1972 }
+      - { n: 17, label: "Том 17 (Март 1908 – июнь 1909)", index: "17/index.html", year: 1968 }
+      - { n: 18, label: "Том 18 (Материализм и эмпириокритицизм 唯物主义和经验批判主义)", index: "18/index.html", year: 1968 }
+      - { n: 19, label: "Том 19 (Июнь 1909 – октябрь 1910)", index: "19/index.html", year: 1968 }
+      - { n: 20, label: "Том 20 (Ноябрь 1910 – ноябрь 1911)", index: "20/index.html", year: 1973 }
+      - { n: 21, label: "Том 21 (Декабрь 1911 – июль 1912)", index: "21/index.html", year: 1968 }
+      - { n: 22, label: "Том 22 (Июль 1912 – февраль 1913)", index: "22/index.html", year: 1968 }
+      - { n: 23, label: "Том 23 (Март – сентябрь 1913)", index: "23/index.html", year: 1973 }
+      - { n: 24, label: "Том 24 (Сентябрь 1913 – март 1914)", index: "24/index.html", year: 1973 }
+      - { n: 25, label: "Том 25 (Март – июль 1914)", index: "25/index.html", year: 1968 }
+      - { n: 26, label: "Том 26 (Июль 1914 – август 1915)", index: "26/index.html", year: 1968 }
+      - { n: 27, label: "Том 27 (Август 1915 – июнь 1916)", index: "27/index.html", year: 1968 }
+      - { n: 28, label: "Том 28 (Тетради по империализму 帝国主义笔记)", index: "28/index.html", year: 1962 }
+      - { n: 29, label: "Том 29 (Философские тетради 哲学笔记)", index: "29/index.html", year: 1969 }
+      - { n: 30, label: "Том 30 (Июль 1916 – февраль 1917)", index: "30/index.html", year: 1973 }
+      - { n: 31, label: "Том 31 (Март – апрель 1917)", index: "31/index.html", year: 1969 }
+      - { n: 32, label: "Том 32 (Май – июль 1917)", index: "32/index.html", year: 1969 }
+      - { n: 33, label: "Том 33 (Государство и революция 国家与革命)", index: "33/index.html", year: 1969 }
+      - { n: 34, label: "Том 34 (Июль – октябрь 1917)", index: "34/index.html", year: 1969 }
+      - { n: 35, label: "Том 35 (Октябрь 1917 – март 1918)", index: "35/index.html", year: 1974 }
+      - { n: 36, label: "Том 36 (Март – июль 1918)", index: "36/index.html", year: 1974 }
+      - { n: 37, label: "Том 37 (Июль 1918 – март 1919)", index: "37/index.html", year: 1969 }
+      - { n: 38, label: "Том 38 (Март – июнь 1919)", index: "38/index.html", year: 1969 }
+      - { n: 39, label: "Том 39 (Июнь – декабрь 1919)", index: "39/index.html", year: 1969 }
+      - { n: 40, label: "Том 40 (Декабрь 1919 – апрель 1920)", index: "40/index.html", year: 1974 }
+      - { n: 41, label: "Том 41 (Май – ноябрь 1920)", index: "41/index.html", year: 1981 }
+      - { n: 42, label: "Том 42 (Ноябрь 1920 – март 1921)", index: "42/index.html", year: 1969 }
+      - { n: 43, label: "Том 43 (Март – июнь 1921)", index: "43/index.html", year: 1970 }
+      - { n: 44, label: "Том 44 (Июнь 1921 – март 1922)", index: "44/index.html", year: 1970 }
+      - { n: 45, label: "Том 45 (Март 1922 – март 1923)", index: "45/index.html", year: 1970 }
+      - { n: 46, label: "Том 46 (Письма 1893 – 1904)", index: "46/index.html", year: 1974 }
+      - { n: 47, label: "Том 47 (Письма 1905 – ноябрь 1910)", index: "47/index.html", year: 1970 }
+      - { n: 48, label: "Том 48 (Письма ноябрь 1910 – июль 1914)", index: "48/index.html", year: 1970 }
+      - { n: 49, label: "Том 49 (Письма август 1914 – октябрь 1917)", index: "49/index.html", year: 1970 }
+      - { n: 50, label: "Том 50 (Письма октябрь 1917 – июнь 1919)", index: "50/index.html", year: 1970 }
+      - { n: 51, label: "Том 51 (Письма июль 1919 – ноябрь 1920)", index: "51/index.html", year: 1970 }
+      - { n: 52, label: "Том 52 (Письма ноябрь 1920 – июнь 1921)", index: "52/index.html", year: 1970 }
+      - { n: 53, label: "Том 53 (Письма июнь – ноябрь 1921)", index: "53/index.html", year: 1970 }
+      - { n: 54, label: "Том 54 (Письма ноябрь 1921 – март 1923)", index: "54/index.html", year: 1975 }
+      - { n: 55, label: "Том 55 (Письма к родным 1893 – 1922)", index: "55/index.html", year: 1975 }
+
+  - key: mega
+    title_zh: 马克思恩格斯《全集》历史考证版（MEGA²·第二部分）
+    title_ru: "Karl Marx · Friedrich Engels: Gesamtausgabe (MEGA²), Zweite Abteilung"
+    short_title: MEGA²
+    lang: de
+    badge: DE
+    # 内部备注（不对客户显示）：MEGA 德文文本系扫描件数字化，未经德文校订，准确性以原书为准；勿在 desc 等客户可见处写明转换来源。
+    desc: 德文原文 · 历史考证版（MEGA²）第二部分：《资本论》及其手稿 · 内嵌原书页码，可生成规范引文
+    folder: mega
+    serve_prefix: /wenku/raw/mega
+    citation:
+      author_zh: "马克思, 恩格斯"
+      author_de: "Marx K., Engels F."
+      work_zh: "马克思恩格斯全集：历史考证版（MEGA²）"
+      work_de: "Gesamtausgabe (MEGA²)"
+      alt_label: "德文原版式"
+      tpl_zh: "{author_zh}. {work_zh}{vol_zh}[M]. {publisher_zh}，{year}：{page}."
+      tpl_alt: "{author_de} {work_de}. {vol_de}. {publisher_de}, {year}. S. {page}."
+    volumes:
+      - { n: 1, label: "II/1: Ökonomische Manuskripte 1857/58 (Grundrisse der Kritik der politischen Ökonomie)", index: "1/index.html", year: 1981, vol_zh: "第II部分第1卷", vol_de: "Abt. II, Bd. 1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 5, label: "II/5: Das Kapital, Erster Band (Hamburg 1867)", index: "5/index.html", year: 1983, vol_zh: "第II部分第5卷", vol_de: "Abt. II, Bd. 5", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 10, label: "II/10: Das Kapital, Erster Band (Hamburg 1890)", index: "10/index.html", year: 1991, vol_zh: "第II部分第10卷", vol_de: "Abt. II, Bd. 10", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 13, label: "II/13: Das Kapital, Zweiter Band (Druckfassung 1885)", index: "13/index.html", year: 2008, vol_zh: "第II部分第13卷", vol_de: "Abt. II, Bd. 13", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 15, label: "II/15: Das Kapital, Dritter Band (Druckfassung 1894)", index: "15/index.html", year: 2004, vol_zh: "第II部分第15卷", vol_de: "Abt. II, Bd. 15", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }

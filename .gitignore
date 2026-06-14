@@ -36,3 +36,7 @@ _*.json
 scripts/_*.py
 # 第三方 pdf.js 阅读器库：网站用服务端页面图像渲染，未引用此库，不入库（防回流）
 static/vendor/pdfjs/
+# 「原文文库」自托管静态书库内容（145MB/8千+文件，纯文本）：与 PDF 同样走仓库外部署，不入 git
+static_library/
+# 「原文文库」本地演示截图：仅本地查看，不入库
+_wenku_shots/
