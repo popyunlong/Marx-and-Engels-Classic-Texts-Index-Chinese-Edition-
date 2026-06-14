@@ -1196,12 +1196,21 @@ def _reader_access_entries() -> list[dict]:
     ]
 
 
+def _card_access_status(kind: str, features: list[str]) -> dict:
+    """复用阅读器卡的权限判定，仅取状态 pill（status / status_key），
+    供期刊卡、原文文库卡叠加显示与阅读器卡同款「已可用 / 登录即可使用 /
+    开通会员后使用 / 暂未开放」状态标签。这两张卡各自保留原有按钮逻辑，
+    故 href 不参与显示，用 '#' 占位即可。"""
+    entry = _reader_access_entry(kind, features, "#")
+    return {"status": entry["status"], "status_key": entry["status_key"]}
+
+
 # ---- 首页功能栏「自定义彩色标签」（控制台·内容运营可增删，每张卡片一组）----
 # 原有「已可用 / 登录即可使用 / 开通会员后使用 / 暂未开放」状态 pill 的逻辑完全保留、自动按权限显示；
 # 这里是在其旁边「额外」叠加管理员自定义的彩色小标签（如「新上线」「限时免费」）。默认空＝不显示，
 # 行为与从前一致。数据存设置项 index_feature_tags={"full":[{text,color}],"dictionary":[...],...}。
 # citation=引文检索面板（标准/联想检索），chapter=篇章直达面板；二者无状态 pill，仅在标题旁叠加标签。
-_FEATURE_TAG_CARDS = ("full", "dictionary", "ai", "journal", "citation", "chapter")
+_FEATURE_TAG_CARDS = ("full", "dictionary", "ai", "journal", "wenku", "citation", "chapter")
 _FEATURE_TAG_HEX_RE = re.compile(r"^#?[0-9a-fA-F]{6}$")
 _FEATURE_TAG_FALLBACK_COLOR = "#157f4c"
 _FEATURE_TAG_MAX_PER_CARD = 12
@@ -6659,6 +6668,8 @@ def index():
         plans=list_active_plans(),
         reader_entries=_reader_access_entries(),
         feature_tags=_get_feature_tags(),
+        journal_status=_card_access_status("journal", ["journal_alerts"]),
+        wenku_status=_card_access_status("wenku", ["static_library"]),
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
         wenku_available=bool(_feature_is_available("static_library")),

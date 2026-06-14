@@ -695,8 +695,8 @@
           <p class="section-note">在首页各功能区（全文阅读器、马克思主义大辞典、AI 导学阅读器、期刊提醒，以及「引文检索」「篇章直达」两个搜索面板）的标题区，叠加显示你自定义的彩色小标签（如「新上线」「限时免费」）。原有「已可用 / 登录即可使用 / 开通会员后使用」等状态提示保持不变、自动按权限显示，这里只是额外添加。每张卡最多 12 个标签，文字留空的标签保存时会被忽略。</p>
           <form method="post" action="{{ control_feature_tags_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            {% set ftag_card_labels = {'full': '全文阅读器卡片', 'dictionary': '马克思主义大辞典卡片', 'ai': 'AI 导学阅读器卡片', 'journal': '期刊提醒卡片', 'citation': '引文检索面板（标准 / 联想检索）', 'chapter': '篇章直达面板'} %}
-            {% for card in ['full', 'dictionary', 'ai', 'journal', 'citation', 'chapter'] %}
+            {% set ftag_card_labels = {'full': '全文阅读器卡片', 'dictionary': '马克思主义大辞典卡片', 'ai': 'AI 导学阅读器卡片', 'journal': '期刊提醒卡片', 'wenku': '原文文库卡片', 'citation': '引文检索面板（标准 / 联想检索）', 'chapter': '篇章直达面板'} %}
+            {% for card in ['full', 'dictionary', 'ai', 'journal', 'wenku', 'citation', 'chapter'] %}
             <div class="ftag-group" style="margin:14px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px">
               <strong>{{ ftag_card_labels[card] }}</strong>
               <div class="ftag-rows" data-card="{{ card }}" style="display:grid;gap:8px;margin:10px 0">
