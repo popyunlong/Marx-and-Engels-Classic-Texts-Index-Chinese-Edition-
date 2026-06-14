@@ -97,7 +97,13 @@ CN_JOURNAL_SOURCE_DEFAULTS: dict[str, dict[str, Any]] = {
     "理论视野": {"issn": "1008-1747"},
     # —— 政治经济学相关刊（2026-06 新增）——
     "当代经济研究": {"issn": "1005-2674"},   # 吉林财大·中国《资本论》研究会会刊
-    "政治经济学评论": {"issn": "1674-7542"}, # 中国人民大学
+    # 政治经济学评论：不在 NCPSSD 开放库、OpenAlex 也无收录，改抓人大官网（玛格泰克平台当期目录）。
+    "政治经济学评论": {
+        "issn": "1674-7542",
+        "source_type": "web_html",
+        "source_url": "http://crpe.ruc.edu.cn/CN/current",
+        "config": {"parser": "magtech_journal", "entry_url": "http://crpe.ruc.edu.cn/CN/current"},
+    },
     "政治经济学季刊": {"issn": "2097-1516"}, # 清华大学·CSSCI 集刊（已获 CN 刊号）
     "经济纵横": {"issn": "1007-7685"},        # 吉林省社科院
     # 《政治经济学报》（孟捷主编）为 ISBN 集刊，无 ISSN/CN，亦未在 NCPSSD 期刊库；
@@ -129,8 +135,7 @@ CN_JOURNAL_NCPSSD_GCH: dict[str, str] = {
     "当代经济研究": "97946X",
     "经济纵横": "92389X",
     "政治经济学季刊": "73151X",
-    # 《政治经济学评论》（ISSN 1674-7542）未在 NCPSSD 期刊库核到 gch，
-    # 故走 ISSN→OpenAlex 兜底（见 _default_source）；管理员核到 gch 后可在控制台改配。
+    # 《政治经济学评论》不在 NCPSSD 开放库，改抓人大官网（见 CN_JOURNAL_SOURCE_DEFAULTS 的 magtech_journal 配置）。
 }
 
 # 这些为权威/官方刊物，默认标记为可信来源（抓到即自动发送，无需人工审核）。
@@ -1478,6 +1483,8 @@ def _fetch_web_html(source: dict) -> list[dict]:
             continue
         if parser == "ncpssd_journal":
             articles = _parse_ncpssd_journal_html(text, source, url)
+        elif parser == "magtech_journal":
+            articles = _parse_magtech_journal_html(text, source, url)
         elif parser == "qstheory_list":
             articles = _parse_qstheory_html(text, source, url)
         elif parser == "ncssd_cnki_list":
@@ -1724,6 +1731,60 @@ def _parse_ncpssd_journal_html(text: str, source: dict, base_url: str) -> list[d
         article["authors"] = authors
         article["issue"] = issue
         article["pages"] = pages
+        articles.append(article)
+        if len(articles) >= 25:
+            break
+    return articles
+
+
+_MAGTECH_LINK_RE = re.compile(r'<a href="(?P<href>[^"]*?/CN/Y\d+/V\d+/I\d+/[^"]+)"[^>]*>(?P<inner>.*?)</a>', re.S)
+_MAGTECH_VOLUMN_RE = re.compile(r"(\d{4}),\s*\d+\((\d+)\):\s*([0-9A-Za-z\-]+)")
+_MAGTECH_DATE_RE = re.compile(r'name=["\']citation_publication_date["\'] content=["\'](\d{4})[/-](\d{1,2})[/-](\d{1,2})')
+_MAGTECH_ABSTRACT_RE = re.compile(r'name=["\']dc\.description["\'] content="([^"]*)"')
+
+
+def _parse_magtech_journal_html(text: str, source: dict, base_url: str) -> list[dict]:
+    """解析玛格泰克(Magtech)期刊平台的当期目录页（如《政治经济学评论》crpe.ruc.edu.cn）。
+
+    当期页内联给出 标题/作者/年卷期页；摘要与精确出版日期在各文章页
+    （dc.description / citation_publication_date），按预算逐篇补全（尽力而为，失败不影响列表）。"""
+    articles: list[dict] = []
+    seen: set[str] = set()
+    for match in _MAGTECH_LINK_RE.finditer(text or ""):
+        url = urllib.parse.urljoin(base_url, html.unescape(match.group("href"))).replace(".edu.cn//CN", ".edu.cn/CN")
+        if url in seen:
+            continue
+        title = re.sub(r"\s+", " ", _strip_tags(html.unescape(match.group("inner")))).strip()
+        if not _looks_like_article_title(title):
+            continue
+        seen.add(url)
+        window = text[match.end(): match.end() + 700]
+        author_match = re.search(r"class=['\"]j-author['\"]>([^<]*)<", window)
+        authors = _split_cn_authors(_strip_tags(html.unescape(author_match.group(1)))) if author_match else []
+        published = issue = pages = ""
+        vol_match = re.search(r"class=['\"]j-volumn['\"]>\s*([^<]*?)\s*<", window)
+        if vol_match:
+            vm = _MAGTECH_VOLUMN_RE.search(_strip_tags(html.unescape(vol_match.group(1))))
+            if vm:
+                published = f"{vm.group(1)}-01-01"  # 占位年份；下面文章页可补精确日期
+                issue, pages = vm.group(2), vm.group(3)
+        article = _web_article(source, title, url, published, "", base_url, {"source": "magtech_journal"})
+        article["authors"] = authors
+        article["issue"] = issue
+        article["pages"] = pages
+        # 逐篇补全摘要 + 精确出版日期（限量，文章页拉取失败则保留列表字段）。
+        if len(articles) < 25:
+            try:
+                detail_html = _urlopen_text(url, user_agent=BROWSER_USER_AGENT)
+            except Exception:
+                detail_html = ""
+            if detail_html:
+                abs_match = _MAGTECH_ABSTRACT_RE.search(detail_html)
+                if abs_match:
+                    article["abstract"] = re.sub(r"\s+", " ", _strip_tags(html.unescape(abs_match.group(1)))).strip()
+                date_match = _MAGTECH_DATE_RE.search(detail_html)
+                if date_match:
+                    article["published_at"] = f"{date_match.group(1)}-{int(date_match.group(2)):02d}-{int(date_match.group(3)):02d}"
         articles.append(article)
         if len(articles) >= 25:
             break

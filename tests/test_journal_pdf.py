@@ -45,8 +45,9 @@ class NewJournalsCatalogTest(unittest.TestCase):
         for name in ("当代经济研究", "经济纵横", "政治经济学季刊"):
             self.assertEqual(by_name[name]["source_type"], "web_html")
             self.assertEqual((by_name[name].get("config") or {}).get("parser"), "ncpssd_journal")
-        # 政治经济学评论：无 gch、有 ISSN → openalex 兜底
-        self.assertEqual(by_name["政治经济学评论"]["source_type"], "openalex")
+        # 政治经济学评论：不在 NCPSSD/OpenAlex → 抓人大官网（玛格泰克平台）
+        self.assertEqual(by_name["政治经济学评论"]["source_type"], "web_html")
+        self.assertEqual((by_name["政治经济学评论"].get("config") or {}).get("parser"), "magtech_journal")
         # 政治经济学报：集刊、无 ISSN/gch → manual(待补充)
         self.assertEqual(by_name["政治经济学报"]["source_type"], "manual")
 
