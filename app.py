@@ -4457,11 +4457,25 @@ def _native_image_width_px(page) -> int:
         return 0
 
 
+# 渲染并发限流：冷渲染（缓存未命中）是 CPU 密集型；若 8 个 waitress 线程同时冷渲染会把 CPU 打满，连
+# 反代（Caddy）的 TLS 握手都被饿死 → 整站每个请求（含静态资源/403）都卡 ~6s（线上事故根因）。用信号量
+# 把「同时渲染数」限到很小（默认 2，env MARX_PAGE_IMAGE_RENDER_CONCURRENCY 可调），给 Caddy/其他请求留出
+# CPU。缓存命中走快路径、不进信号量、不受影响。缓存预热后该限流几乎不触发。
+_PAGE_IMAGE_RENDER_CONCURRENCY = max(1, int(os.environ.get("MARX_PAGE_IMAGE_RENDER_CONCURRENCY", "2")))
+_PAGE_IMAGE_RENDER_SEMAPHORE = threading.BoundedSemaphore(_PAGE_IMAGE_RENDER_CONCURRENCY)
+
+
 def _render_page_image_to_cache(source_file: str, page_number: int, query_text: str, *, matrix_scale: float = PAGE_IMAGE_MIN_SCALE) -> Path:
     cache_path = _page_image_cache_path(source_file, page_number, query_text)
     if cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path
+    with _PAGE_IMAGE_RENDER_SEMAPHORE:  # 限流冷渲染并发，防 CPU 打满拖垮整站
+        if cache_path.exists() and cache_path.stat().st_size > 0:
+            return cache_path  # 排队等待期间已被其他线程渲染好
+        return _render_page_image_uncached(cache_path, source_file, page_number, query_text, matrix_scale)
 
+
+def _render_page_image_uncached(cache_path: Path, source_file: str, page_number: int, query_text: str, matrix_scale: float) -> Path:
     pdf_path = _resolve_pdf_path(source_file, require_full_mode=False)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = cache_path.with_name(f"{cache_path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
