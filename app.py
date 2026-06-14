@@ -5002,6 +5002,9 @@ def handle_unexpected_error(error):
 
 @app.after_request
 def add_security_headers(response):
+    # 注意：生产环境 Caddy 也在 /etc/caddy/Caddyfile（及 deploy/Caddyfile.example）里设了同一条 CSP，
+    # 且 Caddy 的 header 指令会【覆盖】本应用设置的 CSP。改 CSP（尤其 frame-src/script-src 等）必须
+    # 同时改这两处，否则线上以 Caddy 为准、本处改动不生效（曾因此导致 /wenku 同源 iframe 被挡）。
     csp = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
