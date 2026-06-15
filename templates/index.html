@@ -243,6 +243,41 @@
     .cooc-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
     .cooc-toggle.hidden { display: none; }
 
+    /* 引文检索「使用提示」：标题旁的圆形 ? 按钮 + 可折叠提示面板 */
+    .help-trigger {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; padding: 0; margin-left: 4px;
+      border-radius: 50%; border: 1.5px solid var(--accent);
+      background: #fff; color: var(--accent);
+      font-size: .82rem; font-weight: 700; line-height: 1; cursor: pointer;
+      transition: background .15s ease, color .15s ease, transform .15s ease;
+    }
+    .help-trigger:hover { background: var(--accent); color: #fff; }
+    .help-trigger[aria-expanded="true"] { background: var(--accent); color: #fff; }
+    .search-help-panel {
+      position: relative;
+      margin: 8px 0 10px;
+      padding: 12px 32px 12px 14px;
+      background: #fff8e6;
+      border: 1px solid #e6d3a3;
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      color: #5a4a2a;
+      font-size: .92rem;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .search-help-panel[hidden] { display: none; }
+    .search-help-close {
+      position: absolute; top: 6px; right: 8px;
+      width: 22px; height: 22px; padding: 0;
+      border: none; background: transparent;
+      color: #8a7a55; font-size: 1.1rem; line-height: 1; cursor: pointer;
+      border-radius: 50%;
+    }
+    .search-help-close:hover { background: rgba(143,29,29,.08); color: var(--accent); }
+
     /* ===================================================================== */
     /* 联想检索 · 意大利油画风（典雅蓝 + 古金 + 繁复条纹）。仅作用于联想模式与其结果， */
     /* 标准检索视觉零改动。配色：群青/普鲁士蓝底，象牙卷帙，安提克金描边与金线斜纹。      */
@@ -1320,14 +1355,22 @@
             {% for tag in feature_tags['citation'] %}
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
+            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="使用提示" hidden>?</button>
           </div>
           {% else %}
-          <h2>{{ site_text("index.search_title") }}</h2>
+          <div class="reader-status-row" style="margin-bottom:6px">
+            <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
+            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="使用提示" hidden>?</button>
+          </div>
           {% endif %}
           <form id="searchForm">
             <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
               <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">标准检索</button>
               <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">联想检索</button>
+            </div>
+            <div id="searchHelpPanel" class="search-help-panel" hidden>
+              <button type="button" class="search-help-close" id="searchHelpClose" aria-label="收起提示">×</button>
+              <div id="searchHelpBody"></div>
             </div>
             <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
             <label class="cooc-toggle" id="coocToggle">
@@ -2900,6 +2943,70 @@
     startHeartbeat();
     window.addEventListener('focus', sendPing);
   }
+  </script>
+  <script>
+    // 引文检索「使用提示」拆分：将冗长 placeholder 的提示部分剥离到可折叠面板里
+    (function () {
+      const textarea = document.getElementById('q');
+      const trigger = document.getElementById('searchHelpTrigger');
+      const panel = document.getElementById('searchHelpPanel');
+      const body = document.getElementById('searchHelpBody');
+      const closeBtn = document.getElementById('searchHelpClose');
+      if (!textarea || !trigger || !panel || !body || !closeBtn) return;
+
+      const raw = (textarea.getAttribute('placeholder') || '').replace(/\r\n/g, '\n');
+      // 判定为「带提示」的多行 placeholder：含换行，或含「（1）/(1)」之类序号
+      const looksTipped = /\n/.test(raw) || /[（(]\s*1\s*[)）]/.test(raw);
+      if (!looksTipped) return;
+
+      let firstLine = raw;
+      let rest = '';
+      const nlIdx = raw.indexOf('\n');
+      if (nlIdx >= 0) {
+        firstLine = raw.slice(0, nlIdx).trim();
+        rest = raw.slice(nlIdx + 1).replace(/^\n+/, '').replace(/\n+$/, '');
+      } else {
+        // 单行但含 (1) — 在第一个序号前切
+        const m = raw.match(/[（(]\s*1\s*[)）]/);
+        if (m) {
+          firstLine = raw.slice(0, m.index).trim();
+          rest = raw.slice(m.index).trim();
+        }
+      }
+      if (!rest) return;
+
+      textarea.setAttribute('placeholder', firstLine);
+      body.textContent = rest;
+      trigger.hidden = false;
+
+      const SS_KEY = 'searchHelpDismissed';
+      function openPanel() {
+        panel.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+      }
+      function closePanel(remember) {
+        panel.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (remember) {
+          try { sessionStorage.setItem(SS_KEY, '1'); } catch (_) {}
+        }
+      }
+
+      trigger.addEventListener('click', function () {
+        if (panel.hidden) openPanel();
+        else closePanel(true);
+      });
+      closeBtn.addEventListener('click', function () { closePanel(true); });
+
+      let autoOpened = false;
+      textarea.addEventListener('focus', function () {
+        if (autoOpened) return;
+        autoOpened = true;
+        let dismissed = false;
+        try { dismissed = sessionStorage.getItem(SS_KEY) === '1'; } catch (_) {}
+        if (!dismissed && panel.hidden) openPanel();
+      });
+    })();
   </script>
   <script>
     (function () {
