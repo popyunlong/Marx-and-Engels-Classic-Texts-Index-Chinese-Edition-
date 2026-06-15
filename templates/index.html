@@ -65,17 +65,40 @@
       line-height: 1.8;
       color: rgba(255, 248, 240, 0.92);
     }
-    .stats {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 16px;
+    /* hero meta：程序版本 / 联系方式 — 细小、低调一行 */
+    .hero-meta {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 6px 14px;
+      margin-top: 14px;
+      font-size: .82rem;
+      color: rgba(255, 241, 226, 0.66);
+      letter-spacing: .02em;
     }
-    .stat {
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: rgba(255, 245, 232, 0.12);
-      border: 1px solid rgba(255, 241, 226, 0.18);
+    .hero-meta .sep { opacity: .45; }
+    /* hero corpus：收录文献 — 细线点分隔的内联清单 */
+    .hero-corpus {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 241, 226, 0.14);
+      font-size: .9rem;
+      color: rgba(255, 245, 232, 0.92);
+      line-height: 1.85;
+    }
+    .hero-corpus-label {
+      display: inline-block;
+      margin-right: 10px;
+      padding: 1px 8px;
+      font-size: .78rem; letter-spacing: .08em;
+      color: #f6dba0;
+      border: 1px solid rgba(246, 219, 160, 0.45);
+      border-radius: 3px;
+      vertical-align: 2px;
+    }
+    .hero-corpus-item { white-space: nowrap; }
+    .hero-corpus-sep {
+      display: inline-block;
+      margin: 0 10px;
+      color: rgba(246, 219, 160, 0.55);
     }
     .topbar, .member-strip, .flash {
       background: var(--card);
@@ -1317,13 +1340,29 @@
     <section class="hero">
       <h1>{{ site_text("index.hero_title") }}</h1>
       <p>{{ site_text("index.hero_intro") }}</p>
-      <div class="stats">
-        <div class="stat">{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</div>
-        <div class="stat">{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</div>
-        {% for item in book_stats %}
-        <div class="stat">{{ site_text(item.text_key) or item.fixed_pill or (item.short_title ~ " " ~ item.count ~ " 卷") }}</div>
+      <div class="hero-meta">
+        <span>{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</span>
+        <span class="sep">·</span>
+        <span>{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</span>
+      </div>
+      {% set corpus_items = [] %}
+      {% for item in book_stats %}
+        {% set label_raw = site_text(item.text_key) or item.fixed_pill %}
+        {% if label_raw %}
+          {% set _ = corpus_items.append(label_raw) %}
+        {% elif item.count and item.count > 0 %}
+          {% set _ = corpus_items.append(item.short_title ~ " " ~ item.count ~ " 卷") %}
+        {% endif %}
+      {% endfor %}
+      {% if corpus_items %}
+      <div class="hero-corpus">
+        <span class="hero-corpus-label">收录文献</span>
+        {% for label in corpus_items %}
+        <span class="hero-corpus-item">{{ label }}</span>
+        {% if not loop.last %}<span class="hero-corpus-sep">·</span>{% endif %}
         {% endfor %}
       </div>
+      {% endif %}
     </section>
 
     <section class="member-strip">
