@@ -80,24 +80,26 @@
       margin-top: 10px;
       padding-top: 10px;
       border-top: 1px solid rgba(255, 241, 226, 0.14);
-      /* 思源宋体（衬线），不加粗，典雅 */
+      /* 思源宋体（衬线），加粗，典雅 */
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
       font-size: .9rem;
-      font-weight: 400;
+      font-weight: 700;
       letter-spacing: .02em;
-      color: rgba(255, 250, 244, 0.96);
-      line-height: 2;
-      /* 整行两端对齐（Chrome 对中文会把强制末行拆成一字一格，故不强制末行，
-         末行自然左排——这样既两端撑满又不会拆字） */
+      color: rgba(255, 250, 244, 0.97);
+      line-height: 2.3;
+      max-width: 100%;
+      /* 整行两端对齐（靠拉伸方框之间的空白撑满两端；Chrome 对中文会把强制末行
+         拆成一字一格，故不强制末行——末行自然左排，既两端撑满又不突出/不拆字） */
       text-align: justify;
     }
-    /* 条目不内部断行，避免半个书名换行；横向以容器为界不外溢 */
-    .hero-corpus { max-width: 100%; }
-    .hero-corpus-item { white-space: nowrap; }
-    .hero-corpus-sep {
+    /* 每条文献：淡白色圆角方框 */
+    .hero-corpus-item {
       display: inline-block;
-      margin: 0 6px;
-      color: rgba(246, 219, 160, 0.55);
+      white-space: nowrap;
+      padding: 3px 11px;
+      background: rgba(255, 252, 247, 0.10);
+      border: 1px solid rgba(255, 246, 234, 0.24);
+      border-radius: 8px;
     }
     .topbar, .member-strip, .flash {
       background: var(--card);
@@ -1357,7 +1359,6 @@
       <div class="hero-corpus" id="heroCorpus">
         {% for label in corpus_items %}
         <span class="hero-corpus-item">{{ label }}</span>
-        {% if not loop.last %}<span class="hero-corpus-sep">·</span>{% endif %}
         {% endfor %}
       </div>
       {% endif %}
