@@ -94,3 +94,17 @@ books:
   tag_class: zgl
   publisher: 外文出版社
   available: true
+# 《习近平经济文选》第一卷（人民出版社 2025 年第 1 版）：与《治国理政》同样的命名分流——
+# 界面展示一律用《经济文选》（title/short_title），全名「习近平经济文选」仅出现在引文文本
+# （citation_title），勿改动这一分流。文本层 PDF + 书签目录可用，但每篇书签被拆成多行
+# （标题折行片段 + 单独的日期行），故 pages 走标准 build_textbook_index，目录走专用
+# scripts/build_xi_econ_toc.py（合并同篇片段为一条、日期并入标题消歧），覆盖通用 build_toc。
+- key: 习近平经济文选
+  title: 《经济文选》
+  short_title: 《经济文选》
+  citation_title: 习近平经济文选
+  folder: pdfs/习近平经济文选
+  sort_order: 100
+  tag_class: jingji
+  publisher: 中央文献出版社  # 据版权页 CIP：中央文献出版社 2025.03，ISBN 978-7-5073-5082-1
+  available: true
