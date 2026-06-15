@@ -40,6 +40,7 @@ from flask import (
     stream_with_context,
     url_for,
 )
+from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -4992,6 +4993,87 @@ def enforce_csrf_for_state_changes():
     _require_csrf()
 
 
+_ANNO_NUM_RE = re.compile(r"^[（(]\s*(\d+)\s*[)）]\s*(.*)$|^(\d+)\s*[.、]\s*(.*)$")
+_ANNO_HEAD_RE = re.compile(r"^(#{2,4})\s+(.*)$")
+_ANNO_BULLET_RE = re.compile(r"^[-*]\s+(.*)$")
+_ANNO_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _announcement_inline(text: str) -> str:
+    """行内排版：先转义防注入，再应用 **加粗**。"""
+    safe = str(escape(text))
+    return _ANNO_BOLD_RE.sub(r"<strong>\1</strong>", safe)
+
+
+def render_announcement_html(text: str) -> Markup:
+    """把公告纯文本渲染成排版后的安全 HTML。
+
+    支持：`## 小标题`、`**加粗**`、`- 项` 无序列表、`（1）/1.` 有序列表、
+    `---` 分隔线、空行分段。其余按段落呈现，保留行内换行。先整体转义，仅注入
+    自有标签，杜绝 XSS。
+    """
+    if not text:
+        return Markup("")
+    lines = str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: list[str] = []
+    para: list[str] = []
+    items: list[str] = []
+    list_kind = ""  # "ol" / "ul"
+
+    def flush_para() -> None:
+        if para:
+            out.append("<p>" + "<br>".join(_announcement_inline(l) for l in para) + "</p>")
+            para.clear()
+
+    def flush_list() -> None:
+        nonlocal list_kind
+        if items:
+            lis = "".join("<li>" + _announcement_inline(t) + "</li>" for t in items)
+            out.append(f'<{list_kind} class="notice-list">{lis}</{list_kind}>')
+            items.clear()
+            list_kind = ""
+
+    for raw in lines:
+        s = raw.strip()
+        if not s:
+            flush_para()
+            flush_list()
+            continue
+        head = _ANNO_HEAD_RE.match(s)
+        if head:
+            flush_para()
+            flush_list()
+            out.append('<div class="notice-h">' + _announcement_inline(head.group(2)) + "</div>")
+            continue
+        if s in ("---", "***", "___"):
+            flush_para()
+            flush_list()
+            out.append('<hr class="notice-hr">')
+            continue
+        bullet = _ANNO_BULLET_RE.match(s)
+        if bullet:
+            flush_para()
+            if list_kind and list_kind != "ul":
+                flush_list()
+            list_kind = "ul"
+            items.append(bullet.group(1))
+            continue
+        num = _ANNO_NUM_RE.match(s)
+        if num:
+            flush_para()
+            if list_kind and list_kind != "ol":
+                flush_list()
+            list_kind = "ol"
+            items.append(num.group(2) if num.group(2) is not None else num.group(4))
+            continue
+        flush_list()
+        para.append(s)
+
+    flush_para()
+    flush_list()
+    return Markup("".join(out))
+
+
 @app.context_processor
 def inject_auth_context():
     membership = getattr(g, "membership", get_membership_snapshot(None))
@@ -5025,6 +5107,7 @@ def inject_auth_context():
         "payment_runtime": PAYMENT_CONFIG.to_public_dict(),
         "site_text": _site_text,
         "site_text_auto": _site_text_auto,
+        "render_announcement": render_announcement_html,
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
     }

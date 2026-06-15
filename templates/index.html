@@ -581,6 +581,11 @@
       line-height: 1.35;
       white-space: nowrap;
     }
+    /* 引文检索标题旁的彩色标签（同段多词/短词检索）字号略小 */
+    #citationFeatureTags .reader-tag {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+    }
     .journal-bar .feature-kicker {
       color: var(--accent);
     }
@@ -656,8 +661,29 @@
       line-height: 1.65;
     }
     .notice-body {
-      white-space: pre-wrap;
       font-size: 1rem;
+      line-height: 1.7;
+      color: var(--muted);
+    }
+    .notice-body p { margin: 0 0 9px; }
+    .notice-body > :last-child { margin-bottom: 0; }
+    .notice-body .notice-h {
+      font-weight: 700;
+      font-size: 1.04rem;
+      color: var(--accent, #7b1f1f);
+      margin: 12px 0 6px;
+    }
+    .notice-body .notice-list {
+      margin: 6px 0 9px;
+      padding-left: 1.5em;
+    }
+    .notice-body .notice-list li { margin: 5px 0; padding-left: 3px; }
+    .notice-body .notice-list li::marker { color: var(--accent, #7b1f1f); font-weight: 700; }
+    .notice-body strong { color: #6a3a12; font-weight: 700; }
+    .notice-body .notice-hr {
+      border: none;
+      border-top: 1px solid rgba(123, 31, 31, 0.18);
+      margin: 11px 0;
     }
     .notice-head {
       display: flex;
@@ -1609,7 +1635,7 @@
               <span class="notice-heading-text">{{ site_text("index.notice_title") }}</span>
               <time class="notice-date" id="noticeDate">{{ notice_date_cn }}</time>
             </h2>
-            <p class="notice-body">{{ site_text("index.notice_body") }}</p>
+            <div class="notice-body">{{ render_announcement(site_text("index.notice_body")) }}</div>
           </section>
 
           <section class="feedback-card" id="feedbackCard">
