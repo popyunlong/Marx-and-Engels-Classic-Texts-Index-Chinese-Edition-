@@ -60,22 +60,23 @@
       content: "";
       position: absolute;
       top: 0; right: 0; bottom: 0;
-      width: min(640px, 50%);
+      width: min(680px, 52%);
       background-image:
-        linear-gradient(rgba(86, 20, 18, 0.34), rgba(86, 20, 18, 0.34)),
+        linear-gradient(rgba(86, 20, 18, 0.30), rgba(86, 20, 18, 0.30)),
         url("{{ url_for('static', filename='hero/founders.jpg') }}?v=1");
-      background-size: cover, cover;
-      background-position: center top, center top;
+      /* auto 100%：按高度完整显示整幅油画，绝不裁掉头部 */
+      background-size: auto 100%, auto 100%;
+      background-position: right center, right center;
       background-repeat: no-repeat;
       background-blend-mode: multiply, normal;
       /* 左侧渐隐进暗红 ∩ 底部渐隐（让下方收录文献区落在干净暗红上） */
       -webkit-mask-image:
-        linear-gradient(to left, #000 32%, transparent 96%),
-        linear-gradient(to top, transparent 34%, #000 62%);
+        linear-gradient(to left, #000 28%, transparent 97%),
+        linear-gradient(to top, transparent 22%, #000 52%);
       -webkit-mask-composite: source-in;
       mask-image:
-        linear-gradient(to left, #000 32%, transparent 96%),
-        linear-gradient(to top, transparent 34%, #000 62%);
+        linear-gradient(to left, #000 28%, transparent 97%),
+        linear-gradient(to top, transparent 22%, #000 52%);
       mask-composite: intersect;
       pointer-events: none;
     }
@@ -85,12 +86,14 @@
       margin: 0 0 10px;
       font-size: clamp(1.5rem, 2vw + 1rem, 2.2rem);
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+      text-shadow: 0 2px 10px rgba(40, 8, 6, 0.55);
     }
     .hero p {
       margin: 0;
       max-width: 880px;
       line-height: 1.8;
       color: rgba(255, 248, 240, 0.92);
+      text-shadow: 0 1px 6px rgba(40, 8, 6, 0.5);
     }
     /* hero meta：程序版本 / 联系方式 — 细小、低调一行 */
     .hero-meta {
