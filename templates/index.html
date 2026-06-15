@@ -100,14 +100,17 @@
     }
     /* 条目不内部断行，避免半个书名换行；横向以容器为界不外溢 */
     .hero-corpus { max-width: 100%; }
+    /* 实体金标：暖金渐变底 + 深色字，典雅醒目 */
     .hero-corpus-label {
       display: inline-block;
       margin-right: 10px;
-      padding: 1px 8px;
-      font-size: .78rem; letter-spacing: .08em;
-      color: #f6dba0;
-      border: 1px solid rgba(246, 219, 160, 0.45);
+      padding: 2px 9px;
+      font-size: .78rem; font-weight: 700; letter-spacing: .08em;
+      color: #4a2f0c;
+      background: linear-gradient(180deg, #f3d27e, #d9ad4e);
+      border: 1px solid #e7c168;
       border-radius: 3px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .45);
       vertical-align: 2px;
     }
     .hero-corpus-item { white-space: nowrap; }
