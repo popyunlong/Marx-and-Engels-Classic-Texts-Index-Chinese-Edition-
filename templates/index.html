@@ -75,10 +75,10 @@
       letter-spacing: .02em;
     }
     .hero-meta .sep { opacity: .45; }
-    /* hero corpus：收录文献 — 细线点分隔的内联清单 */
+    /* hero corpus：收录文献 — 淡白圆角方框，等间距居中排列 */
     .hero-corpus {
-      margin-top: 10px;
-      padding-top: 10px;
+      margin-top: 12px;
+      padding-top: 12px;
       border-top: 1px solid rgba(255, 241, 226, 0.14);
       /* 思源宋体（衬线），加粗，典雅 */
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
@@ -86,17 +86,16 @@
       font-weight: 700;
       letter-spacing: .02em;
       color: rgba(255, 250, 244, 0.97);
-      line-height: 2.3;
-      max-width: 100%;
-      /* 整行两端对齐（靠拉伸方框之间的空白撑满两端；Chrome 对中文会把强制末行
-         拆成一字一格，故不强制末行——末行自然左排，既两端撑满又不突出/不拆字） */
-      text-align: justify;
+      /* 等间距 + 居中：每行方框间隔一致、整体对称，不靠拉伸空白 */
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 11px 13px;
     }
     /* 每条文献：淡白色圆角方框 */
     .hero-corpus-item {
-      display: inline-block;
       white-space: nowrap;
-      padding: 3px 11px;
+      padding: 5px 13px;
       background: rgba(255, 252, 247, 0.10);
       border: 1px solid rgba(255, 246, 234, 0.24);
       border-radius: 8px;
