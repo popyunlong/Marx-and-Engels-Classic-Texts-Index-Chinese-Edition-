@@ -1394,9 +1394,11 @@
           {% if feature_tags['citation'] %}
           <div class="reader-status-row" style="margin-bottom:6px">
             <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
+            <span id="citationFeatureTags" class="reader-tag-group">
             {% for tag in feature_tags['citation'] %}
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
+            </span>
             <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="使用提示" hidden>?</button>
           </div>
           {% else %}
@@ -2749,10 +2751,19 @@
       q.setAttribute('placeholder', ASSOCIATIVE_PLACEHOLDER);
     } else {
       q.classList.remove('brainstorm');
-      q.setAttribute('placeholder', STANDARD_PLACEHOLDER);
+      // 优先用「使用提示」脚本剥离后的精简 placeholder（写在 dataset.standardPlaceholder）
+      q.setAttribute('placeholder', q.dataset.standardPlaceholder || STANDARD_PLACEHOLDER);
     }
     // 同段多词开关仅在标准检索下露出（联想检索另有提取逻辑，不适用）
     if (coocToggle) coocToggle.classList.toggle('hidden', associative);
+    // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
+    const tagGroup = document.getElementById('citationFeatureTags');
+    if (tagGroup) tagGroup.style.display = associative ? 'none' : '';
+    // 「使用提示」按钮与面板仅对精确检索有意义
+    const helpTrigger = document.getElementById('searchHelpTrigger');
+    const helpPanel = document.getElementById('searchHelpPanel');
+    if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = associative ? 'none' : '';
+    if (associative && helpPanel) helpPanel.hidden = true;
   }
 
   modeTabs.forEach(tab => {
@@ -3024,6 +3035,8 @@
       if (!rest) return;
 
       textarea.setAttribute('placeholder', firstLine);
+      // 让 applySearchMode 切回精确模式时恢复成精简版（而非原始长 placeholder）
+      textarea.dataset.standardPlaceholder = firstLine;
       body.textContent = rest;
       trigger.hidden = false;
 
