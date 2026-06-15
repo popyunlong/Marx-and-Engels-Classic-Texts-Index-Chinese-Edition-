@@ -49,11 +49,38 @@
       box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
     }
     .hero {
+      position: relative;
       overflow: hidden;
       background: linear-gradient(135deg, rgba(111, 27, 27, 0.98), rgba(62, 28, 18, 0.98));
       color: #fff8f0;
       padding: 24px 24px 20px;
     }
+    /* 三人油画背景：贴右上、左侧与底部渐隐融入暗红，叠暗红调统一色温 */
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: min(640px, 50%);
+      background-image:
+        linear-gradient(rgba(86, 20, 18, 0.34), rgba(86, 20, 18, 0.34)),
+        url("{{ url_for('static', filename='hero/founders.jpg') }}?v=1");
+      background-size: cover, cover;
+      background-position: center top, center top;
+      background-repeat: no-repeat;
+      background-blend-mode: multiply, normal;
+      /* 左侧渐隐进暗红 ∩ 底部渐隐（让下方收录文献区落在干净暗红上） */
+      -webkit-mask-image:
+        linear-gradient(to left, #000 32%, transparent 96%),
+        linear-gradient(to top, transparent 34%, #000 62%);
+      -webkit-mask-composite: source-in;
+      mask-image:
+        linear-gradient(to left, #000 32%, transparent 96%),
+        linear-gradient(to top, transparent 34%, #000 62%);
+      mask-composite: intersect;
+      pointer-events: none;
+    }
+    /* hero 内容压在油画之上 */
+    .hero > * { position: relative; z-index: 1; }
     .hero h1 {
       margin: 0 0 10px;
       font-size: clamp(1.5rem, 2vw + 1rem, 2.2rem);
@@ -1281,6 +1308,8 @@
       .grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
+      /* 窄屏隐藏右侧油画，避免压住标题文字影响可读性 */
+      .hero::before { display: none; }
       .feature-bar,
       .journal-bar {
         grid-template-columns: 1fr;
