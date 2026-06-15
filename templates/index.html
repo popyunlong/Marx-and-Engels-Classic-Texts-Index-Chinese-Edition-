@@ -60,23 +60,24 @@
       content: "";
       position: absolute;
       top: 0; right: 0; bottom: 0;
-      width: min(680px, 52%);
+      width: min(880px, 60%);
       background-image:
-        linear-gradient(rgba(86, 20, 18, 0.30), rgba(86, 20, 18, 0.30)),
+        linear-gradient(rgba(86, 20, 18, 0.26), rgba(86, 20, 18, 0.26)),
         url("{{ url_for('static', filename='hero/founders.jpg') }}?v=1");
-      /* auto 100%：按高度完整显示整幅油画，绝不裁掉头部 */
-      background-size: auto 100%, auto 100%;
-      background-position: right center, right center;
+      /* auto 134%：放大三人；贴顶定位保证头部完整不被裁（多出的下半身在底部渐隐里隐没） */
+      background-size: auto 134%, auto 134%;
+      background-position: right top, right top;
       background-repeat: no-repeat;
       background-blend-mode: multiply, normal;
-      /* 左侧渐隐进暗红 ∩ 底部渐隐（让下方收录文献区落在干净暗红上） */
+      /* 左侧长距离渐隐：右端 14% 实心，一路平滑过渡到最左完全透明（无硬分界线）；
+         ∩ 底部渐隐让下方收录文献区落在干净暗红上 */
       -webkit-mask-image:
-        linear-gradient(to left, #000 28%, transparent 97%),
-        linear-gradient(to top, transparent 22%, #000 52%);
+        linear-gradient(to left, #000 14%, transparent 100%),
+        linear-gradient(to top, transparent 18%, #000 52%);
       -webkit-mask-composite: source-in;
       mask-image:
-        linear-gradient(to left, #000 28%, transparent 97%),
-        linear-gradient(to top, transparent 22%, #000 52%);
+        linear-gradient(to left, #000 14%, transparent 100%),
+        linear-gradient(to top, transparent 18%, #000 52%);
       mask-composite: intersect;
       pointer-events: none;
     }
