@@ -80,44 +80,19 @@
       margin-top: 10px;
       padding-top: 10px;
       border-top: 1px solid rgba(255, 241, 226, 0.14);
-      /* 精致无衬线栈：苹方 → 微软雅黑 → 思源黑体，配抗锯齿，清晰且优雅 */
-      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      /* 基准字号；自适应脚本会在此与下限 --corpus-fs-min 之间下调以消除孤行 */
-      --corpus-fs: .9rem;
-      --corpus-fs-min: .74rem;
-      font-size: var(--corpus-fs);
-      /* 大气：字重提到 600 半粗、字距略放、加极淡描影保证暗底上清晰 */
-      font-weight: 600;
-      letter-spacing: .03em;
-      color: rgba(255, 251, 246, 1);
-      text-shadow: 0 1px 1px rgba(0, 0, 0, .28);
+      /* 思源宋体（衬线），不加粗，典雅 */
+      font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+      font-size: .9rem;
+      font-weight: 400;
+      letter-spacing: .02em;
+      color: rgba(255, 250, 244, 0.96);
       line-height: 2;
-      /* 两端对齐（含末行）：inter-word 只拉伸条目之间的空白，绝不拆字；
-         末行也撑满右端，不留凸出的短行 */
+      /* 整行两端对齐（Chrome 对中文会把强制末行拆成一字一格，故不强制末行，
+         末行自然左排——这样既两端撑满又不会拆字） */
       text-align: justify;
-      text-align-last: justify;
-      text-justify: inter-word;
     }
     /* 条目不内部断行，避免半个书名换行；横向以容器为界不外溢 */
     .hero-corpus { max-width: 100%; }
-    /* 实体金标：暖金渐变底 + 深色字，典雅醒目 */
-    .hero-corpus-label {
-      display: inline-block;
-      margin-right: 10px;
-      padding: 2px 10px;
-      /* 衬线体（与大标题同系），呼应鎏金古典质感 */
-      font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
-      font-size: .82rem; font-weight: 700; letter-spacing: .14em;
-      color: #4a2f0c;
-      background: linear-gradient(180deg, #f3d27e, #d9ad4e);
-      border: 1px solid #e7c168;
-      border-radius: 3px;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .45);
-      /* 基线对齐：金标内文字基线与第一行文献文字基线对齐（去掉旧的 2px 上顶） */
-      vertical-align: baseline;
-    }
     .hero-corpus-item { white-space: nowrap; }
     .hero-corpus-sep {
       display: inline-block;
@@ -1380,7 +1355,6 @@
       {% endfor %}
       {% if corpus_items %}
       <div class="hero-corpus" id="heroCorpus">
-        <span class="hero-corpus-label">收录文献</span>
         {% for label in corpus_items %}
         <span class="hero-corpus-item">{{ label }}</span>
         {% if not loop.last %}<span class="hero-corpus-sep">·</span>{% endif %}
@@ -3091,69 +3065,6 @@
         try { dismissed = sessionStorage.getItem(SS_KEY) === '1'; } catch (_) {}
         if (!dismissed && panel.hidden) openPanel();
       });
-    })();
-  </script>
-  <script>
-    // 收录文献「自适应收口」：任意数量文库都让每行两端对齐且末行不留孤条目。
-    // 思路：两端对齐由 CSS 负责；这里只在「末行只剩 1 个条目」时，按步下调字号
-    // （在 --corpus-fs 与 --corpus-fs-min 之间），令其并入上一行或凑足 ≥2 条，
-    // 从而消除凸出的短行。窗口缩放时实时重算（先复位到基准再收口）。
-    (function () {
-      const corpus = document.getElementById('heroCorpus');
-      if (!corpus) return;
-
-      function readVarPx(name, fallbackPx) {
-        const raw = getComputedStyle(corpus).getPropertyValue(name).trim();
-        if (!raw) return fallbackPx;
-        // 用一个临时元素把 rem/em/px 统一换算成 px
-        const probe = document.createElement('span');
-        probe.style.cssText = 'position:absolute;visibility:hidden;font-size:' + raw;
-        corpus.appendChild(probe);
-        const px = parseFloat(getComputedStyle(probe).fontSize) || fallbackPx;
-        probe.remove();
-        return px;
-      }
-
-      // 统计「最后一行」上的条目数：按 offsetTop 分组，取最大组。
-      function lastRowItemCount() {
-        const items = corpus.querySelectorAll('.hero-corpus-item');
-        if (items.length <= 1) return items.length;
-        let maxTop = -Infinity;
-        items.forEach(function (el) { maxTop = Math.max(maxTop, el.offsetTop); });
-        let count = 0;
-        items.forEach(function (el) { if (Math.abs(el.offsetTop - maxTop) <= 2) count++; });
-        return count;
-      }
-
-      function fit() {
-        const total = corpus.querySelectorAll('.hero-corpus-item').length;
-        if (total <= 1) return;                 // 单条目无需处理
-        const basePx = readVarPx('--corpus-fs', 14.4);
-        const minPx = readVarPx('--corpus-fs-min', 11.8);
-        // 先复位到基准，让窗口变宽时能放大回来
-        corpus.style.fontSize = basePx + 'px';
-        // 单行即收尾（没有末行孤条目问题）
-        let guard = 40;
-        while (guard-- > 0) {
-          const items = corpus.querySelectorAll('.hero-corpus-item');
-          // 仅一行：所有条目同一 offsetTop → lastRowItemCount === total
-          const lastCount = lastRowItemCount();
-          if (lastCount !== 1) break;           // 末行已 ≥2 条（或本就一行）
-          const cur = parseFloat(corpus.style.fontSize) || basePx;
-          if (cur <= minPx + 0.01) break;       // 触底，放弃（极端窄屏）
-          corpus.style.fontSize = Math.max(minPx, cur - 0.4) + 'px';
-        }
-      }
-
-      let raf = 0;
-      function schedule() {
-        if (raf) cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(function () { raf = 0; fit(); });
-      }
-      // 字体加载完成后字宽会变，需重算
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
-      window.addEventListener('resize', schedule);
-      schedule();
     })();
   </script>
   <script>
