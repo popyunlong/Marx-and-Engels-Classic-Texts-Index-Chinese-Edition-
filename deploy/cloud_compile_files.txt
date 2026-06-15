@@ -31,3 +31,4 @@ scripts/build_dictionary_index.py
 scripts/check_inline_js.py
 scripts/deployment_smoke.py
 scripts/journal_alert_worker.py
+scripts/build_party_toc.py

@@ -108,3 +108,19 @@ books:
   tag_class: jingji
   publisher: 中央文献出版社  # 据版权页 CIP：中央文献出版社 2025.03，ISBN 978-7-5073-5082-1
   available: true
+- key: 历次党代会报告
+  title: 《历次党代会报告》
+  short_title: 党代会报告
+  citation_title: 历次党代会报告
+  folder: pdfs/历次党代会报告
+  sort_order: 110
+  tag_class: dangdaihui
+  available: true
+- key: 历届全会公报
+  title: 《历届全会公报》
+  short_title: 全会公报
+  citation_title: 历届全会公报
+  folder: pdfs/历届全会公报
+  sort_order: 120
+  tag_class: quanhui
+  available: true

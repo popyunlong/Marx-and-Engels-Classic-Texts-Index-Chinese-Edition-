@@ -4360,6 +4360,13 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     section_title = corpus.get_section_for_page(source_file, page_number) if corpus else None
     citation = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file) if corpus else ""
     page_label = page_obj.printed_page or f"PDF-{page_number}"
+    # 公文类书库（党代会报告/全会公报）的权威原文来源链接（供阅读器「原文来源」展示）
+    source_url = ""
+    try:
+        meta = (getattr(corpus, "party_meta", {}) or {}).get(volume.book, {}) or {}
+        source_url = (meta.get(volume.volume, {}) or {}).get("url", "") if corpus else ""
+    except Exception:
+        source_url = ""
 
     return {
         "source_file": source_file,
@@ -4371,6 +4378,7 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         "page_label": page_label,
         "section_title": section_title or "",
         "citation": citation,
+        "source_url": source_url,
         "current_text": _clean_text(page_obj.raw_text),
         "previous_excerpt": _clean_text(previous_text, limit=240),
         "next_excerpt": _clean_text(next_text, limit=240),

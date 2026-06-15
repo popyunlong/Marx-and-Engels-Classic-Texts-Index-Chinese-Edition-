@@ -303,6 +303,13 @@ class Corpus:
         self.volumes_cfg: dict = yaml.safe_load(
             volumes_cfg_path.read_text(encoding="utf-8")
         )
+        # 公文类书库（党代会报告/全会公报）的引文元数据：报告人/真实篇名/全日期
+        try:
+            self.party_meta: dict = yaml.safe_load(
+                (volumes_cfg_path.parent / "party_docs_meta.yaml").read_text(encoding="utf-8")
+            ) or {}
+        except Exception:
+            self.party_meta = {}
         self.book_configs: list[BookConfig] = load_book_configs()
         self.book_config_by_key: dict[str, BookConfig] = {book.key: book for book in self.book_configs}
         self.books: dict[str, list[Volume]] = {book.key: [] for book in self.book_configs}
@@ -1731,7 +1738,30 @@ class Corpus:
         pieces.append(raw[cur:b])
         return "".join(pieces).replace("\n", " ").strip()
 
+    # 公文类书库（党代会报告 / 全会公报）：每个 PDF 即一篇独立公文，无「卷·页」概念，
+    # 引文按「篇名（年份）」出，而非「《书名》第N卷…第N页」。
+    _DOC_CITATION_BOOKS = {"历次党代会报告", "历届全会公报"}
+
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
+        if book in self._DOC_CITATION_BOOKS:
+            from pathlib import Path as _P
+            meta = (self.party_meta.get(book, {}) or {}).get(volume, {}) or {}
+            doc_title = meta.get("title") or (_P(source_file).stem if source_file else self.get_book_config(book).citation_title)
+            # 全会公报：纸本权威出处用《人民日报》（见报日期＝闭幕次日，头版）
+            rb_date = meta.get("rb_date")
+            if book == "历届全会公报" and rb_date:
+                return f"《{doc_title}》，《人民日报》{rb_date}，第1版。"
+            author = meta.get("author")
+            date = meta.get("date")
+            if not date:
+                yr = self.volumes_cfg.get(book, {}).get(volume, "")
+                date = f"{yr}年" if yr else ""
+            prefix = f"{author}：" if author else ""
+            suffix = f"（{date}）" if date else ""
+            # 报告若有《人民日报》全文见报日期则附纸本出处
+            if rb_date:
+                return f"{prefix}《{doc_title}》{suffix}，《人民日报》{rb_date}，第1版。"
+            return f"{prefix}《{doc_title}》{suffix}。"
         # 分册年份优先：同一卷分多册、各册年份不同的（如马恩《全集》第 26 卷三册），按 source_file
         # 在 file_years 里单独取年份；未命中再回退到「卷→年」映射。
         file_years = self.volumes_cfg.get("file_years") or {}

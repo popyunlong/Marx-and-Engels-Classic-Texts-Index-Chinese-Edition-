@@ -896,6 +896,7 @@
             </div>
             <div class="page-cite-text" id="pageCiteText"></div>
             <div class="page-cite-note">含本页印刷页码，可直接复制引用。</div>
+            <div class="page-cite-source" id="pageSource" hidden>原文来源：<a id="pageSourceLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
           </section>
 
           <section class="page-text-wrap">
@@ -1012,6 +1013,8 @@
   const pageCite = document.getElementById('pageCite');
   const pageCiteText = document.getElementById('pageCiteText');
   const copyCiteBtn = document.getElementById('copyCiteBtn');
+  const pageSource = document.getElementById('pageSource');
+  const pageSourceLink = document.getElementById('pageSourceLink');
   const usePageTextBtn = document.getElementById('usePageTextBtn');
   const aiStatus = document.getElementById('aiStatus');
   const aiModelBadge = document.getElementById('aiModelBadge');
@@ -1447,6 +1450,18 @@
       if (pageCite) pageCite.hidden = false;
     } else if (pageCite) {
       pageCite.hidden = true;
+    }
+    const src = currentPageContext && currentPageContext.source_url ? currentPageContext.source_url : '';
+    if (pageSource && pageSourceLink) {
+      if (src && cite) {
+        let host = '';
+        try { host = new URL(src).hostname.replace(/^www\./, ''); } catch (e) { host = src; }
+        pageSourceLink.href = src;
+        pageSourceLink.textContent = host;
+        pageSource.hidden = false;
+      } else {
+        pageSource.hidden = true;
+      }
     }
   }
 

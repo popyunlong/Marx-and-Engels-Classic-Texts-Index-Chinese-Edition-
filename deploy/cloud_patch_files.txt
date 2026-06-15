@@ -90,3 +90,5 @@ config/quanji_text_corrections.yaml
 config/static_books.yaml
 data/dictionary.sqlite
 data/dictionary_polish_report.json
+scripts/build_party_toc.py
+config/party_docs_meta.yaml
