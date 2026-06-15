@@ -256,24 +256,27 @@
     .help-trigger[aria-expanded="true"] { background: var(--accent); color: #fff; }
     .search-help-panel {
       position: relative;
-      margin: 8px 0 10px;
-      padding: 12px 32px 12px 14px;
+      margin: 6px 0 8px;
+      padding: 8px 30px 8px 12px;
       background: #fff8e6;
       border: 1px solid #e6d3a3;
       border-left: 3px solid var(--accent);
-      border-radius: 8px;
+      border-radius: 6px;
       color: #5a4a2a;
-      font-size: .92rem;
-      line-height: 1.65;
-      white-space: pre-wrap;
-      word-break: break-word;
+      font-size: .88rem;
+      line-height: 1.55;
     }
     .search-help-panel[hidden] { display: none; }
+    .search-help-panel .search-help-head {
+      font-weight: 700; color: var(--accent);
+      font-size: .85rem; margin-bottom: 2px;
+    }
+    .search-help-panel #searchHelpBody { white-space: pre-line; word-break: break-word; }
     .search-help-close {
-      position: absolute; top: 6px; right: 8px;
-      width: 22px; height: 22px; padding: 0;
+      position: absolute; top: 4px; right: 6px;
+      width: 20px; height: 20px; padding: 0;
       border: none; background: transparent;
-      color: #8a7a55; font-size: 1.1rem; line-height: 1; cursor: pointer;
+      color: #8a7a55; font-size: 1rem; line-height: 1; cursor: pointer;
       border-radius: 50%;
     }
     .search-help-close:hover { background: rgba(143,29,29,.08); color: var(--accent); }
@@ -1370,6 +1373,7 @@
             </div>
             <div id="searchHelpPanel" class="search-help-panel" hidden>
               <button type="button" class="search-help-close" id="searchHelpClose" aria-label="收起提示">×</button>
+              <div class="search-help-head">使用提示</div>
               <div id="searchHelpBody"></div>
             </div>
             <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
@@ -2964,15 +2968,20 @@
       const nlIdx = raw.indexOf('\n');
       if (nlIdx >= 0) {
         firstLine = raw.slice(0, nlIdx).trim();
-        rest = raw.slice(nlIdx + 1).replace(/^\n+/, '').replace(/\n+$/, '');
+        rest = raw.slice(nlIdx + 1);
       } else {
         // 单行但含 (1) — 在第一个序号前切
         const m = raw.match(/[（(]\s*1\s*[)）]/);
         if (m) {
           firstLine = raw.slice(0, m.index).trim();
-          rest = raw.slice(m.index).trim();
+          rest = raw.slice(m.index);
         }
       }
+      // 去掉每行前后空白（含全角空格），丢空行；保留行间换行让 (1)(2)(3) 各占一行
+      rest = rest.split('\n')
+        .map(function (s) { return s.replace(/^[\s　]+/, '').replace(/[\s　]+$/, ''); })
+        .filter(function (s) { return s.length > 0; })
+        .join('\n');
       if (!rest) return;
 
       textarea.setAttribute('placeholder', firstLine);
