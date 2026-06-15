@@ -80,11 +80,17 @@
       margin-top: 10px;
       padding-top: 10px;
       border-top: 1px solid rgba(255, 241, 226, 0.14);
+      /* 精致无衬线栈：苹方 → 微软雅黑 → 思源黑体，配抗锯齿，清晰且优雅 */
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       font-size: .9rem;
+      font-weight: 400;
+      letter-spacing: .015em;
       color: rgba(255, 250, 244, 0.98);
       line-height: 2;
       /* 两端对齐（含末行）：inter-word 只拉伸条目之间的空白，绝不拆字；
-         字号收小让条目尽量排满整行，末行也撑满右端 */
+         末行也撑满右端，不留凸出的短行 */
       text-align: justify;
       text-align-last: justify;
       text-justify: inter-word;
