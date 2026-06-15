@@ -369,16 +369,115 @@
                      value="{{ site_text('index.notice_title') }}"
                      placeholder="网站公告">
             </label>
-            <label class="field">公告内容
-              <textarea name="notice_body" rows="5"
-                        placeholder="在此填写面向访客与会员的公告内容，支持换行。">{{ site_text('index.notice_body') }}</textarea>
-            </label>
+            <label class="field" style="margin-bottom:6px">公告内容</label>
+            <div class="notice-toolbar" id="noticeToolbar">
+              <button type="button" class="btn ghost" data-ins="heading">＋小标题</button>
+              <button type="button" class="btn ghost" data-ins="bold">＋加粗</button>
+              <button type="button" class="btn ghost" data-ins="ol">＋有序列表</button>
+              <button type="button" class="btn ghost" data-ins="ul">＋无序列表</button>
+              <button type="button" class="btn ghost" data-ins="hr">＋分隔线</button>
+            </div>
+            <textarea name="notice_body" id="noticeBodyInput" rows="7"
+                      placeholder="支持排版：## 小标题、**加粗**、（1）或 1. 有序列表、- 无序列表、--- 分隔线、空行分段。">{{ site_text('index.notice_body') }}</textarea>
+            <div class="notice-preview-wrap">
+              <div class="notice-preview-label">实时预览</div>
+              <div class="notice-preview" id="noticeBodyPreview"></div>
+            </div>
             <div class="actions" style="margin-top:10px">
               <button class="btn" type="submit">保存公告</button>
               <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
             </div>
           </form>
         </section>
+        <style>
+          .notice-toolbar { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
+          .notice-toolbar .btn.ghost {
+            padding:4px 10px; font-size:.85rem; background:#fff;
+            color:var(--accent,#7b1f1f); border:1px solid var(--accent,#7b1f1f);
+          }
+          .notice-toolbar .btn.ghost:hover { background:rgba(123,31,31,.08); }
+          .notice-preview-wrap { margin-top:12px; }
+          .notice-preview-label {
+            font-size:.82rem; font-weight:700; color:var(--accent,#7b1f1f);
+            margin-bottom:6px; letter-spacing:.04em;
+          }
+          .notice-preview {
+            border:1px dashed rgba(123,31,31,.35); border-radius:10px;
+            padding:14px 16px; min-height:60px; line-height:1.7;
+            background:linear-gradient(135deg, rgba(255,244,214,.55), rgba(255,253,249,.9));
+            color:#5a4a32;
+          }
+          .notice-preview:empty::before { content:"（预览将在这里显示）"; color:#b0a48c; }
+          .notice-preview p { margin:0 0 9px; }
+          .notice-preview > :last-child { margin-bottom:0; }
+          .notice-preview .notice-h { font-weight:700; font-size:1.04rem; color:var(--accent,#7b1f1f); margin:12px 0 6px; }
+          .notice-preview .notice-list { margin:6px 0 9px; padding-left:1.5em; }
+          .notice-preview .notice-list li { margin:5px 0; padding-left:3px; }
+          .notice-preview .notice-list li::marker { color:var(--accent,#7b1f1f); font-weight:700; }
+          .notice-preview strong { color:#6a3a12; font-weight:700; }
+          .notice-preview .notice-hr { border:none; border-top:1px solid rgba(123,31,31,.18); margin:11px 0; }
+        </style>
+        <script>
+          (function () {
+            var ta = document.getElementById('noticeBodyInput');
+            var preview = document.getElementById('noticeBodyPreview');
+            var toolbar = document.getElementById('noticeToolbar');
+            if (!ta || !preview || !toolbar) return;
+
+            function inlineFmt(t) {
+              t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+              return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            }
+            // 与后端 render_announcement_html 保持一致的渲染
+            function render(text) {
+              if (!text) return '';
+              var lines = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+              var out = [], para = [], items = [], lk = '';
+              function fp() { if (para.length) { out.push('<p>' + para.map(inlineFmt).join('<br>') + '</p>'); para = []; } }
+              function fl() { if (items.length) { out.push('<' + lk + ' class="notice-list">' + items.map(function (t) { return '<li>' + inlineFmt(t) + '</li>'; }).join('') + '</' + lk + '>'); items = []; lk = ''; } }
+              for (var i = 0; i < lines.length; i++) {
+                var s = lines[i].trim();
+                if (!s) { fp(); fl(); continue; }
+                var h = s.match(/^(#{2,4})\s+(.*)$/);
+                if (h) { fp(); fl(); out.push('<div class="notice-h">' + inlineFmt(h[2]) + '</div>'); continue; }
+                if (s === '---' || s === '***' || s === '___') { fp(); fl(); out.push('<hr class="notice-hr">'); continue; }
+                var b = s.match(/^[-*]\s+(.*)$/);
+                if (b) { fp(); if (lk && lk !== 'ul') fl(); lk = 'ul'; items.push(b[1]); continue; }
+                var n = s.match(/^[（(]\s*(\d+)\s*[)）]\s*(.*)$/) || s.match(/^(\d+)\s*[.、]\s*(.*)$/);
+                if (n) { fp(); if (lk && lk !== 'ol') fl(); lk = 'ol'; items.push(n[2]); continue; }
+                fl(); para.push(s);
+              }
+              fp(); fl(); return out.join('');
+            }
+            function update() { preview.innerHTML = render(ta.value); }
+
+            function insert(before, after, ph) {
+              after = after || ''; ph = ph || '';
+              var s = ta.selectionStart, e = ta.selectionEnd;
+              var sel = ta.value.substring(s, e) || ph;
+              ta.value = ta.value.substring(0, s) + before + sel + after + ta.value.substring(e);
+              ta.focus();
+              ta.setSelectionRange(s + before.length, s + before.length + sel.length);
+              update();
+            }
+            var actions = {
+              heading: function () { insert('## ', '', '小标题'); },
+              bold: function () { insert('**', '**', '加粗文字'); },
+              ol: function () { insert('（1）', '', '第一项'); },
+              ul: function () { insert('- ', '', '列表项'); },
+              hr: function () { insert('\n---\n', '', ''); }
+            };
+            toolbar.addEventListener('click', function (ev) {
+              var btn = ev.target.closest('[data-ins]');
+              if (!btn) return;
+              var fn = actions[btn.getAttribute('data-ins')];
+              if (fn) fn();
+            });
+            ta.addEventListener('input', update);
+            update();
+          })();
+        </script>
         {% endif %}
         <section class="card" id="overview">
           <h2>运行概况</h2>
