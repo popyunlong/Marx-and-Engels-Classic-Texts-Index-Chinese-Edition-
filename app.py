@@ -1253,6 +1253,62 @@ def _get_feature_tags() -> dict[str, list[dict]]:
     return result
 
 
+# ---- 首页功能卡「顺序」（控制台·内容运营可拖动调序，存设置项 index_card_order）----
+# 覆盖首页左栏的 5 张主功能卡。citation/chapter 是搜索面板内嵌标签、不是独立卡片，故不在此列。
+# 设计原则：保存的顺序只认已知卡键并去重；任何缺失的已知卡（含将来新增的卡）按默认顺序补到末尾，
+# 保证新卡永远会出现、且老的 index_card_order 设置不会把它吞掉。
+_FEATURE_CARD_ORDER_KEYS = ("full", "dictionary", "ai", "wenku", "journal")
+_FEATURE_CARD_LABELS = {
+    "full": "全文阅读器",
+    "dictionary": "马克思主义大辞典",
+    "ai": "AI 导学阅读器",
+    "wenku": "原文文库",
+    "journal": "期刊提醒",
+}
+
+
+def _sanitize_card_order(values: object) -> list[str]:
+    """把任意输入清洗成合法的卡片顺序：保留已知卡键、去重，缺失的已知卡按默认顺序补到末尾。"""
+    order: list[str] = []
+    if isinstance(values, (list, tuple)):
+        for key in values:
+            key = str(key or "").strip()
+            if key in _FEATURE_CARD_ORDER_KEYS and key not in order:
+                order.append(key)
+    for key in _FEATURE_CARD_ORDER_KEYS:
+        if key not in order:
+            order.append(key)
+    return order
+
+
+def _get_card_order() -> list[str]:
+    """首页功能卡当前顺序（读 index_card_order 设置并清洗）。"""
+    return _sanitize_card_order(get_setting("index_card_order", []))
+
+
+def _index_feature_cards() -> list[dict]:
+    """按控制台设定的顺序，组装首页左栏功能卡的渲染数据。每个元素带 type
+    （reader/journal/wenku）+ 该类型模板所需字段；不可用的卡（如无镜像内容的文库）自动跳过。
+    顺序之外的逻辑（权限状态 pill、按钮、彩色标签）全部沿用原有判定，不受影响。"""
+    reader = {entry["kind"]: entry for entry in _reader_access_entries()}
+    cards: dict[str, dict] = {}
+    for kind in ("full", "dictionary", "ai"):
+        if kind in reader:
+            cards[kind] = {"key": kind, "type": "reader", "entry": reader[kind]}
+    cards["journal"] = {
+        "key": "journal",
+        "type": "journal",
+        "status_key": _card_access_status("journal", ["journal_alerts"])["status_key"],
+    }
+    if _feature_is_available("static_library"):
+        cards["wenku"] = {
+            "key": "wenku",
+            "type": "wenku",
+            "status_key": _card_access_status("wenku", ["static_library"])["status_key"],
+        }
+    return [cards[key] for key in _get_card_order() if key in cards]
+
+
 _READER_ACCESS_STATUS_RANK = {
     "available": 0,
     "login_required": 1,
@@ -3412,6 +3468,8 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
         "control_feature_tags_url": url_for("admin_feature_tags") if remote_admin else url_for("control_feature_tags"),
         "feature_tags": _get_feature_tags(),
+        "control_card_order_url": url_for("admin_card_order") if remote_admin else url_for("control_card_order"),
+        "card_order_cards": [{"key": key, "label": _FEATURE_CARD_LABELS[key]} for key in _get_card_order()],
         "control_reader_access_ban_url": url_for("admin_reader_access_ban") if remote_admin else "",
         "recent_orders": list_recent_orders(limit=18),
         "recent_subscriptions": list_recent_subscriptions(limit=18),
@@ -3648,6 +3706,26 @@ def _handle_feature_tags_submit(*, remote_admin: bool):
         remote_admin=remote_admin,
     )
     flash("首页功能栏标签已更新。", "success")
+    return _management_redirect(remote_admin, "content")
+
+
+def _handle_card_order_submit(*, remote_admin: bool):
+    """首页功能卡顺序保存：只动 index_card_order 设置项（一串卡键），不改卡片本身逻辑。
+    仅网站 /admin 可改（本地控制台只负责诊断/同步）。表单字段 card_order 为逗号分隔的卡键。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，首页卡片顺序请在网站 /admin 管理。")
+    raw = str(request.form.get("card_order") or "")
+    order = _sanitize_card_order(raw.split(","))
+    set_setting("index_card_order", order, updated_by=_management_actor_label(remote_admin))
+    _log_management_action(
+        action="card_order.save",
+        target="index.card_order",
+        result="success",
+        remote_admin=remote_admin,
+    )
+    flash("首页功能卡顺序已更新。", "success")
     return _management_redirect(remote_admin, "content")
 
 
@@ -5853,6 +5931,16 @@ def control_feature_tags():
     return _handle_feature_tags_submit(remote_admin=False)
 
 
+@app.post("/admin/card-order")
+def admin_card_order():
+    return _handle_card_order_submit(remote_admin=True)
+
+
+@app.post("/control/card-order")
+def control_card_order():
+    return _handle_card_order_submit(remote_admin=False)
+
+
 @app.get("/admin/content/scan")
 def admin_content_scan():
     return _handle_site_text_scan(remote_admin=True)
@@ -6666,10 +6754,8 @@ def index():
         n_quanji=n_quanji,
         book_stats=book_stats,
         plans=list_active_plans(),
-        reader_entries=_reader_access_entries(),
+        feature_cards=_index_feature_cards(),
         feature_tags=_get_feature_tags(),
-        journal_status=_card_access_status("journal", ["journal_alerts"]),
-        wenku_status=_card_access_status("wenku", ["static_library"]),
         chapter_search=_chapter_search_access(),
         member_access_enabled=bool(_feature_is_available("library") and _feature_effective_for_user("library")),
         wenku_available=bool(_feature_is_available("static_library")),

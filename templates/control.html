@@ -690,6 +690,62 @@
         {% if admin_module == "content" %}
         <div class="admin-category">内容运营</div>
         {% if remote_admin %}
+        <section class="card" id="card-order-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>首页功能卡·顺序</h2>
+          <p class="section-note">调整首页左栏功能卡（全文阅读器 / 马克思主义大辞典 / AI 导学阅读器 / 原文文库 / 期刊提醒）的上下排列顺序。用每行的 ↑ ↓ 调整位置后点「保存顺序」即生效。不可用的卡（如尚无镜像内容的文库）在首页会自动隐藏，但仍可在此排序，待其可用时按此处顺序出现。将来新增的功能卡会自动排在最末。</p>
+          <form method="post" action="{{ control_card_order_url }}" id="card-order-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="card_order" id="card-order-value" value="{{ card_order_cards | map(attribute='key') | join(',') }}">
+            <div id="card-order-list" style="display:grid;gap:8px;margin:10px 0">
+              {% for c in card_order_cards %}
+              <div class="card-order-row" data-key="{{ c.key }}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:10px;background:#fffdf8">
+                <span class="card-order-idx" style="font-weight:700;color:var(--muted,#888);min-width:1.5em;text-align:center"></span>
+                <strong style="flex:1">{{ c.label }}</strong>
+                <button type="button" class="btn secondary card-order-up" title="上移">↑</button>
+                <button type="button" class="btn secondary card-order-down" title="下移">↓</button>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存顺序</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        <script>
+        (function () {
+          var list = document.getElementById('card-order-list');
+          var hidden = document.getElementById('card-order-value');
+          if (!list || !hidden) { return; }
+          function sync() {
+            var rows = Array.prototype.slice.call(list.querySelectorAll('.card-order-row'));
+            hidden.value = rows.map(function (r) { return r.getAttribute('data-key'); }).join(',');
+            rows.forEach(function (r, i) {
+              var idx = r.querySelector('.card-order-idx');
+              if (idx) { idx.textContent = (i + 1); }
+              var up = r.querySelector('.card-order-up');
+              var down = r.querySelector('.card-order-down');
+              if (up) { up.disabled = (i === 0); }
+              if (down) { down.disabled = (i === rows.length - 1); }
+            });
+          }
+          list.addEventListener('click', function (e) {
+            var btn = e.target.closest ? e.target.closest('button') : null;
+            if (!btn) { return; }
+            var row = btn.closest('.card-order-row');
+            if (!row) { return; }
+            if (btn.classList.contains('card-order-up')) {
+              var prev = row.previousElementSibling;
+              if (prev) { list.insertBefore(row, prev); }
+            } else if (btn.classList.contains('card-order-down')) {
+              var next = row.nextElementSibling;
+              if (next) { list.insertBefore(next, row); }
+            }
+            sync();
+          });
+          sync();
+        })();
+        </script>
         <section class="card" id="feature-tags-editor" style="border:2px solid var(--accent,#7b1f1f)">
           <h2>首页功能栏·彩色标签</h2>
           <p class="section-note">在首页各功能区（全文阅读器、马克思主义大辞典、AI 导学阅读器、期刊提醒，以及「引文检索」「篇章直达」两个搜索面板）的标题区，叠加显示你自定义的彩色小标签（如「新上线」「限时免费」）。原有「已可用 / 登录即可使用 / 开通会员后使用」等状态提示保持不变、自动按权限显示，这里只是额外添加。每张卡最多 12 个标签，文字留空的标签保存时会被忽略。</p>
