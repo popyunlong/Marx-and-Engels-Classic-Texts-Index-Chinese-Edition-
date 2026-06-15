@@ -69,15 +69,15 @@
       background-position: right top, right top;
       background-repeat: no-repeat;
       background-blend-mode: multiply, normal;
-      /* 左侧长距离渐隐：右端 14% 实心，一路平滑过渡到最左完全透明（无硬分界线）；
-         ∩ 底部渐隐让下方收录文献区落在干净暗红上 */
+      /* 以三人为中心的径向羽化：四周（左/上/下）柔和淡出，无任何硬交界线；
+         再 ∩ 一道底部线性渐隐，确保下方收录文献区落在干净暗红上 */
       -webkit-mask-image:
-        linear-gradient(to left, #000 14%, transparent 100%),
-        linear-gradient(to top, transparent 18%, #000 52%);
+        radial-gradient(78% 135% at 84% 32%, #000 36%, rgba(0,0,0,0.55) 60%, transparent 86%),
+        linear-gradient(to top, transparent 16%, #000 48%);
       -webkit-mask-composite: source-in;
       mask-image:
-        linear-gradient(to left, #000 14%, transparent 100%),
-        linear-gradient(to top, transparent 18%, #000 52%);
+        radial-gradient(78% 135% at 84% 32%, #000 36%, rgba(0,0,0,0.55) 60%, transparent 86%),
+        linear-gradient(to top, transparent 16%, #000 48%);
       mask-composite: intersect;
       pointer-events: none;
     }
