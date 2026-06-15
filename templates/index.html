@@ -80,11 +80,14 @@
       margin-top: 10px;
       padding-top: 10px;
       border-top: 1px solid rgba(255, 241, 226, 0.14);
-      font-size: .88rem;
+      font-size: .82rem;
       color: rgba(255, 245, 232, 0.92);
       line-height: 2;
-      /* 两端对齐：每行靠拉伸条目间空白撑满两端；末行不强制（避免单条目被拉散成一字一格） */
+      /* 两端对齐（含末行）：inter-word 只拉伸条目之间的空白，绝不拆字；
+         字号收小让条目尽量排满整行，末行也撑满右端 */
       text-align: justify;
+      text-align-last: justify;
+      text-justify: inter-word;
     }
     .hero-corpus-label {
       display: inline-block;
@@ -99,7 +102,7 @@
     .hero-corpus-item { white-space: nowrap; }
     .hero-corpus-sep {
       display: inline-block;
-      margin: 0 10px;
+      margin: 0 6px;
       color: rgba(246, 219, 160, 0.55);
     }
     .topbar, .member-strip, .flash {
