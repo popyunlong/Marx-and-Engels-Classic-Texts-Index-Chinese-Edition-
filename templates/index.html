@@ -702,6 +702,17 @@
       padding: 4px 14px;
       white-space: nowrap;
     }
+    /* 公告标题与日期之间的程序版本（与首页 hero 版本同源，后台统一控制） */
+    .notice-version {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--muted);
+      background: rgba(123, 31, 31, 0.05);
+      border: 1px solid rgba(123, 31, 31, 0.14);
+      border-radius: 999px;
+      padding: 2px 11px;
+      white-space: nowrap;
+    }
     .feedback-card {
       min-height: 170px;
       display: grid;
@@ -1390,7 +1401,7 @@
       <h1>{{ site_text("index.hero_title") }}</h1>
       <p>{{ site_text("index.hero_intro") }}</p>
       <div class="hero-meta">
-        <span>{{ site_text("index.stat_app_version_label") }} {{ site_text("index.stat_app_version_value") or app_version }}</span>
+        <span>{{ site_text("index.stat_app_version_label") }} {{ app_version_display }}</span>
         <span class="sep">·</span>
         <span>{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</span>
       </div>
@@ -1633,6 +1644,7 @@
           <section class="notice-card">
             <h2 class="notice-head">
               <span class="notice-heading-text">{{ site_text("index.notice_title") }}</span>
+              <span class="notice-version">{{ site_text("index.stat_app_version_label") }} {{ app_version_display }}</span>
               <time class="notice-date" id="noticeDate">{{ notice_date_cn }}</time>
             </h2>
             <div class="notice-body">{{ render_announcement(site_text("index.notice_body")) }}</div>

@@ -5092,6 +5092,12 @@ def inject_auth_context():
         # 自动接入文字：有后台覆盖值用覆盖值，否则还原模板内联的原文（base64）。
         return render_auto_site_text(key, b64default, site_texts)
 
+    # 全站统一的「程序版本」：后台内容运营设的 index.stat_app_version_value 优先，
+    # 留空则回退到程序内置 APP_VERSION。首页/公告/阅读器/辞典/文库等处统一引用，
+    # 后台改一处即可全站联动。
+    app_version_display = (str(site_texts.get("index.stat_app_version_value") or "").strip()
+                           or APP_VERSION)
+
     return {
         "current_user": getattr(g, "current_user", None),
         "is_admin": _is_admin_user(getattr(g, "current_user", None)),
@@ -5108,6 +5114,7 @@ def inject_auth_context():
         "site_text": _site_text,
         "site_text_auto": _site_text_auto,
         "render_announcement": render_announcement_html,
+        "app_version_display": app_version_display,
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
     }

@@ -51,7 +51,7 @@ SITE_TEXT_DEFINITIONS = (
         "欢迎来到经典文献检索程序。请随意在下方检索窗口中输入你想核查、定位的原著句子或词语，程序将提供引文位置。若要查看 PDF 原文及使用 AI 导学则需要开通会员。",
     ),
     SiteTextDefinition("index.stat_app_version_label", "首页", "首页模块：程序版本标签", "程序版本", multiline=False),
-    SiteTextDefinition("index.stat_app_version_value", "首页", "首页模块：程序版本数字", "", multiline=False),
+    SiteTextDefinition("index.stat_app_version_value", "首页", "程序版本号（全站统一：首页/公告/阅读器/辞典/文库；留空则用程序内置版本号）", "", multiline=False),
     SiteTextDefinition("index.stat_data_version_label", "首页", "首页模块：资料版本标签", "资料版本", multiline=False),
     SiteTextDefinition("index.stat_data_version_value", "首页", "首页模块：资料版本数字", "", multiline=False),
     SiteTextDefinition("index.stat_wenji_label", "首页", "首页模块：《文集》标签", "《文集》", multiline=False),
