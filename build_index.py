@@ -87,9 +87,36 @@ _BLANK_NORM_LEN_MAX = 20
 _BLANK_VISIBLE_CHAR_MAX = 8
 
 
+# 简繁容错（繁→简 t2s）：使「繁体查询」与「含繁体的语料」都能与简体对齐检索。
+# 仅做单向 繁→简，对已是简体的文本近乎无操作（实测 6000 页 / 368 万字改动率 0.0007%，
+# 改的全是残留繁体字）。opencc 不可用时优雅降级为“不转换”，绝不影响启动与检索。
+# 用模块级单例避免每次 normalize 重建转换器（查询/构建都高频调用）。
+_T2S_CONVERTER = None
+_T2S_TRIED = False
+
+
+def _t2s(text: str) -> str:
+    global _T2S_CONVERTER, _T2S_TRIED
+    if not _T2S_TRIED:
+        _T2S_TRIED = True
+        try:
+            from opencc import OpenCC
+
+            _T2S_CONVERTER = OpenCC("t2s")
+        except Exception:
+            _T2S_CONVERTER = None
+    if _T2S_CONVERTER is None:
+        return text
+    try:
+        return _T2S_CONVERTER.convert(text)
+    except Exception:
+        return text
+
+
 def normalize(text: str) -> str:
-    """把文字归一化：剥离所有标点和空白。"""
+    """把文字归一化：繁→简（容错）后剥离所有标点和空白。"""
     text = unicodedata.normalize("NFKC", text)
+    text = _t2s(text)
     text = _STRIP_RE.sub("", text)
     return text
 

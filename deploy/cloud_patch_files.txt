@@ -73,6 +73,7 @@ scripts/build_maowenji_vol6.py
 scripts/build_scan_volumes.py
 scripts/build_zgl_toc.py
 scripts/build_xi_econ_toc.py
+scripts/refine_quanji_text.py
 scripts/check_inline_js.py
 scripts/build_dictionary_index.py
 scripts/deployment_smoke.py
@@ -85,6 +86,7 @@ config/zpay.yaml.example
 config/wenji_toc_overrides.yaml
 config/quanji_toc_overrides.yaml
 config/wenji_text_corrections.yaml
+config/quanji_text_corrections.yaml
 config/static_books.yaml
 data/dictionary.sqlite
 data/dictionary_polish_report.json
