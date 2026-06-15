@@ -32,6 +32,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEST_ROOT = PROJECT_ROOT / "static_library"
 
 _MLR_SCRIPT_RE = re.compile(r"""<script[^>]*src=['"]/mlr\.js['"][^>]*>\s*</script>""", re.IGNORECASE)
+# 朋友 MEGA 目录/正文里的链接带 target=_blank（引号/无引号三种写法），点击会在新标签页打开裸内容页、
+# 脱离阅读器外壳（顶栏翻译/AI 导读/引文随之消失）。一律剥掉，让链接在同源 iframe 内导航。
+_TARGET_BLANK_RE = re.compile(r"""\s+target\s*=\s*(?:"_blank"|'_blank'|_blank)""", re.IGNORECASE)
 
 
 def rewrite_html(text: str, serve_prefix: str) -> str:
@@ -41,6 +44,8 @@ def rewrite_html(text: str, serve_prefix: str) -> str:
     text = text.replace("href='/vil.css'", f"href='{serve_prefix}/vil.css'")
     # 删掉朋友的 mlr.js
     text = _MLR_SCRIPT_RE.sub("", text)
+    # 剥掉 target=_blank，保证链接留在阅读器 iframe 内（否则外壳与按钮消失）
+    text = _TARGET_BLANK_RE.sub("", text)
     return text
 
 
