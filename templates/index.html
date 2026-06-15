@@ -688,10 +688,12 @@
     .notice-head {
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 10px;
       flex-wrap: wrap;
     }
+    /* 标题占左、版本与日期一起靠右 */
+    .notice-head .notice-heading-text { margin-right: auto; }
     .notice-date {
       font-size: 1.02rem;
       font-weight: 700;
