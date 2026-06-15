@@ -105,6 +105,26 @@ VOLUMES = [
         "sidecar": "data/zgl_vol4_ocr.jsonl",
         "toc": "refresh_printed",
     },
+    # 《重要文献选编》6 册：上中下=volume 1/2/3。上/中为扫描卷(本地 rapidocr sidecar)，
+    # 下册自带文本层(直接抽取为 sidecar)。均按「篇名（年月日）」识别篇章 + 印刷目录补齐。
+    {"id": "xuanbian18_v1", "book": "十八大以来重要文献选编", "volume": 1,
+     "source_file": "pdfs/十八大以来重要文献选编/十八大以来重要文献选编_906p_扫描_待定卷.pdf",
+     "sidecar": "data/xuanbian_18_v906_ocr.jsonl", "toc": "detect"},
+    {"id": "xuanbian18_v2", "book": "十八大以来重要文献选编", "volume": 2,
+     "source_file": "pdfs/十八大以来重要文献选编/十八大以来重要文献选编_中册_850p_扫描.pdf",
+     "sidecar": "data/xuanbian_18_zhong_ocr.jsonl", "toc": "detect"},
+    {"id": "xuanbian18_v3", "book": "十八大以来重要文献选编", "volume": 3,
+     "source_file": "pdfs/十八大以来重要文献选编/十八大以来重要文献选编_下_857p.pdf",
+     "sidecar": "data/xuanbian_18_xia_ocr.jsonl", "toc": "detect"},
+    {"id": "xuanbian19_v1", "book": "十九大以来重要文献选编", "volume": 1,
+     "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_上.pdf",
+     "sidecar": "data/xuanbian_19_shang_ocr.jsonl", "toc": "detect"},
+    {"id": "xuanbian19_v2", "book": "十九大以来重要文献选编", "volume": 2,
+     "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_中.pdf",
+     "sidecar": "data/xuanbian_19_zhong_ocr.jsonl", "toc": "detect"},
+    {"id": "xuanbian19_v3", "book": "十九大以来重要文献选编", "volume": 3,
+     "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_下_899p.pdf",
+     "sidecar": "data/xuanbian_19_xia_ocr.jsonl", "toc": "detect"},
 ]
 
 # 篇首页特征：开头(去页码后)即「篇名（一九××年…日/月）」。日期可为时间段

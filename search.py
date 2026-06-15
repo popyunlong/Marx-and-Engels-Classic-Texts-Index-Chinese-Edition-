@@ -1741,6 +1741,9 @@ class Corpus:
     # 公文类书库（党代会报告 / 全会公报）：每个 PDF 即一篇独立公文，无「卷·页」概念，
     # 引文按「篇名（年份）」出，而非「《书名》第N卷…第N页」。
     _DOC_CITATION_BOOKS = {"历次党代会报告", "历届全会公报"}
+    # 《重要文献选编》：分册用 上/中/下，而非「第N卷」
+    _XUANBIAN_BOOKS = {"十八大以来重要文献选编", "十九大以来重要文献选编"}
+    _XUANBIAN_VOL_CN = {1: "上", 2: "中", 3: "下"}
 
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
         if book in self._DOC_CITATION_BOOKS:
@@ -1787,7 +1790,10 @@ class Corpus:
             else:
                 page_str = f"第{first}-{last}页（按PDF页码）"
 
-        title = f"《{book_cfg.citation_title}》第{volume}卷"
+        if book in self._XUANBIAN_BOOKS:
+            title = f"《{book_cfg.citation_title}》（{self._XUANBIAN_VOL_CN.get(volume, str(volume))}）"
+        else:
+            title = f"《{book_cfg.citation_title}》第{volume}卷"
         year_str = f"{year}年" if year else "xxxx年"
         return f"{title}，{place}：{publisher}，{year_str}，{page_str}。"
 
