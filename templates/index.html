@@ -55,26 +55,19 @@
       color: #fff8f0;
       padding: 24px 24px 20px;
     }
-    /* 三人油画背景：满铺 hero，画贴右；用「与墙面同色的暗红遮幕」盖住左侧并向右渐隐，
-       左边即纯暗红（与墙面同色，无任何交界），右边露出人物——从根上避免棕红混色带。 */
+    /* 三人油画背景：左侧羽化已烤进图片 alpha 通道（无论屏宽，画自带柔边、永无硬交界），
+       这里只需贴右放置；底部叠一道暗红渐隐兜底，让下方收录文献区落在干净暗红上。 */
     .hero::before {
       content: "";
       position: absolute;
       inset: 0;
       background-image:
-        /* ① 横向暗红遮幕：左侧实心暗红 → 约 66% 处渐隐为透明，露出右侧人物 */
-        linear-gradient(105deg,
-          rgba(105, 26, 24, 1) 0%,
-          rgba(101, 25, 22, 1) 32%,
-          rgba(101, 25, 22, 0) 66%),
-        /* ② 底部暗红遮幕：让下方收录文献区落在干净暗红上 */
         linear-gradient(to top,
           rgba(76, 22, 18, 1) 4%,
-          rgba(76, 22, 18, 0) 36%),
-        /* ③ 油画本体：auto 134% 放大三人、贴顶保证头部完整 */
-        url("{{ url_for('static', filename='hero/founders.jpg') }}?v=1");
-      background-size: cover, cover, auto 134%;
-      background-position: center, center, right top;
+          rgba(76, 22, 18, 0) 34%),
+        url("{{ url_for('static', filename='hero/founders.webp') }}?v=2");
+      background-size: cover, auto 134%;
+      background-position: center, right top;
       background-repeat: no-repeat;
       pointer-events: none;
     }
