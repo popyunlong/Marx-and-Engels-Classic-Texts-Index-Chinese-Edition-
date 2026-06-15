@@ -1431,8 +1431,8 @@
             </div>
             <a class="feature-action {% if entry.disabled %}disabled{% endif %}" {% if entry.disabled %}aria-disabled="true"{% endif %} href="{{ entry.href }}">{{ site_text(entry.action_key) }}</a>
           </section>
-          {% if entry.kind == 'dictionary' and wenku_available %}
-          {# 原文文库卡：按运营要求排在「大辞典」与「AI 导学」之间（整体第 3 位）。
+          {% if entry.kind == 'ai' and wenku_available %}
+          {# 原文文库卡：按运营要求排在「AI 导学」与「期刊订阅」之间（整体第 4 位）。
              自托管静态 HTML 原文库（列宁ПСС 俄文等），含页码级引文；
              权限随控制台「会员与权限」的 static_library 授权动态切换。 #}
           <section class="journal-bar" aria-label="原文文库">
