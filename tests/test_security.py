@@ -1644,6 +1644,34 @@ class SecurityRegressionTests(unittest.TestCase):
             "真实 IP 应取 X-Forwarded-For 最右项，不能是伪造的左侧或塌缩的 127.0.0.1",
         )
 
+    def test_real_client_ip_prefers_cf_connecting_ip_behind_cloudflare(self) -> None:
+        # 加挂 Cloudflare 橙云后，Caddy 看到的直连方是 CF 边缘节点，会把 CF 边缘 IP 写成
+        # XFF 最右项。若仍取 XFF 最右，全体访客会塌缩成 CF 边缘 IP、废掉整套 IP 维度反爬。
+        # 故必须优先读 CF 写入的真实访客 IP 头 CF-Connecting-IP。
+        app_module.set_setting(
+            "access_policy",
+            {"audience": {"guest": {"search": True, "library": True, "ai": False}}},
+        )
+        client = app_module.app.test_client()
+        client.get(
+            "/viewer?file=test.pdf&page=1",
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36",
+                # CF 写入的真实访客 IP；XFF 最右 198.51.100.7 此时是 CF 边缘 IP（不可作准）。
+                "CF-Connecting-IP": "203.0.113.222",
+                "X-Forwarded-For": "203.0.113.222, 198.51.100.7",
+            },
+        )
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT client_ip FROM reader_access_events ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(
+            row[0], "203.0.113.222",
+            "上 Cloudflare 后真实 IP 应取 CF-Connecting-IP，而非 XFF 最右的 CF 边缘 IP",
+        )
+
     def test_reader_view_ip_rate_limit_and_exemptions(self) -> None:
         app_module.set_setting(
             "access_policy",

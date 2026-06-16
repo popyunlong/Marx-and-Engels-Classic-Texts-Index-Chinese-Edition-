@@ -2810,11 +2810,23 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 
 def _client_ip() -> str:
-    # 生产链路：客户端 → Caddy(本机反代) → waitress → 本进程。Caddy 会把直连客户端
+    # 链路一(当前)：客户端 → Caddy(本机反代) → waitress → 本进程。Caddy 把直连客户端
     # 追加为 X-Forwarded-For 的**最右一项**(左侧可由客户端伪造，最右项由 Caddy 写入、
     # 不可伪造)，故取最右可信项作为真实 IP；与 ProxyFix(x_for=1) 取值一致。
     # 需配合 run_waitress 的 clear_untrusted_proxy_headers=False，否则 waitress 会清掉
     # 该头、导致所有访客 IP 恒为 127.0.0.1(反爬的 IP 维度因此全部失效)。
+    #
+    # 链路二(加挂 Cloudflare 橙云代理后)：客户端 → CF 边缘 → Caddy → waitress。此时
+    # 直连 Caddy 的是 CF 边缘节点，Caddy 写入 XFF 最右项的会是 *CF 边缘 IP*，全体访客
+    # 会塌缩成少数几个 CF IP，IP 维度反爬(限速/自动封禁/_is_public_ip)一次性失效。
+    # CF 会把真实访客 IP 放进 `CF-Connecting-IP` 头，故**优先**读它。
+    # 安全前提：源站防火墙须只放行 Cloudflare IP 段(见 deploy/Caddyfile.example 与
+    # CLOUDFLARE_CUTOVER.md)，否则有人摸到源站 IP 直连 Caddy 可伪造该头。未上 CF 时
+    # 该头不存在，自动回退到 XFF 最右项——故本函数对「上 CF 前 / 后 / DNS 切换过渡期」
+    # 三种状态都给出正确的真实 IP，可在切换前先行上线、零行为变化。
+    cf_ip = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if cf_ip:
+        return cf_ip
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         parts = [part.strip() for part in forwarded.split(",") if part.strip()]

@@ -1,7 +1,22 @@
+# ── Cloudflare 橙云代理（可选，见 CLOUDFLARE_CUTOVER.md）────────────────────────
+# 默认配置（下方原样）走 Caddy 自动 Let's Encrypt，适用于「域名直连源站、未上 CF」。
+# 加挂 Cloudflare 橙云后，需要改两处（其余不动）：
+#   1) 证书：CF 终止边缘 TLS 后，Caddy 的 ACME 续期会变脆（TLS-ALPN 被 CF 拦、HTTP-01
+#      易被 CF 重定向/缓存搅黄）。改用 Cloudflare「源站证书」(15 年有效)，在站点块内加：
+#          tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin.key
+#      并把 CF 控制台 SSL/TLS 模式设为 Full (strict)。显式 tls 会停用该站点的 ACME。
+#   2) 日志真实 IP（可选）：应用层已优先读 CF-Connecting-IP（Caddy 默认原样透传该头给
+#      上游，故应用拿到的真实 IP 始终正确，无需改 Caddy）。仅为让 Caddy *自身访问日志*
+#      也记真实 IP，可在全局选项块加 trusted_proxies 指向 CF 段（IP 段以 CF 官方为准、
+#      会更新）：servers { trusted_proxies static <CF-IPv4/IPv6 段...> }
+# ──────────────────────────────────────────────────────────────────────────────
 marx-search.example.com {
     encode gzip zstd
 
     respond /control* 404
+
+    # 上 CF 后取消下一行注释、并把 CF SSL 设为 Full(strict)；同时注释掉自动 ACME 即生效。
+    # tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin.key
 
     reverse_proxy 127.0.0.1:8000
 
