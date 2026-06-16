@@ -234,6 +234,7 @@ class Hit:
     citation: str
     section_title: str | None
     fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
+    subject_label: str | None = None  # 命中来自名目索引时，记录索引词条（如「经济领域中的异化·劳动的异化」）
 
     def to_dict(self) -> dict:
         return {
@@ -253,6 +254,7 @@ class Hit:
             "context": self.context,
             "citation": self.citation,
             "section_title": self.section_title,
+            "subject_label": self.subject_label,
         }
 
 
@@ -326,10 +328,33 @@ class Corpus:
         self._chaptered_cache_lock = threading.Lock()
         self._load_manifest()
         self._load(db_path)
+        self._subject_entries: list[dict] = []
+        self._load_subject_index(db_path.parent / "subject_index.sqlite")
 
     @classmethod
     def load_default(cls) -> "Corpus":
         return cls()
+
+    def _load_subject_index(self, path: Path) -> None:
+        """加载名目索引主题库（可选）：编辑手工建的「概念→页码」权威映射，供 locate_subject_index 匹配。
+        文件缺失或损坏时静默跳过（研究检索退回纯词面召回，不报错）。"""
+        try:
+            if not Path(path).exists():
+                return
+            conn = sqlite3.connect(str(path))
+            rows = conn.execute(
+                "SELECT book, volume, source_file, term, sub, full_label, "
+                "norm_term, norm_label, printed_page, pdf_page FROM subject_index"
+            ).fetchall()
+            conn.close()
+        except Exception:  # noqa: BLE001 — 辅助库不可用不应拖垮检索
+            return
+        self._subject_entries = [
+            {"book": r[0], "volume": r[1], "source_file": r[2], "term": r[3], "sub": r[4],
+             "full_label": r[5], "norm_term": r[6], "norm_label": r[7],
+             "printed_page": r[8], "pdf_page": r[9]}
+            for r in rows
+        ]
 
     def _load_manifest(self) -> None:
         if not MANIFEST.exists():
@@ -1594,6 +1619,80 @@ class Corpus:
         if intent == "research":
             results = self._diversify_by_book(results)
         return results
+
+    def locate_subject_index(self, keywords: list[str], *, cap: int = 24) -> list[Hit]:
+        """名目索引主题层（P2a）：把查询词与编辑手工建的索引词条匹配 → 取该词条的权威页 → 造真实段落 Hit。
+
+        权威、零幻觉、可解释（Hit.subject_label 记录命中的索引词条，如「经济领域中的异化·劳动的异化」）。
+        在编辑受控词表上做归一子串匹配；按「主词命中>子侧面命中、长词优先」排序，按页去重，
+        建 Hit 时在该页内定位查询词以给出上下文与高亮。索引库缺失时返回空（研究检索退回纯词面召回）。
+        """
+        if not self._subject_entries:
+            return []
+        kws: list[str] = []
+        seen_kw: set[str] = set()
+        for k in keywords or []:
+            kn = normalize(str(k or ""))
+            if len(kn) >= MIN_QUERY_LEN and kn not in seen_kw:
+                seen_kw.add(kn)
+                kws.append(kn)
+            if len(kws) >= 12:
+                break
+        if not kws:
+            return []
+        scored: list[tuple[tuple[int, int], dict, str]] = []
+        for e in self._subject_entries:
+            nl, nt = e["norm_label"], e["norm_term"]
+            best: tuple[tuple[int, int], str] | None = None
+            for kw in kws:
+                if kw in nl:
+                    pr = 3 if kw == nt else (2 if kw in nt else 1)
+                    cand = (pr, len(kw))
+                    if best is None or cand > best[0]:
+                        best = (cand, kw)
+            if best:
+                scored.append((best[0], e, best[1]))
+        if not scored:
+            return []
+        scored.sort(key=lambda x: (-x[0][0], -x[0][1]))
+        hits: list[Hit] = []
+        seen_pages: set[tuple[str, int]] = set()
+        per_label: dict[str, int] = {}
+        per_term: dict[str, int] = {}
+        for _pr, e, kw in scored:
+            key = (e["source_file"], int(e["pdf_page"]))
+            if key in seen_pages:
+                continue
+            lab, term = e["full_label"], e["term"]
+            # 多样性：每词条≤2页、每主词≤5页，避免单一概念霸屏，让不同主题铺开
+            if per_label.get(lab, 0) >= 2 or per_term.get(term, 0) >= 5:
+                continue
+            vol = self._volumes_by_source_file.get(e["source_file"])
+            if vol is None:
+                continue
+            hit = self._subject_hit(vol, int(e["pdf_page"]), kw, lab)
+            if hit is not None:
+                hits.append(hit)
+                seen_pages.add(key)
+                per_label[lab] = per_label.get(lab, 0) + 1
+                per_term[term] = per_term.get(term, 0) + 1
+            if len(hits) >= cap:
+                break
+        return hits
+
+    def _subject_hit(self, vol: Volume, pdf_page: int, keyword: str, label: str) -> Hit | None:
+        pi = next((i for i, p in enumerate(vol.pages) if p.pdf_page == pdf_page), None)
+        if pi is None:
+            return None
+        start = vol.page_offsets[pi]
+        end = vol.page_offsets[pi + 1] if pi + 1 < len(vol.page_offsets) else len(vol.norm_full)
+        nk = normalize(keyword)
+        pos = vol.norm_full.find(nk, start, end) if nk else -1
+        if pos < 0:
+            pos, nk = start, (vol.norm_full[start:start + 6] or nk)
+        hit = self._make_hit(vol, pos, pos + max(1, len(nk)), "exact", 100, keyword)
+        hit.subject_label = label
+        return hit
 
     def _group_hits(
         self,

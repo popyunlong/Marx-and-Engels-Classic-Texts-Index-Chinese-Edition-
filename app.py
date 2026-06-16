@@ -8714,6 +8714,20 @@ def api_search_associative():
         _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc))
         return jsonify({"ok": False, "error": "联想检索失败，请稍后再试。"}), 400
 
+    # 研究意图叠加「名目索引」主题层（P2a）：编辑手工建的权威「概念→页码」，置候选最前、按页去重。
+    if intent == "research":
+        try:
+            si_terms = list(dict.fromkeys([*keywords, *(w for fac in facets for w in fac), *raw_terms]))
+            subject_hits = corpus.locate_subject_index(si_terms)
+        except Exception as exc:  # noqa: BLE001 — 主题层失败不应阻断词面召回
+            LOGGER.warning("Subject-index locate failed gist=%r: %s", gist[:80], exc)
+            subject_hits = []
+        if subject_hits:
+            def _pk(h):
+                return (h.source_file, h.pages[0].pdf_page if h.pages else -1)
+            si_keys = {_pk(h) for h in subject_hits}
+            candidates = list(subject_hits) + [c for c in candidates if _pk(c) not in si_keys]
+
     if not candidates:
         LOGGER.info(
             "Associative no candidates gist=%r mode=%s intent=%s clues(q/f/k/ck)=%d/%d/%d/%d raw_terms=%d",

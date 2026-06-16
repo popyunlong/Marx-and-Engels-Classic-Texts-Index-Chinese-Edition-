@@ -77,6 +77,7 @@ scripts/build_xi_econ_toc.py
 scripts/refine_quanji_text.py
 scripts/check_inline_js.py
 scripts/build_dictionary_index.py
+scripts/build_subject_index.py
 scripts/deployment_smoke.py
 scripts/journal_alert_worker.py
 config/books.yaml
@@ -90,6 +91,7 @@ config/wenji_text_corrections.yaml
 config/quanji_text_corrections.yaml
 config/static_books.yaml
 data/dictionary.sqlite
+data/subject_index.sqlite
 data/dictionary_polish_report.json
 scripts/build_party_toc.py
 config/party_docs_meta.yaml

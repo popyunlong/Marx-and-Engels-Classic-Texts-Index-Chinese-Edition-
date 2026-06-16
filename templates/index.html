@@ -539,6 +539,18 @@
       background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.55);
     }
     .assoc-results.research .action-buttons .secondary:hover { background: rgba(201,162,39,.14); }
+    /* 名目索引命中徽章（P2a）：权威感金色 */
+    .subject-badge {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      margin: 7px 0 2px; font-size: .9rem; font-weight: 700; line-height: 1.5; color: #6b4f12;
+    }
+    .subject-badge .sb-tag {
+      flex: none; font-size: .74rem; font-weight: 800; letter-spacing: .02em; color: #1c1a12;
+      background: linear-gradient(180deg, #f0d98a, #c9a227);
+      border-radius: 999px; padding: 1px 10px; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset;
+    }
+    .assoc-hit.subject-hit { border-color: rgba(201,162,39,.5); }
+    .assoc-results.research .subject-badge { color: #e8dcae; }
     .assoc-mode-row {
       display: flex; align-items: center; gap: 10px; margin: 2px 0 4px; flex-wrap: wrap;
     }
@@ -2474,9 +2486,14 @@
     const fuzzyBadge = hit.match_type === 'fuzzy'
       ? `<span class="fuzzy-badge">近似匹配${hit.fuzzy_errors != null ? ` · 相差 ${esc(String(hit.fuzzy_errors))} 字` : ''}</span>`
       : '';
+    // 名目索引命中（P2a）：权威「概念→页码」，标注命中的索引词条
+    const subjectBadge = hit.subject_label
+      ? `<div class="subject-badge"><span class="sb-tag">名目索引</span>${esc(hit.subject_label)}</div>`
+      : '';
     return `
-      <article class="hit${weightBadge ? ' assoc-hit' : ''}">
+      <article class="hit${weightBadge ? ' assoc-hit' : ''}${hit.subject_label ? ' subject-hit' : ''}">
         <div class="loc">${bookTitle} 第 ${hit.volume} 卷 · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${weightBadge}${fuzzyBadge}</div>
+        ${subjectBadge}
         ${assocNote}
         ${section}
         <div class="ctx">${renderCtx(hit.context)}</div>
