@@ -105,20 +105,21 @@
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
       font-size: .9rem;
       font-weight: 700;
-      letter-spacing: .02em;
+      letter-spacing: 0;
       color: rgba(255, 250, 244, 0.97);
       display: flex;
       flex-wrap: wrap;
       align-content: flex-start;
-      gap: 11px 13px;
+      gap: 10px 11px;
     }
     /* 每条文献：淡白色圆角方框；flex-grow 让每行方框按剩余空间等比拉伸，
-       任意缩放/宽度下每一行（含末行）都撑满两端、不留空隙、无落单凸出。 */
+       每行（含末行）撑满两端、不留空隙、无落单凸出。内边距/间距收紧以保证
+       12 部文献在桌面固定宽度（hero 内宽约 1280px）下稳定排成两行。 */
     .hero-corpus-item {
       flex: 1 1 auto;
       text-align: center;
       white-space: nowrap;
-      padding: 5px 16px;
+      padding: 5px 12px;
       background: rgba(255, 252, 247, 0.10);
       border: 1px solid rgba(255, 246, 234, 0.24);
       border-radius: 8px;
