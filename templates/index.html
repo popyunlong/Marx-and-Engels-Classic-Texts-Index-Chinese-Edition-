@@ -551,6 +551,28 @@
     }
     .assoc-hit.subject-hit { border-color: rgba(201,162,39,.5); }
     .assoc-results.research .subject-badge { color: #e8dcae; }
+    /* 研究综述输出框 + 引文条 */
+    .rv-essay {
+      margin: 6px 0 14px; padding: 16px 18px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(201,162,39,.3); border-radius: 12px;
+      color: #ece6d6; line-height: 1.9; font-size: 1rem;
+    }
+    .rv-essay h1, .rv-essay h2, .rv-essay h3 { color: #f6ecc6; margin: 14px 0 6px; line-height: 1.5; }
+    .rv-essay h1 { font-size: 1.2rem; } .rv-essay h2 { font-size: 1.08rem; } .rv-essay h3 { font-size: 1rem; }
+    .rv-essay p { margin: 8px 0; }
+    .rv-essay strong { color: #f6ecc6; }
+    .rv-essay ul, .rv-essay ol { margin: 8px 0; padding-left: 22px; }
+    .rv-cites-title { font-weight: 800; color: #f6ecc6; margin: 14px 0 8px; font-size: .98rem; }
+    .rv-cites { display: grid; gap: 10px; }
+    .rv-cite { background: #26272d; border: 1px solid rgba(201,162,39,.3); border-radius: 10px; padding: 10px 12px; }
+    .rv-cite-head { color: #f0e6c4; font-weight: 700; font-size: .92rem; line-height: 1.6; }
+    .rv-cite-head .rv-idx { color: #c9a227; font-weight: 800; margin-right: 6px; }
+    .rv-cite-ctx { color: #d6d1c2; font-size: .9rem; line-height: 1.7; margin: 5px 0; }
+    .rv-cite-ctx .ctx-hl { background: #e0c068; color: #1c1a12; border-radius: 3px; padding: 0 2px; }
+    .rv-cite-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+    .rv-cite-actions .secondary { background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.5); }
+    .rv-open { color: #e8dcae; font-weight: 600; font-size: .86rem; text-decoration: none; white-space: nowrap; }
+    .rv-open:hover { text-decoration: underline; }
     .assoc-mode-row {
       display: flex; align-items: center; gap: 10px; margin: 2px 0 4px; flex-wrap: wrap;
     }
@@ -2472,13 +2494,14 @@
       : '';
     const bookTitle = hit.book_title || hit.book_short_title || `《${hit.book || '资料'}》`;
     const openButton = hit.viewer_available
-      ? `<a class="link-btn primary" href="${escAttr(hit.viewer_url)}">打开正文</a>`
+      ? `<a class="link-btn primary" href="${escAttr(hit.viewer_url)}" target="_blank" rel="noopener">打开正文</a>`
       : `<button class="secondary" disabled>当前无正文权限</button>`;
     const relMap = { support: ['support', '直接支撑'], tension: ['tension', '张力/反面'], extend: ['extend', '延伸'] };
     const rel = relMap[hit.associative_relation];
     const relTag = rel ? `<span class="assoc-relation ${rel[0]}">${rel[1]}</span>` : '';
+    const reasonPrefix = hit.subject_label ? '' : 'AI 判断：';  // 名目索引理由是权威索引事实，非 AI 判断
     const assocNote = (hit.associative_reason || relTag)
-      ? `<div class="assoc-note">${relTag}${hit.associative_reason ? `AI 判断：${esc(hit.associative_reason)}` : ''}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
+      ? `<div class="assoc-note">${relTag}${hit.associative_reason ? `${reasonPrefix}${esc(hit.associative_reason)}` : ''}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
       : '';
     const weightBadge = hit.associative_weight != null
       ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
@@ -2793,7 +2816,9 @@
     }
     submitBtn.disabled = true;
     updateBookTabs(null);
-    renderEmpty({{ site_text('search.assoc_loading') | tojson }});
+    renderEmpty(isResearch
+      ? '正在检索真实原文并据此生成研究综述，请稍候（约数秒）…'
+      : {{ site_text('search.assoc_loading') | tojson }});
     try {
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
@@ -2805,7 +2830,11 @@
         renderEmpty(data.error || '未知错误');
         return;
       }
-      renderAssociativeResults(data);
+      if (data.display_mode === 'research_review') {
+        renderResearchReview(data);
+      } else {
+        renderAssociativeResults(data);
+      }
     } catch (error) {
       renderEmpty(error.message || '请求失败');
     } finally {
@@ -2826,7 +2855,49 @@
       return;
     }
     assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto' };
+    saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results, warnings, intent: data.intent || '', mode: data.mode || 'auto' });
     renderAssociativePage();
+  }
+
+  // 研究型检索：综述输出框（依据真实原文接地生成，文中 [N] 标注）+ 下方简明引文条（真实可查）。
+  function renderResearchReview(data, fromRestore) {
+    assocState = null;
+    const md = data.review_markdown || '';
+    const cits = Array.isArray(data.review_citations) ? data.review_citations : [];
+    const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    if (!md && !cits.length) {
+      renderEmpty(data.message || '未生成综述，请换一种说法或补充更具体的研究论题。');
+      return;
+    }
+    const heading = {{ site_text('search.research_result_heading') | tojson }};
+    const warnHtml = warnings.length ? `<div class="assoc-note">${warnings.map(esc).join('；')}</div>` : '';
+    const citHtml = cits.map(c => {
+      const idx = c.review_index || '';
+      const cite = esc(c.citation || '');
+      const ctx = esc(c.context || '').replace(/\[\[H\]\]/g, '<span class="ctx-hl">').replace(/\[\[\/H\]\]/g, '</span>');
+      const sub = c.subject_label ? `<span class="sb-tag">名目索引</span> ${esc(c.subject_label)} · ` : '';
+      const link = c.viewer_url
+        ? `<a class="rv-open" href="${escAttr(c.viewer_url)}" target="_blank" rel="noopener">打开原文 →</a>`
+        : '';
+      return `<div class="rv-cite">
+          <div class="rv-cite-head"><span class="rv-idx">[${idx}]</span>${sub}<span id="rvc-${idx}">${cite}</span></div>
+          ${ctx ? `<div class="rv-cite-ctx">${ctx}</div>` : ''}
+          <div class="rv-cite-actions"><button class="secondary copy-btn" data-target="rvc-${idx}">复制引文</button>${link}</div>
+        </div>`;
+    }).join('');
+    out.innerHTML = `
+      <div class="assoc-results research">
+        <div class="assoc-result-head"><h2>${esc(heading)}</h2>
+          <div class="assoc-lede">依据检索到的真实原文综合生成，文中【序号】对应下方引文，可点开逐条核对（引文不可伪造）。</div>
+        </div>
+        ${warnHtml}
+        ${md ? `<div class="rv-essay">${renderBasicMarkdown(md)}</div>` : ''}
+        <div class="rv-cites-title">引文出处 · 真实可查（${cits.length}）</div>
+        <div class="rv-cites">${citHtml}</div>
+      </div>`;
+    if (!fromRestore) {
+      saveSearchState({ kind: 'review', query: data.query || q.value.trim(), review_markdown: md, review_citations: cits, warnings });
+    }
   }
 
   function renderAssociativePage() {
@@ -2854,9 +2925,12 @@
         <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button>
       </div>` : '';
     const ledeOrder = assocState.intent === 'research' ? '按相关度并兼顾著作多样性排序' : '按匹配权重排序';
+    const resultHeading = assocState.intent === 'research'
+      ? {{ site_text('search.research_result_heading') | tojson }}
+      : {{ site_text('search.assoc_result_heading') | tojson }};
     out.innerHTML = `
       <div class="assoc-results${assocState.intent === 'research' ? ' research' : ''}">
-        <div class="assoc-result-head"><h2>${ {{ site_text('search.assoc_result_heading') | tojson }} }</h2>
+        <div class="assoc-result-head"><h2>${esc(resultHeading)}</h2>
           <div class="assoc-lede">${ledeOrder} · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
         </div>
         ${intentBanner}
@@ -3355,7 +3429,16 @@
 
   try {
     const payload = loadSearchState();
-    if (payload.mode === 'results' && Array.isArray(payload.results)) {
+    if (payload.kind === 'review') {
+      // 研究综述：从阅读器返回/刷新后仍保留（综述生成成本高，务必恢复）
+      q.value = payload.query || '';
+      applySearchMode('research');
+      renderResearchReview(payload, true);
+    } else if (payload.kind === 'assoc' && Array.isArray(payload.results)) {
+      q.value = payload.query || '';
+      applySearchMode('associative');
+      renderAssociativeResults(payload);
+    } else if (payload.mode === 'results' && Array.isArray(payload.results)) {
       q.value = payload.query || '';
       if (coocCheckbox) coocCheckbox.checked = !!payload.searchCooc;  // 回填开关，保证翻页/筛选续用同段多词
       renderResults(payload);

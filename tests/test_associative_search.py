@@ -372,13 +372,34 @@ class AssociativeRouteTests(unittest.TestCase):
         self._login_member("assoc-fallback@example.test")
         token = self._csrf()
         _book, sample = _corpus_sample(min_len=16)  # 一段真实存在的原文，作为用户输入
+        # 兜底为空 plan → 启发式判 research → 走综述分支；mock 掉长文综述生成，避免真实 AI 调用。
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value={}), \
-             mock.patch.object(app_module.AI_CLIENT, "rank_associative_candidates", return_value=[]):
+             mock.patch.object(app_module.AI_CLIENT, "rank_associative_candidates", return_value=[]), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述"):
             resp = self._post({"gist": sample}, token)
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertTrue(data["ok"])
         self.assertGreaterEqual(data["count"], 1)  # 兜底命中
+
+    def test_research_mode_returns_grounded_review(self) -> None:
+        # 研究意图：检索真实命中 → 生成接地综述 + 引文条；综述文本来自 AI，引文条来自真实命中。
+        self._login_member("assoc-review@example.test")
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述正文 [1]") as rev:
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["display_mode"], "research_review")
+        self.assertEqual(data["review_markdown"], "综述正文 [1]")
+        self.assertGreaterEqual(len(data["review_citations"]), 1)
+        # 接地：引文条全部来自真实命中（真实出处）
+        self.assertTrue(all(c["citation"].startswith("《") for c in data["review_citations"]))
+        rev.assert_called_once()
 
     def test_desktop_mode_short_circuits_without_ai(self) -> None:
         self._login_member("assoc-desktop@example.test")

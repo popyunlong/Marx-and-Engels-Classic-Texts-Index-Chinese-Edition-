@@ -256,6 +256,7 @@ GROUPS_PER_PAGE = 20
 SHORT_QUERY_CHAPTER_MAX_LEN = 4
 ASSOC_RERANK_TOP = 12  # 联想检索仅对权重最高的前若干候选做 AI 标注/解释（候选多时控成本）
 ASSOC_RERANK_TOP_RESEARCH = 20  # 研究意图用更大的重排池：覆盖论题不同侧面并给出分组理由
+RESEARCH_REVIEW_SOURCES = 15     # 研究综述喂给 AI 的真实原文源条数（含名目索引权威页 + 词面命中）
 REQUEST_TOKEN = secrets.token_urlsafe(24)
 LOGGER = configure_logging()
 DEPLOYMENT = load_deployment_settings()
@@ -8718,7 +8719,7 @@ def api_search_associative():
     if intent == "research":
         try:
             si_terms = list(dict.fromkeys([*keywords, *(w for fac in facets for w in fac), *raw_terms]))
-            subject_hits = corpus.locate_subject_index(si_terms)
+            subject_hits = corpus.locate_subject_index(si_terms, cap=12)
         except Exception as exc:  # noqa: BLE001 — 主题层失败不应阻断词面召回
             LOGGER.warning("Subject-index locate failed gist=%r: %s", gist[:80], exc)
             subject_hits = []
@@ -8742,13 +8743,48 @@ def api_search_associative():
             "message": "未在语料中定位到匹配段落，请换一种说法或补充更具体的关键词、人名或术语。",
         })
 
+    # 研究意图：检索 → top 源 → 生成 ~2000 字接地综述 + 简明引文条（取代卡片列表；引文不可伪造，
+    # 综述只依据下列真实命中、文中 [N] 标注，引文条与之一一对应、可点开核对）。
+    if intent == "research":
+        review_passages: list[dict] = []
+        review_citations: list[dict] = []
+        for i, hit in enumerate(candidates[:RESEARCH_REVIEW_SOURCES], start=1):
+            d = _attach_viewer_payload(hit.to_dict(), gist, viewer_allowed)
+            plain = (d.get("context") or "").replace("[[H]]", "").replace("[[/H]]", "")
+            plain = " ".join(plain.split())[:240]
+            review_passages.append({"index": i, "citation": d.get("citation") or "", "text": plain})
+            d["review_index"] = i
+            review_citations.append(d)
+        review_warnings: list[str] = []
+        review_md = ""
+        try:
+            review_md = AI_CLIENT.generate_research_review(gist, review_passages)
+        except AIServiceError as exc:
+            LOGGER.warning("Research review failed gist=%r: %s", gist[:80], exc)
+            review_warnings.append("综述生成暂时不可用，已列出检索到的真实原文供查阅。")
+        _record_ai_usage(
+            quota, feature="associative", prompt_parts=(gist,),
+            completion_text=review_md, success=True,
+        )
+        return jsonify({
+            "ok": True, "query": gist, "display_mode": "research_review",
+            "intent": intent, "mode": mode,
+            "access_level": "full" if viewer_allowed else "summary",
+            "pdf_enabled": viewer_allowed,
+            "review_markdown": review_md,
+            "review_citations": review_citations,
+            "count": len(review_citations),
+            "warnings": review_warnings,
+        })
+
     # 候选已按综合权重降序。权重是主排序；AI 仅对权重最高的一小批做标注/解释（候选多时控成本），
     # 不丢弃任何已接地的候选——聚合展示靠权重优先呈现最可能段落。
     warnings: list[str] = []
     meta_by_id: dict[int, dict] = {}
     if rerank:
         top_n = ASSOC_RERANK_TOP_RESEARCH if intent == "research" else ASSOC_RERANK_TOP
-        head = candidates[:top_n]
+        # 名目索引命中已是权威「直接支撑」(下面统一标注)，不占用 rerank 名额——AI 判定只给词面候选。
+        head = [c for c in candidates if not getattr(c, "subject_label", None)][:top_n]
         try:
             ranking = AI_CLIENT.rank_associative_candidates(
                 gist, [h.to_dict() for h in head], intent=intent
@@ -8767,10 +8803,16 @@ def api_search_associative():
     for hit in candidates:
         d = _attach_viewer_payload(hit.to_dict(), q_for_viewer, viewer_allowed)
         d["associative_weight"] = int(hit.score)
-        meta = meta_by_id.get(id(hit), {})
-        d["associative_confidence"] = meta.get("confidence")
-        d["associative_reason"] = meta.get("reason") or ""
-        d["associative_relation"] = meta.get("relation") or ""
+        if hit.subject_label:
+            # 名目索引命中＝编辑级权威主题收录 → 统一判为「直接支撑」并给出处理由（不依赖 AI 重排）
+            d["associative_relation"] = "support"
+            d["associative_reason"] = f"名目索引「{hit.subject_label}」词条收录此页，是该主题的权威出处。"
+            d["associative_confidence"] = 96
+        else:
+            meta = meta_by_id.get(id(hit), {})
+            d["associative_confidence"] = meta.get("confidence")
+            d["associative_reason"] = meta.get("reason") or ""
+            d["associative_relation"] = meta.get("relation") or ""
         results.append(d)
 
     _record_ai_usage(

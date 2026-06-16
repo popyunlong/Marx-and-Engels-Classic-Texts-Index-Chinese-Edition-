@@ -570,6 +570,13 @@ SITE_TEXT_DEFINITIONS = (
         "研究型检索无权限提示",
         "当前账号暂未开放「研究型检索」权限。",
     ),
+    SiteTextDefinition(
+        "search.research_result_heading",
+        "研究型检索",
+        "研究型检索结果标题",
+        "研究型检索结果",
+        multiline=False,
+    ),
     SiteTextDefinition("error.back_home", "错误页", "错误页返回首页按钮", "返回首页", multiline=False),
     SiteTextDefinition("error.back_search", "错误页", "错误页返回检索按钮", "返回检索", multiline=False),
 )

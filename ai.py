@@ -533,6 +533,9 @@ def _as_bool(raw: Any, default: bool) -> bool:
 # 故接地路径用一个独立下限：既保证完整收尾，又（配合「择要引证 2-4 条 + 简明」提示）不至于失控。
 GROUNDED_ANSWER_MIN_TOKENS = 1300
 
+# 研究型检索的「综述」是 ~2000 字长文：需独立的高输出上限(不受被压低的 search_answer_max_tokens 限制)。
+RESEARCH_REVIEW_MAX_TOKENS = 3600
+
 
 class ZAIClient:
     def __init__(self, config: AIConfig) -> None:
@@ -652,6 +655,43 @@ class ZAIClient:
             sources=sources,
             used_web=bool(sources),
             warnings=warnings,
+        )
+
+    def generate_research_review(self, topic: str, passages: list[dict[str, Any]]) -> str:
+        """研究型检索综述：依据检索到的**真实原文**写一篇 ~2000 字接地综述，文中用 [N] 标注来源。
+
+        ``passages`` 为已编号的真实命中 ``{"index","citation","text"}``（全部来自 corpus 真实命中）。
+        严格接地：只依据给定原文，每处论断标注来源编号，绝不编造原文/观点/出处——引文不可伪造。
+        """
+        self._ensure_enabled()
+        block = self._format_grounding_block(passages)
+        if not block:
+            raise AIServiceError("没有可用于综述的检索原文。")
+        topic = " ".join(str(topic or "").split())[:600]
+        prompt = (
+            "请围绕用户的研究论题，写一篇约 2000 字的学术综述。下面是从本站「马克思主义经典文献库」"
+            "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
+            f"{block}\n\n"
+            "写作要求：\n"
+            "1. 紧扣研究论题，分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
+            "形成一篇连贯、详实的综述（正文约 2000 字）。\n"
+            "2. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
+            "3. 直接引用原文时逐字照引并加引号；转述、概括也要标注来源编号。\n"
+            "4. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
+            "「现有检索未充分覆盖」，但绝不杜撰内容或来源。\n"
+            "5. 用规范的学术中文，严谨、有条理；开篇点出论题，结尾作简要小结。\n\n"
+            f"研究论题：{topic}"
+        )
+        return self.chat_complete(
+            [
+                {
+                    "role": "system",
+                    "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
+                               "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
         )
 
     def expand_associative_query(self, gist: str) -> dict:

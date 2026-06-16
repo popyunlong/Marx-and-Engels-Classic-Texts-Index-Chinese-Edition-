@@ -1684,13 +1684,42 @@ class Corpus:
         pi = next((i for i, p in enumerate(vol.pages) if p.pdf_page == pdf_page), None)
         if pi is None:
             return None
-        start = vol.page_offsets[pi]
-        end = vol.page_offsets[pi + 1] if pi + 1 < len(vol.page_offsets) else len(vol.norm_full)
-        nk = normalize(keyword)
-        pos = vol.norm_full.find(nk, start, end) if nk else -1
+        n = len(vol.page_offsets)
+        # 在「该页 → 前一页 → 后一页」范围内找概念锚点并高亮——保证亮标不丢，且引文落到概念实际所在页。
+        spans = [(vol.page_offsets[pi], vol.page_offsets[pi + 1] if pi + 1 < n else len(vol.norm_full))]
+        if pi - 1 >= 0:
+            spans.append((vol.page_offsets[pi - 1], vol.page_offsets[pi]))
+        if pi + 2 < n:
+            spans.append((vol.page_offsets[pi + 1], vol.page_offsets[pi + 2]))
+        # 锚点优先级：查询词 → 词条各层(主词/子侧面) → 词条 2-gram(兜底)
+        anchors: list[str] = []
+        seen_a: set[str] = set()
+
+        def _add_anchor(s: str) -> None:
+            ns = normalize(s)
+            if len(ns) >= 2 and ns not in seen_a:
+                seen_a.add(ns)
+                anchors.append(ns)
+
+        _add_anchor(keyword)
+        for part in label.split("·"):
+            _add_anchor(part)
+        nl = normalize(label.replace("·", ""))
+        for i in range(len(nl) - 1):
+            _add_anchor(nl[i:i + 2])
+        pos, found = -1, ""
+        for a in anchors:
+            for s, e in spans:
+                p = vol.norm_full.find(a, s, e)
+                if p >= 0:
+                    pos, found = p, a
+                    break
+            if pos >= 0:
+                break
         if pos < 0:
-            pos, nk = start, (vol.norm_full[start:start + 6] or nk)
-        hit = self._make_hit(vol, pos, pos + max(1, len(nk)), "exact", 100, keyword)
+            pos = vol.page_offsets[pi]
+            found = vol.norm_full[pos:pos + 6] or "x"
+        hit = self._make_hit(vol, pos, pos + max(1, len(found)), "exact", 100, found)
         hit.subject_label = label
         return hit
 
