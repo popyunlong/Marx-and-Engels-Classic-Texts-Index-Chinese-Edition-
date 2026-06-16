@@ -8533,17 +8533,33 @@ def _parse_assoc_plan(plan: object) -> tuple[list[str], list[str], list[str], li
 _GIST_SPLIT_RE = re.compile(r"[\s,，、;；:：/|·\-—　]+")
 
 
+_CJK_RUN_RE = re.compile("[一-鿿]{6,}")
+
+
 def _split_gist_terms(gist: str) -> list[str]:
-    """把用户输入按空白/标点切成词（用户常用空格分隔“著作名 主题”），用于 LLM 无果时的确定性兜底检索。"""
+    """把用户输入按空白/标点切成词；并对长连续中文补 2 字 bigram（无 jieba 时的兜底取词）。
+
+    用于 LLM 无果时的确定性兜底检索。「资本主义生产方式下技术进步与工人异化的关系」这类无空格
+    长句若不补 bigram，会被切成一个超长词→关键词共现(需≥2词)与片段(≤16字)全废→几乎搜不到；
+    补重叠 2 字 bigram 后，资本/主义/生产/方式/工人/异化等实词能驱动共现召回（噪声 bigram 由
+    locate_associative 的频次过滤兜住）。"""
     out: list[str] = []
     seen: set[str] = set()
+
+    def _push(term: str) -> bool:
+        t = term.strip()
+        if len(normalize(t)) >= 2 and t not in seen:
+            seen.add(t)
+            out.append(t)
+        return len(out) < 16
+
     for raw in _GIST_SPLIT_RE.split(gist or ""):
-        term = raw.strip()
-        if len(normalize(term)) >= 2 and term not in seen:
-            seen.add(term)
-            out.append(term)
-        if len(out) >= 8:
-            break
+        if not _push(raw):
+            return out
+    for run in _CJK_RUN_RE.findall(gist or ""):
+        for i in range(len(run) - 1):
+            if not _push(run[i:i + 2]):
+                return out
     return out
 
 
@@ -8657,6 +8673,12 @@ def api_search_associative():
     quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
     intent = _resolve_assoc_intent(mode, plan, quotes, fragments, chapter_keywords, gist)
     facets = _assoc_facets_from_plan(plan) if intent == "research" else []
+    if not (quotes or fragments or keywords or chapter_keywords):
+        # 线上「搜不到」首要排查点：AI 抽词为空（模型超时/截断/格式异常）→ 仅靠原词兜底。
+        LOGGER.info(
+            "Associative expand yielded no usable clues gist=%r mode=%s intent=%s (fallback to raw terms)",
+            gist[:80], mode, intent,
+        )
     raw_terms = _split_gist_terms(gist)
     try:
         # 一档：用 LLM 抽取的（已分好类的）线索检索——排序最干净
@@ -8681,6 +8703,10 @@ def api_search_associative():
         return jsonify({"ok": False, "error": "联想检索失败，请稍后再试。"}), 400
 
     if not candidates:
+        LOGGER.info(
+            "Associative no candidates gist=%r mode=%s intent=%s clues(q/f/k/ck)=%d/%d/%d/%d raw_terms=%d",
+            gist[:80], mode, intent, len(quotes), len(fragments), len(keywords), len(chapter_keywords), len(raw_terms),
+        )
         _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=True)
         return jsonify({
             "ok": True, "query": gist, "count": 0, "display_mode": "associative",

@@ -510,6 +510,35 @@
       color: #15314f; line-height: 1.6; font-size: .92rem;
     }
     .assoc-note .assoc-conf { font-weight: 700; white-space: nowrap; }
+    /* 研究型检索结果：雅典黑配色（黑曜石面板 + 石墨卡片 + 浅金字），与研究输入区统一 */
+    .assoc-results.research {
+      border-color: #c9a227;
+      background:
+        linear-gradient(180deg, rgba(24,25,31,.98), rgba(10,11,15,.99)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.07) 0 2px, transparent 2px 14px);
+      box-shadow: 0 0 0 4px rgba(10,11,15,.9), 0 18px 50px rgba(0,0,0,.5);
+    }
+    .assoc-results.research .assoc-result-head h2 { color: #f6ecc6; }
+    .assoc-results.research .assoc-lede { color: #b9bccb; }
+    .assoc-results.research .pager-info { color: #d8d3c4; }
+    .assoc-results.research .assoc-list .hit {
+      background: #26272d; border: 1px solid rgba(201,162,39,.32); color: #e8e3d4;
+    }
+    .assoc-results.research .loc { color: #f0e6c4; }
+    .assoc-results.research .section {
+      background: #34353c; color: #cfcad6; border: 1px solid rgba(201,162,39,.18);
+    }
+    .assoc-results.research .ctx { background: #1d1e23; color: #e3ded0; border-left-color: #c9a227; }
+    .assoc-results.research .ctx-hl { background: #e0c068; color: #1c1a12; }
+    .assoc-results.research .cite { background: #1d1e23; color: #e3ded0; border-color: rgba(201,162,39,.4); }
+    .assoc-results.research .assoc-note {
+      background: linear-gradient(180deg, #2f3037, #232429);
+      border-color: rgba(201,162,39,.4); border-left-color: #c9a227; color: #ded8c8;
+    }
+    .assoc-results.research .action-buttons .secondary {
+      background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.55);
+    }
+    .assoc-results.research .action-buttons .secondary:hover { background: rgba(201,162,39,.14); }
     .assoc-mode-row {
       display: flex; align-items: center; gap: 10px; margin: 2px 0 4px; flex-wrap: wrap;
     }
@@ -2809,7 +2838,7 @@
       </div>` : '';
     const ledeOrder = assocState.intent === 'research' ? '按相关度并兼顾著作多样性排序' : '按匹配权重排序';
     out.innerHTML = `
-      <div class="assoc-results">
+      <div class="assoc-results${assocState.intent === 'research' ? ' research' : ''}">
         <div class="assoc-result-head"><h2>${ {{ site_text('search.assoc_result_heading') | tojson }} }</h2>
           <div class="assoc-lede">${ledeOrder} · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
         </div>
@@ -3397,6 +3426,8 @@
       let autoOpened = false;
       textarea.addEventListener('focus', function () {
         if (autoOpened) return;
+        // 「使用提示」仅属精确检索：联想/研究检索下输入框为 .brainstorm（AI 模式），不弹此提示。
+        if (textarea.classList.contains('brainstorm')) return;
         autoOpened = true;
         let dismissed = false;
         try { dismissed = sessionStorage.getItem(SS_KEY) === '1'; } catch (_) {}

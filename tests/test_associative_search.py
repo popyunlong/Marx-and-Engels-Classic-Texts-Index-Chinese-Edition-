@@ -358,7 +358,8 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(
             app_module.AI_CLIENT, "expand_associative_query", return_value={"quotes": [], "keywords": []}
         ), mock.patch.object(app_module.AI_CLIENT, "rank_associative_candidates") as rank_mock:
-            resp = self._post({"gist": "无法提取线索"}, token)
+            # 纯拉丁乱码：中文语料里零命中（连中文 bigram 兜底也匹配不到），用于验证零命中→跳过 rerank。
+            resp = self._post({"gist": "zzqxyvbnmqwlk"}, token)
         data = resp.get_json()
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])

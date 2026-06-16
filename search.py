@@ -52,6 +52,7 @@ EXACT_HITS_PER_BOOK = 200
 # 故等效“全部呈现”，又能防止极端宽泛查询产生病态规模拖垮前端。前端按权重排序并分页（页组）展示。
 ASSOC_CANDIDATE_CAP = 300
 ASSOC_KEYWORD_WINDOW = 200     # 关键词共现窗口（归一化字符）
+ASSOC_RESEARCH_KEYWORD_WINDOW = 320  # 研究意图放宽：更宽共现窗口，容纳跨段论述
 ASSOC_MAX_KEYWORDS = 8         # 参与共现的关键词上限
 ASSOC_MAX_QUOTES = 3           # 参与定位的候选原文句子上限
 ASSOC_KW_OCC_CAP = 40          # 单卷内单个关键词最多扫描的出现次数（防高频词拖垮）
@@ -1551,13 +1552,16 @@ class Corpus:
         for h, ck in self.chapter_focused_search(chapter_keywords or [], keywords or []):
             _add(h, h.score, ("chapter", ck))
 
-        # 4) 关键词共现兜底
-        for h in self.keyword_cooccurrence(keywords or []):
+        # 4) 关键词共现兜底（研究意图放宽：任意 2 词共现 + 更宽窗口，扩大跨段/跨著作召回；
+        #    覆盖度低的命中分值本就低、排在后面，不会顶掉强命中，只是把召回面铺得更广）
+        kw_window = ASSOC_RESEARCH_KEYWORD_WINDOW if intent == "research" else ASSOC_KEYWORD_WINDOW
+        kw_min = 2 if intent == "research" else None
+        for h in self.keyword_cooccurrence(keywords or [], window=kw_window, min_distinct=kw_min):
             _add(h, h.score, ("kw", None))
 
-        # 5) 研究分面召回：把论题各侧面分别做关键词共现，扩大跨著作覆盖面（仅 research 传入 facets）
+        # 5) 研究分面召回：每个侧面分别共现（同样放宽），扩大跨著作覆盖面（仅 research 传入 facets）
         for fi, fac_kws in enumerate(facets or []):
-            for h in self.keyword_cooccurrence(fac_kws):
+            for h in self.keyword_cooccurrence(fac_kws, window=kw_window, min_distinct=2):
                 _add(h, h.score, ("facet", fi))
 
         if not hit_by_ch:
