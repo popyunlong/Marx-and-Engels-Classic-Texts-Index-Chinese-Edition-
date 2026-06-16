@@ -157,6 +157,14 @@
       color: var(--muted);
       font-weight: 700;
     }
+    .matrix-head div[title] { cursor: help; }
+    .access-group-label {
+      grid-column: 1 / -1;
+      font-weight: 800; color: var(--accent); font-size: .95rem;
+      margin: 12px 0 0; padding-bottom: 5px; border-bottom: 1px solid var(--line);
+    }
+    .access-group-label:first-child { margin-top: 0; }
+    .access-group-wrap { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 4px; }
     .flash-stack { display: grid; gap: 10px; margin: 16px 0; }
     .flash { padding: 12px 14px; line-height: 1.7; }
     .flash.success { color: var(--ok); background: #e9f5ec; }
@@ -551,7 +559,7 @@
           </div>
           {% endif %}
           <h3 style="margin-top:18px">AI token 高用量用户</h3>
-          <p class="section-note">按所选日期统计单个注册用户用量，超过警戒线或接近个人每日限额时列入名单。点击「查看用量详情」可核对该用户的具体输入、命中的接口与客户端 IP；「暂停 AI」会禁用其阅读器 AI 导学与首页随心问（与「会员与权限」的个别权限联通），其余功能不受影响。</p>
+          <p class="section-note">按所选日期统计单个注册用户用量，超过警戒线或接近个人每日限额时列入名单。点击「查看用量详情」可核对该用户的具体输入、命中的接口与客户端 IP；「暂停 AI」会禁用其全部 AI 功能（阅读器导学、随心问、联想检索、研究型检索，与「会员与权限」的个别权限联通），其余功能不受影响。</p>
           {% if dashboard_metrics.high_token_users %}
           <div class="table-scroll">
             <table class="data-table">
@@ -577,7 +585,7 @@
                       <button class="btn mini" type="submit">恢复 AI</button>
                     </form>
                     {% else %}
-                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px" onsubmit="return confirm('确认暂停 {{ user.email }} 的 AI 使用？阅读器 AI 导学与首页随心问都会被禁用，其余功能不受影响。');">
+                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px" onsubmit="return confirm('确认暂停 {{ user.email }} 的 AI 使用？阅读器导学、随心问、联想检索、研究型检索都会被禁用，其余功能不受影响。');">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <input type="hidden" name="user_email" value="{{ user.email }}">
                       <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
@@ -1561,20 +1569,22 @@
           <form class="item" method="post" action="{{ control_access_policy_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="action" value="save_plans">
+            {% for group in feature_access_groups %}
+            <div class="access-group-label">{{ group.label }}</div>
             <div class="matrix">
-              <div class="matrix-row matrix-head" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+              <div class="matrix-row matrix-head" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ group.features|length }}, minmax(110px, 1fr));">
                 <div>对象</div>
-                {% for key in feature_access_keys %}
-                <div>{{ feature_access_labels[key] }}</div>
+                {% for key in group.features %}
+                <div title="{{ feature_access_hints.get(key, '') }}">{{ feature_access_labels[key] }}</div>
                 {% endfor %}
               </div>
               {% for row in audience_feature_access %}
-              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ group.features|length }}, minmax(110px, 1fr));">
                 <div>
                   <strong>{{ row.label }}</strong>
                   <div class="muted">{{ "未登录访问者" if row.key == "guest" else "已登录但未开通会员" }}</div>
                 </div>
-                {% for key in feature_access_keys %}
+                {% for key in group.features %}
                 <label class="checkbox">
                   <input type="checkbox" name="audience_{{ row.key }}_{{ key }}" value="1" {% if row.values[key] %}checked{% endif %}>
                   开放
@@ -1584,12 +1594,12 @@
               {% endfor %}
               {% for row in plan_feature_access %}
               {% set plan = row.plan %}
-              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ feature_access_keys|length }}, minmax(110px, 1fr));">
+              <div class="matrix-row" style="grid-template-columns: minmax(160px, 1.2fr) repeat({{ group.features|length }}, minmax(110px, 1fr));">
                 <div>
                   <strong>{{ plan.name }}</strong>
                   <div class="muted">{{ plan.code }}{% if not plan.is_active %} / 已下架{% endif %}</div>
                 </div>
-                {% for key in feature_access_keys %}
+                {% for key in group.features %}
                 <label class="checkbox">
                   <input type="checkbox" name="plan_{{ plan.code }}_{{ key }}" value="1" {% if row.values[key] %}checked{% endif %}>
                   开放
@@ -1598,6 +1608,7 @@
               </div>
               {% endfor %}
             </div>
+            {% endfor %}
             <div class="actions" style="margin-top:14px">
               <button class="btn primary" type="submit">保存套餐权限</button>
             </div>
@@ -1759,14 +1770,19 @@
             <input type="hidden" name="action" value="save_global">
             <h3>功能默认权限</h3>
             <p class="section-note">这是所有套餐未单独设置时的默认值。常用的月度、年度差异请优先在“套餐功能开放”里调整。</p>
-            <div class="actions">
-              {% for key in feature_access_keys %}
-              <label class="checkbox">
-                <input type="checkbox" name="global_{{ key }}" value="1" {% if access_policy["global"][key] %}checked{% endif %}>
-                {{ feature_access_labels[key] }}
-              </label>
+            <div>
+              {% for group in feature_access_groups %}
+              <div class="access-group-label">{{ group.label }}</div>
+              <div class="access-group-wrap">
+                {% for key in group.features %}
+                <label class="checkbox" title="{{ feature_access_hints.get(key, '') }}">
+                  <input type="checkbox" name="global_{{ key }}" value="1" {% if access_policy["global"][key] %}checked{% endif %}>
+                  {{ feature_access_labels[key] }}
+                </label>
+                {% endfor %}
+              </div>
               {% endfor %}
-              <button class="btn primary" type="submit">保存默认权限</button>
+              <div class="actions" style="margin-top:12px"><button class="btn primary" type="submit">保存默认权限</button></div>
             </div>
           </form>
 
@@ -1822,15 +1838,18 @@
               <input type="hidden" name="user_q" value="{{ user_q }}">
               <h3>个别权限 <span class="muted">{{ user.email }}</span></h3>
               <div class="form-grid">
-                {% for key in feature_access_keys %}
+                {% for group in feature_access_groups %}
+                <div class="access-group-label">{{ group.label }}</div>
+                {% for key in group.features %}
                 {% set override = user.feature_access.overrides.get(key) if user.feature_access and user.feature_access.overrides else none %}
-                <label class="field">{{ feature_access_labels[key] }}
+                <label class="field" title="{{ feature_access_hints.get(key, '') }}">{{ feature_access_labels[key] }}
                   <select name="user_{{ key }}">
                     <option value="inherit" {% if override is none %}selected{% endif %}>跟随全站默认（当前{{ "允许" if user.feature_access.effective[key] else "禁止" }}）</option>
                     <option value="allow" {% if override is sameas true %}selected{% endif %}>单独允许</option>
                     <option value="deny" {% if override is sameas false %}selected{% endif %}>单独禁止</option>
                   </select>
                 </label>
+                {% endfor %}
                 {% endfor %}
               </div>
               <div class="actions">

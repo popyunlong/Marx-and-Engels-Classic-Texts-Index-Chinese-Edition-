@@ -537,6 +537,39 @@ SITE_TEXT_DEFINITIONS = (
         "联想检索结果说明（{count}=定位段数，{volumes}=涉及卷数）",
         "AI 在原著中定位到 {count} 段（共 {volumes} 卷），按匹配权重优先排序；引文与页码均来自真实出处。",
     ),
+    # 研究型检索：页面文字（标签/输入框/说明条/提示），均经 {{ site_text(..) }} 或 |tojson 注入，可后台编辑。
+    SiteTextDefinition(
+        "search.research_tab",
+        "研究型检索",
+        "研究型检索标签文字（同时用于说明条的加粗前缀）",
+        "研究型检索",
+        multiline=False,
+    ),
+    SiteTextDefinition(
+        "search.research_placeholder",
+        "研究型检索",
+        "研究型检索输入框提示",
+        "输入一个研究性的论题或想法（不必是原文），例如「资本主义生产方式下技术进步与工人异化的关系」。系统将在马恩列毛原著中检索，铺开多部著作的相关原文并分组标注，辅助研究。",
+    ),
+    SiteTextDefinition(
+        "search.research_note",
+        "研究型检索",
+        "研究型检索输入框下方说明（前面会自动加粗「研究型检索：」前缀）",
+        "输入一个研究性的论题或大意（不必是原文），系统将在马克思、恩格斯、列宁、毛泽东等经典原著中检索，铺开多部著作的相关引文，并按「直接支撑／张力反面／延伸」分组标注，辅助你的研究与写作。",
+    ),
+    SiteTextDefinition(
+        "search.research_tab_title",
+        "研究型检索",
+        "研究型检索标签禁用悬浮提示",
+        "研究型检索需要相应权限",
+        multiline=False,
+    ),
+    SiteTextDefinition(
+        "search.research_no_access",
+        "研究型检索",
+        "研究型检索无权限提示",
+        "当前账号暂未开放「研究型检索」权限。",
+    ),
     SiteTextDefinition("error.back_home", "错误页", "错误页返回首页按钮", "返回首页", multiline=False),
     SiteTextDefinition("error.back_search", "错误页", "错误页返回检索按钮", "返回检索", multiline=False),
 )

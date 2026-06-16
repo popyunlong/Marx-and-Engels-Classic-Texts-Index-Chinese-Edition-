@@ -146,6 +146,8 @@ from dictionary_store import (
 )
 from feature_access import (
     AUDIENCE_ACCESS_LABELS,
+    FEATURE_ACCESS_GROUPS,
+    FEATURE_ACCESS_HINTS,
     FEATURE_ACCESS_KEYS,
     FEATURE_ACCESS_LABELS,
     audience_feature_access_rows as build_audience_feature_access_rows,
@@ -3444,6 +3446,8 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "user_q": search_text,
         "feature_access_keys": FEATURE_ACCESS_KEYS,
         "feature_access_labels": FEATURE_ACCESS_LABELS,
+        "feature_access_groups": FEATURE_ACCESS_GROUPS,
+        "feature_access_hints": FEATURE_ACCESS_HINTS,
         "access_policy": access_policy,
         "dashboard_metrics": dashboard_metrics,
         "dashboard_selected_day": dashboard_selected_day,
@@ -3974,18 +3978,22 @@ def _handle_ai_access_toggle(*, remote_admin: bool):
     current = dict(users.get(email) or {})
     if action == "unban":
         # 恢复为「跟随全站默认」，而非强制允许，避免越权覆盖套餐/全站策略。
-        # associative 同步恢复：封禁时是一起停的（见下），解封也一起回到继承态。
+        # 四项 AI 能力同步恢复：封禁时一起停（见下），解封也一起回到继承态。
         current["ai"] = None
+        current["search_chat"] = None
         current["associative"] = None
+        current["research"] = None
         result = "unban"
         message = f"已恢复 {email} 的 AI 使用权限（跟随全站默认）。"
     else:
-        # 「暂停 AI」语义覆盖全部 AI 能力：导学/随心问（ai）与联想检索（associative，
-        # 已拆分为独立权限位）一并停用，避免封禁后仍可经联想检索消耗 AI 配额。
+        # 「暂停 AI」语义覆盖全部 AI 能力：阅读器导学（ai）、首页随心问（search_chat）、
+        # 联想检索（associative）、研究型检索（research）一并停用，避免封禁后仍可消耗 AI 配额。
         current["ai"] = False
+        current["search_chat"] = False
         current["associative"] = False
+        current["research"] = False
         result = "ban"
-        message = f"已暂停 {email} 的 AI 使用：阅读器 AI 导学、首页随心问与联想检索均不可用，其余功能不受影响。"
+        message = f"已暂停 {email} 的 AI 使用：阅读器 AI 导学、首页随心问、联想检索与研究型检索均不可用，其余功能不受影响。"
     users[email] = current
     set_setting("access_policy", policy, updated_by=_management_actor_label(remote_admin))
     _log_management_action(
@@ -6848,7 +6856,7 @@ def index():
         notice_date_cn=f"{_bj_today.year}年{_bj_today.month}月{_bj_today.day}日",
         request_token=REQUEST_TOKEN if state["management_api_enabled"] else None,
         state=state,
-        ai_runtime=_public_ai_runtime_payload(allow_details=bool(state["feature_access"].get("ai", False))),
+        ai_runtime=_public_ai_runtime_payload(allow_details=bool(state["feature_access"].get("ai") or state["feature_access"].get("search_chat"))),
         n_wenji=n_wenji,
         n_quanji=n_quanji,
         book_stats=book_stats,
@@ -6860,7 +6868,9 @@ def index():
         wenku_available=bool(_feature_is_available("static_library")),
         wenku_access_enabled=bool(_feature_is_available("static_library") and _feature_effective_for_user("static_library")),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
+        search_chat_access_enabled=bool(_feature_is_available("search_chat") and _feature_effective_for_user("search_chat")),
         assoc_access_enabled=bool(_feature_is_available("associative") and _feature_effective_for_user("associative")),
+        research_access_enabled=bool(_feature_is_available("research") and _feature_effective_for_user("research")),
         ai_web_access_enabled=_ai_web_access_enabled(),
         feedback_thread=feedback_thread,
     )
@@ -8166,7 +8176,7 @@ def _build_chat_grounding(question: str) -> tuple[list[dict], list[dict], list[s
 
 @app.route("/api/ai/search-chat", methods=["POST"])
 def api_ai_search_chat():
-    _require_content_feature("ai")
+    _require_content_feature("search_chat")  # 「AI 随心问」独立权限（已从「AI 导学」拆出）
     _rate_limit_ai_or_abort()
     quota = _require_ai_quota_or_raise()
     if DEPLOYMENT.is_desktop:
@@ -8613,7 +8623,9 @@ def api_search_associative():
     “在候选里选哪几条”。鉴权顺序与 /api/ai/search-chat 一致，但走独立的 associative
     权限位（自 ai 拆分而来，可单独向访客/注册用户/套餐开放）。
     """
-    _require_content_feature("associative")
+    # 意图分流后按所选模式鉴权：研究型检索走独立的 research 权限，其余（精准定位/自动）走 associative。
+    _requested_mode = str((request.get_json(silent=True) or {}).get("mode") or "auto").strip().lower()
+    _require_content_feature("research" if _requested_mode == "research" else "associative")
     _rate_limit_ai_or_abort()
     quota = _require_ai_quota_or_raise()
     if DEPLOYMENT.is_desktop:

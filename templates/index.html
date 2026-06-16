@@ -358,6 +358,90 @@
       background: linear-gradient(180deg, var(--oil-gold-hi), #b8902f);
     }
     .panel.assoc-mode #submitBtn.primary:hover { background: linear-gradient(180deg, #f0db98, #c9a227); }
+
+    /* ===================================================================== */
+    /* 研究型检索 · 雅典黑玻璃（高贵华典 + 玻璃反射）：黑曜石底 + 华典古金描边 + 缓慢流光。 */
+    /* ===================================================================== */
+    .search-mode-tab.tab-research {
+      position: relative; overflow: hidden;
+      color: #e8dcae;
+      background: linear-gradient(180deg, #4a4b55 0%, #23242c 52%, #141519 100%);
+      border: 1px solid #0b0c11;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+      text-shadow: 0 1px 1px rgba(0,0,0,.55);
+    }
+    /* 顶部玻璃高光（恒亮，覆盖上半部，玻璃质感） */
+    .search-mode-tab.tab-research::before {
+      content: ""; position: absolute; left: 0; right: 0; top: 0; height: 48%;
+      background: linear-gradient(180deg, rgba(255,255,255,.20), rgba(255,255,255,.03) 78%, transparent);
+      pointer-events: none;
+    }
+    /* 斜向流光，缓慢扫过（玻璃反射） */
+    .search-mode-tab.tab-research::after {
+      content: ""; position: absolute; top: -10%; bottom: -10%; left: -70%; width: 42%;
+      background: linear-gradient(105deg, transparent, rgba(255,255,255,.42), transparent);
+      transform: skewX(-18deg); animation: researchSheen 5.5s ease-in-out infinite; pointer-events: none;
+    }
+    @keyframes researchSheen { 0%, 55% { left: -70%; } 100% { left: 135%; } }
+    @media (prefers-reduced-motion: reduce) { .search-mode-tab.tab-research::after { animation: none; } }
+    .search-mode-tab[data-mode="research"].active {
+      color: #f6ecc6;
+      background: linear-gradient(180deg, #3a3b45 0%, #1a1b22 50%, #08090d 100%);
+      border-color: #c9a227;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.30), inset 0 -1px 0 rgba(0,0,0,.7), 0 0 0 1px rgba(201,162,39,.45), 0 6px 16px rgba(0,0,0,.5);
+      letter-spacing: .05em;
+    }
+    /* 研究模式：整张面板化为黑曜石镶金 */
+    .panel.research-mode {
+      color: #efe7d0;
+      background:
+        linear-gradient(180deg, rgba(28,29,36,.97), rgba(12,13,17,.99)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.07) 0 2px, transparent 2px 14px);
+      border: 1px solid #c9a227;
+      box-shadow: 0 0 0 3px rgba(10,11,15,.95), 0 0 0 4px rgba(201,162,39,.42), 0 18px 50px rgba(0,0,0,.5);
+    }
+    .panel.research-mode h2 { color: #f6ecc6; letter-spacing: .05em; }
+    .panel.research-mode .muted { color: #b9bccb; }
+    .panel.research-mode .search-mode-tabs { background: rgba(255,255,255,.05); border-color: rgba(201,162,39,.4); }
+    .panel.research-mode .search-mode-tab[data-mode="standard"]:not(.active),
+    .panel.research-mode .search-mode-tab[data-mode="associative"]:not(.active) { color: #cfcfd8; }
+    .panel.research-mode .search-mode-tab[data-mode="standard"].active { background: #f2ecdc; color: var(--accent); border-color: #f2ecdc; }
+    .panel.research-mode #submitBtn.primary {
+      color: #141519; border: 1px solid #e8dcae;
+      background: linear-gradient(180deg, #e8dcae, #b8902f);
+    }
+    .panel.research-mode #submitBtn.primary:hover { background: linear-gradient(180deg, #f2e7bd, #c9a227); }
+    /* 研究型检索说明条（玻璃黑底 + 古金边） */
+    .research-note {
+      display: flex; align-items: flex-start; gap: 9px;
+      margin: 8px 0 4px; padding: 9px 13px;
+      font-size: .86rem; line-height: 1.6; color: #e9e2cf;
+      background: linear-gradient(180deg, rgba(40,41,49,.96), rgba(18,19,24,.98));
+      border: 1px solid rgba(201,162,39,.5); border-left: 3px solid #c9a227; border-radius: 8px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+    }
+    .research-note.hidden { display: none; }
+    .research-note strong { color: #f6ecc6; }
+    .research-note-dot {
+      flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%;
+      background: radial-gradient(circle at 30% 30%, #ffe9a8, #c9a227);
+      box-shadow: 0 0 6px rgba(201,162,39,.7);
+    }
+    /* 研究模式输入框：炭灰/石墨底 + 古金细边 + 浅金字（仅覆盖研究模式，不影响联想检索的象牙风） */
+    .panel.research-mode #q.brainstorm {
+      color: #efe7d0;
+      background-color: #2c2d33;
+      background-image:
+        linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0) 42%),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.06) 0 1px, transparent 1px 13px);
+      border: 1px solid rgba(201,162,39,.55);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 24px rgba(0,0,0,.34);
+    }
+    .panel.research-mode #q.brainstorm::placeholder { color: #9b9aa3; }
+    .panel.research-mode #q.brainstorm:focus {
+      border-color: #e8dcae;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 0 0 3px rgba(201,162,39,.22);
+    }
     /* 头脑风暴文本框：象牙底 + 繁复金线/蓝线斜纹，油画质感且可读 */
     #q.brainstorm {
       border: 1px solid var(--oil-gold);
@@ -1571,6 +1655,7 @@
             <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
               <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">标准检索</button>
               <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">联想检索</button>
+              <button type="button" class="search-mode-tab tab-research" data-mode="research" aria-pressed="false">{{ site_text('search.research_tab') }}</button>
             </div>
             <div id="searchHelpPanel" class="search-help-panel" hidden>
               <button type="button" class="search-help-close" id="searchHelpClose" aria-label="收起提示">×</button>
@@ -1581,13 +1666,9 @@
             <label class="cooc-toggle" id="coocToggle">
               <input type="checkbox" id="coocCheckbox"> 同段多词检索（用空格分隔多个词，查找同一段落内同时出现的全部词）
             </label>
-            <div class="assoc-mode-row hidden" id="assocModeRow">
-              <span class="assoc-mode-label">检索取向</span>
-              <select id="assocModeSelect" class="assoc-mode-select">
-                <option value="auto">自动判断</option>
-                <option value="locate">精准定位 · 找特定原文</option>
-                <option value="research">研究辅助 · 找一批相关引文</option>
-              </select>
+            <div class="research-note hidden" id="researchNote">
+              <span class="research-note-dot" aria-hidden="true"></span>
+              <span><strong>{{ site_text('search.research_tab') }}</strong>：{{ site_text('search.research_note') }}</span>
             </div>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>开始检索</button>
@@ -1799,14 +1880,14 @@
               <h2>{{ site_text("index.ai_title") }}</h2>
               <p class="ai-status" id="aiStatus">{{ site_text("index.ai_status_loading") }}</p>
             </div>
-            <div class="ai-model" id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</div>
+            <div class="ai-model" id="aiModelBadge">{{ ai_runtime.model if search_chat_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if search_chat_access_enabled else "未开放") }}</div>
           </div>
 
-          {% if not ai_access_enabled %}
+          {% if not search_chat_access_enabled %}
           <div class="ai-lock-note">{{ site_text("index.ai_member_locked") }}</div>
           {% endif %}
 
-          {% if ai_access_enabled and ai_web_access_enabled %}
+          {% if search_chat_access_enabled and ai_web_access_enabled %}
           <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin:6px 0 2px">
             <label for="aiProviderSelect" style="font-size:13px;white-space:nowrap">选择模型</label>
             <select id="aiProviderSelect" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:13px">
@@ -1816,7 +1897,7 @@
           </div>
           {% endif %}
 
-          {% if ai_access_enabled %}
+          {% if search_chat_access_enabled %}
           <div class="ai-grounding-row">
             <label class="ai-grounding-label">
               <input type="checkbox" id="aiGroundingToggle">
@@ -1828,7 +1909,7 @@
 
           <div class="chat-box" id="aiMessages"></div>
 
-          <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not ai_access_enabled %}disabled{% endif %}></textarea>
+          <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not search_chat_access_enabled %}disabled{% endif %}></textarea>
 
           <div class="ai-actions">
             <button type="button" class="ai-primary" id="aiSendBtn">发送提问</button>
@@ -1850,8 +1931,9 @@
     remoteQuitEnabled: {{ state.remote_quit_enabled | tojson }}
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
-  const aiAccessEnabled = {{ ai_access_enabled | tojson }};
-  const assocAccessEnabled = {{ assoc_access_enabled | default(ai_access_enabled) | tojson }};
+  const aiAccessEnabled = {{ search_chat_access_enabled | tojson }};
+  const assocAccessEnabled = {{ assoc_access_enabled | default(search_chat_access_enabled) | tojson }};
+  const researchAccessEnabled = {{ research_access_enabled | default(assoc_access_enabled) | default(search_chat_access_enabled) | tojson }};
   const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   const feedbackEnabled = {{ (current_user is not none) | tojson }};
   const initialFeedbackThread = {{ feedback_thread | tojson }};
@@ -1867,8 +1949,7 @@
   const submitBtn = document.getElementById('submitBtn');
   const coocToggle = document.getElementById('coocToggle');
   const coocCheckbox = document.getElementById('coocCheckbox');
-  const assocModeRow = document.getElementById('assocModeRow');
-  const assocModeSelect = document.getElementById('assocModeSelect');
+  const researchNote = document.getElementById('researchNote');
   const out = document.getElementById('results');
   const bookTabsEl = document.getElementById('searchBookTabs');
   const aiMessages = document.getElementById('aiMessages');
@@ -2653,25 +2734,11 @@
     }
   }
 
-  // 联想检索取向：auto=AI 自动判断；locate=精准定位；research=研究辅助。记忆于 localStorage。
-  const ASSOC_MODE_KEY = 'marx-assoc-mode-v1';
-  function currentAssocMode() {
-    const v = assocModeSelect ? assocModeSelect.value : 'auto';
-    return (v === 'locate' || v === 'research') ? v : 'auto';
-  }
-  if (assocModeSelect) {
-    try {
-      const saved = localStorage.getItem(ASSOC_MODE_KEY);
-      if (saved === 'locate' || saved === 'research' || saved === 'auto') assocModeSelect.value = saved;
-    } catch (_) {}
-    assocModeSelect.addEventListener('change', () => {
-      try { localStorage.setItem(ASSOC_MODE_KEY, assocModeSelect.value); } catch (_) {}
-    });
-  }
-
-  async function doAssociativeSearch(text) {
-    if (!assocAccessEnabled) {
-      renderEmpty({{ site_text('search.assoc_no_ai') | tojson }});
+  // 联想检索 / 研究型检索共用本函数：mode='locate'(联想·精准定位) | 'research'(研究辅助)。
+  async function doAssociativeSearch(text, mode) {
+    const isResearch = (mode === 'research');
+    if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
+      renderEmpty(isResearch ? {{ site_text('search.research_no_access') | tojson }} : {{ site_text('search.assoc_no_ai') | tojson }});
       return;
     }
     if (!state.searchEnabled) {
@@ -2685,7 +2752,7 @@
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gist: text, mode: currentAssocMode() })
+        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate' })
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -2989,9 +3056,10 @@
   const modeTabs = Array.from(document.querySelectorAll('.search-mode-tab'));
   const STANDARD_PLACEHOLDER = q.getAttribute('placeholder') || '';
   const ASSOCIATIVE_PLACEHOLDER = {{ site_text('search.assoc_placeholder') | tojson }};
+  const RESEARCH_PLACEHOLDER = {{ site_text('search.research_placeholder') | tojson }};
 
   function applySearchMode(mode) {
-    searchMode = (mode === 'associative') ? 'associative' : 'standard';
+    searchMode = (mode === 'associative' || mode === 'research') ? mode : 'standard';
     modeTabs.forEach(tab => {
       const active = tab.dataset.mode === searchMode;
       tab.classList.toggle('active', active);
@@ -2999,33 +3067,42 @@
     });
     const panel = form.closest('.panel');
     const associative = searchMode === 'associative';
-    if (panel) panel.classList.toggle('assoc-mode', associative);
-    if (associative) {
+    const research = searchMode === 'research';
+    const aiSearch = associative || research;   // 两种 AI 检索共用暗色面板 + 头脑风暴输入框
+    if (panel) {
+      panel.classList.toggle('assoc-mode', associative);
+      panel.classList.toggle('research-mode', research);
+    }
+    if (aiSearch) {
       q.classList.add('brainstorm');
-      q.setAttribute('placeholder', ASSOCIATIVE_PLACEHOLDER);
+      q.setAttribute('placeholder', research ? RESEARCH_PLACEHOLDER : ASSOCIATIVE_PLACEHOLDER);
     } else {
       q.classList.remove('brainstorm');
       // 优先用「使用提示」脚本剥离后的精简 placeholder（写在 dataset.standardPlaceholder）
       q.setAttribute('placeholder', q.dataset.standardPlaceholder || STANDARD_PLACEHOLDER);
     }
-    // 同段多词开关仅在标准检索下露出（联想检索另有提取逻辑，不适用）
-    if (coocToggle) coocToggle.classList.toggle('hidden', associative);
-    // 检索取向开关（自动/精准定位/研究辅助）仅在联想检索下露出
-    if (assocModeRow) assocModeRow.classList.toggle('hidden', !associative);
+    // 同段多词开关仅在标准检索下露出（两种 AI 检索另有提取逻辑，不适用）
+    if (coocToggle) coocToggle.classList.toggle('hidden', aiSearch);
+    // 研究型检索说明条仅在研究模式露出
+    if (researchNote) researchNote.classList.toggle('hidden', !research);
     // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
     const tagGroup = document.getElementById('citationFeatureTags');
-    if (tagGroup) tagGroup.style.display = associative ? 'none' : '';
+    if (tagGroup) tagGroup.style.display = aiSearch ? 'none' : '';
     // 「使用提示」按钮与面板仅对精确检索有意义
     const helpTrigger = document.getElementById('searchHelpTrigger');
     const helpPanel = document.getElementById('searchHelpPanel');
-    if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = associative ? 'none' : '';
-    if (associative && helpPanel) helpPanel.hidden = true;
+    if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = aiSearch ? 'none' : '';
+    if (aiSearch && helpPanel) helpPanel.hidden = true;
   }
 
   modeTabs.forEach(tab => {
     if (tab.dataset.mode === 'associative' && !assocAccessEnabled) {
       tab.disabled = true;
       tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
+    }
+    if (tab.dataset.mode === 'research' && !researchAccessEnabled) {
+      tab.disabled = true;
+      tab.title = {{ site_text('search.research_tab_title') | tojson }};
     }
     tab.addEventListener('click', () => {
       if (tab.disabled) return;
@@ -3045,8 +3122,10 @@
   function runActiveSearch() {
     const text = q.value.trim();
     if (!text) return;
-    if (searchMode === 'associative') {
-      doAssociativeSearch(text);
+    if (searchMode === 'research') {
+      doAssociativeSearch(text, 'research');
+    } else if (searchMode === 'associative') {
+      doAssociativeSearch(text, 'locate');
     } else {
       doSearch(text);
     }
