@@ -426,6 +426,33 @@
       color: #15314f; line-height: 1.6; font-size: .92rem;
     }
     .assoc-note .assoc-conf { font-weight: 700; white-space: nowrap; }
+    .assoc-mode-row {
+      display: flex; align-items: center; gap: 10px; margin: 2px 0 4px; flex-wrap: wrap;
+    }
+    .assoc-mode-row.hidden { display: none; }
+    .assoc-mode-label { font-size: .9rem; color: var(--muted); white-space: nowrap; }
+    .panel.assoc-mode .assoc-mode-label { color: #c7d4e6; }
+    .assoc-mode-select {
+      flex: 1; min-width: 180px; padding: 8px 10px; font: inherit; font-size: .92rem;
+      color: var(--text); background: var(--card);
+      border: 1px solid var(--line); border-radius: 9px;
+    }
+    .panel.assoc-mode .assoc-mode-select {
+      color: #f6edd2; background: rgba(255,255,255,.08); border-color: rgba(201,162,39,.42);
+    }
+    .assoc-intent-banner {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: .86rem; color: #11202e; font-weight: 700;
+      background: var(--oil-gold-hi, #f3e1a8); border-radius: 999px;
+      padding: 3px 12px; margin-bottom: 8px;
+    }
+    .assoc-relation {
+      display: inline-block; font-size: .76rem; font-weight: 800; letter-spacing: .02em;
+      border-radius: 999px; padding: 1px 9px; margin-right: 8px; vertical-align: middle;
+    }
+    .assoc-relation.support { background: #e6f4ea; color: #1f7a3d; border: 1px solid #bfe3cb; }
+    .assoc-relation.tension { background: #fdeaea; color: #b3331f; border: 1px solid #f2c4bd; }
+    .assoc-relation.extend  { background: #eef0fb; color: #3a46b0; border: 1px solid #ccd2f2; }
     .fuzzy-badge {
       display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
       font-size: .76rem; font-weight: 800; vertical-align: middle; color: #4a3300;
@@ -1554,6 +1581,14 @@
             <label class="cooc-toggle" id="coocToggle">
               <input type="checkbox" id="coocCheckbox"> 同段多词检索（用空格分隔多个词，查找同一段落内同时出现的全部词）
             </label>
+            <div class="assoc-mode-row hidden" id="assocModeRow">
+              <span class="assoc-mode-label">检索取向</span>
+              <select id="assocModeSelect" class="assoc-mode-select">
+                <option value="auto">自动判断</option>
+                <option value="locate">精准定位 · 找特定原文</option>
+                <option value="research">研究辅助 · 找一批相关引文</option>
+              </select>
+            </div>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>开始检索</button>
               {% if state.remote_quit_enabled %}
@@ -1832,6 +1867,8 @@
   const submitBtn = document.getElementById('submitBtn');
   const coocToggle = document.getElementById('coocToggle');
   const coocCheckbox = document.getElementById('coocCheckbox');
+  const assocModeRow = document.getElementById('assocModeRow');
+  const assocModeSelect = document.getElementById('assocModeSelect');
   const out = document.getElementById('results');
   const bookTabsEl = document.getElementById('searchBookTabs');
   const aiMessages = document.getElementById('aiMessages');
@@ -2315,8 +2352,11 @@
     const openButton = hit.viewer_available
       ? `<a class="link-btn primary" href="${escAttr(hit.viewer_url)}">打开正文</a>`
       : `<button class="secondary" disabled>当前无正文权限</button>`;
-    const assocNote = hit.associative_reason
-      ? `<div class="assoc-note">AI 判断：${esc(hit.associative_reason)}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
+    const relMap = { support: ['support', '直接支撑'], tension: ['tension', '张力/反面'], extend: ['extend', '延伸'] };
+    const rel = relMap[hit.associative_relation];
+    const relTag = rel ? `<span class="assoc-relation ${rel[0]}">${rel[1]}</span>` : '';
+    const assocNote = (hit.associative_reason || relTag)
+      ? `<div class="assoc-note">${relTag}${hit.associative_reason ? `AI 判断：${esc(hit.associative_reason)}` : ''}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
       : '';
     const weightBadge = hit.associative_weight != null
       ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
@@ -2613,6 +2653,22 @@
     }
   }
 
+  // 联想检索取向：auto=AI 自动判断；locate=精准定位；research=研究辅助。记忆于 localStorage。
+  const ASSOC_MODE_KEY = 'marx-assoc-mode-v1';
+  function currentAssocMode() {
+    const v = assocModeSelect ? assocModeSelect.value : 'auto';
+    return (v === 'locate' || v === 'research') ? v : 'auto';
+  }
+  if (assocModeSelect) {
+    try {
+      const saved = localStorage.getItem(ASSOC_MODE_KEY);
+      if (saved === 'locate' || saved === 'research' || saved === 'auto') assocModeSelect.value = saved;
+    } catch (_) {}
+    assocModeSelect.addEventListener('change', () => {
+      try { localStorage.setItem(ASSOC_MODE_KEY, assocModeSelect.value); } catch (_) {}
+    });
+  }
+
   async function doAssociativeSearch(text) {
     if (!assocAccessEnabled) {
       renderEmpty({{ site_text('search.assoc_no_ai') | tojson }});
@@ -2629,7 +2685,7 @@
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gist: text })
+        body: JSON.stringify({ gist: text, mode: currentAssocMode() })
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -2656,7 +2712,7 @@
       renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
       return;
     }
-    assocState = { results, warnings, page: 1 };
+    assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto' };
     renderAssociativePage();
   }
 
@@ -2672,6 +2728,11 @@
     const warnHtml = warnings.length
       ? `<div class="assoc-note">${warnings.map(esc).join('；')}</div>`
       : '';
+    const intentLabel = assocState.intent === 'locate' ? '精准定位'
+      : assocState.intent === 'research' ? '研究辅助' : '';
+    const intentBanner = intentLabel
+      ? `<div class="assoc-intent-banner">本次检索取向：${intentLabel}${assocState.mode === 'auto' ? ' · AI 自动判断（可在上方手动指定）' : ' · 已手动指定'}</div>`
+      : '';
     const rows = slice.map((hit, i) => renderHitRow(hit, `assoc-${start + i}`)).join('');
     const pager = totalPages > 1 ? `
       <div class="pager group-list-pager">
@@ -2679,11 +2740,13 @@
         <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} 段</span>
         <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button>
       </div>` : '';
+    const ledeOrder = assocState.intent === 'research' ? '按相关度并兼顾著作多样性排序' : '按匹配权重排序';
     out.innerHTML = `
       <div class="assoc-results">
         <div class="assoc-result-head"><h2>${ {{ site_text('search.assoc_result_heading') | tojson }} }</h2>
-          <div class="assoc-lede">按匹配权重排序 · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
+          <div class="assoc-lede">${ledeOrder} · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
         </div>
+        ${intentBanner}
         ${warnHtml}
         ${pager}
         <div class="assoc-list">${rows}</div>
@@ -2947,6 +3010,8 @@
     }
     // 同段多词开关仅在标准检索下露出（联想检索另有提取逻辑，不适用）
     if (coocToggle) coocToggle.classList.toggle('hidden', associative);
+    // 检索取向开关（自动/精准定位/研究辅助）仅在联想检索下露出
+    if (assocModeRow) assocModeRow.classList.toggle('hidden', !associative);
     // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
     const tagGroup = document.getElementById('citationFeatureTags');
     if (tagGroup) tagGroup.style.display = associative ? 'none' : '';

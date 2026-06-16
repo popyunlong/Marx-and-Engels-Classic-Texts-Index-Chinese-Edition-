@@ -253,6 +253,7 @@ DIRECT_RESULTS_THRESHOLD = 8
 GROUPS_PER_PAGE = 20
 SHORT_QUERY_CHAPTER_MAX_LEN = 4
 ASSOC_RERANK_TOP = 12  # 联想检索仅对权重最高的前若干候选做 AI 标注/解释（候选多时控成本）
+ASSOC_RERANK_TOP_RESEARCH = 20  # 研究意图用更大的重排池：覆盖论题不同侧面并给出分组理由
 REQUEST_TOKEN = secrets.token_urlsafe(24)
 LOGGER = configure_logging()
 DEPLOYMENT = load_deployment_settings()
@@ -8112,7 +8113,7 @@ def _resolve_ai_provider_or_abort(payload: dict) -> str:
 # 首页「随心问」引文库接地（RAG）：把用户问题经联想检索设施落到真实语料，取权重最高的
 # 若干条真实命中作为「原文+准确出处」注入 AI 提示词。引文不可伪造——全部来自
 # corpus.locate_associative 的真实 Hit；模型只负责据此作答并准确标注出处。
-CHAT_GROUNDING_TOP = 6              # 注入提示词的原文条数（控 token 与延迟）
+CHAT_GROUNDING_TOP = 4              # 注入提示词的原文条数（4 条足够支撑作答，省输入并引导模型择要引证）
 CHAT_GROUNDING_CONTEXT_CHARS = 280  # 每条原文上下文截断长度（兜底，命中上下文本就很短）
 
 
@@ -8536,6 +8537,42 @@ def _split_gist_terms(gist: str) -> list[str]:
     return out
 
 
+def _resolve_assoc_intent(
+    mode: str, plan: object, quotes: list, fragments: list, chapter_keywords: list, gist: str
+) -> str:
+    """决定本次联想检索按哪种意图执行：显式 mode 优先；auto 时取 AI 判定；AI 缺失时启发式兜底。
+
+    返回 "locate"（定位特定原文）或 "research"（研究找料）。
+    """
+    if mode in {"locate", "research"}:
+        return mode
+    ai_intent = str((plan or {}).get("intent") or "").strip().lower() if isinstance(plan, dict) else ""
+    if ai_intent in {"locate", "research"}:
+        return ai_intent
+    # 兜底启发式：有残句/明确著作篇章线索且输入较短 → 偏定位；否则偏研究
+    if (quotes or fragments) or (chapter_keywords and len(gist) <= 24):
+        return "locate"
+    return "research"
+
+
+def _assoc_facets_from_plan(plan: object) -> list[list[str]]:
+    """从 expand 的 facets 中提取「每个侧面的关键词组」，供 research 分面召回。容错：限量、去空、≥2 词。"""
+    out: list[list[str]] = []
+    if not isinstance(plan, dict):
+        return out
+    for fac in (plan.get("facets") or [])[:4]:
+        if not isinstance(fac, dict):
+            continue
+        kws = [
+            str(k).strip()
+            for k in (fac.get("keywords") or [])
+            if isinstance(k, str) and len(normalize(str(k))) >= 2
+        ]
+        if len(kws) >= 2:
+            out.append(kws[:6])
+    return out
+
+
 def _apply_assoc_ranking(candidates: list, ranking: object) -> tuple[list, list[dict]]:
     """把 LLM#2 的排序应用到真实候选上：仅保留合法且不重复的 index，越界/伪造一律丢弃。
 
@@ -8559,8 +8596,12 @@ def _apply_assoc_ranking(candidates: list, ranking: object) -> tuple[list, list[
         except (TypeError, ValueError):
             conf = None
         reason = " ".join(str(entry.get("reason") or "").split())[:200]
+        relation = str(entry.get("relation") or "").strip().lower()
+        meta = {"confidence": conf, "reason": reason}
+        if relation in {"support", "tension", "extend"}:
+            meta["relation"] = relation  # 仅研究意图带 relation；locate 保持原 dict 形状
         ordered.append(candidates[idx])
-        rationale.append({"confidence": conf, "reason": reason})
+        rationale.append(meta)
     return ordered, rationale
 
 
@@ -8582,6 +8623,10 @@ def api_search_associative():
     payload = request.get_json(silent=True) or {}
     gist = " ".join(str(payload.get("gist") or payload.get("q") or "").split())
     rerank = _coerce_bool(payload.get("rerank", True))
+    # 意图分流：auto=由 expand 的 AI 判定；locate/research=前端显式覆盖（「精准定位/研究辅助」开关）。
+    mode = str(payload.get("mode") or "auto").strip().lower()
+    if mode not in {"auto", "locate", "research"}:
+        mode = "auto"
     if not gist:
         return jsonify({"ok": False, "error": "请描述你要找的内容（大意或关键词）。"}), 400
     if len(gist) > 600:
@@ -8598,6 +8643,8 @@ def api_search_associative():
         return jsonify({"ok": False, "error": str(exc)}), 502
 
     quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
+    intent = _resolve_assoc_intent(mode, plan, quotes, fragments, chapter_keywords, gist)
+    facets = _assoc_facets_from_plan(plan) if intent == "research" else []
     raw_terms = _split_gist_terms(gist)
     try:
         # 一档：用 LLM 抽取的（已分好类的）线索检索——排序最干净
@@ -8605,6 +8652,7 @@ def api_search_associative():
         if quotes or fragments or keywords or chapter_keywords:
             candidates = corpus.locate_associative(
                 quotes=quotes, keywords=keywords, fragments=fragments, chapter_keywords=chapter_keywords,
+                intent=intent, facets=facets,
             )
         # 二档兜底：LLM 无果或未命中时，用用户原词直接检索，确保“总能搜到”（不污染一档的干净排序）
         if not candidates and (raw_terms or gist):
@@ -8613,6 +8661,7 @@ def api_search_associative():
                 keywords=raw_terms,
                 fragments=raw_terms,
                 chapter_keywords=raw_terms,
+                intent=intent,
             )
     except Exception as exc:
         LOGGER.warning("Associative locate failed gist=%r: %s", gist[:80], exc)
@@ -8625,6 +8674,7 @@ def api_search_associative():
             "ok": True, "query": gist, "count": 0, "display_mode": "associative",
             "access_level": "full" if viewer_allowed else "summary", "results": [],
             "pdf_enabled": viewer_allowed, "warnings": [],
+            "intent": intent, "mode": mode,
             "message": "未在语料中定位到匹配段落，请换一种说法或补充更具体的关键词、人名或术语。",
         })
 
@@ -8633,9 +8683,12 @@ def api_search_associative():
     warnings: list[str] = []
     meta_by_id: dict[int, dict] = {}
     if rerank:
-        head = candidates[:ASSOC_RERANK_TOP]
+        top_n = ASSOC_RERANK_TOP_RESEARCH if intent == "research" else ASSOC_RERANK_TOP
+        head = candidates[:top_n]
         try:
-            ranking = AI_CLIENT.rank_associative_candidates(gist, [h.to_dict() for h in head])
+            ranking = AI_CLIENT.rank_associative_candidates(
+                gist, [h.to_dict() for h in head], intent=intent
+            )
             ordered_head, rationale_head = _apply_assoc_ranking(head, ranking)
             for h, meta in zip(ordered_head, rationale_head):
                 meta_by_id[id(h)] = meta
@@ -8653,6 +8706,7 @@ def api_search_associative():
         meta = meta_by_id.get(id(hit), {})
         d["associative_confidence"] = meta.get("confidence")
         d["associative_reason"] = meta.get("reason") or ""
+        d["associative_relation"] = meta.get("relation") or ""
         results.append(d)
 
     _record_ai_usage(
@@ -8671,6 +8725,8 @@ def api_search_associative():
         "results": results,
         "pdf_enabled": viewer_allowed,
         "warnings": warnings,
+        "intent": intent,
+        "mode": mode,
     })
 
 

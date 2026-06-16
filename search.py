@@ -1388,6 +1388,30 @@ class Corpus:
         anchor = max((present[kid] for kid in in_window), key=len, default=present[0])
         return ws, we, win_distinct, anchor
 
+    @staticmethod
+    def _title_subseq_match(clue: str, title_norm: str) -> bool:
+        """篇名容错：clue 的字符按序、紧凑地出现在标题中即算命中（子序列且跨度受限）。
+
+        用于把简称/残名匹配到全称，如“共宣”→“共产党宣言”、“雾月十八”→“路易波拿巴的雾月十八日”。
+        clue 已归一化、长度≥2；连续子串命中走调用方的快路，这里只兜“非连续”的情况，并用
+        跨度上限(n+4)防止在长标题里凑出无意义的零散子序列。"""
+        n = len(clue)
+        if n < 2 or n > len(title_norm):
+            return False
+        first = last = -1
+        j = 0
+        for idx, ch in enumerate(title_norm):
+            if ch == clue[j]:
+                if first < 0:
+                    first = idx
+                last = idx
+                j += 1
+                if j == n:
+                    break
+        if j < n:
+            return False
+        return (last - first + 1) <= n + 4
+
     def chapter_focused_search(
         self,
         chapter_keywords: list[str],
@@ -1427,7 +1451,10 @@ class Corpus:
                     title_norm = normalize(seg["title"])
                     if not title_norm:
                         continue
-                    hit_ck = next((k for k in ck if k in title_norm), "")
+                    hit_ck = next(
+                        (k for k in ck if k in title_norm or self._title_subseq_match(k, title_norm)),
+                        "",
+                    )
                     if not hit_ck:
                         continue
                     # 把范围扩展到该篇所有子节（直到出现同级或更高级的下一篇目），覆盖整部著作
@@ -1454,6 +1481,22 @@ class Corpus:
                         return results
         return results
 
+    @staticmethod
+    def _diversify_by_book(hits: list[Hit], per_book_cap: int = 4) -> list[Hit]:
+        """研究模式多样性排序：保持分数序，但把同一著作超过 per_book_cap 条的命中后置到末尾，
+        使首屏在不同著作间铺开。global best 仍在首位，弱命中不会越过强命中——只是同书第 5+ 条后移。"""
+        counts: dict[str, int] = {}
+        primary: list[Hit] = []
+        overflow: list[Hit] = []
+        for h in hits:
+            c = counts.get(h.book, 0)
+            if c < per_book_cap:
+                primary.append(h)
+                counts[h.book] = c + 1
+            else:
+                overflow.append(h)
+        return primary + overflow
+
     def locate_associative(
         self,
         *,
@@ -1462,12 +1505,17 @@ class Corpus:
         fragments: list[str] | None = None,
         chapter_keywords: list[str] | None = None,
         candidate_cap: int = ASSOC_CANDIDATE_CAP,
+        intent: str | None = None,
+        facets: list[list[str]] | None = None,
     ) -> list[Hit]:
         """编排：整句定位 + 逐字片段召回 + 关键词共现 + 篇章关键词加权，章节折叠并按权重综合打分。
 
         召回以片段精确命中为主力（经典语录被改写后仍保留可逐字命中的短语），整句定位负责
         命中规范译文时的高置信，关键词共现作为兜底，篇章关键词命中所属篇章标题再加权。
         返回的全部是真实 Hit；综合权重写回 ``Hit.score``（0-100），供上层聚合与按权重优先排序。
+
+        ``intent=="research"``：额外按 ``facets``（论题各侧面的关键词组）分面共现召回，扩大跨著作
+        覆盖面，并在最终结果上做按著作的多样性铺开（_diversify_by_book）；其它意图保持原行为。
         """
         def _chapter_key(h: Hit) -> tuple:
             first_page = h.pages[0].pdf_page if h.pages else -1
@@ -1507,6 +1555,11 @@ class Corpus:
         for h in self.keyword_cooccurrence(keywords or []):
             _add(h, h.score, ("kw", None))
 
+        # 5) 研究分面召回：把论题各侧面分别做关键词共现，扩大跨著作覆盖面（仅 research 传入 facets）
+        for fi, fac_kws in enumerate(facets or []):
+            for h in self.keyword_cooccurrence(fac_kws):
+                _add(h, h.score, ("facet", fi))
+
         if not hit_by_ch:
             return []
 
@@ -1533,7 +1586,10 @@ class Corpus:
             results.append(h)
 
         results.sort(key=lambda h: (-h.score, self.book_sort_order(h.book), h.volume))
-        return results[:candidate_cap]
+        results = results[:candidate_cap]
+        if intent == "research":
+            results = self._diversify_by_book(results)
+        return results
 
     def _group_hits(
         self,

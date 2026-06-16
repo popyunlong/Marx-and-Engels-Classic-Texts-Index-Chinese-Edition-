@@ -528,6 +528,12 @@ def _as_bool(raw: Any, default: bool) -> bool:
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# 接地作答（随心问开启引文检索）天然更长：含逐字引文 + 准确出处 + 区分性分析。通用对话的
+# search_answer_max_tokens 可能被管理员/override 压低以控成本，会把这类较长回答截在半句。
+# 故接地路径用一个独立下限：既保证完整收尾，又（配合「择要引证 2-4 条 + 简明」提示）不至于失控。
+GROUNDED_ANSWER_MIN_TOKENS = 1300
+
+
 class ZAIClient:
     def __init__(self, config: AIConfig) -> None:
         self.config = config
@@ -586,15 +592,16 @@ class ZAIClient:
                 "下面是检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
                 f"{grounding_block}\n\n"
                 "作答要求：\n"
-                "1. 以上述检索到的真实原文为主要依据来回答；与问题相关的原文应尽量引证，不要置之不用。\n"
+                "1. 以上述检索到的真实原文为主要依据；从中**择取最相关的 2-4 条**加以引证即可，"
+                "不必逐条罗列或复述全部检索结果，与问题无关的略去不用。\n"
                 f"{web_line}"
                 "3. 引用上述原文时必须逐字照引，并在该引文紧随其后用括号标注对应编号与准确出处，"
                 "例如：「人的本质……是一切社会关系的总和」（[1]《马克思恩格斯文集》第1卷，第501页）。"
                 "绝不可改写原文、张冠李戴或编造出处、卷次、页码。\n"
                 "4. 若检索到的原文不足以完整回答，可结合你自身的知识补充，但必须明确区分："
                 "哪些是引文库中的原文引证，哪些是你的补充说明。\n"
-                "5. 若某条检索结果与问题无关，忽略它即可，不要牵强引用。\n"
-                "6. 使用中文回答，准确、完整、结构清晰。\n\n"
+                "5. 使用中文回答，紧扣问题、简明扼要、结构清晰；务必把话说完整、在句末标点收尾，"
+                "避免冗长铺陈与无谓堆砌。\n\n"
                 f"用户问题：{question}"
             )
             system_content = (
@@ -622,13 +629,17 @@ class ZAIClient:
             )
             system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
 
+        # 接地作答更长：给独立下限避免被压低的通用上限截断；普通对话仍沿用配置值。
+        answer_max_tokens = self.config.search_answer_max_tokens
+        if grounding_block:
+            answer_max_tokens = max(answer_max_tokens, GROUNDED_ANSWER_MIN_TOKENS)
         answer = self.chat_complete(
             [
                 {"role": "system", "content": system_content},
                 *history,
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=self.config.search_answer_max_tokens,
+            max_tokens=answer_max_tokens,
             provider=provider,
             sources_out=sources,
             web_search_query=self.zhipu_search_query(question) if use_zhipu else None,
@@ -662,8 +673,9 @@ class ZAIClient:
             "“大意描述”，也可能是“记得的只言片语/残句”。请先在心里推理它最可能出自哪段论述、"
             "属于哪一主题与篇章，再输出便于在中文原著中逐字定位的检索线索。\n"
             "只输出一个 JSON 对象，不要解释、不要 Markdown 代码块，格式：\n"
-            '{"quotes": ["最可能的原文整句"], "fragments": ["逐字短语1", "逐字短语2"],'
-            ' "keywords": ["正文实词1", "正文实词2"], "chapter_keywords": ["篇章/标题词1", "篇章/标题词2"]}\n'
+            '{"intent": "locate 或 research", "quotes": ["最可能的原文整句"], "fragments": ["逐字短语1", "逐字短语2"],'
+            ' "keywords": ["正文实词1", "正文实词2"], "chapter_keywords": ["篇章/标题词1", "篇章/标题词2"],'
+            ' "facets": [{"aspect": "侧面名", "keywords": ["该侧面实词1", "该侧面实词2"]}]}\n'
             "要求：\n"
             "1. quotes 给 1-3 句，尽量逐字还原人民出版社中文译本的书面语措辞（19 世纪译文风格、"
             "政治经济学/哲学术语），而不是口语转述；记不准就给最可能的措辞。\n"
@@ -674,7 +686,13 @@ class ZAIClient:
             "也要从用户给的只言片语里**直接截取**关键实词；涵盖近义/不同译法（如“异化/外化”），"
             "避免“的/是/社会/发展”这类高频泛词。\n"
             "4. chapter_keywords 给 3-8 个可能出现在**篇章或标题**中的词（著作名、章节主题、概念名），"
-            "如“费尔巴哈”“资本的生产过程”“帝国主义”“家庭、私有制和国家”，用于定位所属篇章。\n"
+            "如“费尔巴哈”“资本的生产过程”“帝国主义”“家庭、私有制和国家”，用于定位所属篇章；"
+            "著作名可给简称/全称两种写法（如“共宣”与“共产党宣言”）。\n"
+            "5. intent 判断用户意图：若是【找一段他大概记得、想定位出处的特定原文】（给了残句，或明确著作+主题），"
+            '填 "locate"；若给的是【一个研究性的想法、论题或大意，想找一批相关引文来佐证或展开研究】，'
+            '填 "research"。拿不准填 "research"。\n'
+            "6. facets 总是给（无论 intent 取何值）：把输入拆成 2-4 个不同侧面/角度，每个侧面给 aspect（侧面名）"
+            "和 3-6 个该侧面的检索实词（可含近义/不同译法），用于按侧面广召回——便于用户切到「研究辅助」时铺开线索。\n"
             f"\n用户输入：{gist}"
         )
         # DeepSeek 即便 temperature=0 也偶尔返回空/截断的 JSON，导致“同一输入有时搜不到”。
@@ -685,7 +703,9 @@ class ZAIClient:
         ]
         plan: dict = {}
         for _attempt in range(3):
-            answer = self.chat_complete(messages, max_tokens=900, temperature=0.0)
+            # 1500（原 900）：JSON 现含 intent + facets 多侧面，900 会把 keywords/chapter_keywords
+            # 截断在数组中途，导致整段解析失败、plan 退空，拖累整条联想检索。给足余量避免截断。
+            answer = self.chat_complete(messages, max_tokens=1500, temperature=0.0)
             parsed = _extract_json_object(self._coerce_message_content(answer))
             if isinstance(parsed, dict) and any(
                 parsed.get(k) for k in ("quotes", "fragments", "keywords", "chapter_keywords")
@@ -699,11 +719,14 @@ class ZAIClient:
                 _ASSOC_EXPAND_CACHE.popitem(last=False)
         return plan
 
-    def rank_associative_candidates(self, gist: str, candidates: list[dict]) -> list[dict]:
+    def rank_associative_candidates(
+        self, gist: str, candidates: list[dict], intent: str | None = None
+    ) -> list[dict]:
         """联想检索第二步：在已定位的真实候选段落中，按与大意的匹配度排序并给出理由。
 
         ``candidates`` 为已编号的真实命中（含真实引文/上下文）。模型只能从给定候选中选择，
         返回 ``[{"index": N, "confidence": 0-100, "reason": "..."}]``，不得编造或新增条目。
+        ``intent=="research"`` 时改用研究口径：额外标注 relation(support/tension/extend) 并鼓励覆盖不同侧面。
         """
         self._ensure_enabled()
         gist = " ".join(str(gist or "").split())[:600]
@@ -716,21 +739,36 @@ class ZAIClient:
             context = context.replace("[[H]]", "").replace("[[/H]]", "")
             context = " ".join(context.split())[:160]
             lines.append(f"[{i}] {citation} | 上下文：{context}")
-        prompt = (
-            "用户的大意描述如下，请从给定候选原文段落中，挑出语义上真正匹配的，"
-            "按匹配度从高到低排序。\n"
-            "只输出一个 JSON 数组，不要解释、不要 Markdown 代码块，格式：\n"
-            '[{"index": 候选编号, "confidence": 0-100, "reason": "一句话说明为何匹配"}]\n'
-            "要求：只能从给定候选编号中选择；不得编造页码或新增条目；"
-            "若没有任何候选匹配，返回空数组 []。\n\n"
-            f"大意：{gist}\n\n候选：\n" + "\n".join(lines)
-        )
+        if intent == "research":
+            prompt = (
+                "用户给出的是一个研究性论题/想法（见下）。请从给定候选原文段落中，挑出能服务于该研究的，"
+                "按对研究的价值从高到低排序，并标注每条与论题的关系。\n"
+                "只输出一个 JSON 数组，不要解释、不要 Markdown 代码块，格式：\n"
+                '[{"index": 候选编号, "confidence": 0-100, "relation": "support 或 tension 或 extend",'
+                ' "reason": "一句话说明这条如何服务于该研究"}]\n'
+                "relation 取值：support=直接支撑论题；tension=构成张力/反例/需辨析；extend=延伸论题或提供背景。\n"
+                "要求：只能从给定候选编号中选择；不得编造页码或新增条目；优先覆盖论题的不同侧面，"
+                "避免清一色同一出处；若没有任何候选可用，返回空数组 []。\n\n"
+                f"研究论题：{gist}\n\n候选：\n" + "\n".join(lines)
+            )
+        else:
+            prompt = (
+                "用户的大意描述如下，请从给定候选原文段落中，挑出语义上真正匹配的，"
+                "按匹配度从高到低排序。\n"
+                "只输出一个 JSON 数组，不要解释、不要 Markdown 代码块，格式：\n"
+                '[{"index": 候选编号, "confidence": 0-100, "reason": "一句话说明为何匹配"}]\n'
+                "要求：只能从给定候选编号中选择；不得编造页码或新增条目；"
+                "若没有任何候选匹配，返回空数组 []。\n\n"
+                f"大意：{gist}\n\n候选：\n" + "\n".join(lines)
+            )
         answer = self.chat_complete(
             [
                 {"role": "system", "content": "你是严谨的中文文献核对助手，只在给定候选中判断，绝不编造。"},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=1100,  # 结构化 JSON 全有或全无：给足余量，避免 12 条带理由的输出被截断
+            # 结构化 JSON 全有或全无：给足余量避免截断。研究意图重排池更大(20 条)且每条多一个
+            # relation 字段，1100 会截断在数组中途→整段解析失败→无标注；故抬到 2000。
+            max_tokens=2000,
             temperature=0.0,  # 重排也走确定性，保证同一输入结果稳定
         )
         parsed = _extract_json_object(self._coerce_message_content(answer))
