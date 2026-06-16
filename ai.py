@@ -532,11 +532,32 @@ class ZAIClient:
     def __init__(self, config: AIConfig) -> None:
         self.config = config
 
+    @staticmethod
+    def _format_grounding_block(grounding: list[dict[str, Any]] | None) -> str:
+        """把引文库接地命中（真实原文+准确出处）拼成编号清单，供注入提示词；空则返回空串。
+
+        ``grounding`` 每项形如 ``{"index": 1, "citation": "《…》第X卷，…第N页。", "text": "原文…"}``，
+        全部由 app 层经 ``corpus.locate_associative`` 的真实命中产生——引文不可伪造。
+        """
+        if not grounding:
+            return ""
+        lines: list[str] = []
+        for item in grounding:
+            text = " ".join(str((item or {}).get("text") or "").split())
+            if not text:
+                continue
+            idx = (item or {}).get("index")
+            citation = " ".join(str((item or {}).get("citation") or "").split())
+            head = f"[{idx}]" if idx is not None else "-"
+            lines.append(f"{head} 出处：{citation or '（出处缺失）'}\n原文：{text}")
+        return "\n\n".join(lines)
+
     def answer_search_chat(
         self,
         messages: list[dict[str, Any]],
         question: str,
         provider: str | None = None,
+        grounding: list[dict[str, Any]] | None = None,
     ) -> AIAnswer:
         use_zhipu = provider == "zhipu"
         self._ensure_enabled(provider)
@@ -548,7 +569,39 @@ class ZAIClient:
         warnings: list[str] = []
         sources: list[dict[str, str]] = []
 
-        if use_zhipu:
+        grounding_block = self._format_grounding_block(grounding)
+
+        if grounding_block:
+            # 引文库接地（RAG）：调用模型前注入真实原文与准确出处，模型据此作答并准确标注引用。
+            # 口径＝「增强作答」：以引文库原文为主要依据，库外内容可用模型自身知识补充但须明确区分。
+            if use_zhipu:
+                web_line = (
+                    "2. 已同时为你启用联网检索：涉及实时信息或外部资料时可参考检索结果，引用网络资料时在正文注明来源标题；"
+                    "但本站引文库的原文引证优先，其出处须按下述规则准确标注，不得与网络来源混淆。\n"
+                )
+            else:
+                web_line = "2. 不要声称已经联网检索，也不要编造网络来源链接。\n"
+            prompt = (
+                "请回答用户的问题。本次已为你检索本站「马克思主义经典文献引文库」，"
+                "下面是检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
+                f"{grounding_block}\n\n"
+                "作答要求：\n"
+                "1. 以上述检索到的真实原文为主要依据来回答；与问题相关的原文应尽量引证，不要置之不用。\n"
+                f"{web_line}"
+                "3. 引用上述原文时必须逐字照引，并在该引文紧随其后用括号标注对应编号与准确出处，"
+                "例如：「人的本质……是一切社会关系的总和」（[1]《马克思恩格斯文集》第1卷，第501页）。"
+                "绝不可改写原文、张冠李戴或编造出处、卷次、页码。\n"
+                "4. 若检索到的原文不足以完整回答，可结合你自身的知识补充，但必须明确区分："
+                "哪些是引文库中的原文引证，哪些是你的补充说明。\n"
+                "5. 若某条检索结果与问题无关，忽略它即可，不要牵强引用。\n"
+                "6. 使用中文回答，准确、完整、结构清晰。\n\n"
+                f"用户问题：{question}"
+            )
+            system_content = (
+                "你是一位严谨、重视原始文献与准确出处的中文研究助手；"
+                "引用原文时务必逐字照引并注明准确出处，绝不编造引文、卷次或页码。"
+            )
+        elif use_zhipu:
             prompt = (
                 "请回答用户的问题。\n"
                 "要求：\n"
@@ -557,6 +610,7 @@ class ZAIClient:
                 "并在正文中注明所依据来源的标题；检索结果不足时如实说明，绝不编造来源或链接。\n\n"
                 f"用户问题：{question}"
             )
+            system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
         else:
             prompt = (
                 "请回答用户的问题。\n"
@@ -566,12 +620,11 @@ class ZAIClient:
                 "3. 如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n\n"
                 f"用户问题：{question}"
             )
+            system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
+
         answer = self.chat_complete(
             [
-                {
-                    "role": "system",
-                    "content": "你是一位严谨、清楚、重视来源标注的中文研究助手。",
-                },
+                {"role": "system", "content": system_content},
                 *history,
                 {"role": "user", "content": prompt},
             ],

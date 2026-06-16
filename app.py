@@ -8109,6 +8109,60 @@ def _resolve_ai_provider_or_abort(payload: dict) -> str:
     abort(400, description="未知的 AI 模型选择。")
 
 
+# 首页「随心问」引文库接地（RAG）：把用户问题经联想检索设施落到真实语料，取权重最高的
+# 若干条真实命中作为「原文+准确出处」注入 AI 提示词。引文不可伪造——全部来自
+# corpus.locate_associative 的真实 Hit；模型只负责据此作答并准确标注出处。
+CHAT_GROUNDING_TOP = 6              # 注入提示词的原文条数（控 token 与延迟）
+CHAT_GROUNDING_CONTEXT_CHARS = 280  # 每条原文上下文截断长度（兜底，命中上下文本就很短）
+
+
+def _build_chat_grounding(question: str) -> tuple[list[dict], list[dict], list[str]]:
+    """问题 → 检索线索 → 真实命中。返回 (注入提示词用的原文清单, 前端展示用的引文清单, 提示)。
+
+    复用联想检索的两段式接地：AI 抽取线索(带缓存) → corpus 接地定位；线索无果时回退原词，
+    确保「总能搜到」。前端引文清单附阅读器深链(持 viewer 权限时)，供用户点开核对原文。
+    """
+    state = current_view_state()
+    viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
+
+    plan: dict = {}
+    try:
+        plan = AI_CLIENT.expand_associative_query(question)
+    except AIServiceError as exc:  # 抽取失败不致命：下面用原词兜底
+        LOGGER.info("Search-chat grounding expand failed q=%r: %s", question[:80], exc)
+
+    quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
+    raw_terms = _split_gist_terms(question)
+    candidates = []
+    if quotes or fragments or keywords or chapter_keywords:
+        candidates = corpus.locate_associative(
+            quotes=quotes, keywords=keywords, fragments=fragments, chapter_keywords=chapter_keywords,
+        )
+    if not candidates and (raw_terms or question):
+        candidates = corpus.locate_associative(
+            quotes=[question] if question else [],
+            keywords=raw_terms, fragments=raw_terms, chapter_keywords=raw_terms,
+        )
+
+    if not candidates:
+        return [], [], ["未在引文库中检索到与该问题直接相关的原文，本次回答基于模型自身知识。"]
+
+    passages: list[dict] = []
+    citations: list[dict] = []
+    for idx, hit in enumerate(candidates[:CHAT_GROUNDING_TOP], start=1):
+        d = hit.to_dict()
+        plain = str(d.get("context") or "").replace("[[H]]", "").replace("[[/H]]", "")
+        plain = " ".join(plain.split())
+        if len(plain) > CHAT_GROUNDING_CONTEXT_CHARS:
+            plain = plain[:CHAT_GROUNDING_CONTEXT_CHARS] + "…"
+        citation = str(d.get("citation") or "").strip()
+        passages.append({"index": idx, "citation": citation, "text": plain})
+        cd = _attach_viewer_payload(d, question, viewer_allowed)
+        cd["grounding_index"] = idx
+        citations.append(cd)
+    return passages, citations, []
+
+
 @app.route("/api/ai/search-chat", methods=["POST"])
 def api_ai_search_chat():
     _require_content_feature("ai")
@@ -8118,6 +8172,12 @@ def api_ai_search_chat():
         payload = request.get_json(silent=True) or {}
         try:
             answer = proxy_desktop_ai("/api/desktop/ai/search-chat", payload)
+            # 引文库接地需与内存中的 corpus 同进程完成，桌面代理无法提供；如实降级提示。
+            if _coerce_bool(payload.get("grounding", False)) and isinstance(answer, dict):
+                existing = answer.get("warnings")
+                answer["warnings"] = (existing if isinstance(existing, list) else []) + [
+                    "引文库检索仅在云端版可用，桌面版本次回答未接入引文库。"
+                ]
             _record_ai_usage(
                 quota,
                 feature="search-chat",
@@ -8146,8 +8206,25 @@ def api_ai_search_chat():
     messages = payload.get("messages") or []
     if not question:
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
+
+    # 引文库接地（默认关闭，省 token；由前端「检索引文库」开关控制，勾选后随请求带 grounding=true）：
+    # 开启后先把问题落到真实语料，再把原文+准确出处注入 AI，让 DeepSeek/智谱都据此作答并准确引用。
+    grounding_on = _coerce_bool(payload.get("grounding", False))
+    grounding_passages: list[dict] = []
+    grounding_citations: list[dict] = []
+    grounding_warnings: list[str] = []
+    if grounding_on:
+        try:
+            grounding_passages, grounding_citations, grounding_warnings = _build_chat_grounding(question)
+        except Exception as exc:  # noqa: BLE001 — 接地失败不应阻断对话，降级为普通问答
+            LOGGER.warning("Search-chat grounding failed q=%r: %s", question[:80], exc)
+            grounding_warnings = ["引文库检索暂时不可用，本次回答未接入引文库。"]
+
     try:
-        answer = AI_CLIENT.answer_search_chat(messages, question, provider=ai_provider or None)
+        answer = AI_CLIENT.answer_search_chat(
+            messages, question, provider=ai_provider or None,
+            grounding=grounding_passages or None,
+        )
     except AIServiceError as exc:
         LOGGER.warning("Search AI failed: %s", exc)
         _record_ai_usage(
@@ -8167,7 +8244,13 @@ def api_ai_search_chat():
         success=True,
         provider=ai_provider,
     )
-    return jsonify(answer.to_dict())
+    result = answer.to_dict()
+    if grounding_warnings:
+        result["warnings"] = list(result.get("warnings") or []) + grounding_warnings
+    if grounding_citations:
+        result["citations"] = grounding_citations
+    result["grounded"] = bool(grounding_passages)
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

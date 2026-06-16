@@ -1326,6 +1326,76 @@
       color: #805f00;
       font-size: 0.9rem;
     }
+    .ai-grounding-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 6px 0 2px;
+    }
+    .ai-grounding-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .ai-grounding-label input {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--ai);
+      cursor: pointer;
+    }
+    .ai-grounding-hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .ai-citations {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .ai-citations-title {
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: var(--ai);
+    }
+    .ai-citation-item {
+      border-radius: 12px;
+      background: rgba(38, 70, 83, 0.05);
+      padding: 9px 12px;
+      border: 1px solid rgba(38, 70, 83, 0.14);
+    }
+    .ai-citation-cite {
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: var(--ai);
+      line-height: 1.5;
+    }
+    .ai-citation-ctx {
+      font-size: 0.86rem;
+      color: #3a3a3a;
+      margin-top: 4px;
+      line-height: 1.6;
+    }
+    .ai-citation-ctx mark {
+      background: rgba(214, 158, 46, 0.32);
+      border-radius: 3px;
+      padding: 0 1px;
+    }
+    .ai-citation-open {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--ai);
+      text-decoration: none;
+    }
+    .ai-citation-open:hover {
+      text-decoration: underline;
+    }
     .ai-actions {
       display: flex;
       gap: 10px;
@@ -1708,6 +1778,16 @@
               <option value="deepseek">DeepSeek（默认，不联网）</option>
               <option value="zhipu">智谱 {{ ai_runtime.zhipu_model or "GLM-5.1" }}（可联网检索）</option>
             </select>
+          </div>
+          {% endif %}
+
+          {% if ai_access_enabled %}
+          <div class="ai-grounding-row">
+            <label class="ai-grounding-label">
+              <input type="checkbox" id="aiGroundingToggle">
+              <span>检索引文库作答</span>
+            </label>
+            <span class="ai-grounding-hint">开启后先检索原著原文，回答附准确出处</span>
           </div>
           {% endif %}
 
@@ -2649,6 +2729,32 @@
     return `<ul class="warning-list">${warnings.map(item => `<li>${esc(item)}</li>`).join('')}</ul>`;
   }
 
+  // 引文库接地命中：渲染「准确出处 + 原文片段（高亮）+ 阅读器深链」。全部来自真实命中，不可伪造。
+  function renderCitations(citations) {
+    if (!Array.isArray(citations) || !citations.length) return '';
+    return `
+      <div class="ai-citations">
+        <div class="ai-citations-title">引用原文 · 来自引文库（${citations.length}）</div>
+        ${citations.map(c => {
+          const idx = c.grounding_index || '';
+          const cite = esc(c.citation || '');
+          const ctx = esc(c.context || '')
+            .replace(/\[\[H\]\]/g, '<mark>')
+            .replace(/\[\[\/H\]\]/g, '</mark>');
+          const link = c.viewer_url
+            ? `<a class="ai-citation-open" href="${escAttr(c.viewer_url)}" target="_blank" rel="noopener">打开原文页 →</a>`
+            : '';
+          return `
+            <div class="ai-citation-item">
+              <div class="ai-citation-cite">${idx ? `[${idx}] ` : ''}${cite}</div>
+              ${ctx ? `<div class="ai-citation-ctx">${ctx}</div>` : ''}
+              ${link}
+            </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
   function renderAiMessages() {
     if (!aiMessagesState.length) {
       aiMessages.innerHTML = `
@@ -2678,6 +2784,7 @@
           <span class="msg-title">AI 回答</span>
           <div class="msg-body">${renderBasicMarkdown(message.content)}</div>
           ${renderWarnings(message.warnings)}
+          ${renderCitations(message.citations)}
           ${renderSources(message.sources)}
         </div>
       `;
@@ -2713,6 +2820,23 @@
     aiProviderSelect.addEventListener('change', () => {
       try { localStorage.setItem(AI_PROVIDER_KEY, aiProviderSelect.value); } catch (_) {}
       updateAiStatusLine();
+    });
+  }
+
+  // 引文库接地开关：默认开启；勾选后「随心问」先检索马恩列毛原文再作答，并附准确出处。
+  const aiGroundingToggle = document.getElementById('aiGroundingToggle');
+  const AI_GROUNDING_KEY = 'marx-ai-grounding-v1';
+  function currentGroundingEnabled() {
+    return aiGroundingToggle ? !!aiGroundingToggle.checked : true;
+  }
+  if (aiGroundingToggle) {
+    try {
+      const saved = localStorage.getItem(AI_GROUNDING_KEY);
+      if (saved === '0') aiGroundingToggle.checked = false;
+      else if (saved === '1') aiGroundingToggle.checked = true;
+    } catch (_) {}
+    aiGroundingToggle.addEventListener('change', () => {
+      try { localStorage.setItem(AI_GROUNDING_KEY, aiGroundingToggle.checked ? '1' : '0'); } catch (_) {}
     });
   }
 
@@ -2755,7 +2879,7 @@
     const historyMessages = aiMessagesState.map(item => ({ role: item.role, content: item.content }));
 
     aiMessagesState.push({ role: 'user', content: question });
-    const assistantMessage = { role: 'assistant', content: '', sources: [], warnings: [], pending: true };
+    const assistantMessage = { role: 'assistant', content: '', sources: [], citations: [], warnings: [], pending: true };
     aiMessagesState.push(assistantMessage);
     saveAiState();
     renderAiMessages();
@@ -2769,7 +2893,8 @@
         body: JSON.stringify({
           question,
           messages: historyMessages,
-          provider: currentAiProvider()
+          provider: currentAiProvider(),
+          grounding: currentGroundingEnabled()
         })
       });
       const data = await resp.json();
@@ -2778,6 +2903,7 @@
       }
       assistantMessage.content = data.answer_markdown || '';
       assistantMessage.sources = data.sources || [];
+      assistantMessage.citations = data.citations || [];
       assistantMessage.warnings = data.warnings || [];
       delete assistantMessage.pending;
       saveAiState();
@@ -2785,6 +2911,7 @@
     } catch (error) {
       assistantMessage.content = `请求失败：${error.message || '未知错误'}`;
       assistantMessage.sources = [];
+      assistantMessage.citations = [];
       assistantMessage.warnings = [];
       delete assistantMessage.pending;
       saveAiState();
