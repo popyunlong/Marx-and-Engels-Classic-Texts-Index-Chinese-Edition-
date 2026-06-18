@@ -2161,6 +2161,14 @@
   const assocAccessEnabled = {{ assoc_access_enabled | default(search_chat_access_enabled) | tojson }};
   const researchAccessEnabled = {{ research_access_enabled | default(assoc_access_enabled) | default(search_chat_access_enabled) | tojson }};
   const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
+  // 联想/研究无权限时不再「冷冰冰地禁用」标签：标签可点击进入，仅把「开始检索」换成登录/开通引导按钮。
+  const isLoggedIn = {{ (current_user is not none) | tojson }};
+  const SEARCH_SUBMIT_TEXT = {{ site_text('index.search_submit') | tojson }};
+  const searchLoginUrl = {{ url_for('login', next='/') | tojson }};
+  const searchPricingUrl = {{ url_for('pricing') | tojson }};
+  const LOCKED_LOGIN_CTA = '登录后使用';
+  const LOCKED_MEMBER_CTA = '开通会员后使用';
+  let submitLockTarget = '';
   const feedbackEnabled = {{ (current_user is not none) | tojson }};
   const initialFeedbackThread = {{ feedback_thread | tojson }};
   const aiLockedMessage = {{ site_text("index.ai_member_locked") | tojson }};
@@ -3459,15 +3467,38 @@
     const helpPanel = document.getElementById('searchHelpPanel');
     if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = aiSearch ? 'none' : '';
     if (aiSearch && helpPanel) helpPanel.hidden = true;
+    refreshSubmitButton();
+  }
+
+  // 当前模式是否对本账号开放（标准检索照旧由 searchEnabled 决定；联想/研究看各自权限位）。
+  function modeHasAccess(mode) {
+    if (mode === 'associative') return assocAccessEnabled;
+    if (mode === 'research') return researchAccessEnabled;
+    return state.searchEnabled;
+  }
+
+  // 「开始检索」按钮随模式刷新：联想/研究无权限时不禁用，而是变成登录/开通引导按钮（点击跳转）。
+  function refreshSubmitButton() {
+    const lockable = (searchMode === 'associative' || searchMode === 'research');
+    if (lockable && !modeHasAccess(searchMode)) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = isLoggedIn ? LOCKED_MEMBER_CTA : LOCKED_LOGIN_CTA;
+      submitBtn.classList.add('locked-cta');
+      submitLockTarget = isLoggedIn ? searchPricingUrl : searchLoginUrl;
+    } else {
+      submitBtn.textContent = SEARCH_SUBMIT_TEXT;
+      submitBtn.disabled = !state.searchEnabled;
+      submitBtn.classList.remove('locked-cta');
+      submitLockTarget = '';
+    }
   }
 
   modeTabs.forEach(tab => {
+    // 无权限的联想/研究标签保留悬浮说明，但不再禁用——点击即可进入，按钮转为登录/开通引导。
     if (tab.dataset.mode === 'associative' && !assocAccessEnabled) {
-      tab.disabled = true;
       tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
     }
     if (tab.dataset.mode === 'research' && !researchAccessEnabled) {
-      tab.disabled = true;
       tab.title = {{ site_text('search.research_tab_title') | tojson }};
     }
     tab.addEventListener('click', () => {
@@ -3486,6 +3517,8 @@
   }
 
   function runActiveSearch() {
+    // 联想/研究无权限时，「开始检索」已换成登录/开通引导按钮：点击直接跳转，不发起检索。
+    if (submitLockTarget) { window.location.href = submitLockTarget; return; }
     const text = q.value.trim();
     if (!text) return;
     if (searchMode === 'research') {
