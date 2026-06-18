@@ -146,6 +146,24 @@
       line-height: 1.3;
       font-size: clamp(1.24rem, 1.5vw, 1.5rem);
     }
+    .ai-quota {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 8px; font-size: 0.78rem; color: rgba(255, 248, 240, 0.85);
+    }
+    .ai-quota.hidden { display: none; }
+    .ai-quota-bar {
+      flex: 1; min-width: 0; height: 6px; border-radius: 999px; overflow: hidden;
+      background: rgba(255, 255, 255, 0.18);
+    }
+    .ai-quota-bar > span {
+      display: block; height: 100%; width: 100%;
+      background: linear-gradient(90deg, #7fd18a, #56b86a); transition: width .3s ease;
+    }
+    .ai-quota-text { flex: none; white-space: nowrap; }
+    .ai-quota.low .ai-quota-bar > span { background: linear-gradient(90deg, #f0b056, #e69500); }
+    .ai-quota.low .ai-quota-text { color: #ffd98a; font-weight: 600; }
+    .ai-quota.exhausted .ai-quota-bar > span { background: #e08585; width: 100% !important; }
+    .ai-quota.exhausted .ai-quota-text { color: #ffc4c4; font-weight: 600; }
     .meta {
       margin-top: 12px;
       display: grid;
@@ -937,6 +955,12 @@
             <input type="checkbox" id="webToggle" hidden>
             <span id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</span>
           </div>
+          {% if ai_access_enabled %}
+          <div class="ai-quota hidden" id="aiTokenQuota">
+            <div class="ai-quota-bar"><span id="aiTokenQuotaFill"></span></div>
+            <span class="ai-quota-text" id="aiTokenQuotaText"></span>
+          </div>
+          {% endif %}
           {% if ai_access_enabled and ai_web_access_enabled %}
           <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin-top:6px">
             <label for="aiProviderSelect" style="font-size:12px;white-space:nowrap">选择模型</label>
@@ -995,6 +1019,33 @@
   const renderMode = {{ render_mode | default('image') | tojson }};
   const viewerMode = {{ viewer_mode | tojson }};
   let currentPageNumber = {{ page | tojson }};
+  let aiTokenQuotaState = {{ (state.ai_token_quota or {}) | tojson }};
+
+  // 今日 DeepSeek AI 额度余额条（阅读导学）：剩余占比 + 低额预警 + 耗尽提示。
+  function updateAiTokenQuota(quota) {
+    if (quota && typeof quota === 'object') aiTokenQuotaState = quota;
+    quota = aiTokenQuotaState;
+    const wrap = document.getElementById('aiTokenQuota');
+    const fill = document.getElementById('aiTokenQuotaFill');
+    const text = document.getElementById('aiTokenQuotaText');
+    if (!wrap || !fill || !text) return;
+    if (!quota || quota.unlimited || quota.limit === null || quota.limit === undefined) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    wrap.classList.toggle('low', !!quota.low);
+    wrap.classList.toggle('exhausted', !!quota.exhausted);
+    const pct = Math.max(0, Math.min(100, Math.round((quota.ratio || 0) * 100)));
+    fill.style.width = pct + '%';
+    if (quota.exhausted) {
+      text.textContent = '本周 AI 额度已用完，下周一恢复';
+    } else if (Number(quota.limit) <= 0) {
+      text.textContent = '当前身份未开放免费 AI 额度';
+    } else {
+      text.textContent = `本周 AI 额度剩余约 ${pct}%`;
+    }
+  }
 
   const currentPage = document.getElementById('currentPage');
   const currentSection = document.getElementById('currentSection');
@@ -1675,6 +1726,7 @@
 
     if (aiRuntime.enabled) {
       updateAiStatusLine();
+      updateAiTokenQuota();
       aiSendBtn.disabled = false;
       aiPrompt.disabled = false;
       explainPageBtn.disabled = false;
@@ -1735,6 +1787,7 @@
           assistantMessage.sources = data.sources || [];
           assistantMessage.warnings = data.warnings || [];
           assistantMessage.content = assistantMessage.content || data.answer_markdown || '';
+          if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
           doneSeen = true;
           savePageState();
           renderAiMessages();
@@ -1753,6 +1806,7 @@
       body: JSON.stringify(payload)
     });
     const data = await resp.json();
+    if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
     if (!data.ok) {
       throw new Error(data.error || 'AI 请求失败');
     }

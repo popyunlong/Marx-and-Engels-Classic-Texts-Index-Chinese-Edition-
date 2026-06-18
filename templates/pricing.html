@@ -96,11 +96,60 @@
       background: var(--warn-bg);
       border-color: rgba(138, 91, 0, 0.16);
     }
-    .grid {
-      display: grid;
-      gap: 16px;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    /* 套餐改为横条排版：一行一条，自上而下；资源包置顶。 */
+    .plan-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
       margin-top: 18px;
+    }
+    .plan-row {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 24px;
+      padding: 18px 24px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 10px 26px rgba(64, 44, 27, 0.07);
+      position: relative;
+      overflow: hidden;
+    }
+    .plan-row.is-pack {
+      border-color: rgba(143, 29, 29, 0.42);
+      background: linear-gradient(180deg, #fffaf0, #fffdfa);
+    }
+    .plan-row.has-badge { padding-right: 28px; }
+    .plan-row-head {
+      flex: 0 0 auto;
+      width: 190px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .plan-row-head h2 { margin: 0; font-size: 1.2rem; }
+    .plan-row .price { font-size: 1.7rem; line-height: 1.15; }
+    .plan-row-head .muted { font-size: 0.86rem; }
+    .plan-row-body { flex: 1 1 auto; min-width: 0; }
+    .plan-row-body .plan-desc { margin: 0 0 6px; }
+    .plan-row-body ul { line-height: 1.75; }
+    .plan-row .actions {
+      flex: 0 0 auto;
+      margin-top: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      min-width: 150px;
+    }
+    .plan-row .actions .btn,
+    .plan-row .actions form { width: 100%; }
+    .plan-row .actions .btn { white-space: nowrap; }
+    @media (max-width: 760px) {
+      .plan-row { flex-direction: column; align-items: stretch; gap: 12px; }
+      .plan-row-head { width: auto; }
+      .plan-row .actions { flex-direction: row; flex-wrap: wrap; }
+      .plan-row .actions .btn, .plan-row .actions form { width: auto; flex: 1 1 auto; }
     }
     .card {
       padding: 22px;
@@ -216,35 +265,47 @@
       {% endif %}
     </div>
 
-    <section class="grid">
+    <section class="plan-list">
       {% for plan in plans %}
       {% set plan_badge = (plan.badge | default('', true)) | trim %}
       {% set feature_lines = (plan.features | default('', true)).split('\n') | map('trim') | select | list %}
-      <article class="card{% if plan_badge %} has-badge{% endif %}">
+      {% set is_pack = (plan.kind | default('membership', true)) == 'credit_pack' %}
+      <article class="plan-row{% if is_pack %} is-pack{% endif %}{% if plan_badge %} has-badge{% endif %}">
         {% if plan_badge %}<div class="plan-badge">{{ plan_badge }}</div>{% endif %}
-        <div>
+        <div class="plan-row-head">
           <h2>{{ plan.name }}</h2>
           <div class="price">{{ format_price(plan.price_cents, plan.currency) }}</div>
-          <div class="muted">周期：{{ plan.interval_months }} 个月</div>
-        </div>
-        {% if plan.description %}<p class="muted">{{ plan.description }}</p>{% endif %}
-        <ul>
-          {% if feature_lines %}
-          {% for line in feature_lines %}
-          <li>{{ line }}</li>
-          {% endfor %}
+          {% if is_pack %}
+          <div class="muted">一次性购买 · 永久有效，可叠加</div>
           {% else %}
-          <li>{{ site_text("pricing.feature_viewer") }}</li>
-          <li>{{ site_text("pricing.feature_pdf") }}</li>
-          <li>{{ site_text("pricing.feature_ai") }}</li>
-          <li>{{ site_text("pricing.feature_account") }}</li>
+          <div class="muted">周期：{{ plan.interval_months }} 个月</div>
           {% endif %}
-        </ul>
+        </div>
+        <div class="plan-row-body">
+          {% if plan.description %}<p class="muted plan-desc">{{ plan.description }}</p>{% endif %}
+          <ul>
+            {% if feature_lines %}
+            {% for line in feature_lines %}
+            <li>{{ line }}</li>
+            {% endfor %}
+            {% elif is_pack %}
+            {% if plan.research_credits %}<li>研究级检索 {{ plan.research_credits }} 次</li>{% endif %}
+            {% if plan.chat_credits %}<li>AI随心问 {{ plan.chat_credits }} 次</li>{% endif %}
+            {% if plan.reader_credits %}<li>AI 导学问答 {{ plan.reader_credits }} 次（DeepSeek-V4-Pro）</li>{% endif %}
+            <li>永久有效，可叠加购买</li>
+            {% else %}
+            <li>{{ site_text("pricing.feature_viewer") }}</li>
+            <li>{{ site_text("pricing.feature_pdf") }}</li>
+            <li>{{ site_text("pricing.feature_ai") }}</li>
+            <li>{{ site_text("pricing.feature_account") }}</li>
+            {% endif %}
+          </ul>
+        </div>
         <div class="actions">
           {% if current_user and alipay_runtime.enabled %}
           <form method="post" action="{{ url_for('create_checkout', plan_code=plan.code) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn primary" type="submit">在线支付开通</button>
+            <button class="btn primary" type="submit">{{ "购买资源包" if is_pack else "在线支付开通" }}</button>
           </form>
           {% elif current_user %}
           <span class="btn primary" aria-disabled="true">暂不可支付</span>

@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import warnings
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest import mock
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -25,7 +26,21 @@ os.environ["TURNSTILE_ENABLED"] = "0"
 import app as app_module  # noqa: E402
 import ai as ai_module  # noqa: E402
 import search as search_module  # noqa: E402
-from membership import create_manual_subscription, create_user  # noqa: E402
+from membership import (  # noqa: E402
+    consume_ai_credit,
+    create_manual_subscription,
+    create_pending_order,
+    create_user,
+    get_ai_credit_balance,
+    get_ai_credit_balances,
+    get_plan,
+    grant_ai_credits,
+    mark_order_paid,
+    get_user_by_email,
+    record_ai_usage,
+    update_user_account,
+    upsert_plan,
+)
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
@@ -171,6 +186,80 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         self.assertEqual(second.get("keywords"), ["生产力"])
         cc2.assert_not_called()
 
+    def test_research_review_continues_when_initial_answer_is_incomplete(self) -> None:
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        initial = "## 开篇\n" + ("这是一段尚未收束的研究综述。[1]\n" * 80)
+        continuation = "## 小结\n综上，现有材料已经能够支撑这一论题的基本分析。[1]"
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", side_effect=[initial, continuation]) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        self.assertIn(initial.strip(), review)
+        self.assertIn(continuation, review)
+        self.assertEqual(cc.call_count, 2)
+        self.assertEqual(cc.call_args_list[0].kwargs["max_tokens"], ai_module.RESEARCH_REVIEW_MAX_TOKENS)
+        self.assertFalse(cc.call_args_list[0].kwargs["allow_reasoning_fallback"])
+        self.assertEqual(
+            cc.call_args_list[1].kwargs["max_tokens"],
+            ai_module.RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
+        )
+        self.assertFalse(cc.call_args_list[1].kwargs["allow_reasoning_fallback"])
+
+    def test_research_review_does_not_continue_when_answer_is_complete(self) -> None:
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        complete = "## 开篇\n" + ("这是一段完整的研究综述。[1]\n" * 80) + "## 小结\n综上，文章完整收束。[1]"
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        self.assertEqual(review, complete)
+        self.assertEqual(cc.call_count, 1)
+        self.assertFalse(cc.call_args.kwargs["allow_reasoning_fallback"])
+
+    def test_research_review_retries_when_reasoning_leaks(self) -> None:
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        leaked = "思考过程：我需要先分析材料，然后再写正文。"
+        repaired = "【综述正文开始】\n## 研究综述\n" + ("这是一段正式综述正文。[1]\n" * 80) + "## 小结\n综上，文章自然完成。[1]\n【综述正文结束】"
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", side_effect=[leaked, repaired]) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        self.assertNotIn("思考过程", review)
+        self.assertNotIn("【综述正文开始】", review)
+        self.assertIn("## 研究综述", review)
+        self.assertIn("## 小结", review)
+        self.assertEqual(cc.call_count, 2)
+
+    def test_research_review_retries_lower_budget_when_high_budget_is_rejected(self) -> None:
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 80) + "## 小结\n综上，文章自然完成。[1]"
+        with mock.patch.object(
+            app_module.AI_CLIENT,
+            "chat_complete",
+            side_effect=[app_module.AIServiceError("max_tokens exceeds limit"), complete],
+        ) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        self.assertEqual(review, complete)
+        self.assertEqual(cc.call_count, 2)
+        self.assertEqual(cc.call_args_list[0].kwargs["max_tokens"], ai_module.RESEARCH_REVIEW_MAX_TOKENS)
+        self.assertEqual(cc.call_args_list[1].kwargs["max_tokens"], 12000)
+
+    def test_research_review_passage_uses_complete_sentence_window(self) -> None:
+        raw = (
+            ("前置背景说明，暂不涉及核心命中。" * 18)
+            + "资本主义生产方式在这里表现为劳动条件同劳动者相分离。"
+            + "工人处境因此不是孤立的生活细节，而是同生产关系的总体运动相连。"
+            + "这一段继续说明，只有回到完整的原文句群中，论证才不至于被短窗口削弱。"
+            + ("后续背景说明，暂不涉及核心命中。" * 18)
+        )
+        hit = SimpleNamespace(pages=[SimpleNamespace(raw_text=raw)])
+        payload = {
+            "context": "短窗 [[H]]工人处境[[/H]] 因此不是孤立的生活细节",
+            "source_file": "",
+            "pdf_pages": [],
+        }
+        passage = app_module._research_review_passage_text(hit, payload, "工人处境")
+        self.assertIn("工人处境", passage)
+        self.assertIn("完整的原文句群", passage)
+        self.assertGreater(len(passage), 240)
+        self.assertLessEqual(len(passage), app_module.RESEARCH_REVIEW_PASSAGE_MAX_CHARS)
+        self.assertRegex(passage, r"[。！？；;!?]$")
+        self.assertNotIn("[[H]]", passage)
+
     def test_extract_json_object_variants(self) -> None:
         self.assertEqual(
             ai_module._extract_json_object('{"quotes":["a"],"keywords":["x"]}'),
@@ -229,6 +318,9 @@ class AssociativeRouteTests(unittest.TestCase):
         warnings.filterwarnings("ignore", category=ResourceWarning)
         app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         app_module.set_setting("access_policy", REGISTERED_FULL)
+        # 每个用例前把研究型每周额度重置为默认（空＝默认 30 等），避免设额度的用例污染其他用例。
+        app_module.set_setting(app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY, {})
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {})
         app_module._rate_buckets.clear()
         with sqlite3.connect(app_module.FEEDBACK_DB_PATH) as conn:
             conn.execute("DELETE FROM feedback_messages")
@@ -262,6 +354,26 @@ class AssociativeRouteTests(unittest.TestCase):
         return self.client.post(
             "/api/search/associative", json=payload, headers={"X-CSRF-Token": token}
         )
+
+    def _post_chat(self, payload: dict, token: str):
+        return self.client.post(
+            "/api/ai/search-chat", json=payload, headers={"X-CSRF-Token": token}
+        )
+
+    def _login_plain(self, email: str) -> int:
+        """登录一个无会员订阅的普通用户（注册用户），返回 user_id。"""
+        create_user(
+            email=email, display_name=email.split("@", 1)[0],
+            password_hash=generate_password_hash("correct horse battery staple"),
+            email_verified_at="2026-01-01T00:00:00+00:00",
+        )
+        token = self._csrf()
+        resp = self.client.post(
+            "/login",
+            data={"csrf_token": token, "email": email, "password": "correct horse battery staple"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        return int(get_user_by_email(email)["id"])
 
     def test_success_is_grounded(self) -> None:
         self._login_member("assoc-ok@example.test")
@@ -401,6 +513,314 @@ class AssociativeRouteTests(unittest.TestCase):
         self.assertTrue(all(c["citation"].startswith("《") for c in data["review_citations"]))
         rev.assert_called_once()
 
+    def test_research_mode_falls_back_when_review_generation_fails(self) -> None:
+        # 长文生成失败时也要返回可显示的接地综述，避免前端只看到空白综述区。
+        self._login_member("assoc-review-fallback@example.test")
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(
+                 app_module.AI_CLIENT,
+                 "generate_research_review",
+                 side_effect=app_module.AIServiceError("token limit"),
+             ):
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["display_mode"], "research_review")
+        self.assertIn("## 研究综述", data["review_markdown"])
+        self.assertIn("[1]", data["review_markdown"])
+        self.assertGreaterEqual(len(data["review_citations"]), 1)
+        self.assertTrue(data["warnings"])
+
+    def test_research_quota_defaults_match_spec(self) -> None:
+        # 后台未配置时返回规格默认值：登录5/月15/季20/年25。
+        app_module.set_setting(app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY, {})
+        settings = app_module._research_weekly_quota_settings()
+        self.assertEqual(settings["registered"], 5)
+        self.assertEqual(settings["monthly"], 15)
+        self.assertEqual(settings["quarterly"], 20)
+        self.assertEqual(settings["yearly"], 25)
+
+    def test_research_blocked_when_quota_exhausted(self) -> None:
+        # 额度设为 0 → 研究型检索直接 429，且绝不调用 AI（expand 不触发）。
+        self._login_member("assoc-quota-blocked@example.test")
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 0, "monthly": 0, "quarterly": 0, "yearly": 0},
+        )
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock, \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review") as review_mock:
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 429)
+        data = resp.get_json()
+        self.assertFalse(data["ok"])
+        self.assertIn("research_quota", data)
+        self.assertEqual(data["research_quota"]["limit"], 0)
+        self.assertFalse(data["research_quota"]["allowed"])
+        expand_mock.assert_not_called()
+        review_mock.assert_not_called()
+
+    def test_research_blocked_after_reaching_limit_via_usage_rows(self) -> None:
+        # 本周已有等于上限条数的 research_review 成功记录 → 拦截。
+        email = "assoc-quota-rows@example.test"
+        self._login_member(email)
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 2, "monthly": 2, "quarterly": 2, "yearly": 2},
+        )
+        user = get_user_by_email(email)
+        day = app_module._research_quota_week_window()["start_day"]
+        for _ in range(2):
+            record_ai_usage(
+                user_id=int(user["id"]), day=day,
+                feature=app_module.RESEARCH_QUOTA_FEATURE, success=True,
+            )
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 429)
+        self.assertFalse(resp.get_json()["ok"])
+        expand_mock.assert_not_called()
+
+    def test_research_success_returns_decremented_quota(self) -> None:
+        # 研究型检索成功后回传更新后的额度，剩余减一，且记账走 research_review feature。
+        email = "assoc-quota-success@example.test"
+        self._login_member(email)
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 5, "monthly": 5, "quarterly": 5, "yearly": 5},
+        )
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["display_mode"], "research_review")
+        self.assertIn("research_quota", data)
+        self.assertEqual(data["research_quota"]["limit"], 5)
+        self.assertEqual(data["research_quota"]["used"], 1)
+        self.assertEqual(data["research_quota"]["remaining"], 4)
+        # 记账确实写到 research_review feature（供本周统计）。
+        user = get_user_by_email(email)
+        week = app_module._research_quota_week_window()
+        count = app_module.count_ai_usage_requests(
+            user_id=int(user["id"]), start_day=week["start_day"], end_day=week["end_day"],
+            feature=app_module.RESEARCH_QUOTA_FEATURE, success_only=True,
+        )
+        self.assertEqual(count, 1)
+
+    def test_research_uses_pack_credit_when_weekly_free_exhausted(self) -> None:
+        # 免费周额设为 0，但用户持有研究资源包次数 → 研究型检索仍放行，成功后扣 1 次研究包。
+        email = "assoc-pack-research@example.test"
+        self._login_member(email)
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 0, "monthly": 0, "quarterly": 0, "yearly": 0},
+        )
+        user = get_user_by_email(email)
+        grant_ai_credits(int(user["id"]), research=3, reason="test")
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["display_mode"], "research_review")
+        # 扣 1 次：剩余资源包 2 次
+        self.assertEqual(get_ai_credit_balance(int(user["id"]), "research"), 2)
+        self.assertEqual(data["research_quota"]["pack_credits"], 2)
+
+    def test_research_blocked_when_no_free_and_no_credit(self) -> None:
+        # 免费周额 0 且无资源包 → 仍 429，不消耗 AI。
+        email = "assoc-pack-none@example.test"
+        self._login_member(email)
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 0, "monthly": 0, "quarterly": 0, "yearly": 0},
+        )
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 429)
+        expand_mock.assert_not_called()
+
+    def test_chat_uses_pack_credit_when_daily_token_exhausted(self) -> None:
+        # 每日 token 限额置 0（恒超额），但持有随心问资源包 → 放行并扣 1 次 chat。
+        email = "chat-pack@example.test"
+        self._login_member(email)
+        user = get_user_by_email(email)
+        update_user_account(user_id=int(user["id"]), daily_ai_token_limit_override=0)
+        grant_ai_credits(int(user["id"]), chat=2, reason="test")
+        token = self._csrf()
+        fake = mock.Mock()
+        fake.answer_markdown = "回答内容"
+        fake.to_dict = mock.Mock(return_value={"ok": True, "answer_markdown": "回答内容", "sources": []})
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
+            resp = self._post_chat({"question": "什么是剩余价值？"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(get_ai_credit_balance(int(user["id"]), "chat"), 1)
+        self.assertEqual(data["ai_credits"]["chat"], 1)
+
+    def test_chat_blocked_when_daily_token_exhausted_without_credit(self) -> None:
+        # 每日 token 0 且无资源包 → 429，不调用 AI。
+        email = "chat-nopack@example.test"
+        self._login_member(email)
+        user = get_user_by_email(email)
+        update_user_account(user_id=int(user["id"]), daily_ai_token_limit_override=0)
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat") as ans_mock:
+            resp = self._post_chat({"question": "什么是剩余价值？"}, token)
+        self.assertEqual(resp.status_code, 429)
+        ans_mock.assert_not_called()
+
+    def test_effective_ai_limit_buckets(self) -> None:
+        # 分档：每日额度＋本周硬上限(=每日×7)；访客 guest、月度会员 monthly；管理员不限。
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {
+            "guest": 0, "registered": 4000, "monthly": 55000, "quarterly": 90000, "yearly": 120000,
+        })
+        member = "tokbucket-member@example.test"
+        self._login_member(member)  # monthly
+        muid = int(get_user_by_email(member)["id"])
+        factor = app_module.AI_TOKEN_WEEKLY_FACTOR
+        with app_module.app.test_request_context():
+            guest = app_module._effective_ai_limit_info(None)
+            self.assertEqual((guest["bucket"], guest["daily_limit"], guest["weekly_limit"]), ("guest", 0, 0))
+            mem = app_module._effective_ai_limit_info({"id": muid})
+            self.assertEqual(mem["bucket"], "monthly")
+            self.assertEqual(mem["daily_limit"], 55000)
+            self.assertEqual(mem["weekly_limit"], 55000 * factor)
+            admin = app_module._effective_ai_limit_info({"id": muid, "role": "admin"})
+            self.assertIsNone(admin["weekly_limit"])  # 管理员不限
+
+    def test_registered_weekly_token_cap_blocks_chat(self) -> None:
+        # 弹性额度：硬上限是本周(=每日×7)。本周累计达上限 → 随心问 429，且不调用 AI。
+        email = "tok-registered-block@example.test"
+        uid = self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 2000})
+        weekly_cap = 2000 * app_module.AI_TOKEN_WEEKLY_FACTOR  # 14000
+        record_ai_usage(
+            user_id=uid, day=app_module.china_day_text(), feature="search-chat",
+            total_tokens=weekly_cap, success=True,
+        )
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat") as ans_mock:
+            resp = self._post_chat({"question": "什么是商品拜物教？"}, token)
+        self.assertEqual(resp.status_code, 429)
+        ans_mock.assert_not_called()
+
+    def test_daily_overuse_allowed_within_weekly_cap(self) -> None:
+        # 弹性核心：单日用量超过「每日额度」但本周累计仍在周上限内 → 仍放行（不被每日卡死）。
+        email = "tok-burst@example.test"
+        uid = self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 2000})
+        # 今日已用 5000（远超每日 2000），但 < 周上限 14000 → 仍应放行。
+        record_ai_usage(
+            user_id=uid, day=app_module.china_day_text(), feature="search-chat",
+            total_tokens=5000, success=True,
+        )
+        token = self._csrf()
+        fake = mock.Mock()
+        fake.answer_markdown = "回答"
+        fake.to_dict = mock.Mock(return_value={"ok": True, "answer_markdown": "回答", "sources": []})
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
+            resp = self._post_chat({"question": "什么是剩余价值？"}, token)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])
+
+    def test_registered_user_within_limit_returns_token_quota(self) -> None:
+        # 未超额 → 随心问成功并回带 ai_token_quota（limit=本周=每日×7、剩余<上限、未耗尽）。
+        email = "tok-registered-ok@example.test"
+        self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 50000})
+        weekly_cap = 50000 * app_module.AI_TOKEN_WEEKLY_FACTOR
+        token = self._csrf()
+        fake = mock.Mock()
+        fake.answer_markdown = "回答"
+        fake.to_dict = mock.Mock(return_value={"ok": True, "answer_markdown": "回答", "sources": []})
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
+            resp = self._post_chat({"question": "什么是剩余价值？"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("ai_token_quota", data)
+        self.assertFalse(data["ai_token_quota"]["unlimited"])
+        self.assertEqual(data["ai_token_quota"]["limit"], weekly_cap)  # 硬上限＝本周
+        self.assertEqual(data["ai_token_quota"]["daily_limit"], 50000)  # 每日参考
+        self.assertLess(data["ai_token_quota"]["remaining"], weekly_cap)  # 本次已计入用量
+        self.assertFalse(data["ai_token_quota"]["exhausted"])
+
+    def test_admin_unlimited_ai_tokens(self) -> None:
+        # 管理员不受每日额度限制：即便 registered=0 也能用，且 ai_token_quota.unlimited=True。
+        email = "tok-admin@example.test"
+        uid = self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 0})
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            conn.execute("UPDATE users SET role='admin' WHERE id=?", (uid,))
+            conn.commit()
+        token = self._csrf()
+        fake = mock.Mock()
+        fake.answer_markdown = "回答"
+        fake.to_dict = mock.Mock(return_value={"ok": True, "answer_markdown": "回答", "sources": []})
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
+            resp = self._post_chat({"question": "什么是异化劳动？"}, token)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ai_token_quota"]["unlimited"])
+
+    def test_mascot_is_unlimited_and_uses_flash_model(self) -> None:
+        # 马克思形象＝无限量基础服务：即便主通道每日额度=0 仍可用，且固定走 deepseek-v4-flash。
+        email = "mascot-flash@example.test"
+        self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 0})
+        token = self._csrf()
+        with mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete", return_value="历史属于勇于思考的人。"
+        ) as cc:
+            resp = self.client.post(
+                "/api/ai/mascot-chat",
+                json={"mode": "ask", "user_text": "你好"},
+                headers={"X-CSRF-Token": token},
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.get_json()["ok"])  # 不受每日额度限制
+        self.assertEqual(cc.call_args.kwargs.get("model"), app_module.MASCOT_AI_MODEL)
+        self.assertEqual(app_module.MASCOT_AI_MODEL, "deepseek-v4-flash")
+
+    def test_research_citation_highlights_quoted_sentence(self) -> None:
+        # 端到端：综述逐字引用了某段原文的一句 → 对应引文方框应高亮该句并标「综述已引用」。
+        self._login_member("assoc-hl@example.test")
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+
+        def _fake_review(topic, passages):
+            text = passages[0]["text"] if passages else ""
+            chunks = app_module._sentence_chunks(text)
+            sent = chunks[0] if chunks else text[:30]
+            return f"## 研究综述\n马克思指出「{sent}」[1]。\n## 小结\n完。"
+
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", side_effect=_fake_review):
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["ok"])
+        cits = data["review_citations"]
+        self.assertTrue(any(c.get("review_quoted") for c in cits), "应有引文被标注为综述已引用")
+        quoted = next(c for c in cits if c.get("review_quoted"))
+        self.assertIn("[[H]]", quoted["context"])  # 亮标落在综述用到的句子上
+
     def test_desktop_mode_short_circuits_without_ai(self) -> None:
         self._login_member("assoc-desktop@example.test")
         token = self._csrf()
@@ -412,6 +832,211 @@ class AssociativeRouteTests(unittest.TestCase):
         # 桌面模式不应给出成功的联想结果
         self.assertFalse(resp.get_json().get("ok") is True and resp.status_code == 200
                          and resp.get_json().get("display_mode") == "associative")
+
+
+class AiCreditLedgerTests(unittest.TestCase):
+    """资源包次数台账：发放 / 消耗 / 原子性 / credit_pack 支付发次数不开会员。"""
+
+    def _new_user(self, email: str) -> int:
+        user = create_user(
+            email=email, display_name=email.split("@", 1)[0],
+            password_hash=generate_password_hash("x"),
+            email_verified_at="2026-01-01T00:00:00+00:00",
+        )
+        return int(user["id"])
+
+    def test_grant_and_balance(self) -> None:
+        uid = self._new_user("credit-grant@example.test")
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 0, "chat": 0})
+        grant_ai_credits(uid, research=10, chat=20, reason="test")
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20})
+        self.assertEqual(get_ai_credit_balance(uid, "research"), 10)
+
+    def test_consume_decrements_and_floors_at_zero(self) -> None:
+        uid = self._new_user("credit-consume@example.test")
+        grant_ai_credits(uid, research=2, reason="test")
+        self.assertTrue(consume_ai_credit(uid, "research", reason="t"))
+        self.assertTrue(consume_ai_credit(uid, "research", reason="t"))
+        self.assertFalse(consume_ai_credit(uid, "research", reason="t"))  # 余额 0 不再扣
+        self.assertEqual(get_ai_credit_balance(uid, "research"), 0)
+
+    def test_consume_unknown_kind_or_anonymous_is_noop(self) -> None:
+        uid = self._new_user("credit-bad@example.test")
+        grant_ai_credits(uid, chat=1, reason="test")
+        self.assertFalse(consume_ai_credit(uid, "nope", reason="t"))
+        self.assertFalse(consume_ai_credit(None, "chat", reason="t"))
+        self.assertEqual(get_ai_credit_balance(uid, "chat"), 1)
+
+    def test_credit_pack_payment_grants_credits_not_subscription(self) -> None:
+        upsert_plan(
+            code="pack_test", name="测试资源包", price_cents=300, interval_months=1,
+            kind="credit_pack", research_credits=10, chat_credits=20, sort_order=99,
+        )
+        uid = self._new_user("credit-pack-pay@example.test")
+        order = create_pending_order(user_id=uid, plan_code="pack_test")
+        result = mark_order_paid(order_no=order["order_no"], provider="manual", source="manual")
+        self.assertIsNone(result["subscription"])  # 不开会员
+        self.assertEqual(result["credits"], {"research": 10, "chat": 20})
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20})
+
+    def test_credit_pack_payment_is_idempotent(self) -> None:
+        upsert_plan(
+            code="pack_test2", name="测试资源包2", price_cents=300, interval_months=1,
+            kind="credit_pack", research_credits=5, chat_credits=0, sort_order=99,
+        )
+        uid = self._new_user("credit-pack-idem@example.test")
+        order = create_pending_order(user_id=uid, plan_code="pack_test2")
+        mark_order_paid(order_no=order["order_no"], provider="manual", source="manual")
+        # 重复回调（已 paid）不应再发一遍次数
+        mark_order_paid(order_no=order["order_no"], provider="manual", source="manual")
+        self.assertEqual(get_ai_credit_balance(uid, "research"), 5)
+
+    def test_default_pack_seeded(self) -> None:
+        plan = get_plan("pack_basic")
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["kind"], "credit_pack")
+        self.assertEqual(plan["research_credits"], 10)
+        self.assertEqual(plan["chat_credits"], 20)
+
+
+class ReviewCitationHighlightTests(unittest.TestCase):
+    """研究综述引文「亮标」：标在综述真正逐字引用到的句子上（而非检索词）。"""
+
+    def test_research_review_sources_are_diversified_by_library(self) -> None:
+        def hit(book: str, page: int, score: int = 90):
+            return SimpleNamespace(
+                book=book, source_file=f"{book}-{page}.pdf", pages=[SimpleNamespace(pdf_page=page)], score=score
+            )
+
+        candidates = (
+            [hit("文集", i) for i in range(1, 11)]
+            + [hit("全集", i) for i in range(1, 4)]
+            + [hit("列宁全集", i) for i in range(1, 4)]
+        )
+        selected = app_module._select_research_review_hits(candidates, limit=6)
+        books = [h.book for h in selected]
+        self.assertEqual(books[:3], ["文集", "全集", "列宁全集"])
+        self.assertIn("全集", books)
+        self.assertIn("列宁全集", books)
+
+    def test_research_review_sources_do_not_force_weak_libraries(self) -> None:
+        def hit(book: str, page: int, score: int):
+            return SimpleNamespace(
+                book=book, source_file=f"{book}-{page}.pdf", pages=[SimpleNamespace(pdf_page=page)], score=score
+            )
+
+        candidates = [
+            hit("文集", 1, 100),
+            hit("文集", 2, 98),
+            hit("全集", 1, 86),
+            hit("毛泽东选集", 1, 35),
+        ]
+        selected = app_module._select_research_review_hits(candidates, limit=3)
+        books = [h.book for h in selected]
+        self.assertEqual(books, ["文集", "全集", "文集"])
+        self.assertNotIn("毛泽东选集", books)
+
+    def test_extract_quotes_longest_first(self) -> None:
+        md = '马克思指出「商品是用来交换的劳动产品」，又谈到“价值”。'
+        qs = app_module._extract_review_quotes(md)
+        self.assertIn("商品是用来交换的劳动产品", qs)
+        self.assertEqual(qs[0], "商品是用来交换的劳动产品")  # 长引文优先
+
+    def test_used_span_matches_quoted_sentence_in_passage(self) -> None:
+        passage = "在本章里，商品是用来交换的劳动产品，这一判断至关重要。"
+        span = app_module._review_used_span_in_passage(
+            passage, ["商品是用来交换的劳动产品", "无关的话"]
+        )
+        self.assertEqual(span, "商品是用来交换的劳动产品")
+
+    def test_quotes_are_grouped_by_review_source_number(self) -> None:
+        md = "马克思说「第一条原文」[1]。恩格斯说「第二条原文」[2]。"
+        grouped = app_module._review_quotes_by_index(md)
+        self.assertEqual(grouped[1], ["第一条原文"])
+        self.assertEqual(grouped[2], ["第二条原文"])
+
+    def test_used_span_matches_normalized_punctuation(self) -> None:
+        passage = "这里说，商品是用来交换的劳动产品。"
+        span = app_module._review_used_span_in_passage(
+            passage, ["商品，是用来交换的劳动产品"]
+        )
+        self.assertEqual(span, "商品是用来交换的劳动产品")
+
+    def test_paraphrased_citation_picks_source_sentence(self) -> None:
+        passage = "前文叙述。商品是用来交换的劳动产品，这一点说明交换关系的重要性。后续展开。"
+        units = ["综述认为商品首先体现为用于交换的劳动产品，并由此进入社会关系分析。"]
+        span = app_module._best_review_cited_sentence_in_passage(passage, units)
+        self.assertEqual(span, "商品是用来交换的劳动产品，这一点说明交换关系的重要性。")
+
+    def test_quoted_span_can_be_recovered_from_hit_volume(self) -> None:
+        picked = None
+        for vols in app_module.corpus.books.values():
+            for vol in vols:
+                for page in vol.pages:
+                    match = re.search(r"[\u4e00-\u9fff]{10,}", page.raw_text or "")
+                    if match:
+                        picked = (vol, page, match.group(0)[:12])
+                        break
+                if picked:
+                    break
+            if picked:
+                break
+        if not picked:
+            self.skipTest("语料中没有可用于回捞测试的中文连续片段")
+        vol, page, quote = picked
+        hit = SimpleNamespace(source_file=vol.source_file, pages=[page])
+        source_text, span, pdf_page = app_module._review_used_span_in_hit_volume(hit, [quote])
+        self.assertIn(quote, span)
+        self.assertIn(span, source_text)
+        self.assertEqual(pdf_page, page.pdf_page)
+
+    def test_multiple_quotes_on_same_page_share_one_evidence_page(self) -> None:
+        picked = None
+        for vols in app_module.corpus.books.values():
+            for vol in vols:
+                for page in vol.pages:
+                    matches = re.findall(r"[\u4e00-\u9fff]{10,}", page.raw_text or "")
+                    if len(matches) >= 2:
+                        picked = (vol, page, matches[0][:10], matches[1][:10])
+                        break
+                if picked:
+                    break
+            if picked:
+                break
+        if not picked:
+            self.skipTest("语料中没有可用于多证据测试的页面")
+        vol, page, q1, q2 = picked
+        hit = SimpleNamespace(source_file=vol.source_file, pages=[page])
+        base = {
+            "book": vol.book, "volume": vol.volume, "source_file": vol.source_file,
+            "citation": "测试出处", "pdf_pages": [page.pdf_page], "printed_pages": [page.printed_page],
+        }
+        evidence, _base, _highlight = app_module._make_review_evidence_items(
+            hit, base, "", [q1, q2], [], False, "测试"
+        )
+        self.assertEqual(len(evidence), 1)
+        self.assertEqual(evidence[0]["pdf_page"], page.pdf_page)
+        self.assertIn("[[H]]", evidence[0]["context"])
+
+    def test_wenji_backtrace_only_applies_to_marx_engels_quanji(self) -> None:
+        fake_volume = SimpleNamespace(book="列宁全集")
+        with mock.patch.object(app_module, "_hit_volume", return_value=fake_volume), \
+             mock.patch.object(app_module, "_text_match_in_book") as matcher:
+            self.assertIsNone(app_module._prefer_wenji_evidence_for_hit(object(), "国家", kind="quote"))
+        matcher.assert_not_called()
+
+    def test_used_span_empty_when_passage_not_quoted(self) -> None:
+        self.assertEqual(app_module._review_used_span_in_passage("一段无关原文。", ["某引文"]), "")
+
+    def test_context_highlights_used_span(self) -> None:
+        passage = "前文叙述。商品是用来交换的劳动产品。后续展开。"
+        ctx = app_module._review_citation_context(passage, "商品是用来交换的劳动产品")
+        self.assertIn("[[H]]商品是用来交换的劳动产品[[/H]]", ctx)
+
+    def test_context_plain_when_no_span(self) -> None:
+        ctx = app_module._review_citation_context("一段真实原文片段。", "")
+        self.assertNotIn("[[H]]", ctx)
+        self.assertIn("一段真实原文片段", ctx)
 
 
 if __name__ == "__main__":

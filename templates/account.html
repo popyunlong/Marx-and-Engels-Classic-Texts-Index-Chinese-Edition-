@@ -246,6 +246,19 @@
           </div>
         </article>
 
+        {# 营销决策：不再售卖资源包；仅对仍持有剩余次数的老用户展示余额，新用户不出现「资源包」概念。 #}
+        {% if (state.ai_credits.research | default(0, true)) + (state.ai_credits.chat | default(0, true)) + (state.ai_credits.reader | default(0, true)) > 0 %}
+        <article class="card">
+          <h2>AI 次数额度</h2>
+          <p class="muted">研究级检索、AI随心问与 AI 导学问答每周/每日有免费额度；额度用尽后，可用已有的次数继续。以下为你账户中尚未用完的剩余次数，永久有效。</p>
+          <div class="kv">
+            <div>研究级检索 · 剩余：{{ state.ai_credits.research | default(0, true) }} 次</div>
+            <div>AI随心问 · 剩余：{{ state.ai_credits.chat | default(0, true) }} 次</div>
+            <div>AI 导学问答 · 剩余：{{ state.ai_credits.reader | default(0, true) }} 次（DeepSeek-V4-Pro）</div>
+          </div>
+        </article>
+        {% endif %}
+
         <article class="card">
           <h2>订单记录</h2>
           <div class="list">

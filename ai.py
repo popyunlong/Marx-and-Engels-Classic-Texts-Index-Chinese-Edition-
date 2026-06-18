@@ -22,6 +22,13 @@ AI_OVERRIDE_PATH = APPDATA_DIR / "ai.override.yaml"
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4"
+
+# 联想检索「重排」步骤刻意走更轻量的 flash 档：该步只在已由 Python 接地定位的真实候选段落中
+# 判断匹配度并排序，对模型的知识/措辞召回依赖低、对弱模型容忍度高；而「扩展」步（生成检索线索、
+# 召回质量的关键，最吃模型对译本措辞的记忆）仍走主通道强模型。缺省＝flash，可经环境变量覆盖。
+ASSOC_RERANK_MODEL = (
+    os.environ.get("APP_ASSOC_RERANK_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+)
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 # 智谱开放平台（bigmodel.cn）：OpenAI 兼容 /chat/completions，作为可选的「联网检索」通道，
@@ -533,8 +540,57 @@ def _as_bool(raw: Any, default: bool) -> bool:
 # 故接地路径用一个独立下限：既保证完整收尾，又（配合「择要引证 2-4 条 + 简明」提示）不至于失控。
 GROUNDED_ANSWER_MIN_TOKENS = 1300
 
-# 研究型检索的「综述」是 ~2000 字长文：需独立的高输出上限(不受被压低的 search_answer_max_tokens 限制)。
-RESEARCH_REVIEW_MAX_TOKENS = 3600
+# 研究型检索的「综述」是长文：需独立的高输出上限(不受被压低的 search_answer_max_tokens 限制)。
+# 第一要务是让模型自然写完完整文章；续写和重写也给足余量，而不是后端硬凑小结。
+RESEARCH_REVIEW_MAX_TOKENS = 16000
+RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS = 6000
+RESEARCH_REVIEW_REWRITE_MAX_TOKENS = 16000
+RESEARCH_REVIEW_CONTINUATION_ATTEMPTS = 3
+_RESEARCH_REVIEW_START_MARKERS = (
+    "【综述正文开始】",
+    "【正式综述开始】",
+    "正式综述如下：",
+    "正式综述:",
+    "正式综述：",
+    "综述正文如下：",
+    "综述正文:",
+    "综述正文：",
+)
+_RESEARCH_REVIEW_END_MARKERS = (
+    "【综述正文结束】",
+    "【正式综述结束】",
+    "（综述完）",
+    "(综述完)",
+)
+_RESEARCH_REVIEW_THINK_BLOCK_RE = re.compile(
+    r"<(?:think|thinking|analysis)>.*?</(?:think|thinking|analysis)>",
+    re.I | re.S,
+)
+_RESEARCH_REVIEW_LEAK_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"思考过程|推理过程|分析过程|内部思考|我的思考|我的分析|解题思路|写作思路|"
+    r"首先[，,]?\s*我(?:需要|要)|我需要|我们需要|用户要求|题目要求|提示词要求|"
+    r"好的|下面是|以下是|我将"
+    r")[：:，,。\s]",
+    re.I,
+)
+_RESEARCH_REVIEW_LEAK_MARKERS = (
+    "思考过程",
+    "推理过程",
+    "分析过程",
+    "内部思考",
+    "我的思考",
+    "我的分析",
+    "解题思路",
+    "写作思路",
+    "首先，我需要",
+    "首先我需要",
+    "我需要先",
+    "我们需要先",
+    "用户要求",
+    "题目要求",
+    "提示词要求",
+)
 
 
 class ZAIClient:
@@ -560,6 +616,127 @@ class ZAIClient:
             head = f"[{idx}]" if idx is not None else "-"
             lines.append(f"{head} 出处：{citation or '（出处缺失）'}\n原文：{text}")
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _research_review_has_reasoning_leak(text: str) -> bool:
+        sample = str(text or "")[:1500]
+        return bool(_RESEARCH_REVIEW_LEAK_PREFIX_RE.search(sample)) or any(
+            marker in sample for marker in _RESEARCH_REVIEW_LEAK_MARKERS
+        )
+
+    @classmethod
+    def _sanitize_research_review_output(cls, text: str, *, allow_fragment: bool = False) -> str:
+        """Keep only the formal review text and drop leaked reasoning/prompt-analysis material."""
+        s = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not s:
+            return ""
+        s = _RESEARCH_REVIEW_THINK_BLOCK_RE.sub("", s).strip()
+
+        for marker in _RESEARCH_REVIEW_START_MARKERS:
+            pos = s.find(marker)
+            if pos >= 0:
+                s = s[pos + len(marker):].strip()
+                break
+
+        for marker in _RESEARCH_REVIEW_END_MARKERS:
+            pos = s.find(marker)
+            if pos >= 0:
+                s = s[:pos].strip()
+                break
+
+        # Some models ignore markers but label the final answer after a reasoning prelude.
+        formal_match = re.search(
+            r"(?:以下(?:是|为))?(?:正式)?(?:综述|文章)(?:正文)?(?:如下)?[：:]\s*",
+            s[:2500],
+        )
+        if formal_match and cls._research_review_has_reasoning_leak(s[:formal_match.start()]):
+            s = s[formal_match.end():].strip()
+
+        if s.startswith("```"):
+            s = re.sub(r"^```(?:markdown|md)?\s*", "", s, flags=re.I).strip()
+            s = re.sub(r"\s*```$", "", s).strip()
+
+        lines = s.split("\n")
+        while lines and (not lines[0].strip() or _RESEARCH_REVIEW_LEAK_PREFIX_RE.search(lines[0])):
+            lines.pop(0)
+        s = "\n".join(lines).strip()
+
+        heading_match = re.search(r"(?m)^#{1,3}\s*(?!.*(?:思考|分析|推理|思路)).+\S", s)
+        if heading_match and heading_match.start() > 0 and cls._research_review_has_reasoning_leak(s[:heading_match.start()]):
+            s = s[heading_match.start():].strip()
+
+        for marker in (*_RESEARCH_REVIEW_START_MARKERS, *_RESEARCH_REVIEW_END_MARKERS):
+            s = s.replace(marker, "")
+        s = s.strip()
+        if not s:
+            return ""
+        if cls._research_review_has_reasoning_leak(s[:700]):
+            return ""
+        if not allow_fragment and len(s) < 300:
+            return ""
+        return s
+
+    @staticmethod
+    def _research_review_complete(text: str) -> bool:
+        """Heuristic guard for long reviews: require a visible conclusion and sentence-final punctuation."""
+        compact = " ".join(str(text or "").split())
+        if len(compact) < 600:
+            return False
+        if ZAIClient._research_review_has_reasoning_leak(compact[:1000]):
+            return False
+        tail = compact[-700:]
+        has_closing_section = any(marker in tail for marker in ("小结", "结语", "结论", "综上", "总之"))
+        stripped = tail.rstrip()
+        has_final_punctuation = stripped.endswith(("。", "！", "？", ".”", "！”", "？”", "）", "】")) or bool(
+            re.search(r"[。！？][\]）】》」』”']*(?:\[\d+\])?$", stripped)
+        )
+        looks_cut = tail.rstrip().endswith(("，", "、", "；", "：", "（", "《", "“", "「", "[", "——", "-"))
+        return has_closing_section and has_final_punctuation and not looks_cut
+
+    @staticmethod
+    def _looks_like_token_limit_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in (
+                "max_tokens",
+                "max token",
+                "maximum token",
+                "tokens limit",
+                "token limit",
+                "context length",
+                "too many tokens",
+                "exceeds",
+                "超过",
+                "上限",
+                "最大",
+            )
+        )
+
+    def _chat_research_review(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+    ) -> str:
+        token_ladder = [max_tokens]
+        for fallback in (12000, 8192, 6000):
+            if 0 < fallback < max_tokens and fallback not in token_ladder:
+                token_ladder.append(fallback)
+        last_error: AIServiceError | None = None
+        for budget in token_ladder:
+            try:
+                return self.chat_complete(
+                    messages,
+                    max_tokens=budget,
+                    allow_reasoning_fallback=False,
+                )
+            except AIServiceError as exc:
+                if not self._looks_like_token_limit_error(exc):
+                    raise
+                last_error = exc
+                LOGGER.warning("Research review token budget %s rejected, retrying lower budget: %s", budget, exc)
+        raise last_error or AIServiceError("研究综述生成失败。")
 
     def answer_search_chat(
         self,
@@ -658,7 +835,7 @@ class ZAIClient:
         )
 
     def generate_research_review(self, topic: str, passages: list[dict[str, Any]]) -> str:
-        """研究型检索综述：依据检索到的**真实原文**写一篇 ~2000 字接地综述，文中用 [N] 标注来源。
+        """研究型检索综述：依据检索到的**真实原文**写一篇接地综述，文中用 [N] 标注来源。
 
         ``passages`` 为已编号的真实命中 ``{"index","citation","text"}``（全部来自 corpus 真实命中）。
         严格接地：只依据给定原文，每处论断标注来源编号，绝不编造原文/观点/出处——引文不可伪造。
@@ -669,30 +846,89 @@ class ZAIClient:
             raise AIServiceError("没有可用于综述的检索原文。")
         topic = " ".join(str(topic or "").split())[:600]
         prompt = (
-            "请围绕用户的研究论题，写一篇约 2000 字的学术综述。下面是从本站「马克思主义经典文献库」"
+            "请围绕用户的研究论题，写一篇较充分的学术综述。下面是从本站「马克思主义经典文献库」"
             "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
             f"{block}\n\n"
             "写作要求：\n"
-            "1. 紧扣研究论题，分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
-            "形成一篇连贯、详实的综述（正文约 2000 字）。\n"
-            "2. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
-            "3. 直接引用原文时逐字照引并加引号；转述、概括也要标注来源编号。\n"
-            "4. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
+            "1. 紧扣研究论题，按问题内在层次分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
+            "形成一篇连贯、详实、自然写完的综述（正文约 2600-3800 字；如材料较少也要保证结构完整，"
+            "不要为了凑字数重复铺陈）。\n"
+            "2. 围绕每个小节的论证需要择要使用材料，优先覆盖不同资料库、不同篇章和不同论证侧面；"
+            "原则上使用 12-18 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
+            "3. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
+            "4. 直接引用原文时逐字照引并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
+            "如果某个经典表述没有出现在上述原文段落中，只能转述，不得加引号、不得伪装为该编号的逐字引文。"
+            "转述、概括也要标注来源编号。\n"
+            "5. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
             "「现有检索未充分覆盖」，但绝不杜撰内容或来源。\n"
-            "5. 用规范的学术中文，严谨、有条理；开篇点出论题，结尾作简要小结。\n\n"
+            "6. 用规范的学术中文，严谨、有条理；开篇点出论题，中段充分展开，结尾自然小结，"
+            "必须把完整文章写完，不要在小节中途、句子中途或论证尚未完成时停止。\n"
+            "7. 输出格式硬规则：第一行写【综述正文开始】，最后一行写【综述正文结束】；"
+            "两者之间只能放正式综述正文。不要输出任何思考过程、分析过程、写作计划、提示词复述、"
+            "自我说明或“我需要先……”之类内容。正式正文以“## 研究综述”开头，并以“## 小结”收束。\n\n"
             f"研究论题：{topic}"
         )
-        return self.chat_complete(
-            [
-                {
-                    "role": "system",
-                    "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
-                               "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。",
-                },
-                {"role": "user", "content": prompt},
-            ],
+        system_message = {
+            "role": "system",
+            "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
+                       "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。"
+                       "只输出最终综述正文，绝不输出思考过程、推理过程、分析草稿或提示词说明。",
+        }
+        raw_answer = self._chat_research_review(
+            [system_message, {"role": "user", "content": prompt}],
             max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
         )
+        answer = self._sanitize_research_review_output(raw_answer)
+        if not answer:
+            repair_prompt = (
+                "上一轮输出没有得到合格的正式综述正文。请重新生成一篇完整的学术综述，"
+                "不要输出思考过程、分析过程、写作计划或自我说明；只输出【综述正文开始】与"
+                "【综述正文结束】之间的正式文章。\n\n"
+                f"{prompt}"
+            )
+            raw_answer = self._chat_research_review(
+                [system_message, {"role": "user", "content": repair_prompt}],
+                max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
+            )
+            answer = self._sanitize_research_review_output(raw_answer)
+        if not answer:
+            raise AIServiceError("模型未返回可用的正式综述正文。")
+        for _ in range(RESEARCH_REVIEW_CONTINUATION_ATTEMPTS):
+            if self._research_review_complete(answer):
+                break
+            continuation_prompt = (
+                "下面这篇研究综述还没有自然完成。请从已有正文的末尾继续写下去，不要重写全文，不要重复已经写过的段落；"
+                "仍然只能依据同一批真实原文，并继续使用已有的 [N] 来源编号。请继续完成尚未展开充分的部分、"
+                "补足必要的小节，并在论证自然完成后写出完整小结。不要为了尽快收束而只写几句模板结尾，"
+                "也不要仓促结束；应把文章剩余部分自然写完。只输出续写正文，不要输出任何思考过程、分析过程、"
+                "写作计划或自我说明。\n\n"
+                f"研究论题：{topic}\n\n"
+                f"真实原文与出处：\n{block}\n\n"
+                f"已生成正文：\n{answer[-5000:]}"
+            )
+            raw_continuation = self._chat_research_review(
+                [system_message, {"role": "user", "content": continuation_prompt}],
+                max_tokens=RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
+            )
+            continuation = self._sanitize_research_review_output(raw_continuation, allow_fragment=True).strip()
+            if not continuation:
+                break
+            answer = f"{answer.rstrip()}\n\n{continuation}"
+        if not self._research_review_complete(answer):
+            rewrite_prompt = (
+                "前面的版本仍未自然写完。请重新写一篇完整的学术综述，保持严谨但不要输出思考过程。"
+                "这次请控制整体结构，确保文章一次性完整收束：有开篇、有 3-5 个自然展开的小节、有充分论证、"
+                "最后有自然的小结。不要复制未完成版本，不要只补一个结尾；请重新组织成完整文章。\n\n"
+                f"{prompt}"
+            )
+            raw_rewrite = self._chat_research_review(
+                [system_message, {"role": "user", "content": rewrite_prompt}],
+                max_tokens=RESEARCH_REVIEW_REWRITE_MAX_TOKENS,
+            )
+            rewrite = self._sanitize_research_review_output(raw_rewrite)
+            if rewrite:
+                answer = rewrite
+        return answer
 
     def expand_associative_query(self, gist: str) -> dict:
         """联想检索第一步：把用户的“大意/关键词”扩展为可在语料中检索的线索。
@@ -810,6 +1046,9 @@ class ZAIClient:
             # relation 字段，1100 会截断在数组中途→整段解析失败→无标注；故抬到 2000。
             max_tokens=2000,
             temperature=0.0,  # 重排也走确定性，保证同一输入结果稳定
+            # 重排只在已定位的真实候选中判断匹配度，刻意走更轻量的 flash 档省成本；
+            # 召回线索的「扩展」步不传 model，仍走主通道强模型保质量。
+            model=ASSOC_RERANK_MODEL,
         )
         parsed = _extract_json_object(self._coerce_message_content(answer))
         if isinstance(parsed, dict):
@@ -1237,9 +1476,12 @@ class ZAIClient:
         sources_out: list[dict[str, str]] | None = None,
         web_search_query: str | None = None,
         allow_reasoning_fallback: bool = True,
+        model: str | None = None,
     ) -> str:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
+        # 允许按调用方指定模型覆盖该通道默认模型（如马克思形象固定走更轻量的 deepseek-v4-flash）。
+        model_name = (model or "").strip() or route["model"]
         grounded_sources: list[dict[str, str]] = []
         if use_zhipu:
             messages, grounded_sources, tool_stages = self._zhipu_grounding_or_stages(messages, web_search_query)
@@ -1248,7 +1490,7 @@ class ZAIClient:
         data: dict[str, Any] = {}
         for stage_index, tools in enumerate(tool_stages):
             payload: dict[str, Any] = {
-                "model": route["model"],
+                "model": model_name,
                 "messages": messages,
                 "stream": False,
                 "temperature": self.config.temperature if temperature is None else temperature,

@@ -92,6 +92,11 @@ from membership import (
     get_admin_dashboard_first_day,
     get_admin_dashboard_metrics,
     get_ai_token_usage,
+    get_ai_token_usage_range,
+    count_ai_usage_requests,
+    get_ai_credit_balances,
+    get_ai_credit_balance,
+    consume_ai_credit,
     get_user_zhipu_limit,
     get_plan,
     get_user_ai_limit,
@@ -256,7 +261,7 @@ GROUPS_PER_PAGE = 20
 SHORT_QUERY_CHAPTER_MAX_LEN = 4
 ASSOC_RERANK_TOP = 12  # 联想检索仅对权重最高的前若干候选做 AI 标注/解释（候选多时控成本）
 ASSOC_RERANK_TOP_RESEARCH = 20  # 研究意图用更大的重排池：覆盖论题不同侧面并给出分组理由
-RESEARCH_REVIEW_SOURCES = 15     # 研究综述喂给 AI 的真实原文源条数（含名目索引权威页 + 词面命中）
+RESEARCH_REVIEW_SOURCES = 18     # 研究综述喂给 AI 的真实原文源条数：小步扩容，兼顾资料覆盖与 token 稳定
 REQUEST_TOKEN = secrets.token_urlsafe(24)
 LOGGER = configure_logging()
 DEPLOYMENT = load_deployment_settings()
@@ -512,6 +517,54 @@ RATE_LIMITS = {
     # 期刊文献 PDF 下载（每次可能触发远端镜像，较重）：单 IP 收紧。
     "reader_journalpdf_ip": (40, 60),
 }
+RESEARCH_WEEKLY_QUOTA_SETTING_KEY = "research_weekly_quota"
+RESEARCH_WEEKLY_QUOTA_DEFAULTS = {
+    "registered": 5,
+    "monthly": 15,
+    "quarterly": 20,
+    "yearly": 25,
+}
+RESEARCH_WEEKLY_QUOTA_LABELS = {
+    "registered": "登录用户",
+    "monthly": "月度会员",
+    "quarterly": "季度会员",
+    "yearly": "年度会员",
+}
+RESEARCH_QUOTA_FEATURE = "research_review"
+# DeepSeek 主通道「每日 AI token 额度」分档默认值（这里是每日参考；硬上限＝本周＝每日×AI_TOKEN_WEEKLY_FACTOR）。
+# 取舍依据：DeepSeek 价格（约 ¥2/1M 输入、¥8/1M 输出，混合约 ¥4-5/1M）与会员定价（月 ¥9 / 季 ¥24 / 年 ¥88）
+# 并兼顾 GLM 智谱日额 30k/60k/100k。给的是「封顶值」防滥用，真实用量通常远低于此；会员体验留足头寸。
+# 解析优先级：用户级 override > 套餐级 daily_ai_token_limit（套餐管理可单设）> 本分档默认 > 内置兜底。
+# 管理员/桌面不受限。值＝每日 token 参考；0＝该群体不开放付费主通道 AI（仍可用资源包次数）。可在后台改。
+AI_TOKEN_DAILY_SETTING_KEY = "ai_token_daily_limits"
+AI_TOKEN_DAILY_DEFAULTS = {
+    # 马克思形象（吉祥物）AI 已独立成「无限量基础服务」(走 deepseek-v4-flash)，不计入此额度，
+    # 故 guest 在此处＝0：游客除吉祥物外不调用付费主通道 AI（随心问/导学本就需登录+权限）。
+    "guest": 0,
+    "registered": 10000,
+    # 会员档（定价 ¥9/¥24/¥88 + 兼顾 GLM 智谱日额 30k/60k/100k 统筹）：DeepSeek 主通道更便宜，
+    # 给约 1.1–1.5× 于 GLM 的日额。研究综述按「完整 token（含注入原文）」计入本额度，故封顶须容下
+    # 研究周次数(5/15/20/25)摊到每日的量 + 随心问/导学；这是防滥用封顶，真实用量通常远低于此。
+    "monthly": 40000,
+    "quarterly": 70000,
+    "yearly": 110000,
+}
+# 马克思形象（吉祥物）专用模型：固定走更轻量/更省的 deepseek-v4-flash，且不计日额度（基础服务）。
+# 模型名可经环境变量覆盖，以适配线上中转网关的实际模型命名。
+MASCOT_AI_MODEL = os.environ.get("MASCOT_AI_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
+AI_TOKEN_DAILY_LABELS = {
+    "guest": "访客（未登录）",
+    "registered": "登录用户（未开通会员）",
+    "monthly": "月度会员",
+    "quarterly": "季度会员",
+    "yearly": "年度会员",
+}
+# 余额提示阈值：剩余占比 ≤ 此值时前端给出「即将耗尽」预警。
+AI_TOKEN_LOW_RATIO = 0.15
+# 弹性额度：每日额度是「软上限/参考配速」，真正的硬上限是「本周＝每日×此系数」。
+# 这样某天集中做多次研究型检索（单次需较多 token，否则会被截断）也不会被每日额度卡死，
+# 只要本周累计未超「每日×7」即可灵活借用；周成本与「按每日封顶天天用满」一致，不增成本。
+AI_TOKEN_WEEKLY_FACTOR = 7
 # 极端真实 IP 扒站者的保守自动封禁阈值(双高：日总量 且 单分钟峰值)。仅封公网 IP actor，
 # 永不封登录会员/内网/监控；可经设置 reader_auto_ban 或 env 调整、DISABLE_READER_AUTO_BAN 关闭。
 READER_AUTO_BAN_DAILY_MIN = 2000
@@ -664,6 +717,211 @@ def _require_local_console() -> None:
         abort(403, description="本地控制台仅允许从当前机器访问。")
 
 
+def _research_weekly_quota_settings() -> dict[str, int]:
+    raw = get_setting(RESEARCH_WEEKLY_QUOTA_SETTING_KEY, {})
+    raw = raw if isinstance(raw, dict) else {}
+    settings: dict[str, int] = {}
+    for key, default in RESEARCH_WEEKLY_QUOTA_DEFAULTS.items():
+        try:
+            settings[key] = max(0, int(raw.get(key, default)))
+        except (TypeError, ValueError):
+            settings[key] = int(default)
+    return settings
+
+
+def _research_quota_week_window() -> dict[str, str]:
+    tz = timezone(timedelta(hours=8))
+    now = datetime.now(timezone.utc).astimezone(tz)
+    start_date = now.date() - timedelta(days=now.weekday())
+    end_date = start_date + timedelta(days=6)
+    reset_date = start_date + timedelta(days=7)
+    reset_at = datetime(reset_date.year, reset_date.month, reset_date.day, tzinfo=tz)
+    return {
+        "start_day": start_date.isoformat(),
+        "end_day": end_date.isoformat(),
+        "reset_at": reset_at.isoformat(timespec="seconds"),
+    }
+
+
+def _research_quota_bucket_for_user(user: dict | None) -> str:
+    if not user:
+        return "registered"
+    membership = getattr(g, "membership", None)
+    if membership is None:
+        try:
+            membership = get_membership_snapshot(int(user["id"]))
+        except Exception:
+            membership = None
+    if not membership or not getattr(membership, "is_active_member", False):
+        return "registered"
+    code = str(getattr(membership, "plan_code", "") or "").strip().lower()
+    if code in {"yearly", "annual", "year", "annually"} or "year" in code or "annual" in code:
+        return "yearly"
+    if code in {"quarterly", "quarter", "season"} or "quarter" in code or "season" in code:
+        return "quarterly"
+    if code in {"monthly", "month"} or "month" in code:
+        return "monthly"
+    plan = get_plan(code) if code else None
+    try:
+        months = int((plan or {}).get("interval_months") or 0)
+    except (TypeError, ValueError):
+        months = 0
+    if months >= 12:
+        return "yearly"
+    if months >= 3:
+        return "quarterly"
+    if months >= 1:
+        return "monthly"
+    return "registered"
+
+
+def _research_quota_payload(user: dict | None = None) -> dict:
+    if user is None and has_request_context():
+        user = getattr(g, "current_user", None)
+    # 管理员豁免：研究型检索不限次数（与 AI token / 智谱子配额一致），便于线上验证与运营。
+    if _is_admin_user(user):
+        week = _research_quota_week_window()
+        return {
+            "bucket": "admin",
+            "label": "管理员",
+            "limit": None,
+            "used": 0,
+            "free_remaining": None,
+            "pack_credits": 0,
+            "remaining": None,
+            "allowed": True,
+            "unlimited": True,
+            "start_day": week["start_day"],
+            "end_day": week["end_day"],
+            "reset_at": week["reset_at"],
+            "message": "管理员研究型检索不限次数",
+        }
+    bucket = _research_quota_bucket_for_user(user)
+    settings = _research_weekly_quota_settings()
+    limit = int(settings.get(bucket, RESEARCH_WEEKLY_QUOTA_DEFAULTS[bucket]))
+    week = _research_quota_week_window()
+    user_id = int(user["id"]) if user and user.get("id") else None
+    used = count_ai_usage_requests(
+        user_id=user_id,
+        session_key=_visitor_session_key() if has_request_context() else "",
+        start_day=week["start_day"],
+        end_day=week["end_day"],
+        feature=RESEARCH_QUOTA_FEATURE,
+        success_only=True,
+    )
+    free_remaining = max(0, limit - used)
+    # 资源包次数（永久有效、可叠加）：免费周额用完后接续使用。
+    pack_credits = get_ai_credit_balance(user_id, "research") if user_id else 0
+    remaining = free_remaining + pack_credits
+    label = RESEARCH_WEEKLY_QUOTA_LABELS.get(bucket, bucket)
+    if pack_credits > 0:
+        message = f"{label}本周研究型检索剩余 {free_remaining}/{limit} 次（另有资源包 {pack_credits} 次）"
+    else:
+        message = f"{label}本周研究型检索剩余 {free_remaining}/{limit} 次"
+    return {
+        "bucket": bucket,
+        "label": label,
+        "limit": limit,
+        "used": used,
+        "free_remaining": free_remaining,
+        "pack_credits": pack_credits,
+        "remaining": remaining,
+        "allowed": remaining > 0,
+        "start_day": week["start_day"],
+        "end_day": week["end_day"],
+        "reset_at": week["reset_at"],
+        "message": message,
+    }
+
+
+def _ai_token_daily_settings() -> dict[str, int]:
+    """各群体每日 DeepSeek token 额度（后台可改，缺项回退内置默认）。"""
+    raw = get_setting(AI_TOKEN_DAILY_SETTING_KEY, {})
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, int] = {}
+    for key, default in AI_TOKEN_DAILY_DEFAULTS.items():
+        try:
+            out[key] = max(0, int(raw.get(key, default)))
+        except (TypeError, ValueError):
+            out[key] = int(default)
+    return out
+
+
+def _ai_token_bucket_for_user(user: dict | None) -> str:
+    """AI token 分档：未登录＝guest；其余复用研究额度的会员分档逻辑。"""
+    if not user:
+        return "guest"
+    return _research_quota_bucket_for_user(user)
+
+
+def _effective_ai_limit_info(user: dict | None) -> dict:
+    """有效 token 额度：override > 套餐级 > 分档默认；管理员/桌面不限（daily_limit=None）。
+
+    返回 daily_limit（每日参考软上限）与 weekly_limit（本周硬上限＝每日×系数）。弹性口径：
+    真正拦截看 weekly；每日额度仅作配速展示，允许某日集中借用本周池（防研究综述被截断）。
+    """
+    if DEPLOYMENT.is_desktop:
+        return {"daily_limit": None, "weekly_limit": None, "bucket": "desktop", "label": "桌面版", "source": "desktop"}
+    if _is_admin_user(user):
+        return {"daily_limit": None, "weekly_limit": None, "bucket": "admin", "label": "管理员", "source": "admin"}
+    bucket = _ai_token_bucket_for_user(user)
+    label = AI_TOKEN_DAILY_LABELS.get(bucket, bucket)
+    base = get_user_ai_limit(int(user["id"])) if user and user.get("id") else get_user_ai_limit(None)
+    if base.get("user_override") is not None:
+        daily = int(base["user_override"]); source = "user"
+    elif base.get("plan_limit") is not None:
+        daily = int(base["plan_limit"]); source = "plan"
+    else:
+        daily = int(_ai_token_daily_settings().get(bucket, 0)); source = "default"
+    weekly = daily * AI_TOKEN_WEEKLY_FACTOR
+    return {"daily_limit": daily, "weekly_limit": weekly, "bucket": bucket, "label": label, "source": source}
+
+
+def _ai_token_quota_payload(user: dict | None = None) -> dict:
+    """前端余额提示用：本周 DeepSeek 额度剩余（硬上限）+ 今日已用（参考）+ 预警/耗尽 + 周一恢复。"""
+    if user is None and has_request_context():
+        user = getattr(g, "current_user", None)
+    info = _effective_ai_limit_info(user)
+    weekly_limit = info["weekly_limit"]
+    daily_limit = info["daily_limit"]
+    week = _research_quota_week_window()
+    day, _, _, _ = _beijing_day_bounds()
+    uid = int(user["id"]) if user and user.get("id") else None
+    skey = _visitor_session_key() if has_request_context() else ""
+    today_used = 0
+    weekly_used = 0
+    if has_request_context():
+        today_used = get_ai_token_usage(day=day, user_id=uid, session_key=skey)
+        weekly_used = get_ai_token_usage_range(
+            start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=skey
+        )
+    if weekly_limit is None:
+        return {
+            "unlimited": True, "limit": None, "used": weekly_used, "remaining": None,
+            "ratio": 1.0, "low": False, "exhausted": False, "reset_at": week["reset_at"],
+            "daily_limit": None, "today_used": today_used,
+            "bucket": info["bucket"], "label": info["label"], "message": "AI 额度不限",
+        }
+    weekly_limit = int(weekly_limit)
+    remaining = max(0, weekly_limit - weekly_used)
+    ratio = (remaining / weekly_limit) if weekly_limit > 0 else 0.0
+    exhausted = remaining <= 0
+    low = (not exhausted) and ratio <= AI_TOKEN_LOW_RATIO
+    pct = int(round(ratio * 100))
+    if weekly_limit <= 0:
+        message = "当前身份未开放免费 AI 额度"
+    elif exhausted:
+        message = "本周 AI 额度已用完，下周一恢复"
+    else:
+        message = f"本周 AI 额度剩余约 {pct}%"
+    return {
+        "unlimited": False, "limit": weekly_limit, "used": weekly_used, "remaining": remaining,
+        "ratio": round(ratio, 4), "low": low, "exhausted": exhausted, "reset_at": week["reset_at"],
+        "daily_limit": daily_limit, "today_used": today_used,
+        "bucket": info["bucket"], "label": info["label"], "message": message,
+    }
+
+
 def current_view_state() -> dict:
     _refresh_ai_runtime_if_needed()
     full_mode = BASE_RUNTIME.full_resources_ready
@@ -704,6 +962,13 @@ def current_view_state() -> dict:
         "public_base_url": DEPLOYMENT.public_base_url,
         "local_console_enabled": DEPLOYMENT.is_desktop,
         "feature_access": feature_access,
+        "research_quota": _research_quota_payload() if has_request_context() else {},
+        "ai_token_quota": _ai_token_quota_payload() if has_request_context() else {},
+        "ai_credits": (
+            get_ai_credit_balances(int(getattr(g, "current_user", None)["id"]))
+            if has_request_context() and getattr(g, "current_user", None)
+            else {"research": 0, "chat": 0, "reader": 0}
+        ),
     }
 
 
@@ -2666,23 +2931,75 @@ def _estimate_tokens_from_text(*parts: object) -> int:
 
 
 class _AIQuotaExceeded(Exception):
-    def __init__(self, *, used: int, limit: int, reset_at: str, message: str = "今日 AI token 已达到限额。"):
+    def __init__(self, *, used: int, limit: int, reset_at: str, message: str = "本周 AI token 额度已用完，下周一恢复。"):
         super().__init__(message)
         self.used = used
         self.limit = limit
         self.reset_at = reset_at
 
 
-def _require_ai_quota_or_raise() -> dict:
+def _require_ai_quota_or_raise(credit_kind: str = "") -> dict:
+    """AI token 闸门（弹性周额度）：硬上限是「本周累计＜每日×系数」，每日额度仅作配速，
+    允许某日集中借用本周池（防研究综述被截断）。``credit_kind`` 非空（'research'/'chat'/'reader'）时，
+    若本周额度已用尽但持有对应「资源包」次数，则放行并标记 over_free_limit=True，调用方成功后扣 1 次。
+    （'reader' = 阅读器 AI 导学问答，仅 DeepSeek-V4-Pro 主通道传入，智谱联网通道不抵扣资源包次数。）
+    """
     user = getattr(g, "current_user", None)
     session_key = _visitor_session_key()
-    day, _, _, reset_at = _beijing_day_bounds()
-    limit_info = get_user_ai_limit(int(user["id"])) if user else get_user_ai_limit(None)
-    used = get_ai_token_usage(day=day, user_id=int(user["id"]) if user else None, session_key=session_key)
-    limit = limit_info.get("limit")
-    if limit is not None and used >= int(limit):
-        raise _AIQuotaExceeded(used=used, limit=int(limit), reset_at=reset_at)
-    return {"day": day, "session_key": session_key, "used": used, **limit_info}
+    day, _, _, _ = _beijing_day_bounds()
+    week = _research_quota_week_window()
+    reset_at = week["reset_at"]
+    # 有效额度：用户级 override > 套餐级 > 分档默认（含登录用户/访客）；管理员/桌面不限。
+    eff = _effective_ai_limit_info(user)
+    weekly_limit = eff["weekly_limit"]
+    uid = int(user["id"]) if user else None
+    today_used = get_ai_token_usage(day=day, user_id=uid, session_key=session_key)
+    weekly_used = get_ai_token_usage_range(
+        start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=session_key
+    )
+    over_free_limit = weekly_limit is not None and weekly_used >= int(weekly_limit)
+    credit_kind = str(credit_kind or "").strip().lower()
+    credit_balance = (
+        get_ai_credit_balance(int(user["id"]), credit_kind)
+        if user and credit_kind in {"research", "chat", "reader"} else 0
+    )
+    if over_free_limit and credit_balance <= 0:
+        raise _AIQuotaExceeded(used=weekly_used, limit=int(weekly_limit), reset_at=reset_at)
+    return {
+        "day": day,
+        "session_key": session_key,
+        "used": today_used,
+        "weekly_used": weekly_used,
+        "over_free_limit": bool(over_free_limit),
+        "credit_kind": credit_kind if credit_kind in {"research", "chat", "reader"} else "",
+        "credit_balance": int(credit_balance),
+        "limit": weekly_limit,
+        "daily_limit": eff["daily_limit"],
+        "weekly_limit": weekly_limit,
+        "source": eff["source"],
+        "plan_code": "",
+        "plan_name": eff.get("label", ""),
+        "user_override": None,
+        "plan_limit": None,
+        "bucket": eff["bucket"],
+    }
+
+
+def _ai_usage_context() -> dict:
+    """不设限额的 AI 用量上下文（day + session_key），供「无限量」通道（如马克思形象）记账用。"""
+    day, _, _, _ = _beijing_day_bounds()
+    return {"day": day, "session_key": _visitor_session_key()}
+
+
+def _consume_credit_if_paid(quota: dict, kind: str) -> None:
+    """成功回答后，若本次是「免费每日额度已用尽、靠资源包放行」的付费使用，则扣 1 次对应次数。"""
+    if not quota or not quota.get("over_free_limit"):
+        return
+    if str(quota.get("credit_kind") or "") != kind:
+        return
+    user = getattr(g, "current_user", None)
+    if user:
+        consume_ai_credit(int(user["id"]), kind, reason=f"consume:{kind}")
 
 
 def _require_zhipu_quota_or_raise(quota: dict) -> None:
@@ -2737,14 +3054,22 @@ def _record_ai_usage(
     success: bool = True,
     error: str = "",
     provider: str = "",
+    model: str = "",
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
 ) -> None:
     # 豁免的监控程序：其 AI 调用不计入 ai_usage(总览 AI 请求/token/高用量名单)。
     if has_request_context() and _is_monitoring_request():
         return
     user = getattr(g, "current_user", None)
     try:
-        prompt_tokens = _estimate_tokens_from_text(*prompt_parts)
-        completion_tokens = _estimate_tokens_from_text(completion_text)
+        # 默认按文本估算；调用方可显式传入 token 数（如研究综述要把「注入的真实原文」计入输入，
+        # 而 prompt_excerpt 仍只留检索词，不污染审计）。
+        est_prompt = _estimate_tokens_from_text(*prompt_parts) if prompt_tokens is None else max(0, int(prompt_tokens))
+        est_completion = (
+            _estimate_tokens_from_text(completion_text) if completion_tokens is None else max(0, int(completion_tokens))
+        )
+        prompt_tokens, completion_tokens = est_prompt, est_completion
         if not success and completion_tokens == 0:
             completion_tokens = 0
         # 仅留存用户真实输入（问题与选中文本，即 prompt_parts 中的字符串项），不含系统
@@ -2758,6 +3083,8 @@ def _record_ai_usage(
             usage_provider, usage_model = "zhipu", AI_CONFIG.zhipu_model
         else:
             usage_provider, usage_model = AI_CONFIG.provider, AI_CONFIG.model
+        if model:
+            usage_model = model  # 调用方指定的模型（如马克思形象固定 deepseek-v4-flash）
         record_ai_usage(
             user_id=int(user["id"]) if user else None,
             session_key=str((quota or {}).get("session_key") or _visitor_session_key()),
@@ -3455,6 +3782,12 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "audience_feature_access": _audience_feature_access_rows(access_policy),
         "audience_access_labels": AUDIENCE_ACCESS_LABELS,
         "plan_feature_access": _plan_feature_access_rows(plans_all, access_policy),
+        "research_quota_settings": _research_weekly_quota_settings(),
+        "research_quota_labels": RESEARCH_WEEKLY_QUOTA_LABELS,
+        "ai_token_quota_settings": _ai_token_daily_settings(),
+        "ai_token_quota_labels": AI_TOKEN_DAILY_LABELS,
+        "ai_token_quota_defaults": AI_TOKEN_DAILY_DEFAULTS,
+        "control_ai_token_quota_url": url_for("admin_ai_token_quota") if remote_admin else "",
         "users": users,
         "user_q": search_text,
         "feature_access_keys": FEATURE_ACCESS_KEYS,
@@ -3483,6 +3816,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_ai_access_url": url_for("admin_ai_access") if remote_admin else "",
         "control_ai_usage_url": url_for("admin_ai_usage") if remote_admin else "",
         "control_reader_access_url": url_for("admin_reader_access") if remote_admin else "",
+        "control_research_quota_url": url_for("admin_research_quota") if remote_admin else "",
         "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
         "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
         "control_feature_tags_url": url_for("admin_feature_tags") if remote_admin else url_for("control_feature_tags"),
@@ -3807,6 +4141,10 @@ def _handle_plans_submit(*, remote_admin: bool):
             badge=(request.form.get("badge") or "").strip(),
             is_active=_form_bool("is_active"),
             sort_order=_form_int("sort_order", 0),
+            kind=(request.form.get("kind") or "membership").strip(),
+            research_credits=_form_int("research_credits", 0),
+            chat_credits=_form_int("chat_credits", 0),
+            reader_credits=_form_int("reader_credits", 0),
         )
     except ValueError as exc:
         _log_management_action(
@@ -3828,6 +4166,58 @@ def _handle_plans_submit(*, remote_admin: bool):
     )
     flash(f"套餐 {plan.get('name') or plan.get('code') or ''} 已保存。", "success")
     return _management_redirect(remote_admin, "plans")
+
+
+def _handle_research_quota_submit(*, remote_admin: bool):
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，研究型检索额度请在网站 /admin 管理。")
+    try:
+        values = {
+            key: _form_int(f"research_quota_{key}", default)
+            for key, default in RESEARCH_WEEKLY_QUOTA_DEFAULTS.items()
+        }
+    except ValueError:
+        flash("研究型检索次数必须是有效数字。", "warning")
+        return _management_redirect(remote_admin, "members")
+    values = {key: max(0, int(value)) for key, value in values.items()}
+    set_setting(RESEARCH_WEEKLY_QUOTA_SETTING_KEY, values, updated_by=_management_actor_label(remote_admin))
+    _log_management_action(
+        action="research_quota.save",
+        target=RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+        result="success",
+        remote_admin=remote_admin,
+        details=values,
+    )
+    flash("研究型检索每周次数额度已保存。", "success")
+    return _management_redirect(remote_admin, "members")
+
+
+def _handle_ai_token_quota_submit(*, remote_admin: bool):
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，AI 每日额度请在网站 /admin 管理。")
+    try:
+        values = {
+            key: _form_int(f"ai_token_{key}", default)
+            for key, default in AI_TOKEN_DAILY_DEFAULTS.items()
+        }
+    except ValueError:
+        flash("每日 AI token 额度必须是有效数字。", "warning")
+        return _management_redirect(remote_admin, "members")
+    values = {key: max(0, int(value)) for key, value in values.items()}
+    set_setting(AI_TOKEN_DAILY_SETTING_KEY, values, updated_by=_management_actor_label(remote_admin))
+    _log_management_action(
+        action="ai_token_quota.save",
+        target=AI_TOKEN_DAILY_SETTING_KEY,
+        result="success",
+        remote_admin=remote_admin,
+        details=values,
+    )
+    flash("每日 AI token 额度已保存。", "success")
+    return _management_redirect(remote_admin, "members")
 
 
 def _handle_membership_grant_submit(*, remote_admin: bool):
@@ -5151,17 +5541,19 @@ def handle_redirect(error):
 def handle_ai_quota_exceeded(error):
     payload = {
         "ok": False,
-        "error": str(error) or "今日 AI token 已达到限额。",
+        "error": str(error) or "本周 AI token 额度已用完，下周一恢复。",
         "used_tokens": error.used,
-        "daily_limit": error.limit,
+        "weekly_limit": error.limit,
         "reset_at": error.reset_at,
+        # 429 时也带回最新额度，便于前端刷新余额条。
+        "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
     }
     if request.path.startswith("/api/"):
         return jsonify(payload), 429
     return (
         render_template(
             "error.html",
-            title="AI token 已用完",
+            title="AI 额度已用完",
             message=payload["error"],
             state=current_view_state(),
         ),
@@ -5569,7 +5961,9 @@ def delete_account():
 @app.route("/pricing")
 def pricing():
     state = current_view_state()
-    plans = list_active_plans()
+    # 营销决策：会员套餐页不再陈列/出售资源包（credit_pack），只展示按月会员套餐；
+    # 已购资源包次数仍可在会员中心查看余额并继续使用，仅停止售卖入口。
+    plans = [p for p in list_active_plans() if (p.get("kind") or "membership") != "credit_pack"]
     next_url = _safe_next_url(request.args.get("next"))
     return render_template(
         "pricing.html",
@@ -5590,6 +5984,10 @@ def create_checkout(plan_code: str):
     plan = get_plan(plan_code)
     if not plan or not plan.get("is_active"):
         abort(404, description="未找到可购买的套餐。")
+    # 营销决策：已停止售卖资源包（credit_pack）。即便有人持旧链接直达，也一律拒绝下单；
+    # 已购次数仍可正常使用，仅关闭新购入口。
+    if (plan.get("kind") or "membership") == "credit_pack":
+        abort(404, description="该资源包已停止售卖。")
     order = create_pending_order(user_id=int(g.current_user["id"]), plan_code=plan_code)
     return _build_payment_checkout_redirect(order, plan, g.current_user)
 
@@ -6079,6 +6477,16 @@ def control_content_scan():
 @app.post("/admin/plans")
 def admin_plans():
     return _handle_plans_submit(remote_admin=True)
+
+
+@app.post("/admin/research-quota")
+def admin_research_quota():
+    return _handle_research_quota_submit(remote_admin=True)
+
+
+@app.post("/admin/ai-token-quota")
+def admin_ai_token_quota():
+    return _handle_ai_token_quota_submit(remote_admin=True)
 
 
 @app.post("/admin/memberships/grant")
@@ -7611,6 +8019,826 @@ def _attach_viewer_payload(
     return hit
 
 
+RESEARCH_REVIEW_PASSAGE_MAX_CHARS = 900
+RESEARCH_REVIEW_PASSAGE_MIN_CHARS = 280
+
+
+def _plain_hit_context(hit: dict) -> str:
+    return " ".join(
+        str(hit.get("context") or "").replace("[[H]]", "").replace("[[/H]]", "").split()
+    )
+
+
+def _sentence_chunks(text: str) -> list[str]:
+    chunks = re.findall(r"[^。！？；;!?]+[。！？；;!?]?", text)
+    return [c.strip() for c in chunks if c and c.strip()]
+
+
+def _trim_review_passage_to_sentence(text: str, max_chars: int = RESEARCH_REVIEW_PASSAGE_MAX_CHARS) -> str:
+    text = " ".join(str(text or "").split())
+    if len(text) <= max_chars:
+        return text
+    head = text[:max_chars]
+    cut = max(head.rfind(stop) for stop in ("。", "！", "？", "；", ";", "!", "?"))
+    if cut >= max(180, max_chars // 2):
+        return head[: cut + 1].strip()
+    return head.strip()
+
+
+def _best_review_unit_index(units: list[str], anchors: list[str]) -> int:
+    if not units:
+        return -1
+    norm_anchors = [normalize(a) for a in anchors if normalize(a)]
+    if not norm_anchors:
+        return 0
+    best_idx = 0
+    best_score = -1
+    for idx, unit in enumerate(units):
+        unit_norm = normalize(unit)
+        score = 0
+        for anchor in norm_anchors:
+            if anchor and anchor in unit_norm:
+                score += 1000 + len(anchor)
+            else:
+                aset = set(anchor)
+                score += len(aset & set(unit_norm))
+        if score > best_score:
+            best_idx = idx
+            best_score = score
+    return best_idx
+
+
+def _window_review_units(units: list[str], center_idx: int) -> str:
+    if not units:
+        return ""
+    center_idx = max(0, min(center_idx, len(units) - 1))
+    selected = [units[center_idx]]
+    left = center_idx - 1
+    right = center_idx + 1
+    while len(" ".join(selected)) < RESEARCH_REVIEW_PASSAGE_MIN_CHARS and (left >= 0 or right < len(units)):
+        if right < len(units):
+            candidate = " ".join(selected + [units[right]])
+            if len(candidate) <= RESEARCH_REVIEW_PASSAGE_MAX_CHARS:
+                selected.append(units[right])
+            right += 1
+        if len(" ".join(selected)) >= RESEARCH_REVIEW_PASSAGE_MIN_CHARS:
+            break
+        if left >= 0:
+            candidate = " ".join([units[left]] + selected)
+            if len(candidate) <= RESEARCH_REVIEW_PASSAGE_MAX_CHARS:
+                selected.insert(0, units[left])
+            left -= 1
+    return _trim_review_passage_to_sentence(" ".join(selected))
+
+
+def _research_review_passage_text(hit_obj, hit_payload: dict, topic: str) -> str:
+    """Extract a complete sentence/paragraph window for review writing, not the short UI highlight context."""
+    context_plain = _plain_hit_context(hit_payload)
+    highlighted = _hit_highlight_text(hit_payload, "")
+    anchors = [highlighted, context_plain[:120], topic]
+
+    raw_pages: list[str] = []
+    for page in getattr(hit_obj, "pages", []) or []:
+        raw = str(getattr(page, "raw_text", "") or "")
+        if raw.strip():
+            raw_pages.append(raw)
+
+    source_file = str(hit_payload.get("source_file") or "")
+    pdf_pages = [int(p) for p in (hit_payload.get("pdf_pages") or []) if str(p).isdigit()]
+    if corpus and source_file and pdf_pages:
+        try:
+            volume = corpus.get_volume_by_source_file(source_file)
+        except Exception:
+            volume = None
+        if volume:
+            page_to_index = {int(p.pdf_page): idx for idx, p in enumerate(volume.pages)}
+            for pdf_page in pdf_pages[:1]:
+                idx = page_to_index.get(pdf_page)
+                if idx is None:
+                    continue
+                for j in range(max(0, idx - 1), min(len(volume.pages), idx + 2)):
+                    raw = str(volume.pages[j].raw_text or "")
+                    if raw.strip() and raw not in raw_pages:
+                        raw_pages.append(raw)
+
+    raw_text = "\n\n".join(raw_pages)
+    paragraphs = [
+        " ".join(part.split())
+        for part in re.split(r"\n\s*\n+", raw_text)
+        if len(" ".join(part.split())) >= 40
+    ]
+
+    if paragraphs:
+        idx = _best_review_unit_index(paragraphs, anchors)
+        chosen = paragraphs[idx] if idx >= 0 else paragraphs[0]
+        if len(chosen) > RESEARCH_REVIEW_PASSAGE_MAX_CHARS:
+            sentences = _sentence_chunks(chosen)
+            if sentences:
+                return _window_review_units(sentences, _best_review_unit_index(sentences, anchors))
+        return _window_review_units(paragraphs, idx)
+
+    fallback_sentences = _sentence_chunks(context_plain)
+    if fallback_sentences:
+        return _window_review_units(fallback_sentences, _best_review_unit_index(fallback_sentences, anchors))
+    return _trim_review_passage_to_sentence(context_plain or highlighted)
+
+
+# 综述正文里「逐字引用」的片段：抓各种引号内的内容（中文「」『』""，英文 ""）。
+_REVIEW_QUOTE_RE = re.compile(r'[“"「『]([^“”"」』\n]{4,}?)[”"」』]')
+_REVIEW_REF_RE = re.compile(r"\[([0-9][0-9\s,，、;；]*)\]")
+
+
+def _extract_review_quotes(review_md: str) -> list[str]:
+    """综述正文中被引号包起来的逐字引文；长引文优先（更具体、便于精确定位高亮）。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in _REVIEW_QUOTE_RE.findall(review_md or ""):
+        s = " ".join(str(raw).split())
+        key = normalize(s)
+        if len(key) >= 4 and key not in seen:
+            seen.add(key)
+            out.append(s)
+    out.sort(key=len, reverse=True)
+    return out
+
+
+def _review_ref_indices(text: str) -> set[int]:
+    indices: set[int] = set()
+    for raw in _REVIEW_REF_RE.findall(text or ""):
+        for part in re.split(r"[\s,，、;；]+", raw):
+            if part.isdigit():
+                indices.add(int(part))
+    return indices
+
+
+def _strip_review_refs(text: str) -> str:
+    text = re.sub(r"(?m)^#{1,6}\s*", "", text or "")
+    text = _REVIEW_REF_RE.sub("", text)
+    return " ".join(text.split())
+
+
+def _review_cited_units(review_md: str) -> dict[int, list[str]]:
+    """Return review sentence/paragraph units keyed by the [N] source numbers they cite."""
+    by_index: dict[int, list[str]] = {}
+    text = str(review_md or "").replace("\r\n", "\n").replace("\r", "\n")
+    for match in _REVIEW_REF_RE.finditer(text):
+        refs = _review_ref_indices(match.group(0))
+        if not refs:
+            continue
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_end = text.find("\n", match.end())
+        if line_end < 0:
+            line_end = len(text)
+        unit = " ".join(text[line_start:line_end].split())
+        cleaned = _strip_review_refs(unit)
+        if not cleaned:
+            continue
+        for idx in refs:
+            items = by_index.setdefault(idx, [])
+            if cleaned not in items:
+                items.append(cleaned)
+    return by_index
+
+
+def _review_quotes_by_index(review_md: str) -> dict[int, list[str]]:
+    """Group quoted review text by the nearest source numbers cited after the quote."""
+    by_index: dict[int, list[str]] = {}
+    seen_by_index: dict[int, set[str]] = {}
+    text = str(review_md or "")
+    for match in _REVIEW_QUOTE_RE.finditer(text):
+        q = " ".join(match.group(1).split())
+        key = normalize(q)
+        if len(key) < 4:
+            continue
+        following = text[match.end(): match.end() + 120]
+        boundary = re.search(r"[\n。！？]", following)
+        window = following[: boundary.end()] if boundary else following
+        refs = _review_ref_indices(window)
+        if not refs:
+            preceding = text[max(0, match.start() - 80): match.start()]
+            boundary_pos = max(preceding.rfind("。"), preceding.rfind("！"), preceding.rfind("？"), preceding.rfind("\n"))
+            refs = _review_ref_indices(preceding[boundary_pos + 1:])
+        for idx in refs:
+            seen = seen_by_index.setdefault(idx, set())
+            if key in seen:
+                continue
+            seen.add(key)
+            by_index.setdefault(idx, []).append(q)
+    for quotes in by_index.values():
+        quotes.sort(key=len, reverse=True)
+    return by_index
+
+
+def _normalized_span_in_text(text: str, needle: str) -> str:
+    """Find a normalized needle in text and return the original text span."""
+    nneedle = normalize(needle)
+    if not text or len(nneedle) < 4:
+        return ""
+    chars: list[str] = []
+    index_map: list[int] = []
+    for pos, ch in enumerate(text):
+        nch = normalize(ch)
+        if not nch:
+            continue
+        chars.append(nch)
+        index_map.extend([pos] * len(nch))
+    haystack = "".join(chars)
+    found = haystack.find(nneedle)
+    if found < 0 or found + len(nneedle) - 1 >= len(index_map):
+        return ""
+    start = index_map[found]
+    end = index_map[found + len(nneedle) - 1] + 1
+    return text[start:end]
+
+
+def _char_bigrams(text: str) -> set[str]:
+    norm = normalize(text)
+    if len(norm) < 2:
+        return set()
+    return {norm[i:i + 2] for i in range(len(norm) - 1)}
+
+
+def _best_review_cited_sentence_in_passage(passage_text: str, cited_units: list[str]) -> str:
+    """For paraphrased [N] citations, pick the source sentence most tied to the cited review sentence."""
+    if not passage_text or not cited_units:
+        return ""
+    source_sentences = [s for s in _sentence_chunks(passage_text) if len(normalize(s)) >= 8]
+    if not source_sentences:
+        return ""
+    best_sentence = ""
+    best_score = 0.0
+    for unit in cited_units:
+        unit_bigrams = _char_bigrams(_strip_review_refs(unit))
+        if len(unit_bigrams) < 4:
+            continue
+        for sentence in source_sentences:
+            sent_bigrams = _char_bigrams(sentence)
+            if not sent_bigrams:
+                continue
+            overlap = len(unit_bigrams & sent_bigrams)
+            score = overlap / max(1, min(len(unit_bigrams), len(sent_bigrams)))
+            if overlap >= 6 and score > best_score:
+                best_score = score
+                best_sentence = sentence
+    return best_sentence if best_score >= 0.18 else ""
+
+
+def _review_used_span_in_passage(passage_text: str, quotes: list[str]) -> str:
+    """返回 passage 文本中被综述逐字引用到的最长真实子串（用于原样高亮）；无则空。
+
+    先原样匹配；标点/全半角差异时用引文前缀近似定位，确保「亮标」落在综述真正用到的句子上。
+    """
+    if not passage_text or not quotes:
+        return ""
+    norm_passage = normalize(passage_text)
+    for q in quotes:  # 已按长度降序
+        if q and q in passage_text:
+            return q
+    for q in quotes:
+        if len(normalize(q)) < 6 or normalize(q) not in norm_passage:
+            continue
+        normalized_span = _normalized_span_in_text(passage_text, q)
+        if normalized_span:
+            return normalized_span
+        head = q[: min(len(q), 14)].strip()
+        pos = passage_text.find(head) if head else -1
+        if pos >= 0:
+            return passage_text[pos: pos + len(q)]
+    return ""
+
+
+def _hit_first_page_index(hit_obj, volume) -> int:
+    hit_pages = getattr(hit_obj, "pages", []) or []
+    if hit_pages:
+        pdf_page = int(getattr(hit_pages[0], "pdf_page", 1) or 1)
+        for idx, page in enumerate(getattr(volume, "pages", []) or []):
+            if int(getattr(page, "pdf_page", 0) or 0) == pdf_page:
+                return idx
+    return 0
+
+
+def _hit_volume(hit_obj):
+    if not corpus:
+        return None
+    source_file = str(getattr(hit_obj, "source_file", "") or "")
+    if not source_file:
+        return None
+    try:
+        return corpus.get_volume_by_source_file(source_file)
+    except Exception:
+        return None
+
+
+def _page_raw_text(page) -> str:
+    return " ".join(str(getattr(page, "raw_text", "") or "").split())
+
+
+def _volume_page_evidence(volume, page_idx: int, span: str, source_text: str, *, kind: str, quote: str = "") -> dict | None:
+    pages = getattr(volume, "pages", []) or []
+    if not (0 <= page_idx < len(pages)):
+        return None
+    page = pages[page_idx]
+    pdf_page = int(getattr(page, "pdf_page", 1) or 1)
+    source_file = str(getattr(volume, "source_file", "") or "")
+    citation = ""
+    try:
+        citation = corpus._make_citation(volume.book, volume.volume, [page], source_file=source_file) if corpus else ""
+    except Exception:
+        citation = ""
+    chapter = corpus.get_chapter_for_page(source_file, pdf_page) if corpus and source_file else None
+    return {
+        "kind": kind,
+        "book": str(getattr(volume, "book", "") or ""),
+        "volume": int(getattr(volume, "volume", 0) or 0),
+        "source_file": source_file,
+        "pdf_page": pdf_page,
+        "printed_page": str(getattr(page, "printed_page", "") or ""),
+        "citation": citation,
+        "section_title": chapter.title if chapter else "",
+        "source_text": source_text,
+        "span": span,
+        "quote": quote,
+    }
+
+
+def _text_match_in_book(book_key: str, text: str, *, kind: str, quote: str = "") -> dict | None:
+    if not corpus:
+        return None
+    nt = normalize(text)
+    if len(nt) < 6:
+        return None
+    best: tuple[int, int, int, int, object, int, str] | None = None
+    for vol in corpus.books.get(book_key, []) or []:
+        start = 0
+        while True:
+            pos = vol.norm_full.find(nt, start)
+            if pos < 0:
+                break
+            page_idx = vol.page_index_at(pos)
+            page = vol.pages[page_idx]
+            raw = _page_raw_text(page)
+            span = _normalized_span_in_text(raw, text)
+            if span:
+                printed = str(getattr(page, "printed_page", "") or "")
+                prelim_penalty = 1 if printed.startswith("pre-") else 0
+                candidate = (
+                    prelim_penalty,
+                    int(getattr(vol, "volume", 0) or 0),
+                    int(getattr(page, "pdf_page", 1) or 1),
+                    pos,
+                    vol,
+                    page_idx,
+                    span,
+                )
+                if best is None or candidate[:4] < best[:4]:
+                    best = candidate
+            start = pos + len(nt)
+    if best is None:
+        return None
+    vol = best[4]
+    page_idx = best[5]
+    span = best[6]
+    return _volume_page_evidence(vol, page_idx, span, _page_raw_text(vol.pages[page_idx]), kind=kind, quote=quote)
+
+
+def _prefer_wenji_evidence_for_hit(hit_obj, text: str, *, kind: str, quote: str = "") -> dict | None:
+    volume = _hit_volume(hit_obj)
+    # 仅限马恩《全集》与马恩《文集》这组同源经典文本；其它文库（列宁、毛选、党代会等）
+    # 属于不同文献体系，必须回到自身来源页核验，不能跨库改指《文集》。
+    if not volume or getattr(volume, "book", "") != "全集":
+        return None
+    return _text_match_in_book("文集", text, kind=kind, quote=quote)
+
+
+def _quote_match_in_hit_volume(hit_obj, quote: str) -> dict | None:
+    """Find one direct quote in the hit's full volume and return page-level evidence."""
+    preferred = _prefer_wenji_evidence_for_hit(hit_obj, quote, kind="quote", quote=quote)
+    if preferred:
+        return preferred
+    volume = _hit_volume(hit_obj)
+    nq = normalize(quote)
+    if not volume or len(nq) < 6:
+        return None
+    hit_idx = _hit_first_page_index(hit_obj, volume)
+    best: tuple[int, int, int] | None = None
+    start = 0
+    while True:
+        pos = volume.norm_full.find(nq, start)
+        if pos < 0:
+            break
+        page_idx = volume.page_index_at(pos)
+        candidate = (abs(page_idx - hit_idx), page_idx, pos)
+        if best is None or candidate < best:
+            best = candidate
+        start = pos + len(nq)
+    if best is None:
+        return None
+    page_idx = best[1]
+    page = volume.pages[page_idx]
+    source_text = _page_raw_text(page)
+    span = _normalized_span_in_text(source_text, quote)
+    if not span:
+        left = max(0, page_idx - 1)
+        right = min(len(volume.pages), page_idx + 2)
+        source_text = "\n".join(_page_raw_text(p) for p in volume.pages[left:right] if _page_raw_text(p))
+        span = _normalized_span_in_text(source_text, quote)
+    if not span:
+        return None
+    return _volume_page_evidence(volume, page_idx, span, source_text, kind="quote", quote=quote)
+
+
+def _span_match_in_hit_volume(hit_obj, span_text: str) -> dict | None:
+    """Locate a paraphrased-citation source sentence in the hit's full volume."""
+    preferred = _prefer_wenji_evidence_for_hit(hit_obj, span_text, kind="paraphrase")
+    if preferred:
+        return preferred
+    volume = _hit_volume(hit_obj)
+    ns = normalize(span_text)
+    if not volume or len(ns) < 8:
+        return None
+    hit_idx = _hit_first_page_index(hit_obj, volume)
+    best: tuple[int, int, int] | None = None
+    start = 0
+    while True:
+        pos = volume.norm_full.find(ns, start)
+        if pos < 0:
+            break
+        page_idx = volume.page_index_at(pos)
+        candidate = (abs(page_idx - hit_idx), page_idx, pos)
+        if best is None or candidate < best:
+            best = candidate
+        start = pos + len(ns)
+    if best is None:
+        return None
+    page_idx = best[1]
+    page = volume.pages[page_idx]
+    source_text = _page_raw_text(page)
+    span = _normalized_span_in_text(source_text, span_text) or span_text
+    return _volume_page_evidence(volume, page_idx, span, source_text, kind="paraphrase")
+
+
+def _review_evidence_context(source_text: str, spans: list[str], window: int = 360) -> str:
+    text = " ".join(str(source_text or "").split())
+    clean_spans = []
+    for span in spans:
+        s = " ".join(str(span or "").split())
+        if s and s not in clean_spans:
+            clean_spans.append(s)
+    if not text or not clean_spans:
+        return _trim_review_passage_to_sentence(text, window)
+
+    ranges: list[tuple[int, int]] = []
+    for span in clean_spans:
+        pos = text.find(span)
+        if pos < 0:
+            found = _normalized_span_in_text(text, span)
+            pos = text.find(found) if found else -1
+            span = found or span
+        if pos >= 0:
+            ranges.append((pos, pos + len(span)))
+    if not ranges:
+        return _trim_review_passage_to_sentence(text, window)
+    ranges.sort()
+    first, last = ranges[0][0], ranges[-1][1]
+    if last - first > window:
+        first, last = ranges[0]
+    half = max(0, (window - (last - first)) // 2)
+    start = max(0, first - half)
+    stop = min(len(text), last + half)
+    snippet = text[start:stop]
+    adjusted = [(s - start, e - start) for s, e in ranges if start <= s < stop]
+    adjusted.sort(reverse=True)
+    for s, e in adjusted:
+        snippet = snippet[:s] + "[[H]]" + snippet[s:e] + "[[/H]]" + snippet[e:]
+    return ("…" if start > 0 else "") + snippet + ("…" if stop < len(text) else "")
+
+
+def _make_review_evidence_items(
+    hit_obj,
+    base: dict,
+    plain: str,
+    quote_spans: list[str],
+    cited_units: list[str],
+    viewer_allowed: bool,
+    q_for_viewer: str,
+) -> tuple[list[dict], dict, str]:
+    """Build page-level evidence items for one [N] citation."""
+    evidence: list[dict] = []
+    unmatched_quotes: list[str] = []
+    first_page: int | None = None
+    first_highlight = ""
+
+    for quote in quote_spans:
+        item = _quote_match_in_hit_volume(hit_obj, quote)
+        if item is None:
+            span = _review_used_span_in_passage(plain, [quote])
+            if span:
+                item = {
+                    "kind": "quote",
+                    "pdf_page": (base.get("pdf_pages") or [None])[0],
+                    "printed_page": (base.get("printed_pages") or [""])[0],
+                    "source_text": plain,
+                    "span": span,
+                    "quote": quote,
+                }
+        if item is None:
+            unmatched_quotes.append(quote)
+            continue
+        evidence.append(item)
+
+    if not quote_spans:
+        span = _best_review_cited_sentence_in_passage(plain, cited_units)
+        if span:
+            item = _span_match_in_hit_volume(hit_obj, span) or {
+                "kind": "paraphrase",
+                "pdf_page": (base.get("pdf_pages") or [None])[0],
+                "printed_page": (base.get("printed_pages") or [""])[0],
+                "source_text": plain,
+                "span": span,
+                "quote": "",
+            }
+            evidence.append(item)
+
+    grouped: OrderedDict[tuple, dict] = OrderedDict()
+    for item in evidence:
+        page_key = (item.get("source_file") or base.get("source_file") or "", item.get("pdf_page") or "context")
+        group = grouped.setdefault(
+            page_key,
+            {
+                "kind": item.get("kind") or "quote",
+                "book": item.get("book") or base.get("book") or "",
+                "volume": item.get("volume") or base.get("volume") or "",
+                "source_file": item.get("source_file") or base.get("source_file") or "",
+                "citation": item.get("citation") or base.get("citation") or "",
+                "section_title": item.get("section_title") or base.get("section_title") or "",
+                "pdf_page": item.get("pdf_page"),
+                "printed_page": item.get("printed_page") or "",
+                "source_text": item.get("source_text") or "",
+                "spans": [],
+                "quotes": [],
+            },
+        )
+        if item.get("source_text") and len(item["source_text"]) > len(group.get("source_text") or ""):
+            group["source_text"] = item["source_text"]
+        if item.get("span"):
+            group["spans"].append(item["span"])
+        if item.get("quote"):
+            group["quotes"].append(item["quote"])
+
+    out: list[dict] = []
+    retarget_base = dict(base)
+    for group in grouped.values():
+        spans = group.get("spans") or []
+        if not spans:
+            continue
+        page = group.get("pdf_page")
+        if first_page is None and page:
+            first_page = int(page)
+            first_highlight = " ".join(spans[:3])
+            retarget_base = dict(base)
+            retarget_base.update({
+                "book": group.get("book") or base.get("book"),
+                "volume": group.get("volume") or base.get("volume"),
+                "source_file": group.get("source_file") or base.get("source_file"),
+                "citation": group.get("citation") or base.get("citation"),
+                "section_title": group.get("section_title") or base.get("section_title"),
+                "pdf_pages": [int(page)],
+                "printed_pages": [group.get("printed_page") or ""],
+            })
+        viewer_url = ""
+        source_file = group.get("source_file") or base.get("source_file")
+        if viewer_allowed and page and source_file:
+            viewer_url = url_for(
+                "pdf_viewer",
+                file=source_file,
+                page=page,
+                q=q_for_viewer,
+                h=" ".join(spans[:3]),
+                section=group.get("section_title") or "",
+                printed=group.get("printed_page") or "",
+            )
+        out.append({
+            "kind": group.get("kind") or "quote",
+            "book": group.get("book") or "",
+            "source_file": source_file,
+            "citation": group.get("citation") or "",
+            "section_title": group.get("section_title") or "",
+            "pdf_page": page,
+            "printed_page": group.get("printed_page") or "",
+            "context": _review_evidence_context(group.get("source_text") or "", spans),
+            "viewer_url": viewer_url,
+            "quote_count": len(group.get("quotes") or []),
+        })
+
+    return out, retarget_base, first_highlight
+
+
+def _review_used_span_in_hit_volume(hit_obj, quotes: list[str]) -> tuple[str, str, int | None]:
+    """在命中所在卷的较大范围中回捞综述逐字引文；返回 (原文窗口, 命中原文, pdf_page)。"""
+    if not quotes or not corpus:
+        return "", "", None
+    source_file = str(getattr(hit_obj, "source_file", "") or "")
+    if not source_file:
+        return "", "", None
+    try:
+        volume = corpus.get_volume_by_source_file(source_file)
+    except Exception:
+        volume = None
+    if not volume:
+        return "", "", None
+
+    hit_idx = _hit_first_page_index(hit_obj, volume)
+    best: tuple[int, int, str, str, int] | None = None
+    for quote in quotes:
+        nq = normalize(quote)
+        if len(nq) < 6:
+            continue
+        start = 0
+        while True:
+            pos = volume.norm_full.find(nq, start)
+            if pos < 0:
+                break
+            page_idx = volume.page_index_at(pos)
+            left = max(0, page_idx - 1)
+            right = min(len(volume.pages), page_idx + 2)
+            source_text = "\n".join(
+                " ".join(str(getattr(page, "raw_text", "") or "").split())
+                for page in volume.pages[left:right]
+                if str(getattr(page, "raw_text", "") or "").strip()
+            )
+            span = _normalized_span_in_text(source_text, quote)
+            if span:
+                pdf_page = int(getattr(volume.pages[page_idx], "pdf_page", 1) or 1)
+                distance = abs(page_idx - hit_idx)
+                # 长引文优先；同长度取离原命中页更近者。
+                candidate = (-len(normalize(span)), distance, source_text, span, pdf_page)
+                if best is None or candidate < best:
+                    best = candidate
+            start = pos + len(nq)
+    if best:
+        return best[2], best[3], best[4]
+    return "", "", None
+
+
+def _retarget_review_hit_payload(base: dict, pdf_page: int | None) -> dict:
+    """逐字引文回捞到同卷其它页时，同步引文页码、出处和打开原文链接目标。"""
+    if not pdf_page or not corpus:
+        return base
+    source_file = str(base.get("source_file") or "")
+    if not source_file:
+        return base
+    try:
+        volume = corpus.get_volume_by_source_file(source_file)
+    except Exception:
+        volume = None
+    if not volume:
+        return base
+    page_obj = next((p for p in volume.pages if int(getattr(p, "pdf_page", 0) or 0) == int(pdf_page)), None)
+    if not page_obj:
+        return base
+    out = dict(base)
+    out["pdf_pages"] = [int(pdf_page)]
+    out["printed_pages"] = [getattr(page_obj, "printed_page", "") or ""]
+    try:
+        out["citation"] = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file)
+    except Exception:
+        pass
+    chapter = corpus.get_chapter_for_page(source_file, int(pdf_page)) if corpus else None
+    if chapter:
+        out["section_title"] = chapter.title
+    return out
+
+
+def _review_citation_context(passage_text: str, span: str, window: int = 320) -> str:
+    """以被引用片段为中心裁出带 [[H]] 高亮的展示窗口；无 span 时给纯文本窗口（不强标到别处）。"""
+    text = " ".join(str(passage_text or "").split())
+    if not text:
+        return ""
+    pos = text.find(span) if span else -1
+    if pos < 0:
+        return _trim_review_passage_to_sentence(text, window)
+    end = pos + len(span)
+    half = max(0, (window - len(span)) // 2)
+    start = max(0, pos - half)
+    stop = min(len(text), end + half)
+    return (
+        ("…" if start > 0 else "")
+        + text[start:pos] + "[[H]]" + text[pos:end] + "[[/H]]" + text[end:stop]
+        + ("…" if stop < len(text) else "")
+    )
+
+
+def _build_research_review_fallback(topic: str, passages: list[dict]) -> str:
+    """Build a grounded review when the model call fails, using only real retrieved passages."""
+    cleaned_topic = " ".join(str(topic or "").split()) or "本次研究论题"
+    usable: list[dict] = []
+    for item in passages:
+        text = " ".join(str((item or {}).get("text") or "").split())
+        if not text:
+            continue
+        usable.append(
+            {
+                "index": (item or {}).get("index"),
+                "citation": " ".join(str((item or {}).get("citation") or "").split()),
+                "text": text,
+            }
+        )
+    if not usable:
+        return ""
+
+    lines = [
+        "## 研究综述",
+        "",
+        f"围绕“{cleaned_topic}”，本次检索已经在文献库中定位到一组可核对的原文材料。"
+        "由于模型长文生成暂时不可用，下面先依据这些真实命中整理一版可阅读的接地综述；"
+        "每处判断后面的方括号编号，对应下方可打开核对的引文条。",
+        "",
+    ]
+    for pos, item in enumerate(usable[:6], start=1):
+        idx = item["index"] if item["index"] is not None else pos
+        citation = item["citation"] or "出处见下方引文条"
+        text = item["text"]
+        lines.extend(
+            [
+                f"### 线索 {pos}",
+                "",
+                f"{citation} 的命中段落显示：{text} [{idx}]",
+                "",
+            ]
+        )
+
+    covered = "、".join(f"[{item['index'] if item['index'] is not None else i}]" for i, item in enumerate(usable[:6], start=1))
+    lines.extend(
+        [
+            "## 小结",
+            "",
+            f"就现有命中而言，以上材料（{covered}）已经提供了展开该论题的基本出处。"
+            "若要继续深化，可优先从这些出处进入原文页面，比较同一概念在不同篇章、卷次和历史语境中的表达差异。",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _select_research_review_hits(candidates: list, limit: int = RESEARCH_REVIEW_SOURCES) -> list:
+    """研究综述取源：先守住相关度，再在高相关候选里做资料库多样化。"""
+    if limit <= 0:
+        return []
+    try:
+        max_score = max(int(getattr(hit, "score", 0) or 0) for hit in (candidates or []))
+    except ValueError:
+        return []
+    relevance_floor = max(60, max_score - 18) if max_score > 0 else 0
+    buckets: OrderedDict[str, list] = OrderedDict()
+    seen_keys: set[tuple] = set()
+    for hit in candidates or []:
+        score = int(getattr(hit, "score", 0) or 0)
+        if score < relevance_floor:
+            continue
+        pages = getattr(hit, "pages", []) or []
+        first_page = pages[0].pdf_page if pages else -1
+        key = (getattr(hit, "book", ""), getattr(hit, "source_file", ""), first_page)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        book = str(getattr(hit, "book", "") or "其他资料")
+        buckets.setdefault(book, []).append(hit)
+
+    selected: list = []
+    selected_keys: set[tuple] = set()
+
+    def _key(hit) -> tuple:
+        pages = getattr(hit, "pages", []) or []
+        first_page = pages[0].pdf_page if pages else -1
+        return (getattr(hit, "book", ""), getattr(hit, "source_file", ""), first_page)
+
+    # 前两轮给不同资料库各一次机会，适合综述写作中“不同文献支点”的展开；不无限轮转，避免低相关资料挤占篇幅。
+    for round_index in range(2):
+        for hits in buckets.values():
+            if len(selected) >= limit:
+                break
+            if round_index >= len(hits):
+                continue
+            hit = hits[round_index]
+            key = _key(hit)
+            if key in selected_keys:
+                continue
+            selected.append(hit)
+            selected_keys.add(key)
+        if len(selected) >= limit:
+            break
+
+    # 剩余名额回到全局相关度顺序补齐，保障窄题目或强相关材料不会被过度“平均化”。
+    for hit in candidates or []:
+        if len(selected) >= limit:
+            break
+        key = _key(hit)
+        if key in selected_keys:
+            continue
+        selected.append(hit)
+        selected_keys.add(key)
+    return selected
+
+
 def _build_volume_chaptered_results(groups: list[dict]) -> list[dict]:
     volumes: OrderedDict[tuple, dict] = OrderedDict()
     for group in groups:
@@ -8191,7 +9419,8 @@ def _build_chat_grounding(question: str) -> tuple[list[dict], list[dict], list[s
 def api_ai_search_chat():
     _require_content_feature("search_chat")  # 「AI 随心问」独立权限（已从「AI 导学」拆出）
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
+    # 随心问：每日 token 用尽但持有随心问资源包次数时放行（成功后扣 1 次）。
+    quota = _require_ai_quota_or_raise(credit_kind="chat")
     if DEPLOYMENT.is_desktop:
         payload = request.get_json(silent=True) or {}
         try:
@@ -8210,6 +9439,8 @@ def api_ai_search_chat():
                 success=bool(answer.get("ok", True)),
                 error="" if answer.get("ok", True) else str(answer.get("error") or ""),
             )
+            if bool(answer.get("ok", True)):
+                _consume_credit_if_paid(quota, "chat")
             return jsonify(answer)
         except Exception as exc:
             LOGGER.warning("Desktop AI proxy failed: %s", exc)
@@ -8268,7 +9499,12 @@ def api_ai_search_chat():
         success=True,
         provider=ai_provider,
     )
+    _consume_credit_if_paid(quota, "chat")
     result = answer.to_dict()
+    result["ai_credits"] = get_ai_credit_balances(
+        int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    )
+    result["ai_token_quota"] = _ai_token_quota_payload(getattr(g, "current_user", None))
     if grounding_warnings:
         result["warnings"] = list(result.get("warnings") or []) + grounding_warnings
     if grounding_citations:
@@ -8486,18 +9722,22 @@ def _mascot_build_messages(mode: str, payload: dict) -> list[dict[str, str]]:
 
 @app.route("/api/ai/mascot-chat", methods=["POST"])
 def api_ai_mascot_chat():
+    # 马克思形象＝网站「无限量」基础服务：不计入每日 DeepSeek 额度（不调用 _require_ai_quota_or_raise），
+    # 固定走更轻量的 deepseek-v4-flash。登录/权限门禁照旧（_require_content_feature 不变），
+    # 并保留基础速率限制 + 前端自身的频次节流，防滥用。
     _require_content_feature("ai")
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
     if DEPLOYMENT.is_desktop:
         return jsonify({"ok": False, "error": "桌面模式暂不支持马克思形象对话。"})
     _require_ai()
+    quota = _ai_usage_context()
     payload = request.get_json(silent=True) or {}
     mode = str(payload.get("mode") or "").strip().lower()
     messages = _mascot_build_messages(mode, payload)
     try:
         text = AI_CLIENT.chat_complete(
-            messages, max_tokens=500, temperature=0.8, allow_reasoning_fallback=False
+            messages, max_tokens=500, temperature=0.8, allow_reasoning_fallback=False,
+            model=MASCOT_AI_MODEL,
         )
     except AIServiceError as exc:
         LOGGER.warning("Mascot AI failed: %s", exc)
@@ -8507,6 +9747,7 @@ def api_ai_mascot_chat():
             prompt_parts=(mode, messages[-1].get("content", "")),
             success=False,
             error=str(exc),
+            model=MASCOT_AI_MODEL,
         )
         return jsonify({"ok": False, "error": str(exc)}), 502
     reply = _mascot_trim_reply(_mascot_sanitize(text))
@@ -8518,6 +9759,7 @@ def api_ai_mascot_chat():
             prompt_parts=(mode, messages[-1].get("content", "")),
             success=False,
             error="sanitized-empty",
+            model=MASCOT_AI_MODEL,
         )
         return jsonify({"ok": False, "error": "（本次未能给出合适的回应）"})
     _record_ai_usage(
@@ -8526,6 +9768,7 @@ def api_ai_mascot_chat():
         prompt_parts=(mode, messages[-1].get("content", "")),
         completion_text=reply,
         success=True,
+        model=MASCOT_AI_MODEL,
     )
     return jsonify({"ok": True, "text": reply, "mode": mode})
 
@@ -8656,7 +9899,8 @@ def api_search_associative():
     _requested_mode = str((request.get_json(silent=True) or {}).get("mode") or "auto").strip().lower()
     _require_content_feature("research" if _requested_mode == "research" else "associative")
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
+    # 研究型检索：每日 token 用尽但持有研究资源包次数时放行（成功后扣 1 次）。
+    quota = _require_ai_quota_or_raise(credit_kind="research" if _requested_mode == "research" else "")
     if DEPLOYMENT.is_desktop:
         # 联想检索需与内存中的 corpus 同进程完成接地定位，桌面模式暂不经代理提供。
         return jsonify({"ok": False, "error": "联想检索暂仅在云端模式可用。"}), 200
@@ -8672,6 +9916,18 @@ def api_search_associative():
         return jsonify({"ok": False, "error": "请描述你要找的内容（大意或关键词）。"}), 400
     if len(gist) > 600:
         gist = gist[:600]
+
+    # 研究型检索次数额度：达到本周上限立即拦截，绝不在此之后消耗 AI（expand/综述）。
+    # 显式研究模式在此前置拦截；auto 模式解析为研究意图时，会在综述分支再校验一次。
+    research_quota = None
+    if mode == "research":
+        research_quota = _research_quota_payload(getattr(g, "current_user", None))
+        if not research_quota.get("allowed"):
+            return jsonify({
+                "ok": False,
+                "error": f"本周研究型检索次数已用完（{research_quota['used']}/{research_quota['limit']}），下周一自动恢复。",
+                "research_quota": research_quota,
+            }), 429
 
     state = current_view_state()
     viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
@@ -8743,29 +9999,81 @@ def api_search_associative():
             "message": "未在语料中定位到匹配段落，请换一种说法或补充更具体的关键词、人名或术语。",
         })
 
-    # 研究意图：检索 → top 源 → 生成 ~2000 字接地综述 + 简明引文条（取代卡片列表；引文不可伪造，
+    # 研究意图：检索 → 高相关且适度多样的资料源 → 生成接地综述 + 简明引文条（取代卡片列表；引文不可伪造，
     # 综述只依据下列真实命中、文中 [N] 标注，引文条与之一一对应、可点开核对）。
     if intent == "research":
+        # auto 模式解析为研究意图时，此处再校验一次额度（mode==research 已前置拦截）。
+        # 放在生成综述（最贵的一步）之前，超额则不消耗 AI 长文。
+        if research_quota is None:
+            research_quota = _research_quota_payload(getattr(g, "current_user", None))
+        if not research_quota.get("allowed"):
+            return jsonify({
+                "ok": False,
+                "error": f"本周研究型检索次数已用完（{research_quota['used']}/{research_quota['limit']}），下周一自动恢复。",
+                "research_quota": research_quota,
+            }), 429
+        # 免费周额是否已用尽 → 本次属「资源包」付费使用，成功后扣 1 次研究包。
+        # 管理员豁免时 free_remaining=None（不限次数），不计资源包消耗。
+        _free_remaining = research_quota.get("free_remaining")
+        paid_research_use = _free_remaining is not None and int(_free_remaining) <= 0
+        # 先备好喂给 AI 的完整原文段（含主题相关窗口），并留住每条 hit 以便综述生成后重建高亮。
         review_passages: list[dict] = []
-        review_citations: list[dict] = []
-        for i, hit in enumerate(candidates[:RESEARCH_REVIEW_SOURCES], start=1):
-            d = _attach_viewer_payload(hit.to_dict(), gist, viewer_allowed)
-            plain = (d.get("context") or "").replace("[[H]]", "").replace("[[/H]]", "")
-            plain = " ".join(plain.split())[:240]
-            review_passages.append({"index": i, "citation": d.get("citation") or "", "text": plain})
-            d["review_index"] = i
-            review_citations.append(d)
+        review_sources: list[tuple] = []
+        review_hits = _select_research_review_hits(candidates, RESEARCH_REVIEW_SOURCES)
+        for i, hit in enumerate(review_hits, start=1):
+            base = hit.to_dict()
+            plain = _research_review_passage_text(hit, base, gist)
+            review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
+            review_sources.append((i, hit, plain))
         review_warnings: list[str] = []
         review_md = ""
         try:
             review_md = AI_CLIENT.generate_research_review(gist, review_passages)
         except AIServiceError as exc:
             LOGGER.warning("Research review failed gist=%r: %s", gist[:80], exc)
-            review_warnings.append("综述生成暂时不可用，已列出检索到的真实原文供查阅。")
+            review_md = _build_research_review_fallback(gist, review_passages)
+            review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
+        # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
+        # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
+        # [N] 所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。
+        review_quotes_by_index = _review_quotes_by_index(review_md)
+        review_units_by_index = _review_cited_units(review_md)
+        review_citations: list[dict] = []
+        for i, hit, plain in review_sources:
+            quote_spans = review_quotes_by_index.get(i, [])
+            base0 = hit.to_dict()
+            evidence, base, first_highlight = _make_review_evidence_items(
+                hit,
+                base0,
+                plain,
+                quote_spans,
+                review_units_by_index.get(i, []),
+                viewer_allowed,
+                gist,
+            )
+            d = _attach_viewer_payload(
+                base, gist, viewer_allowed,
+                highlight_override=(first_highlight or None),
+            )
+            d["evidence"] = evidence
+            d["context"] = evidence[0]["context"] if evidence else _review_citation_context(plain, "")
+            d["review_index"] = i
+            d["review_quoted"] = bool(evidence)
+            d["review_quote_unmatched"] = bool(quote_spans and not evidence)
+            review_citations.append(d)
+        # 研究综述按「完整 token」计入每日额度：输入含注入的 15 段真实原文（成本大头），
+        # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
+        _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
         _record_ai_usage(
-            quota, feature="associative", prompt_parts=(gist,),
+            quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
             completion_text=review_md, success=True,
+            prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
+            completion_tokens=_estimate_tokens_from_text(review_md),
         )
+        if paid_research_use:
+            _user = getattr(g, "current_user", None)
+            if _user:
+                consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
         return jsonify({
             "ok": True, "query": gist, "display_mode": "research_review",
             "intent": intent, "mode": mode,
@@ -8775,6 +10083,9 @@ def api_search_associative():
             "review_citations": review_citations,
             "count": len(review_citations),
             "warnings": review_warnings,
+            # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
+            "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
+            "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
         })
 
     # 候选已按综合权重降序。权重是主排序；AI 仅对权重最高的一小批做标注/解释（候选多时控成本），
@@ -8840,9 +10151,9 @@ def api_search_associative():
 def api_ai_pdf_chat():
     _require_content_feature("ai")
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
+    payload = request.get_json(silent=True) or {}
     if DEPLOYMENT.is_desktop:
-        payload = request.get_json(silent=True) or {}
+        quota = _require_ai_quota_or_raise()
         try:
             answer = proxy_desktop_ai("/api/desktop/ai/pdf-chat", payload)
             _record_ai_usage(
@@ -8865,8 +10176,9 @@ def api_ai_pdf_chat():
             )
             return jsonify({"ok": False, "error": str(exc)}), 502
     _require_ai()
-    payload = request.get_json(silent=True) or {}
     ai_provider = _resolve_ai_provider_or_abort(payload)
+    # AI 导学问答：仅 DeepSeek-V4-Pro 主通道可用资源包「导学」次数兜底（智谱联网通道不抵扣）。
+    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider == "" else "")
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
     source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
@@ -8910,7 +10222,10 @@ def api_ai_pdf_chat():
         success=True,
         provider=ai_provider,
     )
-    return jsonify(answer.to_dict())
+    _consume_credit_if_paid(quota, "reader")
+    result = answer.to_dict()
+    result["ai_token_quota"] = _ai_token_quota_payload(getattr(g, "current_user", None))
+    return jsonify(result)
 
 
 def _sse_event(event: str, payload: dict) -> str:
@@ -8921,7 +10236,6 @@ def _sse_event(event: str, payload: dict) -> str:
 def api_ai_pdf_chat_stream():
     _require_content_feature("ai")
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
     payload = request.get_json(silent=True) or {}
     source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
     page = max(1, int(payload.get("page") or 1))
@@ -8934,6 +10248,7 @@ def api_ai_pdf_chat_stream():
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
 
     if DEPLOYMENT.is_desktop:
+        quota = _require_ai_quota_or_raise()
         def _desktop_generate():
             try:
                 answer = proxy_desktop_ai("/api/desktop/ai/pdf-chat", payload)
@@ -8954,6 +10269,7 @@ def api_ai_pdf_chat_stream():
                         "answer_markdown": text,
                         "sources": answer.get("sources") or [],
                         "warnings": answer.get("warnings") or [],
+                        "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
                     },
                 )
             except Exception as exc:
@@ -8975,6 +10291,8 @@ def api_ai_pdf_chat_stream():
 
     _require_ai()
     ai_provider = _resolve_ai_provider_or_abort(payload)
+    # AI 导学问答：仅 DeepSeek-V4-Pro 主通道可用资源包「导学」次数兜底（智谱联网通道不抵扣）。
+    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider == "" else "")
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
     page_context = _get_page_context_payload(source_file, page)
@@ -9016,6 +10334,7 @@ def api_ai_pdf_chat_stream():
                 success=True,
                 provider=ai_provider,
             )
+            _consume_credit_if_paid(quota, "reader")
             done_sources = stream_meta.get("sources") or sources
             done_warnings = list(warnings)
             if ai_provider == "zhipu" and not done_sources:
@@ -9027,6 +10346,7 @@ def api_ai_pdf_chat_stream():
                     "answer_markdown": answer_text,
                     "sources": done_sources,
                     "warnings": done_warnings,
+                    "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
                 },
             )
         except AIServiceError as exc:

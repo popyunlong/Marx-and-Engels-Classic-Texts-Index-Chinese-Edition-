@@ -362,7 +362,9 @@
     /* ===================================================================== */
     /* 研究型检索 · 雅典黑玻璃（高贵华典 + 玻璃反射）：黑曜石底 + 华典古金描边 + 缓慢流光。 */
     /* ===================================================================== */
-    .search-mode-tab.tab-research {
+    /* 研究型检索按钮：未选中时与精确/模糊检索同为低调灰色（沿用 .search-mode-tab 默认）， */
+    /* 仅在「点进去」选中（.active）后才显形为黑曜石玻璃 + 古金描边 + 缓慢流光。            */
+    .search-mode-tab.tab-research.active {
       position: relative; overflow: hidden;
       color: #e8dcae;
       background: linear-gradient(180deg, #4a4b55 0%, #23242c 52%, #141519 100%);
@@ -370,21 +372,21 @@
       box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
       text-shadow: 0 1px 1px rgba(0,0,0,.55);
     }
-    /* 顶部玻璃高光（恒亮，覆盖上半部，玻璃质感） */
-    .search-mode-tab.tab-research::before {
+    /* 顶部玻璃高光（恒亮，覆盖上半部，玻璃质感）——仅选中态 */
+    .search-mode-tab.tab-research.active::before {
       content: ""; position: absolute; left: 0; right: 0; top: 0; height: 48%;
       background: linear-gradient(180deg, rgba(255,255,255,.20), rgba(255,255,255,.03) 78%, transparent);
       pointer-events: none;
     }
-    /* 斜向流光，缓慢扫过（玻璃反射） */
-    .search-mode-tab.tab-research::after {
+    /* 斜向流光，缓慢扫过（玻璃反射）——仅选中态 */
+    .search-mode-tab.tab-research.active::after {
       content: ""; position: absolute; top: -10%; bottom: -10%; left: -70%; width: 42%;
       background: linear-gradient(105deg, transparent, rgba(255,255,255,.42), transparent);
       transform: skewX(-18deg); animation: researchSheen 5.5s ease-in-out infinite; pointer-events: none;
     }
     @keyframes researchSheen { 0%, 55% { left: -70%; } 100% { left: 135%; } }
-    @media (prefers-reduced-motion: reduce) { .search-mode-tab.tab-research::after { animation: none; } }
-    .search-mode-tab[data-mode="research"].active {
+    @media (prefers-reduced-motion: reduce) { .search-mode-tab.tab-research.active::after { animation: none; } }
+    .search-mode-tab.tab-research[data-mode="research"].active {
       color: #f6ecc6;
       background: linear-gradient(180deg, #3a3b45 0%, #1a1b22 50%, #08090d 100%);
       border-color: #c9a227;
@@ -422,6 +424,13 @@
     }
     .research-note.hidden { display: none; }
     .research-note strong { color: #f6ecc6; }
+    .research-quota {
+      display: inline-block; margin-left: 8px; padding: 1px 8px;
+      font-size: .8rem; color: #f6ecc6; white-space: nowrap;
+      background: rgba(201,162,39,.16); border: 1px solid rgba(201,162,39,.4);
+      border-radius: 999px;
+    }
+    .research-quota:empty { display: none; }
     .research-note-dot {
       flex: none; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%;
       background: radial-gradient(circle at 30% 30%, #ffe9a8, #c9a227);
@@ -567,8 +576,16 @@
     .rv-cite { background: #26272d; border: 1px solid rgba(201,162,39,.3); border-radius: 10px; padding: 10px 12px; }
     .rv-cite-head { color: #f0e6c4; font-weight: 700; font-size: .92rem; line-height: 1.6; }
     .rv-cite-head .rv-idx { color: #c9a227; font-weight: 800; margin-right: 6px; }
+    .rv-cite-head .rv-used { display: inline-block; font-size: .72rem; font-weight: 700; color: #1c1a12; background: #7fb98a; border-radius: 999px; padding: 1px 8px; margin-right: 6px; vertical-align: middle; }
     .rv-cite-ctx { color: #d6d1c2; font-size: .9rem; line-height: 1.7; margin: 5px 0; }
     .rv-cite-ctx .ctx-hl { background: #e0c068; color: #1c1a12; border-radius: 3px; padding: 0 2px; }
+    .rv-evidence-list { display: grid; gap: 8px; margin: 8px 0 2px; }
+    .rv-evidence { border-left: 2px solid rgba(201,162,39,.58); padding-left: 10px; }
+    .rv-evidence-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: #f0e6c4; font-size: .82rem; font-weight: 800; margin-bottom: 2px; }
+    .rv-evidence-kind { color: #1c1a12; background: #c9a227; border-radius: 999px; padding: 1px 7px; font-size: .7rem; }
+    .rv-evidence-page { color: #d8d3c4; font-weight: 700; }
+    .rv-evidence-open { color: #e8dcae; font-weight: 700; text-decoration: none; }
+    .rv-evidence-open:hover { text-decoration: underline; }
     .rv-cite-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
     .rv-cite-actions .secondary { background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.5); }
     .rv-open { color: #e8dcae; font-weight: 600; font-size: .86rem; text-decoration: none; white-space: nowrap; }
@@ -637,8 +654,10 @@
         linear-gradient(135deg, rgba(255, 244, 214, 0.95), rgba(255, 253, 249, 0.98));
       box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
     }
+    /* 全文阅读 / 大辞典 / AI 导学 三张功能卡统一为冷灰底 + 绿色按钮（AI 卡并入，配色与上两卡一致）。 */
     .feature-bar.reader-full,
-    .feature-bar.reader-dictionary {
+    .feature-bar.reader-dictionary,
+    .feature-bar.reader-ai {
       border-color: rgba(118, 128, 138, 0.34);
       background:
         linear-gradient(135deg, rgba(239, 242, 245, 0.96), rgba(255, 255, 255, 0.98));
@@ -647,26 +666,32 @@
     .feature-bar.reader-full .feature-kicker,
     .feature-bar.reader-full .reader-status,
     .feature-bar.reader-dictionary .feature-kicker,
-    .feature-bar.reader-dictionary .reader-status {
+    .feature-bar.reader-dictionary .reader-status,
+    .feature-bar.reader-ai .feature-kicker,
+    .feature-bar.reader-ai .reader-status {
       color: #56616d;
     }
     .feature-bar.reader-full .reader-status,
-    .feature-bar.reader-dictionary .reader-status {
+    .feature-bar.reader-dictionary .reader-status,
+    .feature-bar.reader-ai .reader-status {
       background: #e8edf1;
     }
     .feature-bar.reader-full .feature-action,
-    .feature-bar.reader-dictionary .feature-action {
+    .feature-bar.reader-dictionary .feature-action,
+    .feature-bar.reader-ai .feature-action {
       background: #157f4c;
       border-color: #157f4c;
       box-shadow: 0 10px 24px rgba(21, 127, 76, 0.28);
     }
     .feature-bar.reader-full .feature-action:hover,
-    .feature-bar.reader-dictionary .feature-action:hover {
+    .feature-bar.reader-dictionary .feature-action:hover,
+    .feature-bar.reader-ai .feature-action:hover {
       background: #0f6d40;
       border-color: #0f6d40;
     }
     .feature-bar.reader-full .feature-action.disabled,
-    .feature-bar.reader-dictionary .feature-action.disabled {
+    .feature-bar.reader-dictionary .feature-action.disabled,
+    .feature-bar.reader-ai .feature-action.disabled {
       color: var(--muted);
       background: #eef1f3;
       border-color: #d4d9de;
@@ -1037,6 +1062,108 @@
     #results {
       margin-top: 0;
     }
+    .search-loading {
+      position: relative;
+      overflow: hidden;
+      padding: 18px 18px 16px;
+      border: 1px solid var(--line, #d9dee8);
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(35, 45, 65, .08);
+    }
+    .search-loading.associative {
+      background: linear-gradient(180deg, rgba(23,40,72,.96), rgba(14,26,48,.98));
+      border-color: rgba(201, 162, 39, .38);
+      color: #f6edd2;
+    }
+    .search-loading.research {
+      background: linear-gradient(180deg, rgba(20,20,24,.97), rgba(8,8,12,.99));
+      border-color: rgba(201, 162, 39, .5);
+      color: #f6ecc6;
+    }
+    .search-loading-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .search-loading-title {
+      font-weight: 800;
+      line-height: 1.5;
+    }
+    .search-loading-dots {
+      display: inline-flex;
+      gap: 4px;
+      flex: 0 0 auto;
+    }
+    .search-loading-dots i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: .38;
+      animation: searchDotPulse 1.1s ease-in-out infinite;
+    }
+    .search-loading-dots i:nth-child(2) { animation-delay: .16s; }
+    .search-loading-dots i:nth-child(3) { animation-delay: .32s; }
+    .search-loading-bar {
+      position: relative;
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(47, 111, 237, .13);
+    }
+    .search-loading.associative .search-loading-bar,
+    .search-loading.research .search-loading-bar {
+      background: rgba(246, 236, 198, .16);
+    }
+    .search-loading-bar::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 46%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #2f6fed, #6a9df8);
+      animation: searchLoadingSweep 1.35s ease-in-out infinite;
+    }
+    .search-loading.associative .search-loading-bar::before {
+      background: linear-gradient(90deg, #d8b84f, #f2df97);
+    }
+    .search-loading.research .search-loading-bar::before {
+      background: linear-gradient(90deg, #c9a227, #f2e7bd);
+    }
+    .search-loading-steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 13px;
+      color: #667085;
+      font-size: 13px;
+    }
+    .search-loading.associative .search-loading-steps,
+    .search-loading.research .search-loading-steps {
+      color: rgba(246, 236, 198, .78);
+    }
+    .search-loading-steps span {
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(47,111,237,.08);
+      white-space: nowrap;
+    }
+    .search-loading.associative .search-loading-steps span,
+    .search-loading.research .search-loading-steps span {
+      background: rgba(246, 236, 198, .1);
+    }
+    @keyframes searchLoadingSweep {
+      0% { transform: translateX(-110%); }
+      55% { transform: translateX(82%); }
+      100% { transform: translateX(235%); }
+    }
+    @keyframes searchDotPulse {
+      0%, 80%, 100% { opacity: .28; transform: translateY(0); }
+      35% { opacity: .9; transform: translateY(-2px); }
+    }
     .book-tabs {
       display: flex;
       flex-wrap: wrap;
@@ -1227,6 +1354,25 @@
       font-size: 0.92rem;
       line-height: 1.7;
     }
+    .ai-quota {
+      display: flex; align-items: center; gap: 9px;
+      margin: 2px 0 8px; font-size: 0.82rem; color: var(--muted);
+    }
+    .ai-quota.hidden { display: none; }
+    .ai-quota-bar {
+      flex: 1; min-width: 0; height: 6px; border-radius: 999px; overflow: hidden;
+      background: rgba(143, 29, 29, 0.12);
+    }
+    .ai-quota-bar > span {
+      display: block; height: 100%; width: 100%;
+      background: linear-gradient(90deg, #2e7d32, #43a047);
+      transition: width .3s ease;
+    }
+    .ai-quota-text { flex: none; white-space: nowrap; }
+    .ai-quota.low .ai-quota-bar > span { background: linear-gradient(90deg, #c77700, #e69500); }
+    .ai-quota.low .ai-quota-text { color: #8a5b00; font-weight: 600; }
+    .ai-quota.exhausted .ai-quota-bar > span { background: #b23b3b; width: 100% !important; }
+    .ai-quota.exhausted .ai-quota-text { color: #8f1d1d; font-weight: 600; }
     .ai-lock-note {
       border: 1px solid rgba(143, 29, 29, 0.2);
       border-radius: 14px;
@@ -1706,35 +1852,42 @@
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
             </span>
-            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="使用提示" hidden>?</button>
+            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
           </div>
           {% else %}
           <div class="reader-status-row" style="margin-bottom:6px">
             <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
-            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="使用提示" hidden>?</button>
+            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
           </div>
           {% endif %}
           <form id="searchForm">
             <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
-              <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">标准检索</button>
-              <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">联想检索</button>
+              <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">{{ site_text('index.search_standard_tab') }}</button>
+              <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">{{ site_text('search.assoc_tab') }}</button>
               <button type="button" class="search-mode-tab tab-research" data-mode="research" aria-pressed="false">{{ site_text('search.research_tab') }}</button>
             </div>
             <div id="searchHelpPanel" class="search-help-panel" hidden>
-              <button type="button" class="search-help-close" id="searchHelpClose" aria-label="收起提示">×</button>
-              <div class="search-help-head">使用提示</div>
+              <button type="button" class="search-help-close" id="searchHelpClose" aria-label="{{ site_text('index.search_help_close_label') }}">×</button>
+              <div class="search-help-head">{{ site_text('index.search_help_title') }}</div>
               <div id="searchHelpBody"></div>
             </div>
             <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
             <label class="cooc-toggle" id="coocToggle">
-              <input type="checkbox" id="coocCheckbox"> 同段多词检索（用空格分隔多个词，查找同一段落内同时出现的全部词）
+              <input type="checkbox" id="coocCheckbox"> {{ site_text('index.search_cooc_label') }}
             </label>
             <div class="research-note hidden" id="researchNote">
               <span class="research-note-dot" aria-hidden="true"></span>
-              <span><strong>{{ site_text('search.research_tab') }}</strong>：{{ site_text('search.research_note') }}</span>
+              <span>
+                <strong>{{ site_text('search.research_tab') }}</strong>：{{ site_text('search.research_note') }}
+                {% if state.research_quota and state.research_quota.message %}
+                <span class="research-quota" id="researchQuotaText">{{ state.research_quota.message }}</span>
+                {% else %}
+                <span class="research-quota" id="researchQuotaText"></span>
+                {% endif %}
+              </span>
             </div>
             <div class="row">
-              <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>开始检索</button>
+              <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>{{ site_text('index.search_submit') }}</button>
               {% if state.remote_quit_enabled %}
               <button type="button" class="secondary" id="quitBtn">退出服务</button>
               {% endif %}
@@ -1970,6 +2123,13 @@
           </div>
           {% endif %}
 
+          {% if search_chat_access_enabled %}
+          <div class="ai-quota hidden" id="aiTokenQuota">
+            <div class="ai-quota-bar"><span id="aiTokenQuotaFill"></span></div>
+            <span class="ai-quota-text" id="aiTokenQuotaText"></span>
+          </div>
+          {% endif %}
+
           <div class="chat-box" id="aiMessages"></div>
 
           <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not search_chat_access_enabled %}disabled{% endif %}></textarea>
@@ -1991,7 +2151,10 @@
     searchEnabled: {{ (state.search_enabled and state.feature_access.search) | tojson }},
     pdfEnabled: {{ state.pdf_enabled | tojson }},
     heartbeatEnabled: {{ state.heartbeat_enabled | tojson }},
-    remoteQuitEnabled: {{ state.remote_quit_enabled | tojson }}
+    remoteQuitEnabled: {{ state.remote_quit_enabled | tojson }},
+    researchQuota: {{ (state.research_quota or {}) | tojson }},
+    aiTokenQuota: {{ (state.ai_token_quota or {}) | tojson }},
+    aiCredits: {{ (state.ai_credits or {}) | tojson }}
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ search_chat_access_enabled | tojson }};
@@ -2431,6 +2594,20 @@
     out.innerHTML = `<div class="empty">${esc(message)}</div>`;
   }
 
+  function renderSearchLoading(kind, message, steps) {
+    const safeKind = ['standard', 'associative', 'research'].includes(kind) ? kind : 'standard';
+    const stepHtml = (steps || []).map(item => `<span>${esc(item)}</span>`).join('');
+    out.innerHTML = `
+      <div class="search-loading ${safeKind}" role="status" aria-live="polite">
+        <div class="search-loading-head">
+          <div class="search-loading-title">${esc(message)}</div>
+          <div class="search-loading-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
+        <div class="search-loading-bar" aria-hidden="true"></div>
+        ${stepHtml ? `<div class="search-loading-steps">${stepHtml}</div>` : ''}
+      </div>`;
+  }
+
   function saveSearchState(payload) {
     try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(payload)); } catch (_) {}
   }
@@ -2771,7 +2948,11 @@
       ? options.mode
       : ((coocCheckbox && coocCheckbox.checked) ? 'cooccurrence' : '');
     submitBtn.disabled = true;
-    renderEmpty('检索中，请稍候...');
+    renderSearchLoading(
+      'standard',
+      mode === 'cooccurrence' ? '正在进行同段多词检索…' : '正在进行精确检索…',
+      ['扫描书库索引', '定位页码与段落', '整理命中结果']
+    );
     try {
       const resp = await apiFetch('/api/search', {
         method: 'POST',
@@ -2803,6 +2984,42 @@
     }
   }
 
+  // 今日 DeepSeek AI 额度余额条：剩余占比 + 低额预警 + 耗尽提示。服务端每次回答后回带刷新。
+  function updateAiTokenQuota(quota) {
+    if (!quota || typeof quota !== 'object') return;
+    state.aiTokenQuota = quota;
+    const wrap = document.getElementById('aiTokenQuota');
+    const fill = document.getElementById('aiTokenQuotaFill');
+    const text = document.getElementById('aiTokenQuotaText');
+    if (!wrap || !fill || !text) return;
+    // 管理员/不限额：不展示余额条。
+    if (quota.unlimited || quota.limit === null || quota.limit === undefined) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    wrap.classList.toggle('low', !!quota.low);
+    wrap.classList.toggle('exhausted', !!quota.exhausted);
+    const pct = Math.max(0, Math.min(100, Math.round((quota.ratio || 0) * 100)));
+    fill.style.width = pct + '%';
+    if (quota.exhausted) {
+      const hasPack = state.aiCredits && state.aiCredits.chat > 0;
+      text.textContent = '本周 AI 额度已用完，下周一恢复' + (hasPack ? '（可用资源包继续）' : '');
+    } else if (Number(quota.limit) <= 0) {
+      text.textContent = '当前身份未开放免费 AI 额度';
+    } else {
+      text.textContent = `本周 AI 额度剩余约 ${pct}%`;
+    }
+  }
+
+  // 研究型检索本周剩余次数：服务端返回 research_quota 后刷新提示徽章。
+  function updateResearchQuota(quota) {
+    if (!quota) return;
+    state.researchQuota = quota;
+    const el = document.getElementById('researchQuotaText');
+    if (el) el.textContent = quota.message || `本周研究型检索剩余 ${quota.remaining}/${quota.limit} 次`;
+  }
+
   // 联想检索 / 研究型检索共用本函数：mode='locate'(联想·精准定位) | 'research'(研究辅助)。
   async function doAssociativeSearch(text, mode) {
     const isResearch = (mode === 'research');
@@ -2816,9 +3033,19 @@
     }
     submitBtn.disabled = true;
     updateBookTabs(null);
-    renderEmpty(isResearch
-      ? '正在检索真实原文并据此生成研究综述，请稍候（约数秒）…'
-      : {{ site_text('search.assoc_loading') | tojson }});
+    if (isResearch) {
+      renderSearchLoading(
+        'research',
+        '正在检索真实原文并生成研究综述…',
+        ['扩展研究线索', '抽取完整句段', '生成接地综述']
+      );
+    } else {
+      renderSearchLoading(
+        'associative',
+        {{ site_text('search.assoc_loading') | tojson }},
+        ['提取定位线索', '召回真实原文', '按相关度排序']
+      );
+    }
     try {
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
@@ -2826,6 +3053,8 @@
         body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate' })
       });
       const data = await resp.json();
+      if (data.research_quota) updateResearchQuota(data.research_quota);
+      if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {
         renderEmpty(data.error || '未知错误');
         return;
@@ -2875,13 +3104,27 @@
       const idx = c.review_index || '';
       const cite = esc(c.citation || '');
       const ctx = esc(c.context || '').replace(/\[\[H\]\]/g, '<span class="ctx-hl">').replace(/\[\[\/H\]\]/g, '</span>');
+      const usedTag = c.review_quoted ? '<span class="rv-used">综述已引用</span> ' : '';
       const sub = c.subject_label ? `<span class="sb-tag">名目索引</span> ${esc(c.subject_label)} · ` : '';
+      const evidence = Array.isArray(c.evidence) ? c.evidence : [];
+      const evidenceHtml = evidence.length ? `<div class="rv-evidence-list">${evidence.map((ev, evIdx) => {
+        const evCtx = esc(ev.context || '').replace(/\[\[H\]\]/g, '<span class="ctx-hl">').replace(/\[\[\/H\]\]/g, '</span>');
+        const evCite = esc(ev.citation || '');
+        const evKind = ev.kind === 'paraphrase' ? '转述定位' : '直接引用';
+        const pageLabel = ev.printed_page ? `原书页 ${esc(ev.printed_page)} · PDF ${esc(ev.pdf_page || '')}` : `PDF ${esc(ev.pdf_page || '')}`;
+        const evLink = ev.viewer_url ? `<a class="rv-evidence-open" href="${escAttr(ev.viewer_url)}" target="_blank" rel="noopener">打开此页 →</a>` : '';
+        return `<div class="rv-evidence">
+            <div class="rv-evidence-head"><span class="rv-evidence-kind">${evKind}</span><span>证据页 ${evIdx + 1}</span><span class="rv-evidence-page">${pageLabel}</span>${evLink}</div>
+            ${evCite ? `<div class="rv-cite-head">${evCite}</div>` : ''}
+            ${evCtx ? `<div class="rv-cite-ctx">${evCtx}</div>` : ''}
+          </div>`;
+      }).join('')}</div>` : '';
       const link = c.viewer_url
         ? `<a class="rv-open" href="${escAttr(c.viewer_url)}" target="_blank" rel="noopener">打开原文 →</a>`
         : '';
       return `<div class="rv-cite">
-          <div class="rv-cite-head"><span class="rv-idx">[${idx}]</span>${sub}<span id="rvc-${idx}">${cite}</span></div>
-          ${ctx ? `<div class="rv-cite-ctx">${ctx}</div>` : ''}
+          <div class="rv-cite-head"><span class="rv-idx">[${idx}]</span>${usedTag}${sub}<span id="rvc-${idx}">${cite}</span></div>
+          ${evidenceHtml || (ctx ? `<div class="rv-cite-ctx">${ctx}</div>` : '')}
           <div class="rv-cite-actions"><button class="secondary copy-btn" data-target="rvc-${idx}">复制引文</button>${link}</div>
         </div>`;
     }).join('');
@@ -3110,6 +3353,7 @@
 
     if (aiRuntime.enabled) {
       updateAiStatusLine();
+      updateAiTokenQuota(state.aiTokenQuota);
       aiSendBtn.disabled = !aiAccessEnabled;
       aiPrompt.disabled = !aiAccessEnabled;
       aiInsertSearchBtn.disabled = false;
@@ -3148,6 +3392,8 @@
         })
       });
       const data = await resp.json();
+      if (data.ai_credits) state.aiCredits = data.ai_credits;
+      if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {
         throw new Error(data.error || 'AI 请求失败');
       }
@@ -3472,7 +3718,33 @@
       const closeBtn = document.getElementById('searchHelpClose');
       if (!textarea || !trigger || !panel || !body || !closeBtn) return;
 
+      const configuredHelp = {{ site_text('index.search_help_body') | tojson }};
       const raw = (textarea.getAttribute('placeholder') || '').replace(/\r\n/g, '\n');
+      function compactStandardPlaceholder(value) {
+        const text = String(value || '').replace(/\r\n/g, '\n').trim();
+        if (!text) return '';
+        const nlIdx = text.indexOf('\n');
+        if (nlIdx > 0) return text.slice(0, nlIdx).trim();
+        const marker = text.match(/[（(]\s*1\s*[)）]/);
+        if (marker && marker.index > 0) return text.slice(0, marker.index).trim();
+        if (marker && marker.index === 0) return '把需要核查的原文粘贴到这里。';
+        return text;
+      }
+      const configuredRest = String(configuredHelp || '').replace(/\r\n/g, '\n')
+        .split('\n')
+        .map(function (s) { return s.replace(/^[\s　]+/, '').replace(/[\s　]+$/, ''); })
+        .filter(function (s) { return s.length > 0; })
+        .join('\n');
+      if (configuredRest) {
+        const compactRaw = compactStandardPlaceholder(raw);
+        if (compactRaw) textarea.setAttribute('placeholder', compactRaw);
+        textarea.dataset.standardPlaceholder = compactRaw || raw;
+        body.textContent = configuredRest;
+        trigger.hidden = false;
+        wireSearchHelp();
+        return;
+      }
+
       // 判定为「带提示」的多行 placeholder：含换行，或含「（1）/(1)」之类序号
       const looksTipped = /\n/.test(raw) || /[（(]\s*1\s*[)）]/.test(raw);
       if (!looksTipped) return;
@@ -3504,35 +3776,39 @@
       body.textContent = rest;
       trigger.hidden = false;
 
-      const SS_KEY = 'searchHelpDismissed';
-      function openPanel() {
-        panel.hidden = false;
-        trigger.setAttribute('aria-expanded', 'true');
-      }
-      function closePanel(remember) {
-        panel.hidden = true;
-        trigger.setAttribute('aria-expanded', 'false');
-        if (remember) {
-          try { sessionStorage.setItem(SS_KEY, '1'); } catch (_) {}
+      wireSearchHelp();
+
+      function wireSearchHelp() {
+        const SS_KEY = 'searchHelpDismissed';
+        function openPanel() {
+          panel.hidden = false;
+          trigger.setAttribute('aria-expanded', 'true');
         }
+        function closePanel(remember) {
+          panel.hidden = true;
+          trigger.setAttribute('aria-expanded', 'false');
+          if (remember) {
+            try { sessionStorage.setItem(SS_KEY, '1'); } catch (_) {}
+          }
+        }
+
+        trigger.addEventListener('click', function () {
+          if (panel.hidden) openPanel();
+          else closePanel(true);
+        });
+        closeBtn.addEventListener('click', function () { closePanel(true); });
+
+        let autoOpened = false;
+        textarea.addEventListener('focus', function () {
+          if (autoOpened) return;
+          // 「使用提示」仅属精确检索：联想/研究检索下输入框为 .brainstorm（AI 模式），不弹此提示。
+          if (textarea.classList.contains('brainstorm')) return;
+          autoOpened = true;
+          let dismissed = false;
+          try { dismissed = sessionStorage.getItem(SS_KEY) === '1'; } catch (_) {}
+          if (!dismissed && panel.hidden) openPanel();
+        });
       }
-
-      trigger.addEventListener('click', function () {
-        if (panel.hidden) openPanel();
-        else closePanel(true);
-      });
-      closeBtn.addEventListener('click', function () { closePanel(true); });
-
-      let autoOpened = false;
-      textarea.addEventListener('focus', function () {
-        if (autoOpened) return;
-        // 「使用提示」仅属精确检索：联想/研究检索下输入框为 .brainstorm（AI 模式），不弹此提示。
-        if (textarea.classList.contains('brainstorm')) return;
-        autoOpened = true;
-        let dismissed = false;
-        try { dismissed = sessionStorage.getItem(SS_KEY) === '1'; } catch (_) {}
-        if (!dismissed && panel.hidden) openPanel();
-      });
     })();
   </script>
   <script>

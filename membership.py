@@ -302,6 +302,40 @@ def init_membership_db() -> Path:
             conn.execute("ALTER TABLE plans ADD COLUMN features TEXT NOT NULL DEFAULT ''")
         if "badge" not in plan_columns:
             conn.execute("ALTER TABLE plans ADD COLUMN badge TEXT NOT NULL DEFAULT ''")
+        # 资源包（消耗型次数包）：kind='membership' 仍是按月会员；kind='credit_pack' 是一次性
+        # 购买的「研究级检索次数 + AI随心问次数」，支付成功记入 ai_credit_ledger 台账而非开会员。
+        if "kind" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN kind TEXT NOT NULL DEFAULT 'membership'")
+        if "research_credits" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN research_credits INTEGER NOT NULL DEFAULT 0")
+        if "chat_credits" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN chat_credits INTEGER NOT NULL DEFAULT 0")
+        # AI 导学问答（阅读器逐页讲解）次数：仅限 DeepSeek-V4-Pro 主通道消耗（智谱联网通道不抵扣）。
+        if "reader_credits" not in plan_columns:
+            conn.execute("ALTER TABLE plans ADD COLUMN reader_credits INTEGER NOT NULL DEFAULT 0")
+            # 一次性回填：给已存在的 ¥3 资源包补 10 次 AI 导学问答；ALTER 仅首启执行一次，幂等安全。
+            conn.execute(
+                "UPDATE plans SET reader_credits = 10 WHERE code = 'pack_basic' AND reader_credits = 0"
+            )
+        # AI 次数台账：研究级检索/随心问的「资源包」消耗型次数，余额=按 (user,kind) 求和。
+        # delta>0 为发放（购买/管理员），delta<0 为消耗（免费额度用完后每次扣 1）。永久有效、可叠加。
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_credit_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                order_no TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ai_credit_ledger_user_kind ON ai_credit_ledger(user_id, kind)"
+        )
         # AI 用量审计字段：记录用户真实输入摘要、来源页与客户端 IP，便于后台排查异常用量。
         ai_usage_columns = _table_columns(conn, "ai_usage")
         if "prompt_excerpt" not in ai_usage_columns:
@@ -340,6 +374,20 @@ def init_membership_db() -> Path:
                 """,
                 plan,
             )
+        # 种子：¥3 资源包（10 次研究级检索 + 20 次 AI随心问 + 10 次 AI 导学问答），所有登录用户可购、
+        # 永久有效可叠加。后台「套餐管理」可改价/次数/上下架；ON CONFLICT DO NOTHING 保证不覆盖管理员后续修改。
+        conn.execute(
+            """
+            INSERT INTO plans(
+                code, name, price_cents, currency, interval_months, description,
+                kind, research_credits, chat_credits, reader_credits, is_active, sort_order
+            )
+            VALUES('pack_basic', '研究资源包', 300, 'CNY', 1,
+                   '一次性购买：10 次研究级检索 + 20 次 AI随心问 + 10 次 AI 导学问答（DeepSeek-V4-Pro），永久有效、可叠加。',
+                   'credit_pack', 10, 20, 10, 1, 100)
+            ON CONFLICT(code) DO NOTHING
+            """
+        )
         conn.commit()
     return DB_PATH
 
@@ -359,7 +407,8 @@ def list_active_plans() -> list[dict]:
         rows = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge,
+                   kind, research_credits, chat_credits, reader_credits
             FROM plans
             WHERE is_active = 1
             ORDER BY sort_order ASC, code ASC
@@ -374,7 +423,8 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
         rows = conn.execute(
             f"""
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                   kind, research_credits, chat_credits, reader_credits
             FROM plans
             {where}
             ORDER BY sort_order ASC, code ASC
@@ -388,7 +438,8 @@ def get_plan(plan_code: str) -> dict | None:
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active,
+                   kind, research_credits, chat_credits, reader_credits
             FROM plans
             WHERE code = ?
             """,
@@ -411,6 +462,10 @@ def upsert_plan(
     badge: str = "",
     is_active: bool = True,
     sort_order: int = 0,
+    kind: str = "membership",
+    research_credits: int = 0,
+    chat_credits: int = 0,
+    reader_credits: int = 0,
 ) -> dict:
     normalized_code = (code or "").strip()
     if not normalized_code:
@@ -419,6 +474,10 @@ def upsert_plan(
         raise ValueError("套餐周期必须大于等于 1。")
     if price_cents < 0:
         raise ValueError("套餐价格不能小于 0。")
+    normalized_kind = "credit_pack" if str(kind or "").strip().lower() == "credit_pack" else "membership"
+    research_credits = max(0, int(research_credits or 0))
+    chat_credits = max(0, int(chat_credits or 0))
+    reader_credits = max(0, int(reader_credits or 0))
     if daily_ai_token_limit is not None and int(daily_ai_token_limit) < 0:
         raise ValueError("AI token 限额不能小于 0。")
     if daily_zhipu_token_limit is not None and int(daily_zhipu_token_limit) < 0:
@@ -432,9 +491,10 @@ def upsert_plan(
             """
             INSERT INTO plans(
                 code, name, price_cents, currency, interval_months, description,
-                daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
+                daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                kind, research_credits, chat_credits, reader_credits
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name,
                 price_cents=excluded.price_cents,
@@ -446,7 +506,11 @@ def upsert_plan(
                 features=excluded.features,
                 badge=excluded.badge,
                 is_active=excluded.is_active,
-                sort_order=excluded.sort_order
+                sort_order=excluded.sort_order,
+                kind=excluded.kind,
+                research_credits=excluded.research_credits,
+                chat_credits=excluded.chat_credits,
+                reader_credits=excluded.reader_credits
             """,
             (
                 normalized_code,
@@ -461,12 +525,17 @@ def upsert_plan(
                 (badge or "").strip(),
                 1 if is_active else 0,
                 int(sort_order),
+                normalized_kind,
+                research_credits,
+                chat_credits,
+                reader_credits,
             ),
         )
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order
+                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                   kind, research_credits, chat_credits, reader_credits
             FROM plans
             WHERE code = ?
             """,
@@ -1138,7 +1207,8 @@ def mark_order_paid(
         conn.execute("BEGIN IMMEDIATE")
         order = conn.execute(
             """
-            SELECT o.*, p.interval_months, p.name AS plan_name
+            SELECT o.*, p.interval_months, p.name AS plan_name,
+                   p.kind AS plan_kind, p.research_credits, p.chat_credits, p.reader_credits
             FROM orders o
             JOIN plans p ON p.code = o.plan_code
             WHERE o.order_no = ?
@@ -1149,7 +1219,16 @@ def mark_order_paid(
             raise ValueError("订单不存在")
         if order["status"] not in {"pending", "paid"}:
             raise ValueError("订单状态不允许开通会员")
+        is_credit_pack = str(order["plan_kind"] or "membership") == "credit_pack"
         if order["status"] == "paid":
+            # 已支付：幂等返回。资源包不开会员，只回当前次数余额。
+            if is_credit_pack:
+                conn.commit()
+                return {
+                    "order": row_to_dict(order),
+                    "subscription": None,
+                    "credits": get_ai_credit_balances(int(order["user_id"])),
+                }
             subscription = conn.execute(
                 """
                 SELECT s.*, p.name AS plan_name
@@ -1164,6 +1243,52 @@ def mark_order_paid(
             return {
                 "order": row_to_dict(order),
                 "subscription": row_to_dict(subscription),
+            }
+
+        # 资源包：标记订单已支付 + 记入次数台账，不创建会员订阅。
+        if is_credit_pack:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'paid', payment_provider = ?, payment_reference = ?, notes = ?, paid_at = ?
+                WHERE order_no = ? AND status = 'pending'
+                """,
+                (provider, payment_reference, notes, paid_at, order_no),
+            )
+            research_n = max(0, int(order["research_credits"] or 0))
+            chat_n = max(0, int(order["chat_credits"] or 0))
+            reader_n = max(0, int(order["reader_credits"] or 0))
+            ledger_rows = []
+            for ck, n in (("research", research_n), ("chat", chat_n), ("reader", reader_n)):
+                if n:
+                    ledger_rows.append(
+                        (int(order["user_id"]), ck, n, f"purchase:{order['plan_code']}", order_no, paid_at)
+                    )
+            if ledger_rows:
+                conn.executemany(
+                    "INSERT INTO ai_credit_ledger(user_id, kind, delta, reason, order_no, created_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?)",
+                    ledger_rows,
+                )
+            balances = conn.execute(
+                "SELECT kind, COALESCE(SUM(delta), 0) AS bal FROM ai_credit_ledger WHERE user_id = ? GROUP BY kind",
+                (int(order["user_id"]),),
+            ).fetchall()
+            updated_order = conn.execute(
+                "SELECT o.*, p.name AS plan_name, p.interval_months FROM orders o "
+                "JOIN plans p ON p.code = o.plan_code WHERE o.order_no = ?",
+                (order_no,),
+            ).fetchone()
+            conn.commit()
+            credit_balances = {k: 0 for k in AI_CREDIT_KINDS}
+            for row in balances:
+                kind = _normalize_credit_kind(row["kind"])
+                if kind:
+                    credit_balances[kind] = max(0, int(row["bal"] or 0))
+            return {
+                "order": row_to_dict(updated_order),
+                "subscription": None,
+                "credits": credit_balances,
             }
 
         starts_at = utc_now()
@@ -1679,6 +1804,41 @@ def get_ai_token_usage(
     return int(value or 0)
 
 
+def get_ai_token_usage_range(
+    *,
+    start_day: str,
+    end_day: str,
+    user_id: int | None = None,
+    session_key: str = "",
+    provider: str = "",
+) -> int:
+    """日期区间内估算 token 用量合计（day 为 YYYY-MM-DD 文本，按字典序闭区间）。
+
+    用于「每周」额度统计：每日额度是软上限，本周累计封顶才是硬上限（弹性借用）。
+    """
+    start_value = (start_day or "").strip()
+    end_value = (end_day or "").strip()
+    if not start_value or not end_value:
+        return 0
+    where = "WHERE day >= ? AND day <= ?"
+    params: list[object] = [start_value, end_value]
+    if user_id:
+        where += " AND user_id = ?"
+        params.append(int(user_id))
+    else:
+        where += " AND session_key = ?"
+        params.append((session_key or "").strip())
+    if (provider or "").strip():
+        where += " AND provider = ?"
+        params.append((provider or "").strip())
+    with _connect() as conn:
+        value = conn.execute(
+            f"SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage {where}",
+            tuple(params),
+        ).fetchone()[0]
+    return int(value or 0)
+
+
 def list_ai_usage_for_user(user_id: int | None, *, day: str | None = None, limit: int = 80) -> list[dict]:
     """返回某注册用户最近的 AI 请求明细，用于后台核查异常用量时了解具体输入与来源。
 
@@ -1707,6 +1867,133 @@ def list_ai_usage_for_user(user_id: int | None, *, day: str | None = None, limit
             tuple(params),
         ).fetchall()
     return [row_to_dict(row) for row in rows]
+
+
+def count_ai_usage_requests(
+    *,
+    user_id: int | None,
+    session_key: str = "",
+    start_day: str,
+    end_day: str,
+    feature: str = "",
+    success_only: bool = True,
+) -> int:
+    """Count AI request rows in a China-date day range.
+
+    Day values are stored as YYYY-MM-DD text, so lexical range checks are stable.
+    """
+    start_value = (start_day or "").strip()
+    end_value = (end_day or "").strip()
+    if not start_value or not end_value:
+        return 0
+    params: list[object] = [start_value, end_value]
+    where = "WHERE day >= ? AND day <= ?"
+    if user_id:
+        where += " AND user_id = ?"
+        params.append(int(user_id))
+    else:
+        where += " AND session_key = ?"
+        params.append((session_key or "").strip())
+    if feature:
+        where += " AND feature = ?"
+        params.append((feature or "").strip()[:40])
+    if success_only:
+        where += " AND success = 1"
+    with _connect() as conn:
+        value = conn.execute(
+            f"SELECT COUNT(*) FROM ai_usage {where}",
+            tuple(params),
+        ).fetchone()[0]
+    return int(value or 0)
+
+
+# --- 资源包：AI 次数台账（研究级检索 / 随心问 / AI 导学问答）---------------------
+# reader = 阅读器「AI 导学问答」次数，仅 DeepSeek-V4-Pro 主通道消耗（智谱联网通道不抵扣）。
+AI_CREDIT_KINDS = ("research", "chat", "reader")
+
+
+def _normalize_credit_kind(kind: str) -> str:
+    value = str(kind or "").strip().lower()
+    return value if value in AI_CREDIT_KINDS else ""
+
+
+def get_ai_credit_balances(user_id: int | None) -> dict[str, int]:
+    """返回 {'research': n, 'chat': m}，按 (user, kind) 对台账 delta 求和。"""
+    balances = {k: 0 for k in AI_CREDIT_KINDS}
+    if not user_id:
+        return balances
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT kind, COALESCE(SUM(delta), 0) AS bal FROM ai_credit_ledger WHERE user_id = ? GROUP BY kind",
+            (int(user_id),),
+        ).fetchall()
+    for row in rows:
+        kind = _normalize_credit_kind(row["kind"])
+        if kind:
+            balances[kind] = max(0, int(row["bal"] or 0))
+    return balances
+
+
+def get_ai_credit_balance(user_id: int | None, kind: str) -> int:
+    kind = _normalize_credit_kind(kind)
+    if not user_id or not kind:
+        return 0
+    return int(get_ai_credit_balances(user_id).get(kind, 0))
+
+
+def grant_ai_credits(
+    user_id: int,
+    *,
+    research: int = 0,
+    chat: int = 0,
+    reader: int = 0,
+    reason: str = "",
+    order_no: str = "",
+) -> dict[str, int]:
+    """发放次数（购买/管理员补偿）。research/chat/reader 为正整数增量；返回发放后的余额。"""
+    research = max(0, int(research or 0))
+    chat = max(0, int(chat or 0))
+    reader = max(0, int(reader or 0))
+    now = utc_now_text()
+    rows = []
+    if research:
+        rows.append((int(user_id), "research", research, (reason or "grant")[:80], (order_no or "")[:64], now))
+    if chat:
+        rows.append((int(user_id), "chat", chat, (reason or "grant")[:80], (order_no or "")[:64], now))
+    if reader:
+        rows.append((int(user_id), "reader", reader, (reason or "grant")[:80], (order_no or "")[:64], now))
+    if rows:
+        with _connect() as conn:
+            conn.executemany(
+                "INSERT INTO ai_credit_ledger(user_id, kind, delta, reason, order_no, created_at) "
+                "VALUES(?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+            conn.commit()
+    return get_ai_credit_balances(user_id)
+
+
+def consume_ai_credit(user_id: int | None, kind: str, *, reason: str = "", order_no: str = "") -> bool:
+    """原子扣 1 次：余额>0 才扣，返回是否扣成功。并发安全（BEGIN IMMEDIATE + 复核）。"""
+    kind = _normalize_credit_kind(kind)
+    if not user_id or not kind:
+        return False
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        bal = conn.execute(
+            "SELECT COALESCE(SUM(delta), 0) FROM ai_credit_ledger WHERE user_id = ? AND kind = ?",
+            (int(user_id), kind),
+        ).fetchone()[0]
+        if int(bal or 0) <= 0:
+            conn.rollback()
+            return False
+        conn.execute(
+            "INSERT INTO ai_credit_ledger(user_id, kind, delta, reason, order_no, created_at) "
+            "VALUES(?, ?, -1, ?, ?, ?)",
+            (int(user_id), kind, (reason or "consume")[:80], (order_no or "")[:64], utc_now_text()),
+        )
+        conn.commit()
+    return True
 
 
 def get_user_ai_limit(user_id: int | None) -> dict:

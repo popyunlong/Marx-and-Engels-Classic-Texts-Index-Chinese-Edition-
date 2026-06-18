@@ -1792,7 +1792,8 @@ class SecurityRegressionTests(unittest.TestCase):
             app_module.AI_CONFIG = original_config
         self.assertEqual(response.status_code, 429)
         payload = response.get_json()
-        self.assertEqual(payload["daily_limit"], 0)
+        # 额度改为弹性「每日×7＝本周」硬上限：每日 0 → 本周 0 → 仍在调用模型前拦截。
+        self.assertEqual(payload["weekly_limit"], 0)
         self.assertEqual(payload["used_tokens"], 0)
 
     def test_home_feedback_requires_login_and_admin_can_reply(self) -> None:
