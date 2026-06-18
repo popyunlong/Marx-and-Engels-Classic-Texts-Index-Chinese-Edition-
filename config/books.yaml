@@ -132,7 +132,7 @@ books:
   publisher: 中央文献出版社
   sort_order: 130
   tag_class: xuanbian18
-  available: false
+  available: true
 - key: 十九大以来重要文献选编
   title: 《十九大以来重要文献选编》
   short_title: 文献选编·十九大
