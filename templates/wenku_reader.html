@@ -300,9 +300,24 @@
 
     // ---------- 引文 ----------
     function fillTpl(tpl, ctx){ return String(tpl||'').replace(/\{(\w+)\}/g, (m,k)=> (ctx[k]!=null ? ctx[k] : '')); }
+    // 英文文集无页码锚点：从 iframe 当前文章读标题 + MECW 出处（清洗时写入的 <meta name=cite-source>）。
+    function enArticleInfo(){
+      try{
+        const d = iframe.contentDocument; if(!d) return {};
+        const h = d.querySelector('h1.en-title') || d.querySelector('h1');
+        const m = d.querySelector('meta[name="cite-source"]');
+        return { article: (h && h.textContent || '').trim(),
+                 source: (m && m.getAttribute('content') || '').trim() };
+      }catch(e){ return {}; }
+    }
     function buildCitations(page){
       const c = CFG.citation || {}, v = CFG.volume || {};
       const ctx = Object.assign({}, c, v, {page: page || ''});
+      if(CFG.lang === 'en'){
+        const info = enArticleInfo();
+        ctx.article = info.article || (CFG.title_zh || '');
+        ctx.source = info.source || 'Marx-Engels Collected Works';
+      }
       if(c.tpl_zh){
         return {zh: fillTpl(c.tpl_zh, ctx), alt: fillTpl(c.tpl_alt || '', ctx)};
       }
@@ -318,7 +333,8 @@
       const cit = buildCitations(p);
       document.getElementById('citeZh').textContent = cit.zh;
       document.getElementById('citeRu').textContent = cit.alt;
-      document.getElementById('citeWarn').style.display = p ? 'none' : 'block';
+      // 英文文集无页码概念，不弹「未识别页码」告警。
+      document.getElementById('citeWarn').style.display = (!p && CFG.lang !== 'en') ? 'block' : 'none';
       document.getElementById('citeModal').style.display = 'flex';
     }
     document.getElementById('cite').onclick = openCite;
@@ -338,8 +354,14 @@
     document.getElementById('copyZh').onclick = function(){ copyText(document.getElementById('citeZh').textContent, this); };
     document.getElementById('copyRu').onclick = function(){ copyText(document.getElementById('citeRu').textContent, this); };
 
-    // 「原文式」引文标签按书语种切换（列宁=俄文原版式 / MEGA=德文原版式）
+    // 「原文式」引文标签按书语种切换（列宁=俄文原版式 / MEGA=德文原版式 / 英文=英文版式）
     document.getElementById('altLabel').textContent = (CFG.citation && CFG.citation.alt_label) || '原文版式';
+    // 英文文集：无原书页码，隐藏「当前页」并改引文提示。
+    if(CFG.lang === 'en'){
+      const cp = document.querySelector('.curpage'); if(cp) cp.style.display = 'none';
+      const hint = document.querySelector('#citeModal .hint');
+      if(hint) hint.textContent = '英文文集无原书页码，引文按篇名与 MECW（马恩全集英文版）出处生成。';
+    }
 
     // ---------- AI 导读（基于当前页原文，DeepSeek） ----------
     const aiPanel = document.getElementById('aiPanel');

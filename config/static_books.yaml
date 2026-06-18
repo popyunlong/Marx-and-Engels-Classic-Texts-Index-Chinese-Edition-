@@ -159,3 +159,21 @@ books:
       - { n: 25, label: "Bd. 25: 《资本论》第三卷", index: "25/index.htm", year: 1964 }
       - { n: 40, label: "Bd. 40: 补卷一 · 1844年经济学哲学手稿等早期著作", index: "40/index.htm", year: 1968 }
       - { n: 42, label: "Bd. 42: 《政治经济学批判大纲》（1857–1858，Grundrisse）", index: "42/index.htm", year: 1983 }
+
+  - key: marx-en
+    title_zh: 马克思恩格斯著作（英文版）
+    title_ru: "Karl Marx & Friedrich Engels — Collected Works (English)"
+    short_title: 英文文集
+    lang: en
+    badge: EN
+    desc: 英文原文 · 逾 6600 篇 · 按标题检索、全文阅读，支持中文对照翻译与 AI 导读
+    folder: marx-en
+    serve_prefix: /wenku/raw/marx-en
+    citation:
+      # 英文文本无原书页码：阅读器从当前文章读篇名({article})与 MECW 出处({source})生成引文。
+      alt_label: "英文版式"
+      tpl_zh: "马克思, 恩格斯. {article}[M]//{source}（英文版，文本经 marxists.org 转录）."
+      tpl_alt: "Marx/Engels. {article}. In: {source} (English; transcribed by marxists.org)."
+    volumes:
+      # 标题索引型：单一「卷」即可搜索的标题总目 index.html，逐篇进阅读器（无卷号/页码）。
+      - { n: 1, tag: "EN", label: "marxists.org 英文文集 · 逾 6600 篇全文检索", index: "index.html" }

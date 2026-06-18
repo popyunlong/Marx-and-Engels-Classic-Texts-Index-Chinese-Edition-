@@ -66,7 +66,9 @@
 
         {# 卷号徽标 + 去掉冗余前缀的明细。书可用 vol_prefix 自定卷号前缀（如 MEW 的 "Bd. "）；
            缺省回退原行为：列宁 Т.N、MEGA II/N #}
-        {% if book.vol_prefix %}
+        {% if v.tag %}
+          {% set tag = v.tag %}
+        {% elif book.vol_prefix %}
           {% set tag = book.vol_prefix ~ v.n %}
         {% else %}
           {% set tag = ('Т.' ~ v.n) if book.lang == 'ru' else ('II/' ~ v.n) %}
