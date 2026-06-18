@@ -103,23 +103,24 @@
       border-top: 1px solid rgba(255, 241, 226, 0.14);
       /* 思源宋体（衬线），加粗，典雅 */
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
-      font-size: .9rem;
+      font-size: .84rem;
       font-weight: 700;
       letter-spacing: 0;
       color: rgba(255, 250, 244, 0.97);
       display: flex;
       flex-wrap: wrap;
       align-content: flex-start;
-      gap: 10px 11px;
+      gap: 8px 8px;
     }
     /* 每条文献：淡白色圆角方框；flex-grow 让每行方框按剩余空间等比拉伸，
-       每行（含末行）撑满两端、不留空隙、无落单凸出。内边距/间距收紧以保证
-       12 部文献在桌面固定宽度（hero 内宽约 1280px）下稳定排成两行。 */
+       每行（含末行）撑满两端、不留空隙、无落单凸出。内边距/间距/字号收紧以保证
+       13 部文献在桌面固定宽度（hero 内宽约 1280px）下稳定排成两行（约 6+7），
+       不让末条「文献选编」单独落到第三行凸出。 */
     .hero-corpus-item {
       flex: 1 1 auto;
       text-align: center;
       white-space: nowrap;
-      padding: 5px 12px;
+      padding: 5px 9px;
       background: rgba(255, 252, 247, 0.10);
       border: 1px solid rgba(255, 246, 234, 0.24);
       border-radius: 8px;
