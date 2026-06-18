@@ -111,24 +111,51 @@ books:
 
   - key: mew-de
     title_zh: 马克思恩格斯全集（德文版 MEW）
-    title_ru: "Karl Marx · Friedrich Engels: Werke (MEW), Band 23 · Das Kapital, Band I"
+    title_ru: "Karl Marx · Friedrich Engels: Werke (MEW) · Dietz Verlag, Berlin"
     short_title: MEW
     lang: de
     badge: DE
-    vol_prefix: "Bd. "          # 卷号徽标用 “Bd. 23”（区别于 MEGA 的 II/N）
-    desc: 德文原文 · Marx-Engels-Werke（MEW）第 23 卷：《资本论》第一卷 · 内嵌原书页码，可生成规范引文
+    vol_prefix: "Bd. "          # 卷号徽标用 “Bd. N”（区别于 MEGA 的 II/N）
+    desc: 德文原文 · Marx-Engels-Werke（MEW）· 涵盖《资本论》三卷、《共产党宣言》《反杜林论》《德意志意识形态》等经典 · 内嵌原书页码，可生成规范引文
     folder: mew-de
     serve_prefix: /wenku/raw/mew-de
     citation:
-      author_zh: "马克思"
-      author_de: "Marx, Karl"
+      # 全套按卷号统一引用（MEW 惯例：Marx/Engels, MEW Bd. N, S. xxx）；各卷收录的具体著作见卷标签。
+      author_zh: "马克思, 恩格斯"
+      author_de: "Marx, Karl / Engels, Friedrich"
       series_zh: "马克思恩格斯全集（德文版）"
       series_de: "Marx-Engels-Werke (MEW)"
       publisher_zh: "柏林：Dietz Verlag"
       publisher_de: "Berlin: Dietz Verlag"
       alt_label: "德文原版式"
-      tpl_zh: "{author_zh}. {title_zh}//{series_zh}：第{n}卷[M]. {publisher_zh}，{year}：{page}."
-      tpl_alt: "{author_de}: {title_de}. In: {series_de}, Bd. {n}. {publisher_de} {year}, S. {page}."
+      tpl_zh: "{author_zh}. {series_zh}：第{n}卷[M]. {publisher_zh}，{year}：{page}."
+      tpl_alt: "{author_de}: {series_de}, Bd. {n}. {publisher_de} {year}, S. {page}."
     volumes:
-      # 章节正文系 1968 年印次数字化，但页码（Seitenzahlen）与 MEW 各印次一致；引文年按 Bd.23 初版 1962（Dietz Verlag）——沿用本库“引文取初版年”的口径。
-      - { n: 23, label: "Bd. 23: Das Kapital, Erster Band（《资本论》第一卷）", index: "23/index.htm", year: 1962, title_zh: "资本论 第一卷", title_de: "Das Kapital, Band I" }
+      # 引文年取各卷 MEW 初版年（Dietz Verlag, Berlin）；部分卷正文系后期重印数字化，但 MEW 各印次页码一致，故引文统一用初版年（沿用本库口径）。
+      - { n: 1, label: "Bd. 1: 1839–1844 早期著作（博士论文、《莱茵报》评论）", index: "1/index.htm", year: 1956 }
+      - { n: 2, label: "Bd. 2: 1844–1846《神圣家族》《英国工人阶级状况》", index: "2/index.htm", year: 1957 }
+      - { n: 3, label: "Bd. 3: 《德意志意识形态》（1845–1846）", index: "3/index.htm", year: 1958 }
+      - { n: 4, label: "Bd. 4: 1846–1848《哲学的贫困》《共产党宣言》", index: "4/index.htm", year: 1959 }
+      - { n: 5, label: "Bd. 5: 1848–1849《新莱茵报》（一）", index: "5/index.htm", year: 1959 }
+      - { n: 6, label: "Bd. 6: 1848–1849《新莱茵报》（二）", index: "6/index.htm", year: 1959 }
+      - { n: 7, label: "Bd. 7: 1849–1851 流亡与总结", index: "7/index.htm", year: 1960 }
+      - { n: 8, label: "Bd. 8: 1851–1853《路易·波拿巴的雾月十八日》", index: "8/index.htm", year: 1960 }
+      - { n: 9, label: "Bd. 9: 1853 国际评论与时评", index: "9/index.htm", year: 1960 }
+      - { n: 10, label: "Bd. 10: 1854–1855 时评与外交史", index: "10/index.htm", year: 1961 }
+      - { n: 11, label: "Bd. 11: 1855–1856 时评", index: "11/index.htm", year: 1961 }
+      - { n: 12, label: "Bd. 12: 1856–1859 时评（《不列颠在印度的统治》等）", index: "12/index.htm", year: 1961 }
+      - { n: 13, label: "Bd. 13: 《政治经济学批判。第一分册》（1859）", index: "13/index.htm", year: 1961 }
+      - { n: 14, label: "Bd. 14: 1857–1860 军事与历史论文", index: "14/index.htm", year: 1961 }
+      - { n: 15, label: "Bd. 15: 1860–1861 时评与论战", index: "15/index.htm", year: 1961 }
+      - { n: 16, label: "Bd. 16: 1864–1870 第一国际文献", index: "16/index.htm", year: 1962 }
+      - { n: 17, label: "Bd. 17: 1870–1872《法兰西内战》", index: "17/index.htm", year: 1962 }
+      - { n: 18, label: "Bd. 18: 1872–1875 国际与论战", index: "18/index.htm", year: 1962 }
+      - { n: 19, label: "Bd. 19: 1875–1883《哥达纲领批判》等", index: "19/index.htm", year: 1962 }
+      - { n: 20, label: "Bd. 20: 《反杜林论》《自然辩证法》", index: "20/index.htm", year: 1962 }
+      - { n: 21, label: "Bd. 21: 1883–1889《家庭、私有制和国家的起源》等", index: "21/index.htm", year: 1962 }
+      - { n: 22, label: "Bd. 22: 1890–1895 晚年著作与序言", index: "22/index.htm", year: 1963 }
+      - { n: 23, label: "Bd. 23: 《资本论》第一卷", index: "23/index.htm", year: 1962 }
+      - { n: 24, label: "Bd. 24: 《资本论》第二卷", index: "24/index.htm", year: 1963 }
+      - { n: 25, label: "Bd. 25: 《资本论》第三卷", index: "25/index.htm", year: 1964 }
+      - { n: 40, label: "Bd. 40: 补卷一 · 1844年经济学哲学手稿等早期著作", index: "40/index.htm", year: 1968 }
+      - { n: 42, label: "Bd. 42: 《政治经济学批判大纲》（1857–1858，Grundrisse）", index: "42/index.htm", year: 1983 }

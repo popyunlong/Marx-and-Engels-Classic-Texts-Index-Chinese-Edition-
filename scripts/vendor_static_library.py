@@ -44,8 +44,10 @@ _CHAR_FIXES = {
     "ˆ": "ö",   # U+02C6 CIRCUMFLEX    → ö（Grˆﬂenwechsel→Größenwechsel / Arbeitslˆhne→Arbeitslöhne）
     "¸": "ü",   # U+00B8 CEDILLA       → ü（St¸cklohn→Stücklohn / f¸r→für）
 }
-# 朋友站点 chrome 的死链：目录页的「Hauptverzeichnis」指回其站根 ../index.shtml、页脚 mailto:webmaster@ 占位，
-# 搬入自托管后这些路径不存在（404）。经 --neutralize-extern 改成惰性 # 锚，避免阅读器 iframe 里出现失效链接。
+# 朋友站点 chrome 的死链：任何 `../` 越出本卷服务目录的链接（跨卷 ../meNN/、站点根 ../index.shtml、
+# ../default.htm 等）与 mailto: 占位，在自托管的 /wenku/raw/<book>/<vol>/ 布局下都不存在（404）。
+# 经 --neutralize-extern 一律改成惰性 # 锚；卷内相对链接（meNN_xxx.htm、#脚注锚）不含 ../ 故不受影响。
+_PARENT_HREF_RE = re.compile(r"""href=(['"])\.\./[^'"]*\1""", re.IGNORECASE)
 _MAILTO_RE = re.compile(r"""href=(['"])mailto:[^'"]*\1""", re.IGNORECASE)
 
 
@@ -62,7 +64,7 @@ def rewrite_html(text: str, serve_prefix: str, *, char_fix: bool = False, neutra
         for bad, good in _CHAR_FIXES.items():
             text = text.replace(bad, good)
     if neutralize_extern:
-        text = text.replace('href="../index.shtml"', 'href="#"').replace("href='../index.shtml'", "href='#'")
+        text = _PARENT_HREF_RE.sub(r"href=\1#\1", text)
         text = _MAILTO_RE.sub(r"href=\1#\1", text)
     return text
 
