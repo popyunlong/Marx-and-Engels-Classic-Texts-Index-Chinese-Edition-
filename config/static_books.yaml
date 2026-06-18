@@ -108,3 +108,27 @@ books:
       - { n: 10, label: "II/10: Das Kapital, Erster Band (Hamburg 1890)", index: "10/index.html", year: 1991, vol_zh: "第II部分第10卷", vol_de: "Abt. II, Bd. 10", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
       - { n: 13, label: "II/13: Das Kapital, Zweiter Band (Druckfassung 1885)", index: "13/index.html", year: 2008, vol_zh: "第II部分第13卷", vol_de: "Abt. II, Bd. 13", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
       - { n: 15, label: "II/15: Das Kapital, Dritter Band (Druckfassung 1894)", index: "15/index.html", year: 2004, vol_zh: "第II部分第15卷", vol_de: "Abt. II, Bd. 15", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+
+  - key: mew-de
+    title_zh: 马克思恩格斯全集（德文版 MEW）
+    title_ru: "Karl Marx · Friedrich Engels: Werke (MEW), Band 23 · Das Kapital, Band I"
+    short_title: MEW
+    lang: de
+    badge: DE
+    vol_prefix: "Bd. "          # 卷号徽标用 “Bd. 23”（区别于 MEGA 的 II/N）
+    desc: 德文原文 · Marx-Engels-Werke（MEW）第 23 卷：《资本论》第一卷 · 内嵌原书页码，可生成规范引文
+    folder: mew-de
+    serve_prefix: /wenku/raw/mew-de
+    citation:
+      author_zh: "马克思"
+      author_de: "Marx, Karl"
+      series_zh: "马克思恩格斯全集（德文版）"
+      series_de: "Marx-Engels-Werke (MEW)"
+      publisher_zh: "柏林：Dietz Verlag"
+      publisher_de: "Berlin: Dietz Verlag"
+      alt_label: "德文原版式"
+      tpl_zh: "{author_zh}. {title_zh}//{series_zh}：第{n}卷[M]. {publisher_zh}，{year}：{page}."
+      tpl_alt: "{author_de}: {title_de}. In: {series_de}, Bd. {n}. {publisher_de} {year}, S. {page}."
+    volumes:
+      # 章节正文系 1968 年印次数字化，但页码（Seitenzahlen）与 MEW 各印次一致；引文年按 Bd.23 初版 1962（Dietz Verlag）——沿用本库“引文取初版年”的口径。
+      - { n: 23, label: "Bd. 23: Das Kapital, Erster Band（《资本论》第一卷）", index: "23/index.htm", year: 1962, title_zh: "资本论 第一卷", title_de: "Das Kapital, Band I" }

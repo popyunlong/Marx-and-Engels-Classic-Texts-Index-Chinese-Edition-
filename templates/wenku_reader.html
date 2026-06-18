@@ -156,13 +156,15 @@
     function markerNum(el){
       const t = (el.textContent || '').trim();
       if(/^\d+$/.test(t)) return t;
-      const m = (el.id || '').match(/^s(\d+)$/i);   // 兼容列宁 s124 与 MEGA 大写 S38（Seite）
+      // 锚点页码：列宁/MEGA 用 id（s124 / 大写 S38），MEW 用 <a name="S49">（Seite，大写 NAME 属性）
+      const key = el.id || el.getAttribute('name') || '';
+      const m = key.match(/^s(\d+)$/i);
       return m ? m[1] : null;
     }
     function detectPage(){
       let d; try{ d = iframe.contentDocument; }catch(e){ return null; }
       if(!d) return null;
-      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"]');
+      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
       const offset = 96; let cur = null, first = null;
       markers.forEach(el=>{
         const num = markerNum(el); if(num === null) return;

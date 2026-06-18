@@ -36,8 +36,20 @@ _MLR_SCRIPT_RE = re.compile(r"""<script[^>]*src=['"]/mlr\.js['"][^>]*>\s*</scrip
 # 脱离阅读器外壳（顶栏翻译/AI 导读/引文随之消失）。一律剥掉，让链接在同源 iframe 内导航。
 _TARGET_BLANK_RE = re.compile(r"""\s+target\s*=\s*(?:"_blank"|'_blank'|_blank)""", re.IGNORECASE)
 
+# MEW（mlwerke.de 镜像）特有：少数标题里的 ß/ö/ü 被 PDF 提取错转成连字/变音符号残留。
+# 仅出现在德文 MEW 目录/标题（章节正文用 HTML 实体 &szlig; 等，不含这些码点），故为定向、保守的等长替换；
+# 经 --char-fix 显式开启，避免误伤其它语种书库。
+_CHAR_FIXES = {
+    "ﬂ": "ß",   # U+FB02 LIGATURE FL   → ß（Austauschprozeﬂ→Austauschprozeß / groﬂe→große）
+    "ˆ": "ö",   # U+02C6 CIRCUMFLEX    → ö（Grˆﬂenwechsel→Größenwechsel / Arbeitslˆhne→Arbeitslöhne）
+    "¸": "ü",   # U+00B8 CEDILLA       → ü（St¸cklohn→Stücklohn / f¸r→für）
+}
+# 朋友站点 chrome 的死链：目录页的「Hauptverzeichnis」指回其站根 ../index.shtml、页脚 mailto:webmaster@ 占位，
+# 搬入自托管后这些路径不存在（404）。经 --neutralize-extern 改成惰性 # 锚，避免阅读器 iframe 里出现失效链接。
+_MAILTO_RE = re.compile(r"""href=(['"])mailto:[^'"]*\1""", re.IGNORECASE)
 
-def rewrite_html(text: str, serve_prefix: str) -> str:
+
+def rewrite_html(text: str, serve_prefix: str, *, char_fix: bool = False, neutralize_extern: bool = False) -> str:
     serve_prefix = serve_prefix.rstrip("/")
     # /vil.css（绝对）→ <prefix>/vil.css。两种引号都覆盖。
     text = text.replace('href="/vil.css"', f'href="{serve_prefix}/vil.css"')
@@ -46,10 +58,23 @@ def rewrite_html(text: str, serve_prefix: str) -> str:
     text = _MLR_SCRIPT_RE.sub("", text)
     # 剥掉 target=_blank，保证链接留在阅读器 iframe 内（否则外壳与按钮消失）
     text = _TARGET_BLANK_RE.sub("", text)
+    if char_fix:
+        for bad, good in _CHAR_FIXES.items():
+            text = text.replace(bad, good)
+    if neutralize_extern:
+        text = text.replace('href="../index.shtml"', 'href="#"').replace("href='../index.shtml'", "href='#'")
+        text = _MAILTO_RE.sub(r"href=\1#\1", text)
     return text
 
 
-def vendor_volume(source_vol: Path, dest_vol: Path, serve_prefix: str) -> tuple[int, int]:
+def vendor_volume(
+    source_vol: Path,
+    dest_vol: Path,
+    serve_prefix: str,
+    *,
+    char_fix: bool = False,
+    neutralize_extern: bool = False,
+) -> tuple[int, int]:
     if dest_vol.exists():
         shutil.rmtree(dest_vol)
     dest_vol.mkdir(parents=True, exist_ok=True)
@@ -61,8 +86,13 @@ def vendor_volume(source_vol: Path, dest_vol: Path, serve_prefix: str) -> tuple[
         dst = dest_vol / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         if src.suffix.lower() in (".html", ".htm"):
+            # 用 utf-8 读写而非 utf-8-sig：MEW 源文件带 UTF-8 BOM，须原样保留——浏览器据 BOM 选 UTF-8，
+            # 从而忽略文件里写死的 charset=ISO-8859-1（否则改过的 ß/ö/ü 与 § 会乱码）。
             raw = src.read_text(encoding="utf-8", errors="replace")
-            dst.write_text(rewrite_html(raw, serve_prefix), encoding="utf-8")
+            dst.write_text(
+                rewrite_html(raw, serve_prefix, char_fix=char_fix, neutralize_extern=neutralize_extern),
+                encoding="utf-8",
+            )
             n_html += 1
         else:
             shutil.copy2(src, dst)
@@ -78,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--css", default="", help="可选：要一并搬入书根的样式表文件（如朋友的 vil.css）")
     ap.add_argument("--volumes", nargs="*", type=str, default=[], help="要搬的卷号列表，如 1 2 33")
     ap.add_argument("--all", action="store_true", help="搬源目录下全部数字命名的卷")
+    ap.add_argument("--char-fix", action="store_true",
+                    help="修正 MEW 标题里 PDF 提取残留的连字/变音符号（ﬂ→ß ˆ→ö ¸→ü）")
+    ap.add_argument("--neutralize-extern", action="store_true",
+                    help="把目录页指向源站的死链（../index.shtml / mailto:）改成惰性 # 锚")
     args = ap.parse_args(argv)
 
     source = Path(args.source)
@@ -112,7 +146,10 @@ def main(argv: list[str] | None = None) -> int:
         if not sv.is_dir():
             print(f"[跳过] 源中无第 {vol} 卷：{sv}", file=sys.stderr)
             continue
-        nh, no = vendor_volume(sv, dest_book / vol, args.serve_prefix)
+        nh, no = vendor_volume(
+            sv, dest_book / vol, args.serve_prefix,
+            char_fix=args.char_fix, neutralize_extern=args.neutralize_extern,
+        )
         total_html += nh
         total_other += no
         print(f"[卷 {vol}] HTML {nh} + 其他 {no} → {dest_book / vol}")

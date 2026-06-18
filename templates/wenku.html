@@ -64,8 +64,13 @@
           <div class="vols">
         {% endif %}
 
-        {# 卷号徽标 + 去掉冗余前缀的明细 #}
-        {% set tag = ('Т.' ~ v.n) if book.lang == 'ru' else ('II/' ~ v.n) %}
+        {# 卷号徽标 + 去掉冗余前缀的明细。书可用 vol_prefix 自定卷号前缀（如 MEW 的 "Bd. "）；
+           缺省回退原行为：列宁 Т.N、MEGA II/N #}
+        {% if book.vol_prefix %}
+          {% set tag = book.vol_prefix ~ v.n %}
+        {% else %}
+          {% set tag = ('Т.' ~ v.n) if book.lang == 'ru' else ('II/' ~ v.n) %}
+        {% endif %}
         {% if '(' in v.label %}
           {% set detail = v.label.split('(', 1)[1] %}
           {% set detail = detail[:-1] if detail.endswith(')') else detail %}
