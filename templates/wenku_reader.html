@@ -237,6 +237,44 @@
         d.head.appendChild(s);
       }catch(e){}
     }
+    // 统一阅读排版：往 iframe 注入「书页式」阅读样式（居中窄栏 + 衬线 + 宽行距 + 暖纸底），
+    // 仿照 de.19491007.xyz 的阅读体验。源文 *{Arial!important} 等用 body */!important 覆盖。
+    // 正文是俄/德/英文→衬线用 Georgia 系（拉丁+西里尔好看）；中文译文(.wenku-zh)单独给思源宋体。
+    function injectReadingStyle(){
+      try{
+        const d = iframe.contentDocument; if(!d || !d.head || d.getElementById('wenku-reading')) return;
+        const s = d.createElement('style'); s.id = 'wenku-reading';
+        s.textContent = `
+:root{--rbg:#f7f5f0;--rtext:#1c1917;--rt2:#57534e;--rt3:#a8a29e;--rbd:#d8d2c8;--rcard:#fff;--racc:#b45309;
+--rserif:Georgia,"Times New Roman","Noto Serif","PT Serif","Liberation Serif",serif;
+--rcjk:"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;}
+html{background:var(--rbg)!important;}
+body{max-width:800px!important;margin:0 auto!important;padding:30px 34px 96px!important;background:var(--rbg)!important;
+color:var(--rtext)!important;font-family:var(--rserif)!important;line-height:1.9!important;-webkit-font-smoothing:antialiased;}
+body *{font-family:var(--rserif)!important;}
+p{margin:.9em 0!important;}
+a{color:var(--racc)!important;text-decoration:none!important;}
+a:hover{text-decoration:underline!important;}
+h1,h2,h3,h4,h5,h6{font-weight:600!important;color:var(--rtext)!important;line-height:1.4!important;margin:1.7em 0 .65em!important;}
+h1{font-size:1.55em!important;text-align:center;border-bottom:1px solid var(--rbd);padding-bottom:.4em;}
+h2{font-size:1.32em!important;}h3{font-size:1.16em!important;}h4{font-size:1.06em!important;}
+blockquote{margin:1.2em 0;padding:.5em 1em;border-left:3px solid var(--racc);background:var(--rcard);color:var(--rt2);}
+sup,sub{font-size:.72em;line-height:0;}
+sup a{color:var(--racc)!important;font-weight:500;}
+table{border-collapse:collapse;margin:1.1em auto;font-size:.94em;}
+td,th{padding:5px 11px;border:1px solid var(--rbd);text-align:left;vertical-align:top;line-height:1.6!important;}
+th{background:#efede8;font-weight:600;}
+img{max-width:100%;height:auto;display:block;margin:1em auto;}
+hr{border:none;height:1px;background:var(--rbd);margin:1.9em auto;}
+.seitenzahlen{font-size:.8em!important;color:var(--rt3)!important;text-align:center;border:1px dashed var(--rbd);padding:.3em .6em;border-radius:6px;margin:0 0 1.6em;line-height:1.5!important;}
+a[name^="S"] b,a[name^="s"] b,a[id^="S"] b,a[id^="s"] b{color:var(--rt3)!important;font-weight:400!important;font-size:.82em;}
+dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
+.en-src{background:#faf6ef;border-left:3px solid var(--rbd)!important;color:var(--rt2)!important;}
+.wenku-zh,.wenku-zh *{font-family:var(--rcjk)!important;}
+`;
+        d.head.appendChild(s);
+      }catch(e){}
+    }
     function clearBilingual(){ try{ iframe.contentDocument.querySelectorAll('.wenku-zh').forEach(n=>n.remove()); }catch(e){} }
     function paragraphsNeedingTrans(){
       const d = iframe.contentDocument; if(!d) return [];
@@ -282,6 +320,7 @@
       if(bilingual){ clearTimeout(scrollTimer); scrollTimer = setTimeout(runBilingualPass, 350); }
     }
     function onFrameLoad(){
+      injectReadingStyle();
       applyFont();
       updatePageLabel();
       try{
