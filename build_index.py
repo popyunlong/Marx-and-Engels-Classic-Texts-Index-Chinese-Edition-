@@ -543,10 +543,61 @@ def detect_printed_page_from_text(raw_text: str) -> str | None:
 
 
 
+def _merge_adjacent_digit_words(words: list) -> list[tuple[str, float, float, float, float]]:
+    """
+    把同一 (block,line) 内横向相邻的纯数字词拼回整数。
+
+    words 元素: (x0,y0,x1,y1,word,block_no,line_no,word_no)。
+    返回 [(text, x0, y0, x1, y1), ...]：相邻数字词合并为一个多位数候选，
+    非数字词原样保留（罗马页码等仍可被 _parse_page_token 处理）。
+    洁净卷里页码本就是单个 token，长度为 1 的「数字串」合并后不变，故无副作用。
+    """
+    # 按 (block, 纵向行) 几何分组：退化 OCR 常把同一行的每个数字拆成独立 line_no
+    # 甚至逆序，故不能依赖 line_no，改用 y 坐标桶；再按 x 排序拼接还原读序。
+    out: list[tuple[str, float, float, float, float]] = []
+    groups: dict[tuple[int, int], list] = {}
+    for w in words:
+        blk = int(w[5]) if len(w) >= 6 else 0
+        ybucket = int(round(float(w[1]) / 4.0))
+        groups.setdefault((blk, ybucket), []).append(w)
+
+    for _, gw in groups.items():
+        gw = sorted(gw, key=lambda w: float(w[0]))
+        run: list = []  # 累积的相邻数字词
+
+        def flush():
+            if not run:
+                return
+            text = "".join(unicodedata.normalize("NFKC", str(w[4])) for w in run)
+            x0 = min(float(w[0]) for w in run)
+            y0 = min(float(w[1]) for w in run)
+            x1 = max(float(w[2]) for w in run)
+            y1 = max(float(w[3]) for w in run)
+            out.append((text, x0, y0, x1, y1))
+            run.clear()
+
+        for w in gw:
+            norm = unicodedata.normalize("NFKC", str(w[4])).strip()
+            is_digit = norm.isdigit()
+            if is_digit:
+                if run:
+                    prev = run[-1]
+                    gap = float(w[0]) - float(prev[2])
+                    span = max(float(prev[2]) - float(prev[0]), float(w[2]) - float(w[0]), 1.0)
+                    if gap > 1.5 * span:  # 间距过大，视为另一处数字，先结算
+                        flush()
+                run.append(w)
+            else:
+                flush()
+                out.append((str(w[4]), float(w[0]), float(w[1]), float(w[2]), float(w[3])))
+        flush()
+    return out
+
+
 def detect_printed_page_from_page(page: fitz.Page) -> str | None:
     """
     从 page 对象中识别印刷页码：
-    1) 优先从 words 中看页面顶部/底部边缘区域；
+    1) 优先从 words 中看页面顶部/底部边缘区域（相邻数字词会先拼回整数）；
     2) 再退回到 raw_text 的前后几行。
     """
     page_rect = page.rect
@@ -561,11 +612,16 @@ def detect_printed_page_from_page(page: fitz.Page) -> str | None:
     except Exception:
         words = []
 
-    for w in words:
-        x0, y0, x1, y1, token = float(w[0]), float(w[1]), float(w[2]), float(w[3]), str(w[4])
-        # 只看上下边缘区域
-        if not (y1 <= page_height * 0.18 or y0 >= page_height * 0.82):
-            continue
+    # 早期/退化扫描卷的 OCR 文本层常把页码每个数字拆成单字符「词」(５ ６ ７)，
+    # 逐词打分只会取到其中一位 → "567" 退化成 "5"。先把同一行(block,line)内横向相邻的
+    # 数字词重新拼回整数，再参与打分；非数字词维持原样。这样既修复碎裂页码，也不改变
+    # 原本就是单 token 整数页码的洁净卷的结果。
+    # 顶边带放宽到 0.20：部分扫描卷的页眉(连同页码)落在 ~17%-18% 处，0.18 会漏掉。
+    edge_words = [
+        w for w in words
+        if (float(w[3]) <= page_height * 0.20 or float(w[1]) >= page_height * 0.82)
+    ]
+    for token, x0, y0, x1, y1 in _merge_adjacent_digit_words(edge_words):
         scored = _score_candidate(token, x0, y0, x1, y1, page_width, page_height)
         if scored:
             candidates.append(scored)
