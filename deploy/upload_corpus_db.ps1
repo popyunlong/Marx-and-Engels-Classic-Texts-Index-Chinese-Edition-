@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ServerHost = "38.76.174.234",
     [string]$User = "root",
     [string]$RemoteDir = "/opt/marx-search",

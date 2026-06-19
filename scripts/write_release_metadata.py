@@ -19,7 +19,9 @@ def write_release_metadata(data_dir: Path, data_version: str) -> None:
         raise FileNotFoundError(f"Database not found: {db_path}")
 
     digest = compute_sha256(db_path)
-    (data_dir / "corpus.sqlite.sha256").write_text(f"{digest}\n", encoding="utf-8")
+    # 必须用 LF：sidecar 会上传到服务器，部署脚本用 `awk '{print $1}'` 读取，
+    # Windows 文本模式的 CRLF 会让哈希尾部带上 \r 导致服务器端 sha 校验「相同却不等」。
+    (data_dir / "corpus.sqlite.sha256").write_bytes(f"{digest}\n".encode("utf-8"))
     payload = {
         "app_version": APP_VERSION,
         "data_version": data_version,
