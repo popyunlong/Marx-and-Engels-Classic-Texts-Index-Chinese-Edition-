@@ -43,9 +43,13 @@ if ($localCount -lt 1) {
 }
 
 $remote = "$User@${ServerHost}"
-$sshOptions = @("-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes")
+# ssh needs -n (-T) so it does not read stdin; otherwise a backgrounded run hangs on the first ssh.
+# scp must NOT get -n (it is not a valid scp flag), so keep a separate options array for it.
+$sshOptions = @("-n", "-T", "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes")
+$scpOptions = @("-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes")
 if ($IdentityFile -and (Test-Path $IdentityFile)) {
     $sshOptions += @("-i", $IdentityFile)
+    $scpOptions += @("-i", $IdentityFile)
 }
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -74,7 +78,7 @@ Write-Host "Archive ready: $mb MB"
 try {
     Invoke-Remote "test -d '$RemoteDir'"
     Write-Host "Uploading archive ..."
-    & scp @sshOptions -o BatchMode=yes -P $Port $archive "${remote}:$remoteArchive"
+    & scp @scpOptions -o BatchMode=yes -P $Port $archive "${remote}:$remoteArchive"
     if ($LASTEXITCODE -ne 0) { throw "scp failed with exit code $LASTEXITCODE" }
 
     Write-Host "Extracting on server ..."
