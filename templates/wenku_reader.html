@@ -250,7 +250,7 @@
 --rcjk:"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;}
 html{background:var(--rbg)!important;}
 body{max-width:800px!important;margin:0 auto!important;padding:30px 34px 96px!important;background:var(--rbg)!important;
-color:var(--rtext)!important;font-family:var(--rserif)!important;line-height:1.9!important;-webkit-font-smoothing:antialiased;}
+color:var(--rtext)!important;font-family:var(--rserif)!important;line-height:1.9!important;text-align:left!important;-webkit-font-smoothing:antialiased;}
 body *{font-family:var(--rserif)!important;}
 p{margin:.9em 0!important;}
 a{color:var(--racc)!important;text-decoration:none!important;}
@@ -262,12 +262,15 @@ blockquote{margin:1.2em 0;padding:.5em 1em;border-left:3px solid var(--racc);bac
 sup,sub{font-size:.72em;line-height:0;}
 sup a{color:var(--racc)!important;font-weight:500;}
 table{border-collapse:collapse;margin:1.1em auto;font-size:.94em;}
-td,th{padding:5px 11px;border:1px solid var(--rbd);text-align:left;vertical-align:top;line-height:1.6!important;}
-th{background:#efede8;font-weight:600;}
+td,th{padding:4px 11px;text-align:left;vertical-align:top;line-height:1.6!important;}
+th{background:#efede8;font-weight:600;border-bottom:1px solid var(--rbd);}
+tr:nth-child(even)>td{background:rgba(180,83,9,.035);}
 img{max-width:100%;height:auto;display:block;margin:1em auto;}
 hr{border:none;height:1px;background:var(--rbd);margin:1.9em auto;}
 .seitenzahlen{font-size:.8em!important;color:var(--rt3)!important;text-align:center;border:1px dashed var(--rbd);padding:.3em .6em;border-radius:6px;margin:0 0 1.6em;line-height:1.5!important;}
 a[name^="S"] b,a[name^="s"] b,a[id^="S"] b,a[id^="s"] b{color:var(--rt3)!important;font-weight:400!important;font-size:.82em;}
+.chapter-r,.chapter-l,.chapter-1,.HD{color:var(--rt3)!important;background:transparent!important;box-shadow:none!important;border-top:none!important;border-bottom:1px solid var(--rbd)!important;}
+.nav{text-align:center;color:var(--rt3);font-size:.86em;margin:.4em 0 1em;}
 dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
 .en-src{background:#faf6ef;border-left:3px solid var(--rbd)!important;color:var(--rt2)!important;}
 .wenku-zh,.wenku-zh *{font-family:var(--rcjk)!important;}
