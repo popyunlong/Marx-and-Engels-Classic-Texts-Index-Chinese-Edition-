@@ -112,10 +112,9 @@
       align-content: flex-start;
       gap: 8px 8px;
     }
-    /* 每条文献：淡白色圆角方框；flex-grow 让每行方框按剩余空间等比拉伸，
-       每行（含末行）撑满两端、不留空隙、无落单凸出。内边距/间距/字号收紧以保证
-       13 部文献在桌面固定宽度（hero 内宽约 1280px）下稳定排成两行（约 6+7），
-       不让末条「文献选编」单独落到第三行凸出。 */
+    /* 每条文献：淡白色圆角方框，每行两端对齐撑满。每行个数由脚本 setupHeroCorpusLayout
+       按容器宽度与最宽标签自动均衡（随文献增减/屏宽变化重算），避免末行落单凸出；
+       下面的 flex:1 1 auto 仅作无脚本时的降级（自然换行 + 拉伸）。 */
     .hero-corpus-item {
       flex: 1 1 auto;
       text-align: center;
@@ -125,6 +124,8 @@
       border: 1px solid rgba(255, 246, 234, 0.24);
       border-radius: 8px;
     }
+    /* 脚本均衡后，每行是一个 flex 行容器；行内各项按内容宽度并 grow 撑满两端。 */
+    .hero-corpus-row { display: flex; gap: 8px; align-items: stretch; }
     .topbar, .member-strip, .flash {
       background: var(--card);
       border: 1px solid var(--line);
@@ -4098,6 +4099,74 @@
       try { sessionStorage.removeItem(AI_STATE_KEY); } catch (_) {}
     }
   }, true);
+
+  // 文献库标签：自动均衡每行个数 + 两端对齐。新增/删减文献或改变屏宽时都自动重排，
+  // 把 N 个标签尽量平均地分到若干行（每行个数相差不超过 1，绝不出现末行落单凸出），
+  // 每行用 flex 撑满两端。无脚本时降级为 CSS 的 flex-wrap + flex:1 1 auto 自然换行。
+  (function setupHeroCorpusLayout() {
+    const container = document.getElementById('heroCorpus');
+    if (!container) return;
+    function layout() {
+      // 1) 先把上次生成的行容器拍平，恢复成「容器 > 标签」的扁平结构以便测量
+      Array.from(container.querySelectorAll('.hero-corpus-row')).forEach(row => {
+        while (row.firstChild) container.insertBefore(row.firstChild, row);
+        row.remove();
+      });
+      const items = Array.from(container.querySelectorAll('.hero-corpus-item'));
+      const n = items.length;
+      if (!n) return;
+      const cs = getComputedStyle(container);
+      const gap = parseFloat(cs.columnGap || cs.gap) || 8;
+      // 2) 扁平 + 自然宽度测量（全局 border-box，offsetWidth 含内边距/边框）
+      container.style.display = 'flex';
+      container.style.flexDirection = 'row';
+      container.style.flexWrap = 'wrap';
+      items.forEach(el => { el.style.flex = '0 0 auto'; el.style.maxWidth = 'none'; });
+      const cw = container.clientWidth;
+      const widths = items.map(el => el.offsetWidth);
+      if (cw <= 0 || !widths.length) { items.forEach(el => { el.style.flex = '1 1 auto'; }); return; }
+      // 3) 贪心左到右得到「自然最少行数」（充分利用窄标签，保持紧凑）
+      let naturalRows = 1, run = 0;
+      for (const x of widths) {
+        if (run > 0 && run + gap + x > cw) { naturalRows++; run = x; } else { run = run ? run + gap + x : x; }
+      }
+      // 把 n 平均分到 R 行（行间个数差≤1，绝无落单）；从最少行数起，若某行放不下则加一行
+      const balanced = (R) => { const b = Math.floor(n / R), e = n % R; return Array.from({ length: R }, (_, i) => b + (i < e ? 1 : 0)); };
+      const fits = (counts) => {
+        let i = 0;
+        for (const cnt of counts) {
+          let rw = 0;
+          for (let k = 0; k < cnt; k++) { const x = widths[i++]; rw = rw ? rw + gap + x : x; }
+          if (rw > cw + 0.5) return false;
+        }
+        return true;
+      };
+      let counts = null;
+      for (let R = Math.max(1, naturalRows); R <= n; R++) { const c = balanced(R); if (fits(c)) { counts = c; break; } }
+      if (!counts) counts = widths.map(() => 1);
+      // 4) 生成行容器并分配标签；行内标签按内容宽度 + grow 撑满两端
+      container.style.flexDirection = 'column';
+      container.style.flexWrap = 'nowrap';
+      let idx = 0;
+      for (const cnt of counts) {
+        if (cnt <= 0) continue;
+        const row = document.createElement('div');
+        row.className = 'hero-corpus-row';
+        for (let k = 0; k < cnt; k++) {
+          const el = items[idx++];
+          el.style.flex = '1 1 auto';
+          el.style.maxWidth = '100%';
+          row.appendChild(el);
+        }
+        container.appendChild(row);
+      }
+    }
+    layout();
+    let resizeTimer = null;
+    window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(layout, 150); });
+    // 衬线字体异步加载会改变标签宽度，加载完成后重排一次。
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout).catch(() => {});
+  })();
 
   try {
     const raw = sessionStorage.getItem(AI_STATE_KEY);
