@@ -120,7 +120,7 @@ VOLUMES = [
      "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_上.pdf",
      "sidecar": "data/xuanbian_19_shang_ocr.jsonl", "toc": "detect"},
     {"id": "xuanbian19_v2", "book": "十九大以来重要文献选编", "volume": 2,
-     "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_中.pdf",
+     "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_中_layered.pdf",
      "sidecar": "data/xuanbian_19_zhong_ocr.jsonl", "toc": "detect"},
     {"id": "xuanbian19_v3", "book": "十九大以来重要文献选编", "volume": 3,
      "source_file": "pdfs/十九大以来重要文献选编/十九大以来重要文献选编_下_899p.pdf",

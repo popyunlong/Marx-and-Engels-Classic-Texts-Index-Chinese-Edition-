@@ -141,4 +141,4 @@ books:
   publisher: 中央文献出版社
   sort_order: 140
   tag_class: xuanbian19
-  available: false
+  available: true
