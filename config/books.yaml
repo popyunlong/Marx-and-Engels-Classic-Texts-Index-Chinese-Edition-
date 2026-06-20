@@ -142,3 +142,12 @@ books:
   sort_order: 140
   tag_class: xuanbian19
   available: true
+- key: 五年规划
+  title: 《国民经济和社会发展五年规划纲要》
+  short_title: 五年规划纲要
+  citation_title: 国民经济和社会发展五年规划纲要
+  folder: pdfs/五年规划
+  publisher: 人民出版社
+  sort_order: 150
+  tag_class: wunianguihua
+  available: true

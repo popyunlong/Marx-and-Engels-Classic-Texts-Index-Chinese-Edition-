@@ -475,3 +475,28 @@
 - file: pdfs/十九大以来重要文献选编/十九大以来重要文献选编_下_899p.pdf
   volume: 3
   display_title: 十九大以来重要文献选编（下）
+五年规划:
+- file: pdfs/五年规划/国民经济和社会发展十年规划和第八个五年计划纲要.pdf
+  volume: 8
+  display_title: 国民经济和社会发展十年规划和第八个五年计划纲要
+- file: pdfs/五年规划/国民经济和社会发展第九个五年计划和2010年远景目标纲要.pdf
+  volume: 9
+  display_title: 国民经济和社会发展第九个五年计划和2010年远景目标纲要
+- file: pdfs/五年规划/国民经济和社会发展第十个五年计划纲要.pdf
+  volume: 10
+  display_title: 国民经济和社会发展第十个五年计划纲要
+- file: pdfs/五年规划/国民经济和社会发展第十一个五年规划纲要.pdf
+  volume: 11
+  display_title: 国民经济和社会发展第十一个五年规划纲要
+- file: pdfs/五年规划/国民经济和社会发展第十二个五年规划纲要.pdf
+  volume: 12
+  display_title: 国民经济和社会发展第十二个五年规划纲要
+- file: pdfs/五年规划/国民经济和社会发展第十三个五年规划纲要.pdf
+  volume: 13
+  display_title: 国民经济和社会发展第十三个五年规划纲要
+- file: pdfs/五年规划/国民经济和社会发展第十四个五年规划和2035年远景目标纲要.pdf
+  volume: 14
+  display_title: 国民经济和社会发展第十四个五年规划和2035年远景目标纲要
+- file: pdfs/五年规划/国民经济和社会发展第十五个五年规划纲要.pdf
+  volume: 15
+  display_title: 国民经济和社会发展第十五个五年规划纲要

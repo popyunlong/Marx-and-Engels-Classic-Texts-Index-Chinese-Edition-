@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 from build_index import BUILD_DB_PATH  # noqa: E402
 
 HASH_PATH = BUILD_DB_PATH.with_suffix(BUILD_DB_PATH.suffix + ".sha256")
-DEFAULT_BOOKS = ["历次党代会报告", "历届全会公报"]
+DEFAULT_BOOKS = ["历次党代会报告", "历届全会公报", "五年规划"]
 
 
 def update_hash() -> None:
