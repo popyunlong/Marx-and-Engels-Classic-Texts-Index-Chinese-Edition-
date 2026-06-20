@@ -8052,6 +8052,60 @@ def api_pdf_page_context():
     return jsonify({"ok": True, "context": context})
 
 
+def _reader_find_snippet(raw_text: str, query: str, width: int = 36) -> str:
+    """从某页原文里截取包含 query 的上下文片段（best-effort，供「查找本书」结果展示）。"""
+    raw = raw_text or ""
+    for cand in (query, query.replace(" ", "")):
+        if not cand:
+            continue
+        idx = raw.find(cand)
+        if idx >= 0:
+            start = max(0, idx - width)
+            end = min(len(raw), idx + len(cand) + width)
+            snip = " ".join(raw[start:end].split())
+            return ("…" if start > 0 else "") + snip + ("…" if end < len(raw) else "")
+    return " ".join(raw.split())[: width * 2]
+
+
+@app.route("/api/reader/find")
+def api_reader_find():
+    """阅读器「查找本书」：在当前著作（单卷 PDF）内查词句。只读已加载的语料库 pages，
+    按归一化文本匹配（与检索一致，容标点/空白差异），返回命中页码 + 片段，前端据此跳转并高亮。"""
+    _require_reader_asset_access()
+    source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    query = (request.args.get("q") or "").strip()
+    if not source_file or source_file not in ALLOWED_SOURCE_FILES:
+        abort(404, description="请求的资料不在白名单中。")
+    nq = normalize(query) if query else ""
+    if corpus is None or not nq:
+        return jsonify({"ok": True, "matches": [], "total": 0, "pages": 0, "truncated": False})
+    volume = corpus.get_volume_by_source_file(source_file)
+    if volume is None:
+        abort(404, description="未找到对应的卷册信息。")
+    MAX_MATCHES = 500
+    matches: list[dict] = []
+    total = 0
+    for p in volume.pages:
+        cnt = p.norm_text.count(nq) if p.norm_text else 0
+        if not cnt:
+            continue
+        total += cnt
+        if len(matches) < MAX_MATCHES:
+            matches.append({
+                "pdf_page": p.pdf_page,
+                "page_label": p.printed_page or f"PDF-{p.pdf_page}",
+                "count": cnt,
+                "snippet": _reader_find_snippet(p.raw_text, query),
+            })
+    return jsonify({
+        "ok": True,
+        "matches": matches,
+        "total": total,
+        "pages": len(matches),
+        "truncated": len(matches) >= MAX_MATCHES,
+    })
+
+
 def _attach_viewer_payload(
     hit: dict,
     q_for_viewer: str,

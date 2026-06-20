@@ -276,6 +276,34 @@
       min-width: 240px;
       text-align: center;
     }
+    .reader-find {
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.92);
+    }
+    .reader-find-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .reader-find-row input[type="search"] {
+      flex: 1; min-width: 180px; padding: 7px 11px;
+      border: 1px solid var(--line); border-radius: 8px; font-size: 0.95rem;
+      background: #fff; color: var(--text);
+    }
+    .reader-find-count { color: var(--muted); font-size: 0.86rem; min-width: 96px; }
+    .reader-find-results {
+      margin-top: 8px; max-height: 244px; overflow: auto;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .find-hit {
+      text-align: left; background: rgba(0, 0, 0, 0.02);
+      border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+      cursor: pointer; font: inherit; color: var(--text);
+      display: flex; gap: 10px; align-items: baseline;
+    }
+    .find-hit:hover { background: rgba(0, 0, 0, 0.05); }
+    .find-hit.active { border-color: var(--accent-deep); background: rgba(0, 0, 0, 0.06); }
+    .find-hit-page { color: var(--accent-deep); font-size: 0.84rem; white-space: nowrap; flex: 0 0 auto; }
+    .find-hit-snip { color: var(--muted); font-size: 0.9rem; }
+    .reader-find-results mark, .find-hit-snip mark { background: #ffe58a; padding: 0 1px; }
+    .reader-find-empty { color: var(--muted); font-size: 0.9rem; padding: 6px 2px; }
     .viewer-body {
       flex: 1;
       min-height: 72vh;
@@ -890,7 +918,18 @@
       <div class="viewer-bar">
         <a class="tool-btn" id="prevBtn" href="#">上一页</a>
         <div class="page-indicator" id="pageIndicator">书本第 {{ current_page_label }} 页 · PDF 第 {{ page }} / {{ page_count }} 页</div>
+        <a class="tool-btn secondary" id="findToggle" href="#" title="在本著作中查找词句（Ctrl+F）">查找本书</a>
         <a class="tool-btn" id="nextBtn" href="#">下一页</a>
+      </div>
+      <div class="reader-find" id="readerFind" hidden>
+        <div class="reader-find-row">
+          <input type="search" id="findInput" placeholder="在本著作中查找词句…" autocomplete="off" />
+          <button type="button" class="tool-btn secondary" id="findPrevBtn" title="上一处">↑</button>
+          <button type="button" class="tool-btn secondary" id="findNextBtn" title="下一处">↓</button>
+          <span class="reader-find-count" id="findCount"></span>
+          <button type="button" class="tool-btn secondary" id="findCloseBtn" title="关闭">关闭</button>
+        </div>
+        <div class="reader-find-results" id="findResults"></div>
       </div>
       <div class="viewer-body" id="viewerBody">
         <div class="page-frame">
@@ -1522,9 +1561,105 @@
       pageText.textContent = {{ site_text("viewer.page_context_unavailable") | tojson }};
       return;
     }
-    const terms = queryTerms(highlightQueryText || queryText);
+    // 高亮：检索来源词 + 「查找本书」当前词，合并去重
+    const terms = [...new Set([...queryTerms(findHighlight), ...queryTerms(highlightQueryText || queryText)])]
+      .sort((a, b) => b.length - a.length);
     pageText.innerHTML = highlightText(currentPageContext.current_text || '', terms);
   }
+
+  // ===== 查找本书（在当前著作内查词句，命中页跳转 + 文字面板高亮）=====
+  let findHighlight = '';
+  let findMatches = [];
+  let findIndex = -1;
+  let findReqSeq = 0;
+  const findToggle = document.getElementById('findToggle');
+  const readerFind = document.getElementById('readerFind');
+  const findInput = document.getElementById('findInput');
+  const findResults = document.getElementById('findResults');
+  const findCount = document.getElementById('findCount');
+  const findPrevBtn = document.getElementById('findPrevBtn');
+  const findNextBtn = document.getElementById('findNextBtn');
+  const findCloseBtn = document.getElementById('findCloseBtn');
+
+  function openFind() {
+    if (!readerFind) return;
+    readerFind.hidden = false;
+    if (findInput) { findInput.focus(); findInput.select(); }
+  }
+  function closeFind() {
+    if (readerFind) readerFind.hidden = true;
+    findHighlight = ''; findMatches = []; findIndex = -1;
+    if (findResults) findResults.innerHTML = '';
+    if (findCount) findCount.textContent = '';
+    renderPageText();
+  }
+  async function runFind() {
+    if (!findInput) return;
+    const q = (findInput.value || '').trim();
+    findHighlight = q;
+    if (!q) { findMatches = []; findIndex = -1; findResults.innerHTML = ''; findCount.textContent = ''; renderPageText(); return; }
+    const seq = ++findReqSeq;
+    findCount.textContent = '查找中…';
+    try {
+      const resp = await fetch(`/api/reader/find?file=${encodeURIComponent(sourceFile)}&q=${encodeURIComponent(q)}`);
+      const data = await resp.json();
+      if (seq !== findReqSeq) return;
+      if (!data.ok) throw new Error(data.error || '查找失败');
+      findMatches = data.matches || [];
+      findIndex = -1;
+      const qterms = queryTerms(q);
+      if (!findMatches.length) {
+        findResults.innerHTML = '<div class="reader-find-empty">本著作中未找到该词句。</div>';
+        findCount.textContent = '0 处';
+      } else {
+        findResults.innerHTML = findMatches.map((m, i) =>
+          `<button type="button" class="find-hit" data-i="${i}">`
+          + `<span class="find-hit-page">第 ${esc(m.page_label)} 页</span>`
+          + `<span class="find-hit-snip">${highlightText(m.snippet || '', qterms)}</span>`
+          + `</button>`).join('');
+        const more = data.truncated ? `（仅列前 ${findMatches.length} 页）` : '';
+        findCount.textContent = `共 ${data.total} 处 · ${data.pages} 页${more}`;
+      }
+      renderPageText();
+    } catch (e) {
+      if (seq === findReqSeq) findCount.textContent = '查找失败';
+    }
+  }
+  function gotoFindMatch(i) {
+    if (!findMatches.length) return;
+    findIndex = ((i % findMatches.length) + findMatches.length) % findMatches.length;
+    const m = findMatches[findIndex];
+    if (findResults) {
+      findResults.querySelectorAll('.find-hit').forEach((el, j) => el.classList.toggle('active', j === findIndex));
+      const act = findResults.querySelector('.find-hit.active');
+      if (act) act.scrollIntoView({ block: 'nearest' });
+    }
+    loadPage(m.pdf_page);
+  }
+  if (findToggle) findToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (readerFind && readerFind.hidden) openFind(); else closeFind();
+  });
+  if (findCloseBtn) findCloseBtn.addEventListener('click', closeFind);
+  if (findNextBtn) findNextBtn.addEventListener('click', () => gotoFindMatch(findIndex + 1));
+  if (findPrevBtn) findPrevBtn.addEventListener('click', () => gotoFindMatch(findIndex - 1));
+  if (findResults) findResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('.find-hit');
+    if (btn) gotoFindMatch(Number(btn.dataset.i));
+  });
+  if (findInput) {
+    let findTimer;
+    findInput.addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(runFind, 280); });
+    findInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (findMatches.length) gotoFindMatch(e.shiftKey ? findIndex - 1 : findIndex + 1); else runFind();
+      } else if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); openFind(); }
+  });
 
   if (copyCiteBtn) {
     copyCiteBtn.addEventListener('click', async () => {
