@@ -1984,7 +1984,9 @@ class Corpus:
                 page_str = f"第{first}-{last}页（按PDF页码）"
 
         if book in self._XUANBIAN_BOOKS:
-            title = f"《{book_cfg.citation_title}》（{self._XUANBIAN_VOL_CN.get(volume, str(volume))}）"
+            editor = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("editor")
+            prefix = f"{editor}编：" if editor else ""
+            title = f"{prefix}《{book_cfg.citation_title}》（{self._XUANBIAN_VOL_CN.get(volume, str(volume))}）"
         else:
             title = f"《{book_cfg.citation_title}》第{volume}卷"
         year_str = f"{year}年" if year else "xxxx年"
