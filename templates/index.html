@@ -1018,15 +1018,35 @@
       font-size: 0.9rem;
       line-height: 1.6;
     }
-    /* 历史检索记录：本设备保存的精确/联想/研究检索（含查询与输出），点击回看 */
-    .search-history-panel .sh-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-    .search-history-panel h2 { margin:0; }
-    .search-history-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    .search-history-hint { color:var(--muted); font-size:.82rem; }
-    .sh-clear { border:1px solid var(--line); background:#fffdfa; color:var(--accent); border-radius:10px; padding:6px 12px; font:inherit; font-size:.85rem; font-weight:700; cursor:pointer; }
+    /* 历史检索记录：入口按钮（开始检索右侧）+ 点击展开的「固定高度、可滚动」弹层。 */
+    /* 弹层用显式浅色，故联想/研究的暗色面板下仍是一张干净的浅色卡片。 */
+    .history-toggle[hidden] { display: none; }
+    .history-toggle-count {
+      margin-left: 7px; min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box;
+      line-height: 20px; text-align: center; border-radius: 999px;
+      background: rgba(143,29,29,.12); color: var(--accent); font-size: .76rem; font-weight: 700;
+    }
+    .history-toggle[aria-expanded="true"] { background: var(--accent); color: #fff; }
+    .history-toggle[aria-expanded="true"] .history-toggle-count { background: rgba(255,255,255,.25); color: #fff; }
+    .search-history-pop {
+      margin: 12px 0 2px; border: 1px solid var(--line); border-radius: 14px;
+      background: #fffdfa; box-shadow: 0 14px 34px rgba(54,38,23,.16); overflow: hidden;
+    }
+    .search-history-pop[hidden] { display: none; }
+    .search-history-pop .sh-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      padding: 11px 14px; background: #fbf5ea; border-bottom: 1px solid var(--line);
+    }
+    .search-history-pop h3 { margin: 0; font-size: 1rem; color: var(--accent); }
+    .search-history-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .search-history-hint { color: var(--muted); font-size: .8rem; }
+    .sh-clear { border:1px solid var(--line); background:#fff; color:var(--accent); border-radius:8px; padding:5px 11px; font:inherit; font-size:.82rem; font-weight:700; cursor:pointer; }
     .sh-clear:hover { border-color:var(--accent); }
-    .search-history-list { display:grid; gap:8px; margin-top:12px; max-height:360px; overflow:auto; }
-    .sh-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:1px solid var(--line); background:#fffdfa; border-radius:12px; padding:10px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
+    .sh-pop-close { border:none; background:transparent; color:var(--muted); font-size:1.25rem; line-height:1; cursor:pointer; padding:2px 7px; border-radius:8px; }
+    .sh-pop-close:hover { color:var(--accent); background:rgba(143,29,29,.08); }
+    .search-history-list { display:grid; gap:8px; padding:12px 14px; max-height:360px; overflow-y:auto; }
+    .sh-empty { color:var(--muted); padding:6px 2px; }
+    .sh-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:1px solid var(--line); background:#fff; border-radius:12px; padding:10px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
     .sh-item:hover, .sh-item:focus-visible { border-color:var(--accent); background:var(--soft); outline:none; }
     .sh-badge { flex:none; font-size:.74rem; font-weight:700; padding:3px 9px; border-radius:999px; color:#fff; white-space:nowrap; }
     .sh-badge.standard { background:#8f1d1d; }
@@ -1973,10 +1993,22 @@
             </div>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>{{ site_text('index.search_submit') }}</button>
+              <button type="button" class="secondary history-toggle" id="historyToggle" aria-expanded="false" aria-controls="searchHistoryPanel" hidden>历史检索记录<span class="history-toggle-count" id="historyToggleCount"></span></button>
               {% if state.remote_quit_enabled %}
               <button type="button" class="secondary" id="quitBtn">退出服务</button>
               {% endif %}
               <span class="muted">{{ site_text("index.search_shortcut") }}</span>
+            </div>
+            <div class="search-history-pop" id="searchHistoryPanel" role="region" aria-label="历史检索记录" hidden>
+              <div class="sh-head">
+                <h3>历史检索记录</h3>
+                <div class="search-history-toolbar">
+                  <span class="search-history-hint">仅保存在本设备浏览器 · 自动保留最近 60 天 / 40 条</span>
+                  <button type="button" class="sh-clear" id="searchHistoryClear">清空</button>
+                  <button type="button" class="sh-pop-close" id="searchHistoryClose" aria-label="关闭历史检索记录">×</button>
+                </div>
+              </div>
+              <div class="search-history-list" id="searchHistoryList"></div>
             </div>
           </form>
         </section>
@@ -2126,17 +2158,6 @@
           {% endif %}
           {% endfor %}
         </div>
-
-        <section class="panel search-history-panel" id="searchHistoryPanel" hidden aria-label="历史检索记录">
-          <div class="sh-head">
-            <h2>历史检索记录</h2>
-            <div class="search-history-toolbar">
-              <span class="search-history-hint">仅保存在本设备浏览器 · 自动保留最近 60 天 / 40 条</span>
-              <button type="button" class="sh-clear" id="searchHistoryClear">清空</button>
-            </div>
-          </div>
-          <div class="search-history-list" id="searchHistoryList"></div>
-        </section>
 
         <div id="searchBookTabs" class="book-tabs" hidden></div>
         <div id="results"></div>
@@ -2847,16 +2868,27 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
-  function renderSearchHistory() {
+  // 入口按钮（开始检索右侧）的开合：弹层默认收起，由按钮/关闭/外部点击/Esc 控制。
+  function setHistoryPanelOpen(open) {
     const panel = document.getElementById('searchHistoryPanel');
+    const toggle = document.getElementById('historyToggle');
+    if (!panel) return;
+    panel.hidden = !open;
+    if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  // 只负责：渲染列表内容 + 刷新入口按钮(有记录才显示、带条数)。不主动展开弹层。
+  function renderSearchHistory() {
     const listEl = document.getElementById('searchHistoryList');
-    if (!panel || !listEl) return;
+    const toggle = document.getElementById('historyToggle');
+    const countEl = document.getElementById('historyToggleCount');
+    const panel = document.getElementById('searchHistoryPanel');
+    if (!listEl) return;
     const list = loadSearchHistory();
-    if (!list.length) { panel.hidden = true; listEl.innerHTML = ''; return; }
-    panel.hidden = false;
-    listEl.innerHTML = list.map(entry => {
-      const kind = (entry.kind === 'assoc' || entry.kind === 'review') ? entry.kind : 'standard';
-      return `
+    listEl.innerHTML = list.length
+      ? list.map(entry => {
+          const kind = (entry.kind === 'assoc' || entry.kind === 'review') ? entry.kind : 'standard';
+          return `
         <div class="sh-item" data-id="${escAttr(entry.id)}" role="button" tabindex="0" title="点击回看此次检索">
           <span class="sh-badge ${kind}">${esc(historyKindLabel(kind))}</span>
           <span class="sh-main">
@@ -2865,7 +2897,12 @@
           </span>
           <button type="button" class="sh-del" data-del="${escAttr(entry.id)}" title="删除这条记录" aria-label="删除">×</button>
         </div>`;
-    }).join('');
+        }).join('')
+      : '<div class="sh-empty">暂无历史检索记录。</div>';
+    if (toggle) toggle.hidden = list.length === 0;
+    if (countEl) countEl.textContent = list.length ? String(list.length) : '';
+    // 记录被删空时收起弹层（入口按钮也随之隐藏）。
+    if (!list.length && panel && !panel.hidden) setHistoryPanelOpen(false);
   }
 
   // 回看：用既有渲染函数重放存档输出，并同步写回 sessionStorage，
@@ -4007,28 +4044,47 @@
   // 注：sessionStorage 的 SEARCH_STATE_KEY 仍用于本次会话内的翻页/书库筛选，由 doSearch
   // 实时写入，无需也不应在此恢复渲染。
 
-  // 历史检索记录：列表点击回看 / 删除单条 / 清空，并首次渲染。
+  // 历史检索记录：入口按钮开合 + 列表点击回看 / 删除单条 / 清空 + 外部点击/Esc 关闭。
   (function setupSearchHistory() {
     const listEl = document.getElementById('searchHistoryList');
     const clearBtn = document.getElementById('searchHistoryClear');
+    const toggle = document.getElementById('historyToggle');
+    const closeBtn = document.getElementById('searchHistoryClose');
+    const panel = document.getElementById('searchHistoryPanel');
     if (listEl) {
       listEl.addEventListener('click', e => {
         const del = e.target.closest('[data-del]');
         if (del) { e.stopPropagation(); deleteSearchHistory(del.getAttribute('data-del')); return; }
         const item = e.target.closest('.sh-item');
-        if (item) restoreSearchHistory(item.getAttribute('data-id'));
+        if (item) { restoreSearchHistory(item.getAttribute('data-id')); setHistoryPanelOpen(false); }
       });
       listEl.addEventListener('keydown', e => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
         const item = e.target.closest('.sh-item');
-        if (item) { e.preventDefault(); restoreSearchHistory(item.getAttribute('data-id')); }
+        if (item) { e.preventDefault(); restoreSearchHistory(item.getAttribute('data-id')); setHistoryPanelOpen(false); }
       });
     }
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        renderSearchHistory();                       // 打开前刷新一次，保证列表最新
+        setHistoryPanelOpen(panel ? panel.hidden : true);
+      });
+    }
+    if (closeBtn) closeBtn.addEventListener('click', () => setHistoryPanelOpen(false));
     if (clearBtn) {
       clearBtn.addEventListener('click', () => {
-        if (window.confirm('确定清空本设备保存的全部历史检索记录吗？')) clearSearchHistory();
+        if (window.confirm('确定清空本设备保存的全部历史检索记录吗？')) { clearSearchHistory(); setHistoryPanelOpen(false); }
       });
     }
+    // 点击弹层与入口按钮之外 / 按 Esc：收起弹层。
+    document.addEventListener('click', e => {
+      if (!panel || panel.hidden) return;
+      if (panel.contains(e.target) || (toggle && toggle.contains(e.target))) return;
+      setHistoryPanelOpen(false);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && panel && !panel.hidden) setHistoryPanelOpen(false);
+    });
     renderSearchHistory();
   })();
 
