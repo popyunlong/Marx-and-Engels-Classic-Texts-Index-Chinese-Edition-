@@ -1018,6 +1018,26 @@
       font-size: 0.9rem;
       line-height: 1.6;
     }
+    /* 历史检索记录：本设备保存的精确/联想/研究检索（含查询与输出），点击回看 */
+    .search-history-panel .sh-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .search-history-panel h2 { margin:0; }
+    .search-history-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .search-history-hint { color:var(--muted); font-size:.82rem; }
+    .sh-clear { border:1px solid var(--line); background:#fffdfa; color:var(--accent); border-radius:10px; padding:6px 12px; font:inherit; font-size:.85rem; font-weight:700; cursor:pointer; }
+    .sh-clear:hover { border-color:var(--accent); }
+    .search-history-list { display:grid; gap:8px; margin-top:12px; max-height:360px; overflow:auto; }
+    .sh-item { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:1px solid var(--line); background:#fffdfa; border-radius:12px; padding:10px 12px; cursor:pointer; transition:border-color .15s, background .15s; }
+    .sh-item:hover, .sh-item:focus-visible { border-color:var(--accent); background:var(--soft); outline:none; }
+    .sh-badge { flex:none; font-size:.74rem; font-weight:700; padding:3px 9px; border-radius:999px; color:#fff; white-space:nowrap; }
+    .sh-badge.standard { background:#8f1d1d; }
+    .sh-badge.assoc { background:#2f4a72; }
+    .sh-badge.review { background:#3a3a44; }
+    .sh-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+    .sh-q { font-weight:600; color:var(--text); line-height:1.45; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word; }
+    .sh-meta { color:var(--muted); font-size:.8rem; }
+    .sh-del { flex:none; border:none; background:transparent; color:var(--muted); font-size:1.15rem; line-height:1; cursor:pointer; padding:4px 7px; border-radius:8px; }
+    .sh-del:hover { color:#8f1d1d; background:rgba(143,29,29,.08); }
+
     .feedback-history {
       border-top: 1px solid rgba(222, 207, 189, 0.9);
       padding-top: 10px;
@@ -2107,6 +2127,17 @@
           {% endfor %}
         </div>
 
+        <section class="panel search-history-panel" id="searchHistoryPanel" hidden aria-label="历史检索记录">
+          <div class="sh-head">
+            <h2>历史检索记录</h2>
+            <div class="search-history-toolbar">
+              <span class="search-history-hint">仅保存在本设备浏览器 · 自动保留最近 60 天 / 40 条</span>
+              <button type="button" class="sh-clear" id="searchHistoryClear">清空</button>
+            </div>
+          </div>
+          <div class="search-history-list" id="searchHistoryList"></div>
+        </section>
+
         <div id="searchBookTabs" class="book-tabs" hidden></div>
         <div id="results"></div>
       </div>
@@ -2249,6 +2280,7 @@
   const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   // 联想/研究无权限时不再「冷冰冰地禁用」标签：标签可点击进入，仅把「开始检索」换成登录/开通引导按钮。
   const isLoggedIn = {{ (current_user is not none) | tojson }};
+  const currentUid = {{ (current_user.id if current_user else '') | tojson }};
   const SEARCH_SUBMIT_TEXT = {{ site_text('index.search_submit') | tojson }};
   const searchLoginUrl = {{ url_for('login', next='/') | tojson }};
   const searchPricingUrl = {{ url_for('pricing') | tojson }};
@@ -2716,6 +2748,156 @@
     }
   }
 
+  // ===== 历史检索记录 =====================================================
+  // 把每次「精确/联想/研究」检索的查询与输出一并存到本设备 localStorage，
+  // 点击即可零延迟、零额度回看（研究综述成本高，尤其需要可回看）。按用户隔离，
+  // 自动保留最近 60 天 / 40 条，写入超额时丢弃最旧记录，绝不拖垮页面。
+  const SEARCH_HISTORY_KEY = 'marx-search-history-v1:' + (currentUid || 'guest');
+  const SEARCH_HISTORY_MAX = 40;
+  const SEARCH_HISTORY_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+
+  function deepCopySafe(value) {
+    try { return JSON.parse(JSON.stringify(value)); } catch (_) { return null; }
+  }
+
+  function loadSearchHistory() {
+    let list;
+    try {
+      const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+      list = raw ? JSON.parse(raw) : [];
+    } catch (_) { list = []; }
+    if (!Array.isArray(list)) return [];
+    const cutoff = Date.now() - SEARCH_HISTORY_TTL_MS;
+    return list.filter(item => item && item.id && item.query && Number(item.ts || 0) >= cutoff);
+  }
+
+  // 配额安全：localStorage 超额（QuotaExceededError）时逐条丢弃最旧记录后重试。
+  function persistSearchHistory(list) {
+    let attempt = list.slice(0, SEARCH_HISTORY_MAX);
+    while (attempt.length) {
+      try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(attempt)); return attempt; }
+      catch (_) { attempt = attempt.slice(0, attempt.length - 1); }
+    }
+    try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch (_) {}
+    return [];
+  }
+
+  function historySignature(entry) {
+    return [entry.kind || '', entry.query || '', entry.searchCooc ? 'c' : '', entry.intent || ''].join('|');
+  }
+
+  function recordSearchHistory(entry) {
+    if (!entry || !entry.query) return;
+    let list = loadSearchHistory();
+    const sig = historySignature(entry);
+    list = list.filter(item => historySignature(item) !== sig);  // 同检索去重，保留最新输出
+    entry.id = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    entry.ts = Date.now();
+    list.unshift(entry);
+    persistSearchHistory(list);
+    renderSearchHistory();
+  }
+
+  function deleteSearchHistory(id) {
+    persistSearchHistory(loadSearchHistory().filter(item => item.id !== id));
+    renderSearchHistory();
+  }
+
+  function clearSearchHistory() {
+    try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch (_) {}
+    renderSearchHistory();
+  }
+
+  function summarizeStandard(payload) {
+    let hits = 0;
+    if (Array.isArray(payload.book_counts) && payload.book_counts.length) {
+      payload.book_counts.forEach(b => { hits += Number(b.count || 0); });
+    } else {
+      (payload.results || []).forEach(g => { hits += Number(g.count || 0); });
+    }
+    return { hits, books: Array.isArray(payload.book_counts) ? payload.book_counts.length : 0 };
+  }
+
+  function historyKindLabel(kind) {
+    if (kind === 'assoc') return '联想';
+    if (kind === 'review') return '研究';
+    return '精确';
+  }
+
+  function historySummaryText(entry) {
+    const s = entry.summary || {};
+    if (entry.kind === 'review') return `研究综述 · ${Number(s.cites || 0)} 条引文`;
+    if (entry.kind === 'assoc') return `联想命中 ${Number(s.count || 0)} 段`;
+    if (entry.empty) return '未找到匹配结果';
+    const hits = Number(s.hits || 0);
+    const books = Number(s.books || 0);
+    return books > 1 ? `约 ${hits} 处命中 · ${books} 部著作` : `约 ${hits} 处命中`;
+  }
+
+  function formatHistoryTime(ts) {
+    const t = Number(ts || 0);
+    if (!t) return '';
+    const diff = Date.now() - t;
+    if (diff < 60 * 1000) return '刚刚';
+    if (diff < 60 * 60 * 1000) return Math.floor(diff / (60 * 1000)) + ' 分钟前';
+    if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / (60 * 60 * 1000)) + ' 小时前';
+    if (diff < 7 * 24 * 60 * 60 * 1000) return Math.floor(diff / (24 * 60 * 60 * 1000)) + ' 天前';
+    const d = new Date(t);
+    const pad = n => (n < 10 ? '0' + n : '' + n);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
+  function renderSearchHistory() {
+    const panel = document.getElementById('searchHistoryPanel');
+    const listEl = document.getElementById('searchHistoryList');
+    if (!panel || !listEl) return;
+    const list = loadSearchHistory();
+    if (!list.length) { panel.hidden = true; listEl.innerHTML = ''; return; }
+    panel.hidden = false;
+    listEl.innerHTML = list.map(entry => {
+      const kind = (entry.kind === 'assoc' || entry.kind === 'review') ? entry.kind : 'standard';
+      return `
+        <div class="sh-item" data-id="${escAttr(entry.id)}" role="button" tabindex="0" title="点击回看此次检索">
+          <span class="sh-badge ${kind}">${esc(historyKindLabel(kind))}</span>
+          <span class="sh-main">
+            <span class="sh-q">${esc(entry.query || '')}</span>
+            <span class="sh-meta">${esc(historySummaryText(entry))} · ${esc(formatHistoryTime(entry.ts))}</span>
+          </span>
+          <button type="button" class="sh-del" data-del="${escAttr(entry.id)}" title="删除这条记录" aria-label="删除">×</button>
+        </div>`;
+    }).join('');
+  }
+
+  // 回看：用既有渲染函数重放存档输出，并同步写回 sessionStorage，
+  // 这样刷新仍在、精确检索的展开/翻页也能继续工作（翻页读 sessionStorage）。
+  function restoreSearchHistory(id) {
+    const entry = loadSearchHistory().find(item => item.id === id);
+    if (!entry) return;
+    q.value = entry.query || '';
+    if (entry.kind === 'review' && entry.payload) {
+      applySearchMode('research');
+      renderResearchReview(deepCopySafe(entry.payload), false);
+    } else if (entry.kind === 'assoc' && entry.payload) {
+      applySearchMode('associative');
+      renderAssociativeResults(deepCopySafe(entry.payload));
+    } else {
+      applySearchMode('standard');
+      if (coocCheckbox) coocCheckbox.checked = !!entry.searchCooc;
+      if (entry.empty || !entry.payload) {
+        renderEmpty('未找到匹配结果。');
+        updateBookTabs(null);
+        saveSearchState({ query: entry.query || '', mode: 'empty', searchCooc: !!entry.searchCooc });
+      } else {
+        const payload = deepCopySafe(entry.payload);
+        renderResults(payload);
+        updateBookTabs(payload);
+        saveSearchState(payload);
+      }
+    }
+    scrollToResults();
+  }
+  // ===== /历史检索记录 ====================================================
+
   function updateBookTabs(payload) {
     if (!bookTabsEl) return;
     const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
@@ -3064,12 +3246,14 @@
         renderEmpty('未找到匹配结果。');
         updateBookTabs(data);
         saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: '未找到匹配结果。' }, data));
+        if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, empty: true });
         return;
       }
       const payload = Object.assign({ query: text, mode: 'results', searchCooc: isCooc }, data);
       renderResults(payload);
       updateBookTabs(payload);
       saveSearchState(payload);
+      if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, payload: deepCopySafe(payload), summary: summarizeStandard(payload) });
     } catch (error) {
       renderEmpty(error.message || '请求失败');
       updateBookTabs(null);
@@ -3155,8 +3339,27 @@
       }
       if (data.display_mode === 'research_review') {
         renderResearchReview(data);
+        const cits = Array.isArray(data.review_citations) ? data.review_citations : [];
+        if (data.review_markdown || cits.length) {
+          recordSearchHistory({
+            kind: 'review',
+            query: data.query || text,
+            payload: { kind: 'review', query: data.query || text, review_markdown: data.review_markdown || '', review_citations: cits, warnings: Array.isArray(data.warnings) ? data.warnings : [] },
+            summary: { cites: cits.length }
+          });
+        }
       } else {
         renderAssociativeResults(data);
+        const results = Array.isArray(data.results) ? data.results : [];
+        if (results.length) {
+          recordSearchHistory({
+            kind: 'assoc',
+            query: data.query || text,
+            intent: data.intent || '',
+            payload: { kind: 'assoc', query: data.query || text, results, warnings: Array.isArray(data.warnings) ? data.warnings : [], intent: data.intent || '', mode: data.mode || 'auto' },
+            summary: { count: results.length }
+          });
+        }
       }
     } catch (error) {
       renderEmpty(error.message || '请求失败');
@@ -3612,7 +3815,7 @@
     } else if (searchMode === 'associative') {
       doAssociativeSearch(text, 'locate');
     } else {
-      doSearch(text);
+      doSearch(text, { record: true });
     }
     scrollToResults();
   }
@@ -3810,6 +4013,31 @@
       updateBookTabs(payload);
     }
   } catch (_) {}
+
+  // 历史检索记录：列表点击回看 / 删除单条 / 清空，并首次渲染。
+  (function setupSearchHistory() {
+    const listEl = document.getElementById('searchHistoryList');
+    const clearBtn = document.getElementById('searchHistoryClear');
+    if (listEl) {
+      listEl.addEventListener('click', e => {
+        const del = e.target.closest('[data-del]');
+        if (del) { e.stopPropagation(); deleteSearchHistory(del.getAttribute('data-del')); return; }
+        const item = e.target.closest('.sh-item');
+        if (item) restoreSearchHistory(item.getAttribute('data-id'));
+      });
+      listEl.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const item = e.target.closest('.sh-item');
+        if (item) { e.preventDefault(); restoreSearchHistory(item.getAttribute('data-id')); }
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        if (window.confirm('确定清空本设备保存的全部历史检索记录吗？')) clearSearchHistory();
+      });
+    }
+    renderSearchHistory();
+  })();
 
   try {
     const raw = sessionStorage.getItem(AI_STATE_KEY);
