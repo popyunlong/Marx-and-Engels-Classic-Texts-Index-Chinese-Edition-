@@ -42,7 +42,7 @@
       margin: 0 auto;
       padding: 24px 16px 56px;
     }
-    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .feedback-card, .ai-card {
+    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .community-card, .feedback-card, .ai-card {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 20px;
@@ -205,7 +205,7 @@
       gap: 14px;
       align-content: start;
     }
-    .panel, .status-card, .notice-card, .feedback-card, .ai-card {
+    .panel, .status-card, .notice-card, .community-card, .feedback-card, .ai-card {
       padding: 20px;
     }
     h2 {
@@ -917,6 +917,70 @@
       border-radius: 999px;
       padding: 4px 14px;
       white-space: nowrap;
+    }
+    /* 社区建设：从公告中拆分出的独立栏，竖向逐条无缝循环滚动 */
+    .community-card {
+      background:
+        linear-gradient(135deg, rgba(238, 246, 255, 0.92), rgba(252, 253, 255, 0.98));
+    }
+    .community-head {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin: 0 0 10px;
+    }
+    .community-head .community-heading-text {
+      font-size: 1.12rem;
+      font-weight: 800;
+      color: var(--accent, #7b1f1f);
+      letter-spacing: .02em;
+    }
+    .community-marquee {
+      position: relative;
+      height: 138px;
+      overflow: hidden;
+      /* 上下淡入淡出，让循环更柔和 */
+      -webkit-mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent);
+              mask-image: linear-gradient(to bottom, transparent, #000 16%, #000 84%, transparent);
+    }
+    .community-track {
+      display: flex;
+      flex-direction: column;
+      will-change: transform;
+      animation: communityScroll calc(max(var(--community-count, 4), 3) * 2.6s) linear infinite;
+    }
+    .community-marquee:hover .community-track { animation-play-state: paused; }
+    @keyframes communityScroll {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-50%); }
+    }
+    .community-item {
+      margin-bottom: 10px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.98rem;
+      line-height: 1.55;
+      color: #2b3a4d;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(54, 102, 168, 0.16);
+      box-shadow: 0 1px 2px rgba(33, 70, 120, 0.05);
+    }
+    .community-item strong { color: var(--accent, #7b1f1f); font-weight: 700; }
+    .community-item::before {
+      content: "·";
+      color: #3a6aa8;
+      font-weight: 800;
+      margin-right: 8px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .community-track { animation: none; }
+      .community-marquee {
+        height: auto;
+        -webkit-mask-image: none;
+                mask-image: none;
+      }
+      /* 关闭动画时只显示第一份内容，避免重复 */
+      .community-track > .community-item[aria-hidden="true"] { display: none; }
     }
     .feedback-card {
       min-height: 170px;
@@ -2057,6 +2121,27 @@
             </h2>
             <div class="notice-body">{{ render_announcement(site_text("index.notice_body")) }}</div>
           </section>
+
+          {% set community_items = render_community_items(site_text("index.community_body")) %}
+          {% if community_items %}
+          <section class="community-card" aria-label="社区建设">
+            <h2 class="community-head">
+              <span class="community-heading-text">{{ site_text("index.community_title") }}</span>
+            </h2>
+            {# 竖向逐条无缝循环：轨道里放两份内容，CSS 平移 -50% 即一份高度，到末尾时
+               第二份恰好顶到起点，肉眼无跳变。鼠标悬停暂停，并尊重「减少动态」无障碍设置。 #}
+            <div class="community-marquee">
+              <div class="community-track" style="--community-count: {{ community_items|length }}">
+                {% for item in community_items %}
+                <div class="community-item">{{ item }}</div>
+                {% endfor %}
+                {% for item in community_items %}
+                <div class="community-item" aria-hidden="true">{{ item }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </section>
+          {% endif %}
 
           <section class="feedback-card" id="feedbackCard">
             <h2>{{ site_text("index.feedback_title") }}</h2>

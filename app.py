@@ -3819,6 +3819,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_research_quota_url": url_for("admin_research_quota") if remote_admin else "",
         "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
         "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
+        "control_community_url": url_for("admin_community") if remote_admin else url_for("control_community"),
         "control_feature_tags_url": url_for("admin_feature_tags") if remote_admin else url_for("control_feature_tags"),
         "feature_tags": _get_feature_tags(),
         "control_card_order_url": url_for("admin_card_order") if remote_admin else url_for("control_card_order"),
@@ -3999,16 +4000,16 @@ def _handle_site_texts_submit(*, remote_admin: bool):
     return _management_redirect(remote_admin, "copy")
 
 
-def _handle_notice_submit(*, remote_admin: bool):
-    """「网站公告」的快捷保存：只改公告标题与正文，合并写入，不影响其他文案覆盖。"""
-    _require_management_access(remote_admin)
-    _require_management_csrf()
-    if not remote_admin:
-        abort(403, description="本地控制台只负责诊断和同步，网站公告请在网站 /admin 管理。")
-    updates = {
-        "index.notice_title": str(request.form.get("notice_title", "")).strip(),
-        "index.notice_body": str(request.form.get("notice_body", "")),
-    }
+def _save_quick_site_texts(
+    updates: dict,
+    *,
+    remote_admin: bool,
+    action: str,
+    target: str,
+    ok_message: str,
+):
+    """首页右侧若干「局部小表单」（公告、社区建设）的共用保存逻辑：只改传入的几条
+    文案覆盖，与框架默认值相同的 key 移除（恢复默认），其余原封不动。"""
     defaults = get_site_text_map()
     if DEPLOYMENT.is_server:
         saved = get_setting("site_texts", {})
@@ -4022,13 +4023,51 @@ def _handle_notice_submit(*, remote_admin: bool):
     else:
         update_site_text_overrides(updates)
     _log_management_action(
-        action="site_text.notice",
-        target="index.notice",
+        action=action,
+        target=target,
         result="success",
         remote_admin=remote_admin,
     )
-    flash("网站公告已更新。", "success")
+    flash(ok_message, "success")
     return _management_redirect(remote_admin, "overview")
+
+
+def _handle_notice_submit(*, remote_admin: bool):
+    """「网站公告」的快捷保存：只改公告标题与正文，合并写入，不影响其他文案覆盖。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，网站公告请在网站 /admin 管理。")
+    updates = {
+        "index.notice_title": str(request.form.get("notice_title", "")).strip(),
+        "index.notice_body": str(request.form.get("notice_body", "")),
+    }
+    return _save_quick_site_texts(
+        updates,
+        remote_admin=remote_admin,
+        action="site_text.notice",
+        target="index.notice",
+        ok_message="网站公告已更新。",
+    )
+
+
+def _handle_community_submit(*, remote_admin: bool):
+    """「社区建设」的快捷保存：从网页公告中拆分出的独立栏目，每行一条，前端循环滚动。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，社区建设请在网站 /admin 管理。")
+    updates = {
+        "index.community_title": str(request.form.get("community_title", "")).strip(),
+        "index.community_body": str(request.form.get("community_body", "")),
+    }
+    return _save_quick_site_texts(
+        updates,
+        remote_admin=remote_admin,
+        action="site_text.community",
+        target="index.community",
+        ok_message="社区建设栏已更新。",
+    )
 
 
 def _handle_feature_tags_submit(*, remote_admin: bool):
@@ -5486,6 +5525,22 @@ def render_announcement_html(text: str) -> Markup:
     return Markup("".join(out))
 
 
+def render_community_items(text: str) -> list:
+    """把「社区建设」多行文本拆成逐条目（每个非空行一条），用于首页竖向循环滚动。
+
+    复用公告的行内排版：先整体转义防注入，仅注入 **加粗**，逐条安全。返回 Markup 列表，
+    模板里直接迭代渲染（含一份复制以实现无缝循环）。
+    """
+    if not text:
+        return []
+    items: list = []
+    for raw in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        s = raw.strip()
+        if s:
+            items.append(Markup(_announcement_inline(s)))
+    return items
+
+
 @app.context_processor
 def inject_auth_context():
     membership = getattr(g, "membership", get_membership_snapshot(None))
@@ -5526,6 +5581,7 @@ def inject_auth_context():
         "site_text": _site_text,
         "site_text_auto": _site_text_auto,
         "render_announcement": render_announcement_html,
+        "render_community_items": render_community_items,
         "app_version_display": app_version_display,
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
@@ -6437,6 +6493,16 @@ def admin_notice():
 @app.post("/control/notice")
 def control_notice():
     return _handle_notice_submit(remote_admin=False)
+
+
+@app.post("/admin/community")
+def admin_community():
+    return _handle_community_submit(remote_admin=True)
+
+
+@app.post("/control/community")
+def control_community():
+    return _handle_community_submit(remote_admin=False)
 
 
 @app.post("/admin/feature-tags")

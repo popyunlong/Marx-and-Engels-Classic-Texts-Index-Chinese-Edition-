@@ -215,6 +215,13 @@ SITE_TEXT_DEFINITIONS = (
         "首页公告栏内容（支持排版：「## 标题」小标题，「**文字**」加粗，「（1）」或「1.」自动有序列表，「- 」无序列表，「---」分隔线，空行分段）",
         "欢迎大家使用本检索程序！\n\n## 功能更新\n（1）示例：可在此逐条罗列更新，开头用「（1）」会自动排成有序列表。\n（2）支持 **重点加粗**，让关键信息更醒目。\n\n如有问题，欢迎在下方留言反馈。",
     ),
+    SiteTextDefinition("index.community_title", "首页", "首页社区建设栏标题", "社区建设", multiline=False),
+    SiteTextDefinition(
+        "index.community_body",
+        "首页",
+        "首页社区建设栏内容（每行一条，前端自动循环滚动播放；支持「**文字**」加粗）",
+        "欢迎加入读者交流群，一起研读马恩经典。\n定期举办线上读书会，共享学习心得。\n欢迎在下方留言板提出功能建议，**共建共享**。\n发现引文或排版问题？一键反馈，我们尽快修订。",
+    ),
     SiteTextDefinition("index.feedback_title", "首页", "首页留言栏标题", "留言反馈", multiline=False),
     SiteTextDefinition(
         "index.feedback_guest",

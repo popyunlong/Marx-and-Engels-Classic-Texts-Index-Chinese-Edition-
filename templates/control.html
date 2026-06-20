@@ -486,6 +486,68 @@
             update();
           })();
         </script>
+
+        <section class="card" id="community-editor" style="border:2px solid #2f5fa0">
+          <h2>社区建设（首页右侧 · 循环滚动）</h2>
+          <p class="section-note">这一栏已从「网站公告」中拆分出来，单独显示在公告下方，前端按竖向逐条循环滚动播放（鼠标悬停会暂停）。<strong>每行写一条</strong>，留空白行无妨；支持 <strong>**加粗**</strong>。把原先夹在公告里的社区建设内容剪过来粘到这里即可。整栏留空时前端自动隐藏。</p>
+          <form method="post" action="{{ control_community_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field">栏目标题
+              <input type="text" name="community_title" maxlength="60"
+                     value="{{ site_text('index.community_title') }}"
+                     placeholder="社区建设">
+            </label>
+            <label class="field" style="margin-bottom:6px">滚动条目（每行一条）</label>
+            <textarea name="community_body" id="communityBodyInput" rows="6"
+                      placeholder="每行一条，例如：&#10;欢迎加入读者交流群，一起研读马恩经典。&#10;定期举办线上读书会，共享学习心得。">{{ site_text('index.community_body') }}</textarea>
+            <div class="notice-preview-wrap">
+              <div class="notice-preview-label" style="color:#2f5fa0">条目预览</div>
+              <div class="community-preview" id="communityBodyPreview"></div>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit" style="background:#2f5fa0">保存社区建设</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        <style>
+          .community-preview {
+            border:1px dashed rgba(47,95,160,.35); border-radius:10px;
+            padding:12px 14px; min-height:54px;
+            background:linear-gradient(135deg, rgba(238,246,255,.6), rgba(252,253,255,.95));
+            display:flex; flex-direction:column; gap:8px;
+          }
+          .community-preview:empty::before { content:"（每写一行，这里多一条）"; color:#9fb0c6; }
+          .community-preview .cm-item {
+            padding:8px 12px; border-radius:10px; font-size:.92rem; color:#2b3a4d;
+            background:#fff; border:1px solid rgba(54,102,168,.16);
+          }
+          .community-preview .cm-item::before { content:"·"; color:#3a6aa8; font-weight:800; margin-right:7px; }
+          .community-preview .cm-item strong { color:var(--accent,#7b1f1f); font-weight:700; }
+        </style>
+        <script>
+          (function () {
+            var ta = document.getElementById('communityBodyInput');
+            var preview = document.getElementById('communityBodyPreview');
+            if (!ta || !preview) return;
+            function inlineFmt(t) {
+              t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+              return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            }
+            function update() {
+              var lines = String(ta.value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+              var html = '';
+              for (var i = 0; i < lines.length; i++) {
+                var s = lines[i].trim();
+                if (s) html += '<div class="cm-item">' + inlineFmt(s) + '</div>';
+              }
+              preview.innerHTML = html;
+            }
+            ta.addEventListener('input', update);
+            update();
+          })();
+        </script>
         {% endif %}
         <section class="card" id="overview">
           <h2>运行概况</h2>
