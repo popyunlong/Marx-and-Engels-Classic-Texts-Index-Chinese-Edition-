@@ -1934,6 +1934,11 @@ class Corpus:
     _XUANBIAN_VOL_CN = {1: "上", 2: "中", 3: "下"}
 
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
+        # 显式权威引文覆盖：party_docs_meta 内某卷给定完整 cite 串则直接采用
+        # （用于五年规划等——每部给规范单行本/出处引文）。
+        _cite = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("cite")
+        if _cite:
+            return _cite
         if book in self._DOC_CITATION_BOOKS:
             from pathlib import Path as _P
             meta = (self.party_meta.get(book, {}) or {}).get(volume, {}) or {}
