@@ -476,6 +476,24 @@
   volume: 3
   display_title: 十九大以来重要文献选编（下）
 五年规划:
+- file: pdfs/五年规划/发展国民经济的第一个五年计划（1953—1957）.pdf
+  volume: 1
+  display_title: 发展国民经济的第一个五年计划（1953—1957）
+- file: pdfs/五年规划/关于发展国民经济的第二个五年计划的建议的报告.pdf
+  volume: 2
+  display_title: 关于发展国民经济的第二个五年计划的建议的报告
+- file: pdfs/五年规划/中共中央关于印发第三个五年计划的三个文件的通知.pdf
+  volume: 3
+  display_title: 中共中央关于印发第三个五年计划的三个文件的通知
+- file: pdfs/五年规划/发展国民经济十年规划纲要草案（1976—1985·第五个五年计划）.pdf
+  volume: 5
+  display_title: 发展国民经济十年规划纲要草案（1976—1985·第五个五年计划）
+- file: pdfs/五年规划/国民经济和社会发展第六个五年计划（摘要）.pdf
+  volume: 6
+  display_title: 国民经济和社会发展第六个五年计划（摘要）
+- file: pdfs/五年规划/国民经济和社会发展第七个五年计划（摘要）.pdf
+  volume: 7
+  display_title: 国民经济和社会发展第七个五年计划（摘要）
 - file: pdfs/五年规划/国民经济和社会发展十年规划和第八个五年计划纲要.pdf
   volume: 8
   display_title: 国民经济和社会发展十年规划和第八个五年计划纲要
