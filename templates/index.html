@@ -3995,24 +3995,17 @@
     }
   });
 
-  try {
-    const payload = loadSearchState();
-    if (payload.kind === 'review') {
-      // 研究综述：从阅读器返回/刷新后仍保留（综述生成成本高，务必恢复）
-      q.value = payload.query || '';
-      applySearchMode('research');
-      renderResearchReview(payload, true);
-    } else if (payload.kind === 'assoc' && Array.isArray(payload.results)) {
-      q.value = payload.query || '';
-      applySearchMode('associative');
-      renderAssociativeResults(payload);
-    } else if (payload.mode === 'results' && Array.isArray(payload.results)) {
-      q.value = payload.query || '';
-      if (coocCheckbox) coocCheckbox.checked = !!payload.searchCooc;  // 回填开关，保证翻页/筛选续用同段多词
-      renderResults(payload);
-      updateBookTabs(payload);
-    }
-  } catch (_) {}
+  // 不在页面加载时自动「恢复」上次检索结果。原因：
+  //  1) 从阅读器返回是「新标签页(target=_blank)返回」，原检索标签页全程未刷新，
+  //     结果本就还在 DOM 里——无需恢复，用户要求的「从阅读器返回保留结果」自动满足。
+  //  2) 真正会触发本处的只有手动刷新(F5)、退出登录跳转、重新进入首页。这些场景下
+  //     把上次结果搬回来，会造成「检索说明/模式」与「结果」错乱，甚至显示上一个账号
+  //     的残留结果，故一律给出干净初始态。
+  //  3) 需要回看历史检索，请用下方「历史检索记录」(localStorage，按用户隔离)。
+  // 切勿在此重新 applySearchMode：那会在「使用提示」脚本读取 placeholder 之前把它改成
+  // 联想/研究的说明，污染 dataset.standardPlaceholder，导致精确检索框显示联想检索说明。
+  // 注：sessionStorage 的 SEARCH_STATE_KEY 仍用于本次会话内的翻页/书库筛选，由 doSearch
+  // 实时写入，无需也不应在此恢复渲染。
 
   // 历史检索记录：列表点击回看 / 删除单条 / 清空，并首次渲染。
   (function setupSearchHistory() {
@@ -4038,6 +4031,17 @@
     }
     renderSearchHistory();
   })();
+
+  // 退出登录前清掉「本次会话」的检索态与 AI 对话：这两个 key 不按用户隔离，否则下一个
+  // 登录账号会在同一浏览器看到上一个账号的残留结果/对话。历史检索记录按用户隔离(uid)，
+  // 故保留不清。捕获阶段同步执行，先于表单导航完成。
+  document.addEventListener('submit', e => {
+    const f = e.target;
+    if (f && typeof f.action === 'string' && /\/logout(?:[\/?#]|$)/.test(f.action)) {
+      try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch (_) {}
+      try { sessionStorage.removeItem(AI_STATE_KEY); } catch (_) {}
+    }
+  }, true);
 
   try {
     const raw = sessionStorage.getItem(AI_STATE_KEY);
