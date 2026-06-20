@@ -10549,6 +10549,9 @@ _WENKU_TR_MAX_TEXTS = 30   # 单次请求最多接收段数（含已缓存）
 _WENKU_TR_MAX_NEW = 12     # 单次最多新译段数（封顶每次点击成本）
 _WENKU_SEG_MARK = re.compile(r"\[\[(\d+)\]\]")
 _WENKU_LANG_NAME = {"zh": "简体中文", "ru": "俄文", "de": "德文", "en": "英文"}
+# AI 导读输出上限：原 1100 太低，密集页的「①主旨②逐层解释③理论位置」三段会被截在半句。
+# 提到 2600（≈1700 中文字），让长导读能写完；仍受每次点击的额度/计数把关。
+_WENKU_AI_MAX_TOKENS = 2600
 
 
 def _wenku_translate_misses(items: list[str], *, src: str, tgt: str, quota: dict) -> list[str | None]:
@@ -10662,7 +10665,7 @@ def api_wenku_ai():
     try:
         text = AI_CLIENT.chat_complete(
             [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user}],
-            max_tokens=1100, temperature=0.5, provider=ai_provider or None,
+            max_tokens=_WENKU_AI_MAX_TOKENS, temperature=0.5, provider=ai_provider or None,
             web_search_query=web_query, sources_out=sources, allow_reasoning_fallback=False,
         )
     except AIServiceError as exc:
