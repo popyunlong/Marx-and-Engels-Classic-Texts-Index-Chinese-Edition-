@@ -511,6 +511,10 @@ RATE_LIMITS = {
     # 书页图像防爬（P3）：刻意放宽，正常翻页/预取（每翻一页约 1~3 次请求）远低于此阈值，
     # 仅拦截整本批量抓取。按登录用户 / 浏览器会话计数（NAT 友好），触发时前端弹窗提示并自动恢复。
     "page_image": (600, 60),
+    # 无 cookie 的书页图请求按真实 IP 的严格限速：真实浏览器加载阅读页 HTML 时就已拿到会话
+    # cookie，后续取书页图必然带 cookie；不带 cookie 还在批量取图的，几乎必为「每请求换一个
+    # cookie」以绕过单会话限速的脚本抓取，故对其按真实 IP 单独收紧（弥补 cookie 维度被绕过）。
+    "page_image_nocookie_ip": (60, 60),
     # 按真实客户端 IP 的兜底限速(#2 真实 IP 透传后启用)。NAT 宽容、阈值高，
     # 正常读者/校园 NAT 远不及此，只拦单 IP 的高频批量抓取。可经 env 覆盖。
     "reader_view_ip": (200, 60),
@@ -2563,6 +2567,26 @@ def _visitor_session_key() -> str:
     return key
 
 
+def _request_presented_session_cookie() -> bool:
+    """请求是否携带了既有的会话 cookie。用于区分「保留 cookie 的真实回访浏览器」与
+    「每个请求都换一个新 cookie 的脚本（或访客落地页的首个请求）」。读的是客户端实际发来的
+    原始 cookie，不受本请求内对 session 的写入影响。"""
+    name = app.config.get("SESSION_COOKIE_NAME") or "session"
+    return bool((request.cookies.get(name) or "").strip())
+
+
+def _online_presence_dedup_key(session_key: str) -> str:
+    """「24 小时在线变化」在线人数的去重键。登录用户在查询层按 user_id 去重、键值无关紧要；
+    匿名访客若回传了会话 cookie（真实回访浏览器，对校园 NAT 友好）按 cookie 去重，否则
+    （不收 cookie 的脚本／访客落地页首个请求）按真实 IP 去重——这样「每请求换一个 cookie」的
+    爬虫会塌缩到其少数几个出口 IP，不再把在线人数刷高失真。代价：极少数禁用 cookie 的匿名
+    读者会与同 IP 其他访客合并计为一人（远小于爬虫刷高的失真，可接受）。"""
+    if _request_presented_session_cookie():
+        return session_key or "anonymous"
+    ip = _client_ip()
+    return f"ip:{ip}" if ip and ip != "unknown" else (session_key or "anonymous")
+
+
 def _reset_session_preserving_visitor() -> None:
     """登录/注册成功时清空会话以防会话固定，但保留访客分析标识 _visitor_key。
 
@@ -3222,12 +3246,26 @@ def _rate_limit_ai_or_abort() -> None:
 
 
 def _rate_limit_page_image_or_abort() -> None:
-    # 书页图像防爬（P3）。管理员/已豁免监控不计；其余按登录用户 ID 计数，匿名按浏览器会话
-    # key 计数，避免对共享出口 IP（如校园 NAT）的正常读者造成误伤。阈值很宽松，正常阅读不触发。
+    # 书页图像防爬（P3）。管理员/已豁免监控/桌面授权不计；登录用户按 ID 计数，带会话 cookie 的
+    # 匿名读者按浏览器会话 key 计数，避免对共享出口 IP（如校园 NAT）的正常读者误伤，阈值很宽松。
     user = getattr(g, "current_user", None)
-    if _is_admin_user(user) or _is_monitoring_request():
+    if _is_admin_user(user) or _is_monitoring_request() or _desktop_content_access_enabled():
         return
-    actor = f"user:{user['id']}" if user else f"sess:{_visitor_session_key()}"
+    if user:
+        actor = f"user:{user['id']}"
+    elif _request_presented_session_cookie():
+        actor = f"sess:{_visitor_session_key()}"
+    else:
+        # 不收 cookie 的书页图请求：真实浏览器在加载阅读页 HTML 时已拿到会话 cookie，后续取图必
+        # 然带 cookie；不带 cookie 还在批量取图的，几乎必为「每请求换一个 cookie」绕过单会话限速
+        # 的脚本抓取。对其按真实 IP 单独严格限速，堵住该绕过路径（弥补 cookie 维度被架空）。
+        _rate_limit_or_abort(
+            f"pageimg:nocookie:ip:{_client_ip()}",
+            limit=RATE_LIMITS["page_image_nocookie_ip"][0],
+            window_seconds=RATE_LIMITS["page_image_nocookie_ip"][1],
+            message="书页图像加载过于频繁，请稍后片刻再继续阅读。",
+        )
+        return
     _rate_limit_or_abort(
         f"pageimg:{actor}",
         limit=RATE_LIMITS["page_image"][0],
@@ -5450,8 +5488,12 @@ def record_current_activity():
             feature=feature,
             path=request.path,
         )
-        # 同步写入 15 分钟时槽在线记录，供 24 小时在线变化图统计。
-        record_online_presence(session_key=session_key, user_id=user_id)
+        # 同步写入 15 分钟时槽在线记录，供 24 小时在线变化图统计。匿名访客的去重键按是否回传
+        # 会话 cookie 走 cookie 或真实 IP（见 _online_presence_dedup_key），避免「每请求换 cookie」
+        # 的爬虫把在线人数刷高失真。
+        record_online_presence(
+            session_key=_online_presence_dedup_key(session_key), user_id=user_id
+        )
         _prune_online_presence_if_due()
     except Exception as exc:
         LOGGER.debug("Site activity recording failed: %s", exc)

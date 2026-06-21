@@ -1496,6 +1496,80 @@ class SecurityRegressionTests(unittest.TestCase):
         unauth = guest_client.get("/admin/reader-access?actor=ip:203.0.113.9")
         self.assertIn(unauth.status_code, {302, 401, 403})
 
+    def test_online_presence_dedup_key_collapses_cookieless_by_ip(self) -> None:
+        # 不收 cookie 的脚本：每个请求换一个新 cookie，但去重键应塌缩到其真实 IP，
+        # 这样「24 小时在线变化」不会被每请求一个新 cookie 刷高。
+        with app_module.app.test_request_context(
+            "/", environ_base={"REMOTE_ADDR": "198.51.100.201"}
+        ):
+            self.assertEqual(
+                app_module._online_presence_dedup_key("rotating-cookie-1"),
+                "ip:198.51.100.201",
+            )
+            self.assertEqual(
+                app_module._online_presence_dedup_key("rotating-cookie-2"),
+                "ip:198.51.100.201",
+            )
+        # 真实回访浏览器：携带会话 cookie，按其稳定的 cookie 去重（对校园 NAT 友好）。
+        with app_module.app.test_request_context(
+            "/",
+            environ_base={"REMOTE_ADDR": "198.51.100.201"},
+            headers={"Cookie": "session=returning-browser"},
+        ):
+            self.assertEqual(
+                app_module._online_presence_dedup_key("real-cookie-key"),
+                "real-cookie-key",
+            )
+
+    def test_online_presence_endpoint_collapses_cookieless_scraper(self) -> None:
+        app_module.set_setting("access_policy", {"audience": {"guest": {"library": True}}})
+        ip = "198.51.100.202"
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            conn.execute("DELETE FROM online_presence WHERE session_key = ?", (f"ip:{ip}",))
+            conn.commit()
+        # 三个「全新客户端」＝每次都不带 cookie，模拟每请求换 cookie 的爬虫，同一 IP。
+        for _ in range(3):
+            client = app_module.app.test_client()
+            client.get("/reader", environ_base={"REMOTE_ADDR": ip})
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM online_presence WHERE session_key = ?", (f"ip:{ip}",)
+            ).fetchone()[0]
+        # 三次无 cookie 请求塌缩为同一 IP 的一行，而非三个「访客」。
+        self.assertEqual(rows, 1)
+
+    def test_page_image_cookieless_requests_rate_limited_per_ip(self) -> None:
+        from werkzeug.exceptions import TooManyRequests
+
+        app_module._rate_buckets.clear()
+        limit = app_module.RATE_LIMITS["page_image_nocookie_ip"][0]
+        ip = "198.51.100.203"
+        # 无 cookie 的书页图请求：同一 IP 放行至阈值，超过即 429（堵住换 cookie 绕过单会话限速）。
+        for _ in range(limit):
+            with app_module.app.test_request_context(
+                "/page-image?file=x&page=1", environ_base={"REMOTE_ADDR": ip}
+            ):
+                app_module._rate_limit_page_image_or_abort()
+        with app_module.app.test_request_context(
+            "/page-image?file=x&page=1", environ_base={"REMOTE_ADDR": ip}
+        ):
+            with self.assertRaises(TooManyRequests):
+                app_module._rate_limit_page_image_or_abort()
+
+    def test_page_image_with_session_cookie_not_held_to_nocookie_ip_limit(self) -> None:
+        app_module._rate_buckets.clear()
+        nocookie_limit = app_module.RATE_LIMITS["page_image_nocookie_ip"][0]
+        ip = "198.51.100.204"
+        # 携带会话 cookie 的请求走单会话限速（阈值高得多），不应被无 cookie 的严格 IP 限速拦截，
+        # 即便同一 IP 超过 nocookie 阈值也不报 429（每个 cookie 各自计数，远低于会话阈值）。
+        for _ in range(nocookie_limit + 5):
+            with app_module.app.test_request_context(
+                "/page-image?file=x&page=1",
+                environ_base={"REMOTE_ADDR": ip},
+                headers={"Cookie": "session=cookied-reader"},
+            ):
+                app_module._rate_limit_page_image_or_abort()  # 不应抛出
+
     def test_monitoring_exemption_excludes_from_reader_audit(self) -> None:
         app_module.set_setting(
             "access_policy",
