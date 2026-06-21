@@ -127,6 +127,34 @@ VOLUMES = [
      "sidecar": "data/xuanbian_19_xia_ocr.jsonl", "toc": "detect"},
 ]
 
+
+# 《马克思恩格斯全集（第二版）》(book=全集二版) 的 26 个扫描卷：从 manifest 自动追加注入 spec
+# （文本层卷 28/36/42 走 build_textbook_index，不在此列）。GLM-4V 多模态 sidecar 由
+# scripts/_ocr_quanji2_vision.py 产出（每卷 data/quanji2_vol<NN>_ocr.jsonl，{pdf_page,text}）。
+# 统一用 toc="refresh_printed"：注入 OCR 正文 + 众数法检测印刷页码 + 回填既有目录的 printed_page，
+# 不重建目录（保留 build_toc 已写入的洁净书签章节目录；少数垃圾书签卷的章节目录后续另行处理）。
+def _append_quanji2_specs() -> None:
+    import yaml
+
+    manifest = ROOT / "config" / "manifest.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+    text_vols = {28, 36, 42}
+    for item in data.get("全集二版", []):
+        vol = item.get("volume")
+        if not isinstance(vol, int) or vol in text_vols:
+            continue
+        VOLUMES.append({
+            "id": f"quanji2_vol{vol}",
+            "book": "全集二版",
+            "volume": vol,
+            "source_file": item["file"],
+            "sidecar": f"data/quanji2_vol{vol:02d}_ocr.jsonl",
+            "toc": "refresh_printed",
+        })
+
+
+_append_quanji2_specs()
+
 # 篇首页特征：开头(去页码后)即「篇名（一九××年…日/月）」。日期可为时间段
 # （如「一九四一年四月十五日—六月十日」），尾部放宽到 12 字。
 _DATE = re.compile(
