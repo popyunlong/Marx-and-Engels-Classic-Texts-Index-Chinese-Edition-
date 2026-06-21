@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,9 +16,47 @@ from runtime_env import APP_VERSION, APPDATA_DIR, secure_db_file
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
 
+# ── 设置项读缓存 ────────────────────────────────────────────────────────────────
+# get_setting 原本每次都新开一条 SQLite 连接（实测 ~4.8ms/次）。它在请求热路径上被反复调用
+# （如阅读端点每请求要查 reader_bans / blocked_bot_user_agents / monitoring_exemptions 等），
+# 累计开销可观。unified_settings 都是「读多写少」的后台配置（管理员偶尔改），故这里加一层很短
+# TTL 的进程内缓存：缓存原始 value_json 字符串、每次读仍 json.loads 出**全新对象**（保持调用方可
+# 自由改返回值的既有约定）；本进程写入（set/delete_setting）即时失效该键；跨进程（备份/期刊等
+# 旁路服务）改动最迟 TTL 秒后生效。TTL 默认 3s，可经 env 调整或设 0 关闭缓存（行为退回直连 DB）。
+_SETTINGS_CACHE_TTL = max(0.0, float(os.environ.get("MARX_SETTINGS_CACHE_TTL", "3") or "3"))
+_SETTINGS_CACHE: dict[str, tuple[float, str | None]] = {}
+_SETTINGS_CACHE_LOCK = threading.Lock()
+
+
+def _settings_cache_get(key: str) -> tuple[bool, str | None]:
+    """返回 (命中?, value_json)。value_json 为 None 表示「该键确认不存在」（也缓存，避免反复查空）。"""
+    if _SETTINGS_CACHE_TTL <= 0:
+        return False, None
+    now = time.monotonic()
+    with _SETTINGS_CACHE_LOCK:
+        hit = _SETTINGS_CACHE.get(key)
+        if hit is not None and now - hit[0] < _SETTINGS_CACHE_TTL:
+            return True, hit[1]
+    return False, None
+
+
+def _settings_cache_put(key: str, value_json: str | None) -> None:
+    if _SETTINGS_CACHE_TTL <= 0:
+        return
+    with _SETTINGS_CACHE_LOCK:
+        _SETTINGS_CACHE[key] = (time.monotonic(), value_json)
+
+
+def _settings_cache_invalidate(key: str) -> None:
+    with _SETTINGS_CACHE_LOCK:
+        _SETTINGS_CACHE.pop(key, None)
+
 
 def utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_WAL_ENABLED = False
 
 
 def _connect() -> sqlite3.Connection:
@@ -24,6 +65,15 @@ def _connect() -> sqlite3.Connection:
     secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # 与 membership._connect 同库（membership.sqlite3），同样开 WAL 提升读写并发。WAL 是持久属性，
+    # 任一模块先连上即全局生效；此处再设一次确保 admin_store 独立被导入时也能开启。失败静默回退。
+    global _WAL_ENABLED
+    if not _WAL_ENABLED:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            _WAL_ENABLED = True
+        except sqlite3.Error:
+            pass
     return conn
 
 
@@ -49,7 +99,16 @@ def new_activation_code() -> str:
     return "-".join(raw[i : i + 4] for i in range(0, len(raw), 4))
 
 
+_SCHEMA_READY = False
+
+
 def init_admin_store_db() -> Path:
+    # 建表是幂等的（CREATE TABLE IF NOT EXISTS），但每次都新开连接 + executescript + mkdir 并不便宜。
+    # load_access_policy 每次都会调它，而权限判定一个请求里要跑几十次 → 旧实现让首页等渲染白跑几十遍
+    # 建表脚本（实测占首页渲染约 300ms）。这里加进程级「已就绪」标志：首次真正建表，之后直接返回。
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return DB_PATH
     with _connect() as conn:
         conn.executescript(
             """
@@ -99,18 +158,24 @@ def init_admin_store_db() -> Path:
             """
         )
         conn.commit()
+    _SCHEMA_READY = True
     return DB_PATH
 
 
 def get_setting(key: str, default: Any = None) -> Any:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT value_json FROM unified_settings WHERE key = ?",
-            (key,),
-        ).fetchone()
-    if row is None:
+    cached, value_json = _settings_cache_get(key)
+    if not cached:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT value_json FROM unified_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+        value_json = str(row["value_json"]) if row is not None else None
+        _settings_cache_put(key, value_json)
+    if value_json is None:
         return default
-    return _json_loads(str(row["value_json"] or ""), default)
+    # 每次都 json.loads 出全新对象：调用方可放心原地修改返回值，不会污染缓存。
+    return _json_loads(value_json, default)
 
 
 def set_setting(key: str, value: Any, updated_by: str = "") -> None:
@@ -129,12 +194,14 @@ def set_setting(key: str, value: Any, updated_by: str = "") -> None:
             (key, payload, now, updated_by),
         )
         conn.commit()
+    _settings_cache_invalidate(key)
 
 
 def delete_setting(key: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM unified_settings WHERE key = ?", (key,))
         conn.commit()
+    _settings_cache_invalidate(key)
 
 
 def list_desktop_devices(limit: int = 80) -> list[dict]:

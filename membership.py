@@ -15,6 +15,43 @@ DB_PATH = APPDATA_DIR / "membership.sqlite3"
 SECRET_KEY_PATH = APPDATA_DIR / "session_secret.txt"
 _UNSET = object()
 
+# 请求级缓存（挂在 flask.g）：会员快照在同一请求内不会变化，却被鉴权/视图状态/各功能权限判定反复
+# 查库（current_view_state 一次就要为每个功能键各取一次快照，约 25 次）。这里按 user_id 在请求内 memo，
+# 把每请求的会员查库塌缩成一次。跨请求始终重查、零陈旧；写入订阅（mark_order_paid/create_manual_
+# subscription）时主动清空本请求缓存，杜绝「同请求内先写后读拿到旧值」。无请求上下文（脚本/后台任务）
+# 时退回直连库。纯数据层对 flask 的依赖以 try 包裹，flask 不可用也不影响导入。
+try:  # pragma: no cover - flask 必然可用，仅作纯数据层防御
+    from flask import g as _flask_g, has_request_context as _has_request_context
+except Exception:  # noqa: BLE001
+    _flask_g = None
+
+    def _has_request_context() -> bool:  # type: ignore[misc]
+        return False
+
+_MEMBERSHIP_REQ_CACHE_ATTR = "_membership_snapshot_req_cache"
+
+
+def _request_membership_cache() -> dict | None:
+    if _flask_g is None or not _has_request_context():
+        return None
+    cache = getattr(_flask_g, _MEMBERSHIP_REQ_CACHE_ATTR, None)
+    if cache is None:
+        cache = {}
+        try:
+            setattr(_flask_g, _MEMBERSHIP_REQ_CACHE_ATTR, cache)
+        except Exception:  # noqa: BLE001
+            return None
+    return cache
+
+
+def _invalidate_request_membership_cache() -> None:
+    if _flask_g is None or not _has_request_context():
+        return
+    try:
+        setattr(_flask_g, _MEMBERSHIP_REQ_CACHE_ATTR, {})
+    except Exception:  # noqa: BLE001
+        pass
+
 
 DEFAULT_PLANS = (
     {
@@ -78,12 +115,26 @@ def _months_delta(months: int) -> timedelta:
     return timedelta(days=max(1, months) * 30)
 
 
+_WAL_ENABLED = False
+
+
 def _connect() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)  # Python 默认 busy timeout=5s，锁等待而非立即报错
     secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL：8 线程 waitress 下，阅读热路径每请求都写审计/活动/在线记录；回滚日志模式下写会独占库锁、
+    # 阻塞其它线程的读（查用户/会员/设置）。WAL 允许「1 写 + N 读」并发，消除这种排队。WAL 是持久库
+    # 属性，进程内设一次即可（之后所有连接、含旁路服务自动继承）；备份走 sqlite3 .backup（WAL 感知、
+    # 一致快照）不受影响。设置失败（只读盘/极旧 SQLite）静默回退到原模式，绝不阻断连接。
+    global _WAL_ENABLED
+    if not _WAL_ENABLED:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            _WAL_ENABLED = True
+        except sqlite3.Error:
+            pass
     return conn
 
 
@@ -1150,6 +1201,19 @@ def get_membership_snapshot(user_id: int | None) -> MembershipSnapshot:
             expires_at="",
             days_remaining=None,
         )
+    uid = int(user_id)
+    cache = _request_membership_cache()
+    if cache is not None:
+        hit = cache.get(uid)
+        if hit is not None:
+            return hit
+    snapshot = _compute_membership_snapshot(uid)
+    if cache is not None:
+        cache[uid] = snapshot
+    return snapshot
+
+
+def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
     with _connect() as conn:
         row = conn.execute(
             """
@@ -1359,6 +1423,8 @@ def mark_order_paid(
             (order["user_id"], order["plan_code"]),
         ).fetchone()
         conn.commit()
+    # 本请求刚为该用户写入了新订阅：清掉请求级会员快照缓存，避免同请求后续读到旧的「非会员」状态。
+    _invalidate_request_membership_cache()
     return {
         "order": row_to_dict(updated_order),
         "subscription": row_to_dict(subscription),

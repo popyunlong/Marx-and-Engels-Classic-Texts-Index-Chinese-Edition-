@@ -1232,7 +1232,13 @@ def _is_member_enabled() -> bool:
 
 
 def _admin_content_access_enabled() -> bool:
-    return bool(current_view_state()["pdf_enabled"] and _is_admin_user(getattr(g, "current_user", None)))
+    # 先判廉价的「是否管理员」，非管理员直接 False，不再触发昂贵的 current_view_state()（它会为
+    # 全部功能键各算一次权限、取多次会员快照）。本函数在阅读热路径（/page-image 鉴权）上每请求被调，
+    # 旧实现把 current_view_state 顶在最前导致每次翻页都白跑一遍整套视图状态（实测占该请求约 300ms）。
+    # 逻辑等价：原式 = pdf_enabled AND is_admin；非管理员时结果恒为 False。
+    if not _is_admin_user(getattr(g, "current_user", None)):
+        return False
+    return bool(current_view_state()["pdf_enabled"])
 
 
 def _desktop_license_enabled() -> bool:
@@ -3578,7 +3584,10 @@ def _site_text_form_values() -> dict[str, str]:
 
 
 def _effective_site_text_map() -> dict[str, str]:
-    current = get_site_text_map()
+    # 默认文案只取一次（get_site_text_map 内部已对模板扫描做签名缓存）：defaults 作为不可变基线，
+    # current 为可变副本，叠加后台覆盖；末尾的「失效文案还原」用 defaults 校正，无需二次扫描。
+    defaults = get_site_text_map()
+    current = dict(defaults)
     if DEPLOYMENT.is_server:
         values = get_setting("site_texts", {})
         if isinstance(values, dict):
@@ -3608,11 +3617,21 @@ def _effective_site_text_map() -> dict[str, str]:
         "viewer.ai_empty_state": "关闭联网时，AI 只会根据当前页和相邻页文本解释内容；开启联网时，会补充更广泛的公开资料与背景。",
         "viewer.prompt_placeholder": "例如：这段文字中的“联合起来”在这里具体指什么？如果联网，请顺便讲讲它与当时历史背景的关系。",
     }
-    defaults = get_site_text_map()
     for key, legacy_value in legacy_network_texts.items():
         if current.get(key) == legacy_value:
             current[key] = defaults.get(key, current[key])
     return current
+
+
+def _request_site_texts() -> dict[str, str]:
+    """按请求惰性计算并缓存站点文案映射。只有真正渲染模板的请求（经 context_processor 调用本函数）
+    才会触发合成；/page-image、/static、多数 JSON API 等高频非模板端点根本不渲染模板，故完全跳过，
+    省去每请求的文案合成开销（阅读时翻页只打 /page-image，受益最直接）。同一请求内多次访问复用 g 缓存。"""
+    cached = getattr(g, "_site_text_map_cache", None)
+    if cached is None:
+        cached = _effective_site_text_map()
+        g._site_text_map_cache = cached
+    return cached
 
 
 def _effective_override_values() -> dict[str, str]:
@@ -4840,7 +4859,8 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
 def _page_image_cache_path(source_file: str, page_number: int, query_text: str) -> Path:
     pdf_path = _resolve_pdf_path(source_file, require_full_mode=False)
     try:
-        stamp = f"{pdf_path.stat().st_mtime_ns}:{pdf_path.stat().st_size}"
+        st = pdf_path.stat()  # 一次 stat 取两值（原先调了两次）
+        stamp = f"{st.st_mtime_ns}:{st.st_size}"
     except OSError:
         stamp = "missing"
     # 缓存版本号 v6：v6 把高亮改为「归一化逐字锚定」（修复长句在页图上不标亮/只标亮片段）。
@@ -5369,7 +5389,8 @@ def load_current_user():
         session.pop("user_id", None)
     g.current_user = user
     g.membership = get_membership_snapshot(int(user["id"])) if user else get_membership_snapshot(None)
-    g.site_texts = _effective_site_text_map()
+    # 站点文案映射改为惰性合成（见 _request_site_texts）：仅渲染模板的请求才计算，避免在
+    # /page-image、/static 等高频非模板端点上做无谓开销。
     if DEPLOYMENT.is_server:
         _sweep_expired_orders_if_due()
 
@@ -5544,7 +5565,7 @@ def render_community_items(text: str) -> list:
 @app.context_processor
 def inject_auth_context():
     membership = getattr(g, "membership", get_membership_snapshot(None))
-    site_texts = getattr(g, "site_texts", get_site_text_map())
+    site_texts = _request_site_texts()
 
     def _site_text(key: str, **kwargs: object) -> str:
         base = site_texts.get(key)
@@ -7788,11 +7809,23 @@ def page_image():
     query_text = " ".join((request.args.get("q") or "").split())
     highlight_text = " ".join((request.args.get("h") or "").split()) or query_text
     cache_path = _render_page_image_to_cache(source_file, page_number, highlight_text)
-    volume = corpus.get_volume_by_source_file(source_file) if corpus else None
-    page_count = len(volume.pages) if volume else page_number
-    _prewarm_page_images(source_file, page_number, highlight_text, page_count)
+    # 邻页预热默认关闭；仅在开启时才需要卷的总页数。关闭时跳过 corpus 查卷 + len(pages)，
+    # 热路径不必要的开销一并省掉。
+    if PAGE_IMAGE_PREWARM_ENABLED:
+        volume = corpus.get_volume_by_source_file(source_file) if corpus else None
+        page_count = len(volume.pages) if volume else page_number
+        _prewarm_page_images(source_file, page_number, highlight_text, page_count)
     _prune_page_image_cache_if_due()
-    return send_file(cache_path, mimetype="image/jpeg", conditional=True, max_age=86400)
+    resp = send_file(cache_path, mimetype="image/jpeg", conditional=True, max_age=86400)
+    # 书页图像缓存策略（在「读得快」与「内容可纠正」之间取稳妥平衡）：
+    #   · private —— 只进本人浏览器缓存，绝不进 Cloudflare/反代等共享缓存，杜绝「未授权访客从共享
+    #     缓存命中受保护书页图」的越权（本站书页内容受版权保护、有专门反爬）。
+    #   · max-age=7 天 —— 一周内重读/前后翻回看过的页**零网络瞬开**（原仅 1 天）。
+    #   · stale-while-revalidate=1 天 —— 过期后先用旧图秒显、后台再校验，不阻塞翻页。
+    #   · 仍带 conditional ETag、且**不**加 immutable —— 万一某卷 PDF 被替换（URL 不变），既能靠
+    #     ETag 在再校验时自动取到新图，用户手动刷新也能立刻拿到新内容，不会被永久钉死在旧图上。
+    resp.headers["Cache-Control"] = "private, max-age=604800, stale-while-revalidate=86400"
+    return resp
 
 
 @app.route("/releases/<path:filename>")

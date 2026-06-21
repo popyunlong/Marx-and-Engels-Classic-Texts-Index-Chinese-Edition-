@@ -674,10 +674,39 @@ def _dynamic_group_for_key(key: str) -> str:
     }.get(prefix, "自动发现")
 
 
+# 模板扫描缓存：discover_template_site_text_keys 会把全部模板（实测 21 个文件 / ~570KiB）
+# 逐个 read_text + 正则扫描一遍，单次 ~25ms。它经 get_site_text_map → _effective_site_text_map
+# 被 load_current_user 在**每个请求**里调用（且每请求两次），是阅读器/书页图像等高频路径上的
+# 主要无谓开销。模板在运行期是只读的（仅部署时变更、随之重启进程），故这里按「文件 mtime+大小
+# 签名」做进程内缓存：签名未变直接返回上次结果（省掉 read_text+正则），模板被改动则签名变化自动
+# 失效重扫，开发期编辑模板仍即时生效。仅对默认 TEMPLATE_DIR 走缓存；传入自定义目录（校验/测试
+# 工具）始终全新扫描，行为不变。
+_TEMPLATE_KEYS_CACHE: dict | None = None
+
+
+def _template_scan_signature(paths: list[Path]) -> tuple:
+    sig: list[tuple] = []
+    for path in paths:
+        try:
+            st = path.stat()
+            sig.append((path.as_posix(), st.st_mtime_ns, st.st_size))
+        except OSError:
+            sig.append((path.as_posix(), 0, 0))
+    return tuple(sig)
+
+
 def discover_template_site_text_keys(template_dir: Path | None = None) -> dict[str, list[str]]:
-    found: dict[str, set[str]] = {}
+    global _TEMPLATE_KEYS_CACHE
     root = template_dir or TEMPLATE_DIR
-    for path in _iter_template_paths(root):
+    use_cache = template_dir is None or root == TEMPLATE_DIR
+    paths = _iter_template_paths(root)
+    if use_cache:
+        signature = _template_scan_signature(paths)
+        cached = _TEMPLATE_KEYS_CACHE
+        if cached is not None and cached.get("sig") == signature:
+            return cached["result"]
+    found: dict[str, set[str]] = {}
+    for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
@@ -685,7 +714,10 @@ def discover_template_site_text_keys(template_dir: Path | None = None) -> dict[s
         rel = path.relative_to(root).as_posix()
         for key in _SITE_TEXT_CALL_RE.findall(text):
             found.setdefault(key, set()).add(rel)
-    return {key: sorted(paths) for key, paths in sorted(found.items())}
+    result = {key: sorted(rels) for key, rels in sorted(found.items())}
+    if use_cache:
+        _TEMPLATE_KEYS_CACHE = {"sig": signature, "result": result}
+    return result
 
 
 def _dynamic_definitions_from_templates(
