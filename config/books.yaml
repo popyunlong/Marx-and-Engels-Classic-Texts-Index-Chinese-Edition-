@@ -20,6 +20,21 @@ books:
   sort_order: 20
   tag_class: quanji
   available: true
+# 《马克思恩格斯全集》中文第二版（人民出版社，以 MEGA² 为基础逐卷编译，各卷出版年不同）。
+# 与中文第一版（key=全集）是两套不同版本：正文经重新校订、卷次编排不同、页码与出版年各异，
+# 故独立成库。界面/标签简称用《全集·二版》以与第一版《全集》区分；引文全名用
+# 「马克思恩格斯全集（第二版）」（citation_title），确保引用可区分版次。sort_order=25 使其
+# 在阅读器/篇章直达中紧排在第一版《全集》（20）之下、《列宁全集》（30）之上。
+# 当前 29 卷：第 28/36/42 卷为文本层 PDF（正文/检索即时可用），其余 26 卷为高清扫描件
+# （正文走 GLM-4V 多模态 OCR sidecar 注入，目录优先取 PDF 书签）。
+- key: 全集二版
+  title: 《马克思恩格斯全集（第二版）》
+  short_title: 《全集·二版》
+  citation_title: 马克思恩格斯全集（第二版）
+  folder: pdfs/马克思恩格斯全集（第二版）
+  sort_order: 25
+  tag_class: quanji2
+  available: true
 - key: 列宁全集
   title: 《列宁全集》
   short_title: 列宁《全集》

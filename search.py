@@ -113,6 +113,12 @@ def _substring_edit_distance(needle: str, haystack: str, max_errors: int) -> int
 
 
 _NUMERIC_TITLE_RE = re.compile(r"^[0-9IVXLCDMivxlcdm\s\-—–\.]+$")
+# 扫描车间遗留的「书签即扫描文件名」垃圾（如《全集》二版第40卷的
+# "D:\扫书workshop\成果总\5A.tif"）：含盘符路径或以图片扩展名结尾的书签绝非真实篇目，
+# 一律不作为可导航目录项（否则整卷目录会被几百条 tif 文件名淹没）。
+_SCAN_ARTIFACT_TITLE_RE = re.compile(
+    r"(?i)(?:^[a-z]:[\\/])|[\\/].+\.(?:tif|tiff|jpe?g|png|bmp|gif)$|\.(?:tif|tiff|jpe?g|png|bmp|gif)$"
+)
 _TOC_RANGE_RE = re.compile(
     r"^(?P<title>.+?)"
     r"(?:[·•∙⋯…\.\s]{2,}|[·•∙⋯…\.]+\s*)"
@@ -2185,6 +2191,9 @@ class Corpus:
 
     def _clean_title(self, text: str) -> str:
         text = unicodedata.normalize("NFKC", text).replace("\x00", "")
+        # 去掉书签里夹带的双向控制符（U+200E/200F 等），否则路径类书签首尾的 LRM 标记
+        # 会绕过扫描垃圾识别，且在界面里显示为不可见乱码。
+        text = re.sub(r"[‎‏‪-‮⁦-⁩]", "", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
@@ -2192,7 +2201,12 @@ class Corpus:
         title = self._clean_title(title)
         if not title:
             return False
-        return _NUMERIC_TITLE_RE.fullmatch(title) is None
+        if _NUMERIC_TITLE_RE.fullmatch(title) is not None:
+            return False
+        # 扫描文件名/盘符路径类书签不是可导航篇目（见 _SCAN_ARTIFACT_TITLE_RE）。
+        if _SCAN_ARTIFACT_TITLE_RE.search(title):
+            return False
+        return True
 
     def _is_toc_noise(self, title: str) -> bool:
         compact = title.replace(" ", "")
