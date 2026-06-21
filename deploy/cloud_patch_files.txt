@@ -58,6 +58,7 @@ deploy/marx-search.env.example
 deploy/journald-marx-search.conf
 deploy/update_cloud.ps1
 deploy/upload_lenin_pdfs.ps1
+deploy/upload_book_pdfs.ps1
 deploy/upload_reader_patch.ps1
 deploy/upload_dictionary_patch.ps1
 deploy/upload_to_server.ps1
