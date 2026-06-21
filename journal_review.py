@@ -1,4 +1,4 @@
-"""期刊文献综述生成：把一个批次抓取到的文章，用 DeepSeek 按五大学科 + 经典/前沿分类，
+"""期刊文献综述生成：把一个批次抓取到的文章，用 DeepSeek 按学科领域 + 经典/前沿分类，
 生成中文文献综述，并在文末确定性地附上 GB/T 7714-2015 引文（全覆盖本批文章）。
 
 设计要点：
@@ -11,19 +11,72 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 import re
 from typing import Any
 
 from journal_alerts import gb2015_citation, _markdown_to_html
 
+LOGGER = logging.getLogger(__name__)
 
-# 五大学科领域（固定顺序）。
+
+# 学科领域（固定顺序，分类与成稿小节的单一事实源）。
+# 前 5 项为「马克思主义理论」一级学科下的二级学科；其后为按研究主题增设的专题领域，
+# 用于容纳大量国外非主流政治经济学与发展研究类文章——这些硬塞进 5 个二级学科容易判不准、
+# 整批落入「暂未归类」。增删领域只改此元组（及下面的释义/别名）即可。
 DISCIPLINES = (
     "马克思主义基本原理",
     "马克思主义发展史",
     "马克思主义中国化研究",
     "国外马克思主义研究",
     "思想政治教育",
+    "政治经济学与资本主义批判",
+    "帝国主义、全球化与发展研究",
+    "劳动、阶级与社会再生产",
+    "马克思主义思想史与文本研究",
+)
+# 给模型的一句话释义，降低相近桶之间的误判（尤其「国外马克思主义研究」易吞并各专题桶）。
+DISCIPLINE_HINTS = {
+    "马克思主义基本原理": "马克思主义哲学、科学社会主义、政治经济学的基本范畴与原理性研究。",
+    "马克思主义发展史": "马克思主义自身形成、传播与各阶段演进的历史研究。",
+    "马克思主义中国化研究": "马克思主义与中国实际相结合、中国化时代化理论成果的研究。",
+    "国外马克思主义研究": "以国外马克思主义流派、思想家或其理论本身为对象的研究（如开放/政治马克思主义）。",
+    "思想政治教育": "思想政治教育的理论、方法、实践与立德树人研究。",
+    "政治经济学与资本主义批判": "价值、货币、金融化、资产与权力、当代资本主义结构等政治经济学批判。",
+    "帝国主义、全球化与发展研究": "帝国主义、全球化、欠发达与转型、全球南方等发展议题。",
+    "劳动、阶级与社会再生产": "劳动与剥削、数字/平台劳动、工作世界、阶级与性别及社会再生产。",
+    "马克思主义思想史与文本研究": "思想史、方法论、经典文本（如《民族学笔记》）的解读与考辨。",
+}
+# 模型回传/历史 DB 的学科名常有漂移（缺字、改写、近义）；按关键词兜回规范桶（顺序敏感，先命中先用）。
+_DISCIPLINE_ALIASES = (
+    ("中国化", "马克思主义中国化研究"),
+    ("思想政治教育", "思想政治教育"),
+    ("思政", "思想政治教育"),
+    ("思想史", "马克思主义思想史与文本研究"),
+    ("文本", "马克思主义思想史与文本研究"),
+    ("方法论", "马克思主义思想史与文本研究"),
+    ("发展史", "马克思主义发展史"),
+    ("帝国", "帝国主义、全球化与发展研究"),
+    ("欠发达", "帝国主义、全球化与发展研究"),
+    ("发展研究", "帝国主义、全球化与发展研究"),
+    ("全球化", "帝国主义、全球化与发展研究"),
+    ("劳动", "劳动、阶级与社会再生产"),
+    ("阶级", "劳动、阶级与社会再生产"),
+    ("社会再生产", "劳动、阶级与社会再生产"),
+    ("性别", "劳动、阶级与社会再生产"),
+    ("工作", "劳动、阶级与社会再生产"),
+    ("政治经济学", "政治经济学与资本主义批判"),
+    ("资本主义批判", "政治经济学与资本主义批判"),
+    ("资本主义", "政治经济学与资本主义批判"),
+    ("金融", "政治经济学与资本主义批判"),
+    ("货币", "政治经济学与资本主义批判"),
+    ("西方马克思主义", "国外马克思主义研究"),
+    ("国外", "国外马克思主义研究"),
+    ("流派", "国外马克思主义研究"),
+    ("基本原理", "马克思主义基本原理"),
+    ("哲学", "马克思主义基本原理"),
+    ("科学社会主义", "马克思主义基本原理"),
+    ("原理", "马克思主义基本原理"),
 )
 PROBLEM_TYPES = ("经典问题", "前沿问题")
 UNCLASSIFIED = "暂未归类"
@@ -31,7 +84,9 @@ DISCLAIMER = (
     "本文献综述及其学科归类、经典/前沿研究划分均由人工智能自动生成，仅供学术参考，"
     "可能存在误判或疏漏，请以原文为准。"
 )
-_CLASSIFY_CHUNK = 25
+# 单组篇数偏小 + 充足 token，是避免分类 JSON 被截断、整组落入「暂未归类」的关键。
+_CLASSIFY_CHUNK = 10
+_CLASSIFY_MIN_SUBCHUNK = 3
 _ABSTRACT_CLIP = 320
 
 
@@ -62,7 +117,7 @@ def build_literature_review(
     classified = _classify_articles(articles, client)
 
     # 2) 按学科生成综述正文——只输出「本期确有文章」的学科，灵活省略空领域。
-    cn_index = ("一", "二", "三", "四", "五", "六", "七", "八")
+    cn_index = ("一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四")
     present: list[tuple[str, list[dict]]] = []
     for discipline in DISCIPLINES:
         items = [a for a in articles if classified.get(int(a["id"]), {}).get("discipline") == discipline]
@@ -180,16 +235,26 @@ def _article_brief(article: dict, ref: int | None = None) -> dict:
 
 
 def _classify_articles(articles: list[dict], client: Any) -> dict[int, dict]:
-    """返回 {article_id: {"discipline":..., "problem_type":...}}。AI 不可用时全部「暂未归类」。"""
+    """返回 {article_id: {"discipline":..., "problem_type":...}}。
+
+    稳健性要点（此前整批文章掉进「暂未归类」的根因修复）：
+    - 小分块 + 充足 max_tokens，避免一组的 JSON 被 token 上限截断；
+    - 解析时按对象逐个抢救，截断只丢尾部一两条，而非整组作废（旧逻辑是 except: continue 丢一组）；
+    - 整组一条都救不回就拆半重试，并落 WARNING 日志，便于 journalctl 排查；
+    - 模型回传的学科名做归一化，兜回规范桶，避免「缺字/改写」一律落入「暂未归类」。
+    AI 不可用时沿用 DB 已有分类、其余「暂未归类」。
+    """
     result: dict[int, dict] = {
         int(a["id"]): {"discipline": UNCLASSIFIED, "problem_type": PROBLEM_TYPES[0]} for a in articles
     }
-    # 复用 DB 已有的分类（重生成场景），先填入。
+    # 复用 DB 已有的分类（重生成场景）：归一化后填入，作为缓存以省去重复调用 AI。
     for a in articles:
-        disc = str(a.get("ai_discipline") or "").strip()
-        ptype = str(a.get("ai_problem_type") or "").strip()
-        if disc:
-            result[int(a["id"])] = {"discipline": disc, "problem_type": ptype or PROBLEM_TYPES[0]}
+        disc = _normalize_discipline(a.get("ai_discipline"))
+        if disc != UNCLASSIFIED:
+            result[int(a["id"])] = {
+                "discipline": disc,
+                "problem_type": _normalize_problem_type(a.get("ai_problem_type")),
+            }
     if not _client_enabled(client):
         return result
 
@@ -199,51 +264,138 @@ def _classify_articles(articles: list[dict], client: Any) -> dict[int, dict]:
     except Exception:
         set_article_classification = None  # type: ignore[assignment]
 
-    system = (
-        "你是马克思主义理论学科的学术编辑。请把每篇文章归入下列五个二级学科之一："
-        + "、".join(DISCIPLINES)
-        + "；若确实无法判断，用「" + UNCLASSIFIED + "」。"
-        "同时判断它属于「经典问题」（对旧问题、旧思想的再分析）还是「前沿问题」（对新问题、新现象的分析）。"
-        "只返回 JSON，不要解释。"
-    )
-    for start in range(0, len(articles), _CLASSIFY_CHUNK):
-        chunk = articles[start : start + _CLASSIFY_CHUNK]
-        briefs = [_article_brief(a) for a in chunk]
-        user = (
-            "请对下列文章分类，返回形如 "
-            "[{\"id\":123,\"discipline\":\"马克思主义基本原理\",\"problem_type\":\"前沿问题\"}] 的 JSON 数组，"
-            "discipline 必须取自给定学科或「" + UNCLASSIFIED + "」，problem_type 取「经典问题」或「前沿问题」。\n\n"
-            + json.dumps(briefs, ensure_ascii=False)
-        )
-        try:
-            content = _chat(client, system, user, max_tokens=1500)
-            parsed = json.loads(_extract_json(content))
-        except Exception:
-            continue
-        if not isinstance(parsed, list):
-            continue
-        for entry in parsed:
-            if not isinstance(entry, dict):
-                continue
-            try:
-                aid = int(entry.get("id"))
-            except (TypeError, ValueError):
-                continue
-            if aid not in result:
-                continue
-            discipline = str(entry.get("discipline") or "").strip()
-            if discipline not in DISCIPLINES:
-                discipline = UNCLASSIFIED
-            problem_type = str(entry.get("problem_type") or "").strip()
-            if problem_type not in PROBLEM_TYPES:
-                problem_type = PROBLEM_TYPES[1] if "前沿" in problem_type else PROBLEM_TYPES[0]
-            result[aid] = {"discipline": discipline, "problem_type": problem_type}
+    system = _classification_system_prompt()
+    # 只对尚未归类的文章调用 AI（DB 已有分类的直接复用，省 token）。
+    pending = [a for a in articles if result[int(a["id"])]["discipline"] == UNCLASSIFIED]
+    for start in range(0, len(pending), _CLASSIFY_CHUNK):
+        chunk = pending[start : start + _CLASSIFY_CHUNK]
+        for aid, entry in _classify_chunk(client, system, chunk, depth=0).items():
+            result[aid] = entry
             if set_article_classification is not None:
                 try:
-                    set_article_classification(aid, discipline, problem_type)
+                    set_article_classification(aid, entry["discipline"], entry["problem_type"])
                 except Exception:
                     pass
     return result
+
+
+def _classification_system_prompt() -> str:
+    """分类系统提示：列出全部领域 + 一句话释义，并要求「择优归类、慎用暂未归类」。"""
+    lines = ["你是马克思主义理论与政治经济学领域的学术编辑。请把每篇文章归入下列研究领域中**最贴切的一个**："]
+    lines += [f"- {d}：{DISCIPLINE_HINTS.get(d, '')}" for d in DISCIPLINES]
+    lines.append(
+        "归类原则：优先按文章的**研究主题/对象**择优；前 5 项为马克思主义理论二级学科，其后为专题领域，"
+        "二者平级择优即可。国外学者的政治经济学、发展研究、劳动研究等应进入对应**专题领域**；"
+        "「国外马克思主义研究」仅留给以马克思主义流派、思想家或其理论本身为对象的文章。"
+        "只有确实无法判断时才用「" + UNCLASSIFIED + "」，不要轻易使用。"
+    )
+    lines.append(
+        "同时判断每篇属于「经典问题」（对旧问题、旧思想的再分析）还是「前沿问题」（对新问题、新现象的分析）。"
+        "只返回 JSON，不要解释。"
+    )
+    return "\n".join(lines)
+
+
+def _classify_chunk(client: Any, system: str, chunk: list[dict], depth: int) -> dict[int, dict]:
+    """对一组文章分类，返回 {aid: {...}}（仅含成功条目）。
+
+    一条都救不回且组还够大时拆半重试——截断场景下更小的分块必然放得下，
+    从而把「整组失败」收敛为「至多个别文章未归类」。
+    """
+    if not chunk:
+        return {}
+    briefs = [_article_brief(a) for a in chunk]
+    user = (
+        "请对下列文章分类，返回形如 "
+        "[{\"id\":123,\"discipline\":\"政治经济学与资本主义批判\",\"problem_type\":\"前沿问题\"}] 的 JSON 数组，"
+        "discipline 必须取自给定领域，problem_type 取「经典问题」或「前沿问题」。\n\n"
+        + json.dumps(briefs, ensure_ascii=False)
+    )
+    # token 预算随条数线性放宽并留冗余，避免 JSON 收不了尾（旧逻辑固定 1500 是整批失败主因）。
+    max_tokens = min(8000, 800 + 280 * len(chunk))
+    ids_in_chunk = {int(a["id"]) for a in chunk}
+    out: dict[int, dict] = {}
+    try:
+        entries = _parse_classification_entries(_chat(client, system, user, max_tokens=max_tokens))
+    except Exception as exc:
+        LOGGER.warning("文献综述分类调用失败 (n=%d, depth=%d): %s", len(chunk), depth, exc)
+        entries = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            aid = int(entry.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if aid in ids_in_chunk:
+            out[aid] = {
+                "discipline": _normalize_discipline(entry.get("discipline")),
+                "problem_type": _normalize_problem_type(entry.get("problem_type")),
+            }
+    if not out and len(chunk) > _CLASSIFY_MIN_SUBCHUNK and depth < 3:
+        mid = len(chunk) // 2
+        LOGGER.warning("文献综述分类整组失败，拆半重试 (n=%d → %d+%d)", len(chunk), mid, len(chunk) - mid)
+        out.update(_classify_chunk(client, system, chunk[:mid], depth + 1))
+        out.update(_classify_chunk(client, system, chunk[mid:], depth + 1))
+    return out
+
+
+def _normalize_discipline(raw: Any) -> str:
+    """把模型回传/历史 DB 的学科名兜回规范桶；无法识别返回「暂未归类」。"""
+    s = re.sub(r"\s+", "", str(raw or "")).strip("「」“”\"'：:·-—()（）")
+    if not s:
+        return UNCLASSIFIED
+    if s in DISCIPLINES:
+        return s
+    # raw 含某个规范名（如加了括号注脚）→ 该桶。
+    for canon in DISCIPLINES:
+        if canon in s:
+            return canon
+    # raw 是某个规范名的轻微缺字（如「国外马克思主义」缺「研究」）→ 该桶。
+    for canon in DISCIPLINES:
+        if s in canon and len(s) >= len(canon) - 2:
+            return canon
+    # 关键词兜底。
+    for kw, canon in _DISCIPLINE_ALIASES:
+        if kw in s:
+            return canon
+    return UNCLASSIFIED
+
+
+def _normalize_problem_type(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if s in PROBLEM_TYPES:
+        return s
+    return PROBLEM_TYPES[1] if "前沿" in s else PROBLEM_TYPES[0]
+
+
+def _parse_classification_entries(content: str) -> list:
+    """从模型输出解析分类条目；JSON 被截断/夹带解释时，按对象逐个抢救，丢弃尾部不完整的一个。"""
+    text = _extract_json(content)
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict):
+            return [parsed]
+    except Exception:
+        pass
+    decoder = json.JSONDecoder()
+    out: list = []
+    i, n = 0, len(text)
+    while i < n:
+        brace = text.find("{", i)
+        if brace < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, brace)
+        except ValueError:
+            i = brace + 1
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+        i = end
+    return out
 
 
 def _review_one_discipline(

@@ -1434,7 +1434,7 @@
             综述状态：<strong>{{ journal_current_batch.review_status }}</strong>
             {% if journal_current_batch.review_model %} · 生成模型 {{ journal_current_batch.review_model }}{% endif %}
             {% if journal_current_batch.review_generated_at %} · 生成于 {{ format_datetime(journal_current_batch.review_generated_at) }}{% endif %}。
-            综述按五大学科 + 经典/前沿分类，文末附 GB2015 引文，覆盖本批全部文章。可直接编辑后批准。
+            综述按学科领域 + 经典/前沿分类，文末附 GB2015 引文，覆盖本批全部文章。可直接编辑后批准。
           </p>
           <form method="post" action="{{ url_for(control_journal_review_endpoint, digest_id=journal_current_batch.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
