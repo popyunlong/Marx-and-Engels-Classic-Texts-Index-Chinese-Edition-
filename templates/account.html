@@ -173,6 +173,65 @@
       border-color: #b03838;
       box-shadow: 0 0 0 4px rgba(176, 56, 56, 0.08);
     }
+    .note {
+      margin: 12px 0 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+    .benefit-group { margin-top: 16px; }
+    .benefit-group:first-of-type { margin-top: 10px; }
+    .benefit-title {
+      margin: 0 0 10px;
+      font-size: 1.02rem;
+      color: var(--accent-deep);
+    }
+    .benefit-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 8px;
+    }
+    .benefit {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 14px;
+      background: #fbf8f2;
+    }
+    .benefit.off { opacity: 0.7; }
+    .benefit-mark {
+      flex: 0 0 auto;
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .benefit.on .benefit-mark { color: var(--ok); background: var(--ok-bg); }
+    .benefit.off .benefit-mark { color: var(--muted); background: #efe7db; }
+    .benefit-info { display: grid; gap: 2px; flex: 1 1 auto; }
+    .benefit-name { color: var(--text); }
+    .benefit-hint { color: var(--muted); font-size: 0.86rem; line-height: 1.5; }
+    .benefit-state {
+      flex: 0 0 auto;
+      font-size: 0.85rem;
+      border-radius: 999px;
+      padding: 3px 10px;
+      white-space: nowrap;
+    }
+    .benefit.on .benefit-state { color: var(--ok); background: var(--ok-bg); border: 1px solid rgba(34, 84, 61, 0.16); }
+    .benefit.off .benefit-state { color: var(--muted); background: #efe7db; border: 1px solid var(--line); }
+    .benefit-quota {
+      margin-top: 18px;
+      border-top: 1px dashed var(--line);
+      padding-top: 14px;
+    }
     @media (max-width: 960px) {
       .grid {
         grid-template-columns: 1fr;
@@ -238,12 +297,68 @@
             <div>会员状态：{{ format_membership_status(membership.status) }}</div>
             <div>当前套餐：{{ membership.plan_name or "未开通" }}</div>
             <div>有效期至：{{ format_datetime(membership.expires_at) if membership.expires_at else "暂无" }}</div>
+            {% if membership.is_active_member and membership.days_remaining is not none %}
+            <div>剩余时长：约 {{ membership.days_remaining }} 天</div>
+            {% endif %}
           </div>
+          {% if membership.is_active_member %}
+          <p class="note">续费或升级套餐时，新购买的时长会自动叠加在当前到期日之后，已有时长不会作废；会员身份以最近一次开通的套餐为准。</p>
+          {% endif %}
           <div class="actions" style="margin-top:14px">
             {% if not state.desktop_mode and not is_admin and not membership.is_active_member %}
             <a class="btn primary" href="{{ url_for('pricing') }}">去开通会员</a>
+            {% elif not state.desktop_mode and not is_admin and membership.is_active_member %}
+            <a class="btn secondary" href="{{ url_for('pricing') }}">续费 / 升级套餐</a>
             {% endif %}
           </div>
+        </article>
+
+        <article class="card">
+          <h2>我的权益</h2>
+          <p class="muted">
+            {% if is_admin %}
+            管理员账号：以下功能均已开放。
+            {% elif state.desktop_mode %}
+            本地桌面模式：以下功能均可使用。
+            {% else %}
+            下面是你当前账号已开放与暂未开放的功能。{% if not membership.is_active_member %}开通会员可解锁更多权益。{% endif %}
+            {% endif %}
+          </p>
+          {% for group in benefit_groups %}
+          <div class="benefit-group">
+            <h3 class="benefit-title">{{ group.title }}</h3>
+            <ul class="benefit-list">
+              {% for item in group.features %}
+              {% set enabled = state.feature_access.get(item.key) %}
+              <li class="benefit {{ 'on' if enabled else 'off' }}">
+                <span class="benefit-mark">{{ '✓' if enabled else '–' }}</span>
+                <span class="benefit-info">
+                  <span class="benefit-name">{{ item.label }}</span>
+                  <span class="benefit-hint">{{ item.hint }}</span>
+                </span>
+                <span class="benefit-state">{{ '已开放' if enabled else '未开放' }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+
+          {% set show_research = state.feature_access.get('research') %}
+          {% set show_ai_budget = state.feature_access.get('ai') or state.feature_access.get('search_chat') or state.feature_access.get('research') %}
+          {% if not state.desktop_mode and (show_research or show_ai_budget) %}
+          <div class="benefit-quota">
+            <h3 class="benefit-title">本周智能额度</h3>
+            <div class="kv">
+              {% if show_research and state.research_quota %}
+              <div>研究型检索：{% if state.research_quota.limit is none %}不限次数{% else %}本周剩余 {{ state.research_quota.free_remaining }} / {{ state.research_quota.limit }} 次{% if (state.research_quota.pack_credits | default(0, true)) > 0 %}（另有资源包 {{ state.research_quota.pack_credits }} 次）{% endif %}{% endif %}</div>
+              {% endif %}
+              {% if show_ai_budget and state.ai_token_quota %}
+              <div>AI 问答额度：{% if state.ai_token_quota.unlimited %}不限{% elif state.ai_token_quota.exhausted %}本周已用完，下周一恢复{% else %}本周剩余约 {{ (state.ai_token_quota.ratio | default(0, true) * 100) | round | int }}%{% endif %}</div>
+              {% endif %}
+            </div>
+            <p class="note">免费额度每周一自动恢复；研究型检索次数用尽后，可继续使用账户中已有的资源包次数。</p>
+          </div>
+          {% endif %}
         </article>
 
         {# 营销决策：不再售卖资源包；仅对仍持有剩余次数的老用户展示余额，新用户不出现「资源包」概念。 #}

@@ -6143,6 +6143,33 @@ def checkout_order_status(order_no: str):
     return jsonify({"ok": True, "status": status, "paid": status == "paid"})
 
 
+# 会员中心「我的权益」展示用：把功能权限键归类为面向用户的清单。标签/说明均为面向客户的措辞，
+# 不暴露内部权限键名；某项是否开放实时取自 state.feature_access[key]（单一事实源仍是权限策略）。
+ACCOUNT_BENEFIT_GROUPS = (
+    {
+        "title": "阅读与检索",
+        "features": (
+            {"key": "search", "label": "全文检索", "hint": "马恩列斯毛等经典著作的精确与模糊检索"},
+            {"key": "viewer", "label": "检索结果原文", "hint": "查看命中所在的原书页面"},
+            {"key": "library", "label": "原典阅读器", "hint": "逐卷逐页阅读扫描原书"},
+            {"key": "dictionary", "label": "马克思主义大辞典", "hint": "词条释义检索"},
+            {"key": "static_library", "label": "原文文库", "hint": "中外文原著对照阅读"},
+            {"key": "journal_alerts", "label": "期刊新文提醒", "hint": "学科文献综述与新文推送"},
+        ),
+    },
+    {
+        "title": "AI 智能助手",
+        "features": (
+            {"key": "ai", "label": "AI 导学讲解", "hint": "阅读器内逐页智能讲解"},
+            {"key": "search_chat", "label": "AI 随心问", "hint": "首页智能问答"},
+            {"key": "associative", "label": "联想检索", "hint": "凭大意或残句定位特定原文"},
+            {"key": "research", "label": "研究型检索", "hint": "围绕研究命题铺开相关引文与综述"},
+            {"key": "ai_web", "label": "AI 联网检索", "hint": "联网增强的智能问答"},
+        ),
+    },
+)
+
+
 @app.route("/account")
 def account():
     _require_login_page()
@@ -6157,6 +6184,7 @@ def account():
         subscriptions=subscriptions,
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
         plans=list_active_plans(),
+        benefit_groups=ACCOUNT_BENEFIT_GROUPS,
         payment_ready=False,
         membership_db_path=str(MEMBERSHIP_DB_PATH),
     )
