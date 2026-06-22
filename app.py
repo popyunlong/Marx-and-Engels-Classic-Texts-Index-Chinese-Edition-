@@ -10124,79 +10124,6 @@ def _apply_assoc_ranking(candidates: list, ranking: object) -> tuple[list, list[
     return ordered, rationale
 
 
-def _finalize_research_review_payload(
-    *,
-    gist: str,
-    intent: str,
-    mode: str,
-    review_md: str,
-    review_sources: list,
-    review_passages: list[dict],
-    review_warnings: list[str],
-    viewer_allowed: bool,
-    quota,
-    paid_research_use: bool,
-) -> dict:
-    """据综述正文 + 真实命中构建引文方框、记账、按需扣研究次数，返回研究综述响应 payload。
-
-    阻塞 JSON 分支与 SSE 流式端点共用此函数，确保两条路径的引文、记账、额度口径完全一致。
-    引文方框的「亮标」标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
-    该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用 [N]
-    所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。引文不可伪造。
-    """
-    review_quotes_by_index = _review_quotes_by_index(review_md)
-    review_units_by_index = _review_cited_units(review_md)
-    review_citations: list[dict] = []
-    for i, hit, plain in review_sources:
-        quote_spans = review_quotes_by_index.get(i, [])
-        base0 = hit.to_dict()
-        evidence, base, first_highlight = _make_review_evidence_items(
-            hit,
-            base0,
-            plain,
-            quote_spans,
-            review_units_by_index.get(i, []),
-            viewer_allowed,
-            gist,
-        )
-        d = _attach_viewer_payload(
-            base, gist, viewer_allowed,
-            highlight_override=(first_highlight or None),
-        )
-        d["evidence"] = evidence
-        d["context"] = evidence[0]["context"] if evidence else _review_citation_context(plain, "")
-        d["review_index"] = i
-        d["review_quoted"] = bool(evidence)
-        d["review_quote_unmatched"] = bool(quote_spans and not evidence)
-        review_citations.append(d)
-    # 研究综述按「完整 token」计入每日额度：输入含注入的真实原文（成本大头），不能只算检索词；
-    # prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
-    _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
-    _record_ai_usage(
-        quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
-        completion_text=review_md, success=True,
-        prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
-        completion_tokens=_estimate_tokens_from_text(review_md),
-    )
-    if paid_research_use:
-        _user = getattr(g, "current_user", None)
-        if _user:
-            consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
-    return {
-        "ok": True, "query": gist, "display_mode": "research_review",
-        "intent": intent, "mode": mode,
-        "access_level": "full" if viewer_allowed else "summary",
-        "pdf_enabled": viewer_allowed,
-        "review_markdown": review_md,
-        "review_citations": review_citations,
-        "count": len(review_citations),
-        "warnings": review_warnings,
-        # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
-        "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
-        "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
-    }
-
-
 @app.route("/api/search/associative", methods=["POST"])
 def api_search_associative():
     """联想检索：AI 提取线索 → 在真实语料中接地定位 → AI 重排并解释。
@@ -10336,8 +10263,6 @@ def api_search_associative():
             review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
             review_sources.append((i, hit, plain))
         review_warnings: list[str] = []
-        # 注：阻塞 JSON 分支保留，仅服务「auto 模式被解析为研究意图」这类少数场景；用户显式点
-        # 研究按钮的主路径已改走 SSE 流式端点 /api/search/research-review（绕开 CF 100s 超时）。
         review_md = ""
         try:
             review_md = AI_CLIENT.generate_research_review(gist, review_passages)
@@ -10345,12 +10270,60 @@ def api_search_associative():
             LOGGER.warning("Research review failed gist=%r: %s", gist[:80], exc)
             review_md = _build_research_review_fallback(gist, review_passages)
             review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
-        return jsonify(_finalize_research_review_payload(
-            gist=gist, intent=intent, mode=mode, review_md=review_md,
-            review_sources=review_sources, review_passages=review_passages,
-            review_warnings=review_warnings, viewer_allowed=viewer_allowed,
-            quota=quota, paid_research_use=paid_research_use,
-        ))
+        # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
+        # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
+        # [N] 所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。
+        review_quotes_by_index = _review_quotes_by_index(review_md)
+        review_units_by_index = _review_cited_units(review_md)
+        review_citations: list[dict] = []
+        for i, hit, plain in review_sources:
+            quote_spans = review_quotes_by_index.get(i, [])
+            base0 = hit.to_dict()
+            evidence, base, first_highlight = _make_review_evidence_items(
+                hit,
+                base0,
+                plain,
+                quote_spans,
+                review_units_by_index.get(i, []),
+                viewer_allowed,
+                gist,
+            )
+            d = _attach_viewer_payload(
+                base, gist, viewer_allowed,
+                highlight_override=(first_highlight or None),
+            )
+            d["evidence"] = evidence
+            d["context"] = evidence[0]["context"] if evidence else _review_citation_context(plain, "")
+            d["review_index"] = i
+            d["review_quoted"] = bool(evidence)
+            d["review_quote_unmatched"] = bool(quote_spans and not evidence)
+            review_citations.append(d)
+        # 研究综述按「完整 token」计入每日额度：输入含注入的 15 段真实原文（成本大头），
+        # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
+        _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
+        _record_ai_usage(
+            quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
+            completion_text=review_md, success=True,
+            prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
+            completion_tokens=_estimate_tokens_from_text(review_md),
+        )
+        if paid_research_use:
+            _user = getattr(g, "current_user", None)
+            if _user:
+                consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
+        return jsonify({
+            "ok": True, "query": gist, "display_mode": "research_review",
+            "intent": intent, "mode": mode,
+            "access_level": "full" if viewer_allowed else "summary",
+            "pdf_enabled": viewer_allowed,
+            "review_markdown": review_md,
+            "review_citations": review_citations,
+            "count": len(review_citations),
+            "warnings": review_warnings,
+            # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
+            "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
+            "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+        })
 
     # 候选已按综合权重降序。权重是主排序；AI 仅对权重最高的一小批做标注/解释（候选多时控成本），
     # 不丢弃任何已接地的候选——聚合展示靠权重优先呈现最可能段落。
@@ -10409,144 +10382,6 @@ def api_search_associative():
         "intent": intent,
         "mode": mode,
     })
-
-
-@app.route("/api/search/research-review", methods=["POST"])
-def api_search_research_review():
-    """研究型检索综述（SSE 流式）。
-
-    研究综述要做最多 ~5 次顺序 AI 调用、单次可达上万 token，属阻塞普通 POST 时必然超过
-    Cloudflare 100s 空闲上限 → 524 HTML 页 → 前端 ``resp.json()`` 报 “Unexpected token '<'”。
-    这里把**快阶段**（鉴权/额度/扩展线索/接地召回/选材，均 <100s）先跑完、失败照常回 JSON
-    错误；只把**慢的综述生成**走 ``text/event-stream`` 增量推送：既靠持续字节绕开 100s 超时，
-    又能边写边显示，且模型「思考过程」在服务端 :meth:`stream_research_review` 闸门处即被拦下，
-    永不进入浏览器。引文不可伪造——仅渲染真实命中。
-    """
-    _require_content_feature("research")
-    _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise(credit_kind="research")
-    if DEPLOYMENT.is_desktop:
-        return jsonify({"ok": False, "error": "研究型检索暂仅在云端模式可用。"}), 200
-    _require_ai()
-    payload = request.get_json(silent=True) or {}
-    gist = " ".join(str(payload.get("gist") or payload.get("q") or "").split())
-    if not gist:
-        return jsonify({"ok": False, "error": "请描述你要研究的问题（论题或关键词）。"}), 400
-    if len(gist) > 600:
-        gist = gist[:600]
-
-    # 研究次数额度：本周用尽立即拦截，绝不在此之后消耗任何 AI（扩展/综述）。
-    research_quota = _research_quota_payload(getattr(g, "current_user", None))
-    if not research_quota.get("allowed"):
-        return jsonify({
-            "ok": False,
-            "error": f"本周研究型检索次数已用完（{research_quota['used']}/{research_quota['limit']}），下周一自动恢复。",
-            "research_quota": research_quota,
-        }), 429
-    # 免费周额是否已用尽 → 本次属「资源包」付费使用，成功后扣 1 次研究包（管理员豁免时不计）。
-    _free_remaining = research_quota.get("free_remaining")
-    paid_research_use = _free_remaining is not None and int(_free_remaining) <= 0
-
-    state = current_view_state()
-    viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
-
-    # —— 快阶段：扩展检索线索 → 接地召回 → 名目索引主题层 → 选材（均远低于 100s）。——
-    try:
-        plan = AI_CLIENT.expand_associative_query(gist)
-    except AIServiceError as exc:
-        LOGGER.warning("Research expand failed gist=%r: %s", gist[:80], exc)
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc))
-        return jsonify({"ok": False, "error": str(exc)}), 502
-
-    quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
-    facets = _assoc_facets_from_plan(plan)
-    raw_terms = _split_gist_terms(gist)
-    try:
-        candidates = []
-        if quotes or fragments or keywords or chapter_keywords:
-            candidates = corpus.locate_associative(
-                quotes=quotes, keywords=keywords, fragments=fragments, chapter_keywords=chapter_keywords,
-                intent="research", facets=facets,
-            )
-        if not candidates and (raw_terms or gist):
-            candidates = corpus.locate_associative(
-                quotes=[gist] if gist else [], keywords=raw_terms, fragments=raw_terms,
-                chapter_keywords=raw_terms, intent="research",
-            )
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("Research locate failed gist=%r: %s", gist[:80], exc)
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc))
-        return jsonify({"ok": False, "error": "研究型检索失败，请稍后再试。"}), 400
-
-    try:
-        si_terms = list(dict.fromkeys([*keywords, *(w for fac in facets for w in fac), *raw_terms]))
-        subject_hits = corpus.locate_subject_index(si_terms, cap=12)
-    except Exception as exc:  # noqa: BLE001 — 主题层失败不应阻断词面召回
-        LOGGER.warning("Subject-index locate failed gist=%r: %s", gist[:80], exc)
-        subject_hits = []
-    if subject_hits:
-        def _pk(h):
-            return (h.source_file, h.pages[0].pdf_page if h.pages else -1)
-        si_keys = {_pk(h) for h in subject_hits}
-        candidates = list(subject_hits) + [c for c in candidates if _pk(c) not in si_keys]
-
-    if not candidates:
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=True)
-        return jsonify({
-            "ok": True, "query": gist, "count": 0, "display_mode": "associative",
-            "access_level": "full" if viewer_allowed else "summary", "results": [],
-            "pdf_enabled": viewer_allowed, "warnings": [], "intent": "research", "mode": "research",
-            "message": "未在语料中定位到匹配段落，请换一种说法或补充更具体的关键词、人名或术语。",
-        })
-
-    review_passages: list[dict] = []
-    review_sources: list[tuple] = []
-    review_hits = _select_research_review_hits(candidates, RESEARCH_REVIEW_SOURCES)
-    for i, hit in enumerate(review_hits, start=1):
-        base = hit.to_dict()
-        plain = _research_review_passage_text(hit, base, gist)
-        review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
-        review_sources.append((i, hit, plain))
-
-    # —— 慢阶段：SSE 流式生成综述（隐藏思考、持续保活），收尾用共用 finalize 构引文/记账。——
-    def _generate():
-        meta: dict = {}
-        review_warnings: list[str] = []
-        streamed_any = False
-        yield ": open\n\n"  # 立即吐首字节，尽早建立流、避免代理在首包前判超时
-        try:
-            for chunk in AI_CLIENT.stream_research_review(gist, review_passages, meta_out=meta):
-                if chunk:
-                    streamed_any = True
-                    yield _sse_event("delta", {"text": chunk})
-                else:
-                    yield ": keepalive\n\n"  # 隐藏阶段/无新增正文时保活，CF 不因空闲 100s 砍断
-            review_md = (meta.get("review_md") or "").strip()
-            if not review_md:
-                review_md = _build_research_review_fallback(gist, review_passages)
-                review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
-        except AIServiceError as exc:
-            LOGGER.warning("Research review stream failed gist=%r: %s", gist[:80], exc)
-            review_md = (meta.get("review_md") or "").strip() or _build_research_review_fallback(gist, review_passages)
-            review_warnings.append("AI 长文综述生成中断，已依据真实命中生成兜底综述。")
-        # done 用权威清洗版正文覆盖前端流式文本（纠正任何流式途中的瑕疵），并附引文/额度。
-        try:
-            payload_done = _finalize_research_review_payload(
-                gist=gist, intent="research", mode="research", review_md=review_md,
-                review_sources=review_sources, review_passages=review_passages,
-                review_warnings=review_warnings, viewer_allowed=viewer_allowed,
-                quota=quota, paid_research_use=paid_research_use,
-            )
-            yield _sse_event("done", payload_done)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("Research finalize failed gist=%r: %s", gist[:80], exc)
-            yield _sse_event("error", {"ok": False, "error": "综述已生成，但整理引文时出错，请稍后再试。"})
-
-    return Response(
-        stream_with_context(_generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-    )
 
 
 @app.route("/api/ai/pdf-chat", methods=["POST"])

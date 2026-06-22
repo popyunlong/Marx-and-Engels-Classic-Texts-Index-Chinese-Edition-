@@ -3336,109 +3336,6 @@
     if (el) el.textContent = quota.message || `本周研究型检索剩余 ${quota.remaining}/${quota.limit} 次`;
   }
 
-  // 安全读响应：只在确为 JSON 时解析。收到 HTML（网关超时 524 / 反爬质询 / 5xx 错误页）时
-  // 绝不 JSON.parse（否则就是用户反馈的 “Unexpected token '<'”），而是抛可读错误交上层提示。
-  async function readJsonOrThrow(resp) {
-    const raw = await resp.text();
-    try {
-      return JSON.parse(raw);
-    } catch (_) {
-      throw new Error(
-        resp.status === 429 ? '请求过于频繁，请稍后再试。'
-        : (resp.status >= 500 || resp.status === 0) ? '服务繁忙或响应超时，请稍后重试。'
-        : '响应异常，请稍后重试。'
-      );
-    }
-  }
-
-  // 研究综述生成中的「实时正文框」：只显示正文（思考过程已在服务端拦下），引文待 done 再补齐。
-  function renderResearchReviewStreaming(md) {
-    assocState = null;
-    const heading = {{ site_text('search.research_result_heading') | tojson }};
-    out.innerHTML = `
-      <div class="assoc-results research">
-        <div class="assoc-result-head"><h2>${esc(heading)}</h2>
-          <div class="assoc-lede">正在依据真实原文生成综述…（完成后将在下方列出可逐条核对的引文）</div>
-        </div>
-        <div class="rv-essay">${renderBasicMarkdown(md || '')}</div>
-      </div>`;
-  }
-
-  // 研究型检索走 SSE 流式端点：边生成边显示正文、持续保活绕开 Cloudflare 100s 超时；done 用
-  // 权威全文+真实引文定稿。非事件流响应（额度/无命中/网关页）一律按 JSON 安全处理，不解析 HTML。
-  async function streamResearchReview(text) {
-    const resp = await apiFetch('/api/search/research-review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gist: text })
-    });
-    const ct = (resp.headers.get('content-type') || '').toLowerCase();
-    if (!resp.ok || !resp.body || !ct.includes('text/event-stream')) {
-      let data = null;
-      try { data = JSON.parse(await resp.text()); } catch (_) {}
-      if (!data) { renderEmpty('服务繁忙或响应超时，请稍后重试。'); return; }
-      if (data.research_quota) updateResearchQuota(data.research_quota);
-      if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
-      if (!data.ok) { renderEmpty(data.error || '未知错误'); return; }
-      if (data.display_mode === 'research_review') renderResearchReview({ ...data, query: data.query || text });
-      else renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
-      return;
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let essay = '';
-    let doneData = null;
-    let started = false;
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || '';
-      for (const rawEv of events) {
-        const lines = rawEv.split('\n');
-        const evName = (lines.find(l => l.startsWith('event:')) || '').slice(6).trim();
-        const dataLine = lines.find(l => l.startsWith('data:'));
-        if (!evName || !dataLine) continue;   // 注释行（: keepalive 心跳）无 event/data → 跳过
-        let data;
-        try { data = JSON.parse(dataLine.slice(5).trim()); } catch (_) { continue; }
-        if (evName === 'delta') {
-          essay += data.text || '';
-          started = true;
-          renderResearchReviewStreaming(essay);
-        } else if (evName === 'done') {
-          doneData = data;
-        } else if (evName === 'error') {
-          renderEmpty(data.error || 'AI 请求失败');
-          return;
-        }
-      }
-    }
-
-    if (doneData) {
-      if (doneData.research_quota) updateResearchQuota(doneData.research_quota);
-      if (doneData.ai_token_quota) updateAiTokenQuota(doneData.ai_token_quota);
-      const finalData = { ...doneData, query: doneData.query || text };
-      renderResearchReview(finalData);
-      const cits = Array.isArray(finalData.review_citations) ? finalData.review_citations : [];
-      if (finalData.review_markdown || cits.length) {
-        recordSearchHistory({
-          kind: 'review',
-          query: finalData.query,
-          payload: { kind: 'review', query: finalData.query, review_markdown: finalData.review_markdown || '', review_citations: cits, warnings: Array.isArray(finalData.warnings) ? finalData.warnings : [] },
-          summary: { cites: cits.length }
-        });
-      }
-    } else if (started) {
-      // 流中断但已显示部分正文：保底定稿（无引文），提示重试。
-      renderResearchReview({ query: text, review_markdown: essay, review_citations: [], warnings: ['综述生成未正常结束，引文可能不完整，请重试以获取完整结果。'] });
-    } else {
-      renderEmpty('服务繁忙或响应超时，请稍后重试。');
-    }
-  }
-
   // 联想检索 / 研究型检索共用本函数：mode='locate'(联想·精准定位) | 'research'(研究辅助)。
   async function doAssociativeSearch(text, mode) {
     const isResearch = (mode === 'research');
@@ -3466,17 +3363,12 @@
       );
     }
     try {
-      if (isResearch) {
-        // 研究综述走 SSE 流式（绕开 CF 100s 超时 + 服务端隐藏思考过程）。
-        await streamResearchReview(text);
-        return;
-      }
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gist: text, mode: 'locate' })
+        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate' })
       });
-      const data = await readJsonOrThrow(resp);
+      const data = await resp.json();
       if (data.research_quota) updateResearchQuota(data.research_quota);
       if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {

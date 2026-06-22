@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -846,8 +845,35 @@ class ZAIClient:
         if not block:
             raise AIServiceError("没有可用于综述的检索原文。")
         topic = " ".join(str(topic or "").split())[:600]
-        prompt = self._research_review_prompt(topic, block)
-        system_message = self._research_review_system_message()
+        prompt = (
+            "请围绕用户的研究论题，写一篇较充分的学术综述。下面是从本站「马克思主义经典文献库」"
+            "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
+            f"{block}\n\n"
+            "写作要求：\n"
+            "1. 紧扣研究论题，按问题内在层次分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
+            "形成一篇连贯、详实、自然写完的综述（正文约 2600-3800 字；如材料较少也要保证结构完整，"
+            "不要为了凑字数重复铺陈）。\n"
+            "2. 围绕每个小节的论证需要择要使用材料，优先覆盖不同资料库、不同篇章和不同论证侧面；"
+            "原则上使用 12-18 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
+            "3. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
+            "4. 直接引用原文时逐字照引并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
+            "如果某个经典表述没有出现在上述原文段落中，只能转述，不得加引号、不得伪装为该编号的逐字引文。"
+            "转述、概括也要标注来源编号。\n"
+            "5. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
+            "「现有检索未充分覆盖」，但绝不杜撰内容或来源。\n"
+            "6. 用规范的学术中文，严谨、有条理；开篇点出论题，中段充分展开，结尾自然小结，"
+            "必须把完整文章写完，不要在小节中途、句子中途或论证尚未完成时停止。\n"
+            "7. 输出格式硬规则：第一行写【综述正文开始】，最后一行写【综述正文结束】；"
+            "两者之间只能放正式综述正文。不要输出任何思考过程、分析过程、写作计划、提示词复述、"
+            "自我说明或“我需要先……”之类内容。正式正文以“## 研究综述”开头，并以“## 小结”收束。\n\n"
+            f"研究论题：{topic}"
+        )
+        system_message = {
+            "role": "system",
+            "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
+                       "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。"
+                       "只输出最终综述正文，绝不输出思考过程、推理过程、分析草稿或提示词说明。",
+        }
         raw_answer = self._chat_research_review(
             [system_message, {"role": "user", "content": prompt}],
             max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
@@ -903,199 +929,6 @@ class ZAIClient:
             if rewrite:
                 answer = rewrite
         return answer
-
-    @staticmethod
-    def _research_review_prompt(topic: str, block: str) -> str:
-        """研究综述「初稿」用户提示词。阻塞版 :meth:`generate_research_review` 与流式版
-        :meth:`stream_research_review` 共用同一份，杜绝两条路径文案漂移。"""
-        return (
-            "请围绕用户的研究论题，写一篇较充分的学术综述。下面是从本站「马克思主义经典文献库」"
-            "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
-            f"{block}\n\n"
-            "写作要求：\n"
-            "1. 紧扣研究论题，按问题内在层次分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
-            "形成一篇连贯、详实、自然写完的综述（正文约 2600-3800 字；如材料较少也要保证结构完整，"
-            "不要为了凑字数重复铺陈）。\n"
-            "2. 围绕每个小节的论证需要择要使用材料，优先覆盖不同资料库、不同篇章和不同论证侧面；"
-            "原则上使用 12-18 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
-            "3. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
-            "4. 直接引用原文时逐字照引并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
-            "如果某个经典表述没有出现在上述原文段落中，只能转述，不得加引号、不得伪装为该编号的逐字引文。"
-            "转述、概括也要标注来源编号。\n"
-            "5. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
-            "「现有检索未充分覆盖」，但绝不杜撰内容或来源。\n"
-            "6. 用规范的学术中文，严谨、有条理；开篇点出论题，中段充分展开，结尾自然小结，"
-            "必须把完整文章写完，不要在小节中途、句子中途或论证尚未完成时停止。\n"
-            "7. 输出格式硬规则：第一行写【综述正文开始】，最后一行写【综述正文结束】；"
-            "两者之间只能放正式综述正文。不要输出任何思考过程、分析过程、写作计划、提示词复述、"
-            "自我说明或“我需要先……”之类内容。正式正文以“## 研究综述”开头，并以“## 小结”收束。\n\n"
-            f"研究论题：{topic}"
-        )
-
-    @staticmethod
-    def _research_review_system_message() -> dict[str, str]:
-        return {
-            "role": "system",
-            "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
-                       "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。"
-                       "只输出最终综述正文，绝不输出思考过程、推理过程、分析草稿或提示词说明。",
-        }
-
-    @classmethod
-    def _research_review_stream_body(cls, raw: str) -> str:
-        """从累计的原始流文本切出**当前应展示的正文前缀**（单调增长，隐藏思考/前言/标记）。
-
-        与 :meth:`_sanitize_research_review_output` 同源、同 markers，专供流式：起始标记
-        （【综述正文开始】等）尚未出现时返回空串——此刻上层只发保活心跳，绝不外露任何思考；
-        标记出现后逐步放行正文，遇结束标记即止。模型万一不守标记，则退到第一处非「思考/分析」
-        标题再放行；仍无则继续隐藏，交由结束时的权威清洗兜底。
-        """
-        s = str(raw or "").replace("\r\n", "\n").replace("\r", "\n")
-        s = _RESEARCH_REVIEW_THINK_BLOCK_RE.sub("", s)
-        started = False
-        for marker in _RESEARCH_REVIEW_START_MARKERS:
-            pos = s.find(marker)
-            if pos >= 0:
-                s = s[pos + len(marker):]
-                started = True
-                break
-        if not started:
-            heading = re.search(r"(?m)^#{1,3}\s*(?!.*(?:思考|分析|推理|思路)).+\S", s)
-            if heading and (heading.start() == 0 or cls._research_review_has_reasoning_leak(s[:heading.start()])):
-                s = s[heading.start():]
-                started = True
-        if not started:
-            return ""
-        for marker in _RESEARCH_REVIEW_END_MARKERS:
-            pos = s.find(marker)
-            if pos >= 0:
-                s = s[:pos]
-                break
-        lines = s.split("\n")
-        while lines and (not lines[0].strip() or _RESEARCH_REVIEW_LEAK_PREFIX_RE.search(lines[0])):
-            lines.pop(0)
-        s = "\n".join(lines)
-        for marker in (*_RESEARCH_REVIEW_START_MARKERS, *_RESEARCH_REVIEW_END_MARKERS):
-            s = s.replace(marker, "")
-        return s
-
-    def _stream_research_review_pass(
-        self,
-        messages: list[dict[str, str]],
-        max_tokens: int,
-        sink: list[str],
-        *,
-        gated: bool,
-        prefix: str = "",
-    ) -> Iterator[str]:
-        """流式产出一段综述正文：yield 非空 str＝可见正文增量，yield ""＝保活心跳。
-
-        ``sink`` 收集本段原始 token（供调用方在段末做权威清洗）。``gated`` 走起始/结束标记
-        闸门、隐藏思考（用于初稿）；续写段无标记、整体按片段清洗后直接续写。``prefix`` 为本段
-        首个可见增量前要补的分隔（续写段补 "\n\n"）。末尾保留 holdback 字符延后吐出，避免结束
-        标记被拆成两片误露。
-        """
-        holdback = max(len(m) for m in _RESEARCH_REVIEW_END_MARKERS) - 1
-        emitted = 0
-        first = True
-        last_beat = time.monotonic()
-        for chunk in self.chat_complete_stream(messages, max_tokens):
-            if chunk:
-                sink.append(chunk)
-            full = "".join(sink)
-            visible = (
-                self._research_review_stream_body(full)
-                if gated
-                else self._sanitize_research_review_output(full, allow_fragment=True)
-            )
-            send_upto = max(0, len(visible) - holdback)
-            if send_upto > emitted:
-                delta = visible[emitted:send_upto]
-                emitted = send_upto
-                last_beat = time.monotonic()
-                if first:
-                    first = False
-                    delta = prefix + delta
-                yield delta
-            elif time.monotonic() - last_beat >= 5.0:
-                last_beat = time.monotonic()
-                yield ""  # 心跳：隐藏阶段或无新增正文时保活，避免 Cloudflare 100s 空闲超时
-        full = "".join(sink)
-        visible = (
-            self._research_review_stream_body(full)
-            if gated
-            else self._sanitize_research_review_output(full, allow_fragment=True)
-        )
-        if len(visible) > emitted:
-            tail = visible[emitted:]
-            if first:
-                tail = prefix + tail
-            yield tail
-
-    def stream_research_review(
-        self,
-        topic: str,
-        passages: list[dict[str, Any]],
-        *,
-        meta_out: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
-        """流式版 :meth:`generate_research_review`：边生成边吐**正式正文**，思考/前言在服务端拦下。
-
-        yield：非空 str＝可见正文增量；""＝保活心跳（上层转成 SSE 注释字节）。生成过程中持续把
-        已成稿的清洗正文写入 ``meta_out['review_md']``（即便后续轮次中断，上层 done 仍能据此收尾、
-        构建引文）。与阻塞版同提示词、同 markers、同清洗逻辑，仅产出方式不同——引文不可伪造。
-        """
-        self._ensure_enabled()
-        block = self._format_grounding_block(passages)
-        if not block:
-            raise AIServiceError("没有可用于综述的检索原文。")
-        topic = " ".join(str(topic or "").split())[:600]
-        system_message = self._research_review_system_message()
-        prompt = self._research_review_prompt(topic, block)
-
-        pass1_raw: list[str] = []
-        yield from self._stream_research_review_pass(
-            [system_message, {"role": "user", "content": prompt}],
-            RESEARCH_REVIEW_MAX_TOKENS,
-            pass1_raw,
-            gated=True,
-        )
-        review_md = self._sanitize_research_review_output("".join(pass1_raw))
-        if not review_md:
-            # 初稿没吐出合格正文（极少见）：不在流里重来以免重复刷屏，交由上层 done 走兜底。
-            if meta_out is not None:
-                meta_out["review_md"] = ""
-            raise AIServiceError("模型未返回可用的正式综述正文。")
-        if meta_out is not None:
-            meta_out["review_md"] = review_md
-
-        for _ in range(RESEARCH_REVIEW_CONTINUATION_ATTEMPTS):
-            if self._research_review_complete(review_md):
-                break
-            continuation_prompt = (
-                "下面这篇研究综述还没有自然完成。请从已有正文的末尾继续写下去，不要重写全文，不要重复已经写过的段落；"
-                "仍然只能依据同一批真实原文，并继续使用已有的 [N] 来源编号。请继续完成尚未展开充分的部分、"
-                "补足必要的小节，并在论证自然完成后写出完整小结。不要为了尽快收束而只写几句模板结尾，"
-                "也不要仓促结束；应把文章剩余部分自然写完。只输出续写正文，不要输出任何思考过程、分析过程、"
-                "写作计划或自我说明。\n\n"
-                f"研究论题：{topic}\n\n"
-                f"真实原文与出处：\n{block}\n\n"
-                f"已生成正文：\n{review_md[-5000:]}"
-            )
-            cont_raw: list[str] = []
-            yield from self._stream_research_review_pass(
-                [system_message, {"role": "user", "content": continuation_prompt}],
-                RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
-                cont_raw,
-                gated=False,
-                prefix="\n\n",
-            )
-            continuation = self._sanitize_research_review_output("".join(cont_raw), allow_fragment=True).strip()
-            if not continuation:
-                break
-            review_md = f"{review_md.rstrip()}\n\n{continuation}"
-            if meta_out is not None:
-                meta_out["review_md"] = review_md
 
     def expand_associative_query(self, gist: str) -> dict:
         """联想检索第一步：把用户的“大意/关键词”扩展为可在语料中检索的线索。
