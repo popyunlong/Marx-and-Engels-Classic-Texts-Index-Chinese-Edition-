@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -13,6 +14,10 @@ from runtime_env import APPDATA_DIR, secure_db_file
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
 SECRET_KEY_PATH = APPDATA_DIR / "session_secret.txt"
+# 灾备导出账本（append-only）：每笔会员开通/续费即时追加一行 JSON（含完整账号信息），供本地每分钟
+# 增量拉取到站长本机；站点若被封可凭此即时迁移会员。拉取/落地脚本见 deploy/sync_members_local.ps1。
+MEMBER_EXPORT_DIR = APPDATA_DIR / "member_exports"
+MEMBER_EXPORT_FILE = MEMBER_EXPORT_DIR / "members.ndjson"
 _UNSET = object()
 
 # 请求级缓存（挂在 flask.g）：会员快照在同一请求内不会变化，却被鉴权/视图状态/各功能权限判定反复
@@ -709,7 +714,25 @@ def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
             """,
             (needle, needle, needle, max(1, int(limit))),
         ).fetchall()
-    return [row_to_dict(row) for row in rows]
+    users = [row_to_dict(row) for row in rows]
+    # 后台展示与运行期口径对齐：上面的 SQL 取「最近创建的一条订阅」，但会员身份/到期实际按
+    # 「当前有效订阅中最高档 + 最远到期日」判定（见 _compute_membership_snapshot）。若不对齐，
+    # 高档会员叠买低档后台会误显示为低档（且 membership_plan_code 还会喂给 /admin 的逐用户
+    # 权限预览，导致预览也按低档算）。这里对「当前有效会员」用快照覆盖这几列；非会员保持原值
+    # （展示已到期/未开通）。token 限额按套餐表一次性建映射，避免逐用户重复查库。
+    plan_token_by_code = {
+        str(p.get("code")): p.get("daily_ai_token_limit")
+        for p in list_plans(include_inactive=True)
+    }
+    for user in users:
+        snapshot = get_membership_snapshot(int(user["id"]))
+        if snapshot.is_active_member:
+            user["membership_status"] = "active"
+            user["membership_plan_code"] = snapshot.plan_code
+            user["membership_plan_name"] = snapshot.plan_name
+            user["membership_expires_at"] = snapshot.expires_at
+            user["membership_plan_daily_ai_token_limit"] = plan_token_by_code.get(snapshot.plan_code)
+    return users
 
 
 def list_active_user_emails() -> list[dict]:
@@ -1282,6 +1305,27 @@ def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
     )
 
 
+def _append_member_export(record: dict) -> None:
+    """把一笔会员开通/续费即时写入 append-only 导出账本(NDJSON)，供本地灾备每分钟增量拉取。
+
+    纯尽力而为、自吞异常：DR 导出绝不能影响支付主流程。每行一条 JSON，含完整账号信息（用户、订阅、
+    订单），便于站点被封时凭此在异地即时恢复会员。写入后 fsync 落盘，缩小「已收款但未落盘」窗口。
+    """
+    try:
+        MEMBER_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, ensure_ascii=False, sort_keys=True, default=str)
+        with open(MEMBER_EXPORT_FILE, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+    except Exception:
+        # 导出失败不影响支付；当日的「每日全量同步」会兜底捕获该会员。
+        pass
+
+
 def mark_order_paid(
     *,
     order_no: str,
@@ -1449,6 +1493,18 @@ def mark_order_paid(
         conn.commit()
     # 本请求刚为该用户写入了新订阅：清掉请求级会员快照缓存，避免同请求后续读到旧的「非会员」状态。
     _invalidate_request_membership_cache()
+    # 灾备：把这笔会员开通/续费即时追加到导出账本，供本地每分钟增量拉取（站点被封时可凭此即时迁移）。
+    _append_member_export(
+        {
+            "ts": paid_at,
+            "event": "membership_paid",
+            "order_no": order_no,
+            "source": source,
+            "user": get_user_by_id(int(order["user_id"])) or {},
+            "subscription": row_to_dict(subscription) or {},
+            "order": row_to_dict(updated_order) or {},
+        }
+    )
     return {
         "order": row_to_dict(updated_order),
         "subscription": row_to_dict(subscription),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import shutil
 import sqlite3
@@ -25,6 +26,7 @@ from membership import (  # noqa: E402
     create_manual_subscription,
     create_user,
     get_membership_snapshot,
+    list_users,
     upsert_plan,
     utc_now,
 )
@@ -125,6 +127,35 @@ class MembershipTierTests(unittest.TestCase):
         snap = get_membership_snapshot(int(u["id"]))
         self.assertFalse(snap.is_active_member)
         self.assertEqual(snap.plan_code, "quarterly")  # 无有效订阅时回退到最近一条用于展示
+
+    def test_admin_list_reflects_highest_tier(self) -> None:
+        # 后台用户列表也须按最高档展示（不被叠加的低档订阅拉低）。
+        u = self._new_user("adminlist@example.test")
+        create_manual_subscription(user_email=u["email"], plan_code="quarterly", note="t")
+        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        row = next(x for x in list_users(search_text="adminlist@example.test") if int(x["id"]) == int(u["id"]))
+        self.assertEqual(row["membership_status"], "active")
+        self.assertEqual(row["membership_plan_code"], "quarterly")
+        self.assertEqual(row["membership_plan_name"], "季度会员")
+
+    def test_payment_appends_member_export(self) -> None:
+        # 灾备：每笔会员开通即时写入 append-only 导出账本，含完整账号信息（含 password_hash 以便迁移）。
+        from membership import MEMBER_EXPORT_FILE
+
+        u = self._new_user("export@example.test")
+        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        self.assertTrue(MEMBER_EXPORT_FILE.exists())
+        lines = [ln for ln in MEMBER_EXPORT_FILE.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        rec = None
+        for ln in reversed(lines):
+            data = json.loads(ln)
+            if data.get("user", {}).get("email") == "export@example.test":
+                rec = data
+                break
+        self.assertIsNotNone(rec, "导出账本未捕获该会员")
+        self.assertEqual(rec["event"], "membership_paid")
+        self.assertEqual(rec["subscription"]["plan_code"], "monthly")
+        self.assertIn("password_hash", rec["user"])
 
     def test_no_subscription_free(self) -> None:
         u = self._new_user("free@example.test")
