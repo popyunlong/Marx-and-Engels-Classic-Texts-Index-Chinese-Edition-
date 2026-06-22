@@ -1215,18 +1215,18 @@ def get_membership_snapshot(user_id: int | None) -> MembershipSnapshot:
 
 def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
     with _connect() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             """
-            SELECT s.status, s.plan_code, s.expires_at, p.name AS plan_name
+            SELECT s.id, s.status, s.plan_code, s.expires_at, s.created_at,
+                   p.name AS plan_name, p.interval_months
             FROM subscriptions s
             JOIN plans p ON p.code = s.plan_code
             WHERE s.user_id = ?
             ORDER BY s.created_at DESC, s.id DESC
-            LIMIT 1
             """,
             (user_id,),
-        ).fetchone()
-    if row is None:
+        ).fetchall()
+    if not rows:
         return MembershipSnapshot(
             is_logged_in=True,
             is_active_member=False,
@@ -1236,20 +1236,44 @@ def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
             expires_at="",
             days_remaining=None,
         )
+    now = utc_now()
+
+    # 会员身份取「当前有效订阅中档次最高者」，有效期取「最远到期日」——二者可能来自不同订阅。
+    # 因为续费/升级会把新购时长叠加在到期日之后（见 mark_order_paid），同一用户常同时持有多张有效订阅。
+    # 若按「最近一次开通」判定身份，季度会员再叠买一张月度就会被降级到月度档（token/研究配额/功能权限齐跌），
+    # 用户为高档付了费反被降级。改为按最高档判定：升级即时生效、永不降级；档次以 interval_months 为代理
+    # （月 1 < 季 3 < 年 12）。代价是低档叠加出的尾段也按高档计权益，属可接受的偏宽松。
+    active: list[tuple] = []
+    for r in rows:
+        parsed = _parse_utc(r["expires_at"] or "")
+        if r["status"] == "active" and parsed is not None and parsed > now:
+            active.append((r, parsed))
+    if active:
+        # 身份：interval_months 最大；同档取到期最远、再取 id 最大（最近创建）。
+        tier_row = max(
+            active,
+            key=lambda rp: (int(rp[0]["interval_months"] or 0), rp[1], int(rp[0]["id"])),
+        )[0]
+        # 有效期：所有有效订阅中的最远到期日（可能来自比 tier_row 更晚叠加的低档订阅）。
+        expiry_row, expiry_dt = max(active, key=lambda rp: rp[1])
+        return MembershipSnapshot(
+            is_logged_in=True,
+            is_active_member=True,
+            status="active",
+            plan_code=tier_row["plan_code"] or "",
+            plan_name=tier_row["plan_name"] or "",
+            expires_at=expiry_row["expires_at"] or "",
+            days_remaining=max(0, (expiry_dt - now).days),
+        )
+
+    # 无任何有效订阅：沿用「最近创建」的那条用于展示已到期/已取消等状态。
+    row = rows[0]
     expires_at = row["expires_at"] or ""
     parsed = _parse_utc(expires_at)
-    now = utc_now()
-    is_active = bool(
-        row["status"] == "active"
-        and parsed is not None
-        and parsed > now
-    )
-    days_remaining = None
-    if parsed is not None:
-        days_remaining = max(0, (parsed - now).days)
+    days_remaining = max(0, (parsed - now).days) if parsed is not None else None
     return MembershipSnapshot(
         is_logged_in=True,
-        is_active_member=is_active,
+        is_active_member=False,
         status=row["status"],
         plan_code=row["plan_code"] or "",
         plan_name=row["plan_name"] or "",

@@ -302,7 +302,7 @@
             {% endif %}
           </div>
           {% if membership.is_active_member %}
-          <p class="note">续费或升级套餐时，新购买的时长会自动叠加在当前到期日之后，已有时长不会作废；会员身份以最近一次开通的套餐为准。</p>
+          <p class="note">续费或升级套餐时，新购买的时长会自动叠加在当前到期日之后，已有时长不会作废；同时持有多个套餐时，会员身份与权益按其中最高档计算。</p>
           {% endif %}
           <div class="actions" style="margin-top:14px">
             {% if not state.desktop_mode and not is_admin and not membership.is_active_member %}
