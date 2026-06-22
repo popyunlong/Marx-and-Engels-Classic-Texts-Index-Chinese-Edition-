@@ -248,7 +248,7 @@
           <a class="btn" href="{{ url_for('admin') }}">管理后台</a>
           {% endif %}
           {% if current_user %}
-          <a class="btn" href="{{ url_for('account') }}">会员中心</a>
+          <a class="btn" href="{{ url_for('account') }}">{{ account_center_label }}</a>
           {% else %}
           <a class="btn" href="{{ url_for('login', next=next_url) }}">登录</a>
           <a class="btn" href="{{ url_for('register', next=next_url) }}">注册</a>
@@ -313,7 +313,7 @@
           <a class="btn primary" href="{{ url_for('login', next=next_url or url_for('pricing')) }}">登录后开通</a>
           {% endif %}
           <a class="btn secondary" href="{{ url_for('account') if current_user else url_for('register', next=next_url) }}">
-            {{ "去会员中心" if current_user else "先注册账号" }}
+            {{ ("去" ~ account_center_label) if current_user else "先注册账号" }}
           </a>
         </div>
       </article>

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>{{ title }} - 会员中心</title>
+  <title>{{ account_center_label }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
@@ -244,7 +244,7 @@
     <section class="hero">
       <div class="hero-row">
         <div>
-          <h1>{{ current_user.display_name }} 的会员中心</h1>
+          <h1>{{ current_user.display_name }} 的{{ account_center_label }}</h1>
           <p>{{ current_user.email }}</p>
           <div class="actions" style="margin-top:14px">
             <span class="badge">

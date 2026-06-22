@@ -160,7 +160,7 @@
       </div>
 
       <div class="actions">
-        <a class="btn secondary" href="{{ url_for('account') }}">返回会员中心</a>
+        <a class="btn secondary" href="{{ url_for('account') }}">返回{{ account_center_label }}</a>
         <a class="btn secondary" href="{{ url_for('pricing') }}">查看套餐</a>
         {% if local_console_available %}
         <a class="btn secondary" href="{{ url_for('control') }}">本地控制台</a>

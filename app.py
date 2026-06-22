@@ -5629,11 +5629,24 @@ def inject_auth_context():
     app_version_display = (str(site_texts.get("index.stat_app_version_value") or "").strip()
                            or APP_VERSION)
 
+    # 「会员中心 / 用户中心」称呼按身份切换：有效会员 / 管理员 / 桌面版显示「会员中心」，普通登录用户显示
+    # 「用户中心」；未登录回退到品牌默认「会员中心」（导航入口本就仅登录后出现）。账号页标题、页内标题与
+    # 各处「返回/进入会员中心」入口统一引用此标签。
+    _account_user = getattr(g, "current_user", None)
+    _account_is_admin = _is_admin_user(_account_user)
+    _account_member_view = (
+        bool(getattr(membership, "is_active_member", False))
+        or _account_is_admin
+        or DEPLOYMENT.is_desktop
+    )
+    account_center_label = "会员中心" if (_account_user is None or _account_member_view) else "用户中心"
+
     return {
-        "current_user": getattr(g, "current_user", None),
-        "is_admin": _is_admin_user(getattr(g, "current_user", None)),
-        "admin_console_available": _is_admin_user(getattr(g, "current_user", None)),
+        "current_user": _account_user,
+        "is_admin": _account_is_admin,
+        "admin_console_available": _account_is_admin,
         "membership": _membership_to_dict(membership),
+        "account_center_label": account_center_label,
         "format_price": _display_price,
         "format_datetime": _display_datetime,
         "format_order_status": _display_order_status,

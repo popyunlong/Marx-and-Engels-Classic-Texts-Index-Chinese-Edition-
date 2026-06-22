@@ -1877,7 +1877,7 @@
         <a class="mini-btn" href="{{ url_for('admin') }}">管理后台</a>
         {% endif %}
         {% if current_user %}
-        <a class="mini-btn" href="{{ url_for('account') }}">会员中心</a>
+        <a class="mini-btn" href="{{ url_for('account') }}">{{ account_center_label }}</a>
         <form method="post" action="{{ url_for('logout') }}" style="margin:0">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="secondary">退出登录</button>
@@ -1940,7 +1940,7 @@
          与下方期刊卡片（按权限动态显示）。这里只保留账号状态与中性的下一步动作。 #}
       <div class="member-actions">
         {% if current_user %}
-        <a class="mini-btn" href="{{ url_for('account') }}">进入会员中心</a>
+        <a class="mini-btn" href="{{ url_for('account') }}">进入{{ account_center_label }}</a>
         {% else %}
         <a class="mini-btn" href="{{ url_for('register') }}">先注册账号</a>
         {% endif %}

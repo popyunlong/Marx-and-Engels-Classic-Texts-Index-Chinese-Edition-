@@ -244,7 +244,7 @@
         <nav class="nav">
           <a class="btn" href="/">返回首页</a>
           <a class="btn" href="{{ url_for('pricing') }}">会员套餐</a>
-          <a class="btn" href="{{ url_for('account') if current_user else url_for('login') }}">{{ "会员中心" if current_user else "登录" }}</a>
+          <a class="btn" href="{{ url_for('account') if current_user else url_for('login') }}">{{ account_center_label if current_user else "登录" }}</a>
         </nav>
       </div>
     </section>
