@@ -128,24 +128,47 @@ function Sync-Incremental {
 function Sync-Full {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $remoteTmpDb = "/tmp/membership-backup-$stamp.sqlite3"
-    $remoteTmpJson = "/tmp/members-$stamp.json"
 
     # WAL-safe consistent snapshot using the app's venv python (always present on the server).
     $pyBackup = "import sqlite3,sys; s=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); s.backup(d); d.close(); s.close()"
     Invoke-Ssh "$RemotePython -c '$pyBackup' '$remoteDb' '$remoteTmpDb'" | Out-Null
 
-    # Readable JSON export (users/subscriptions/orders/plans) generated server-side from the snapshot.
-    $pyJson = 'import sqlite3,json,sys; c=sqlite3.connect(sys.argv[1]); c.row_factory=sqlite3.Row; o={t:[dict(r) for r in c.execute("SELECT * FROM "+t)] for t in ("users","subscriptions","orders","plans")}; c.close(); open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(o,ensure_ascii=False,indent=2,default=str))'
-    Invoke-Ssh "$RemotePython -c '$pyJson' '$remoteTmpDb' '$remoteTmpJson'" -AllowFailure | Out-Null
-
     $localDb = Join-Path $fullDir "membership-$stamp.sqlite3"
     $localJson = Join-Path $fullDir "membership-$stamp.json"
     Copy-FromRemote $remoteTmpDb $localDb
-    try { Copy-FromRemote $remoteTmpJson $localJson } catch { Write-Log "JSON export not downloaded ($($_.Exception.Message)); the .sqlite3 is the authoritative full copy." -Persist }
-    Invoke-Ssh "rm -f '$remoteTmpDb' '$remoteTmpJson'" -AllowFailure | Out-Null
+    Invoke-Ssh "rm -f '$remoteTmpDb'" -AllowFailure | Out-Null
 
     $sizeKb = [math]::Round((Get-Item -LiteralPath $localDb).Length / 1KB, 1)
     Write-Log ("Full snapshot downloaded -> {0} ({1} KB)." -f $localDb, $sizeKb) -Persist
+
+    # Readable JSON export, generated LOCALLY from the downloaded snapshot. Done locally (not over
+    # ssh) so that PowerShell never has to pass double-quoted Python through ssh, which PS 5.1
+    # mangles. Best-effort: the .sqlite3 above is the authoritative, complete copy.
+    $convPy = @'
+import sqlite3, json, sys
+con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
+out = {}
+for table in ("users", "subscriptions", "orders", "plans"):
+    try:
+        out[table] = [dict(r) for r in con.execute("SELECT * FROM " + table)]
+    except Exception as exc:
+        out[table] = {"error": str(exc)}
+con.close()
+with open(sys.argv[2], "w", encoding="utf-8") as fh:
+    json.dump(out, fh, ensure_ascii=False, indent=2, default=str)
+'@
+    try {
+        $convPy | & python - $localDb $localJson 2>$null
+        if (Test-Path $localJson) {
+            Write-Log ("Wrote readable JSON export -> {0}" -f $localJson) -Persist
+        }
+        else {
+            Write-Log "JSON export skipped (local python unavailable); the .sqlite3 is the authoritative copy." -Persist
+        }
+    }
+    catch {
+        Write-Log ("JSON export skipped ({0}); the .sqlite3 is the authoritative copy." -f $_.Exception.Message) -Persist
+    }
 
     # Keep the incremental ledger fresh as part of the daily run too.
     Sync-Incremental
