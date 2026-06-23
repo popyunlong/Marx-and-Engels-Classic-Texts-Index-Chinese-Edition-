@@ -261,7 +261,7 @@ GROUPS_PER_PAGE = 20
 SHORT_QUERY_CHAPTER_MAX_LEN = 4
 ASSOC_RERANK_TOP = 12  # 联想检索仅对权重最高的前若干候选做 AI 标注/解释（候选多时控成本）
 ASSOC_RERANK_TOP_RESEARCH = 20  # 研究意图用更大的重排池：覆盖论题不同侧面并给出分组理由
-RESEARCH_REVIEW_SOURCES = 18     # 研究综述喂给 AI 的真实原文源条数：小步扩容，兼顾资料覆盖与 token 稳定
+RESEARCH_REVIEW_SOURCES = 24     # 研究综述喂给 AI 的真实原文源条数：支撑 20-24 条引用；相关度由 _select_research_review_hits 的 floor 守门，命中不足则少给、绝不堆砌弱相关
 REQUEST_TOKEN = secrets.token_urlsafe(24)
 LOGGER = configure_logging()
 DEPLOYMENT = load_deployment_settings()
@@ -10439,7 +10439,7 @@ def api_search_associative():
                 d["review_quoted"] = bool(evidence)
                 d["review_quote_unmatched"] = bool(quote_spans and not evidence)
                 review_citations.append(d)
-            # 研究综述按「完整 token」计入每日额度：输入含注入的 15 段真实原文（成本大头），
+            # 研究综述按「完整 token」计入每日额度：输入含注入的真实原文段（成本大头，约 24 段），
             # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
             _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
             _record_ai_usage(

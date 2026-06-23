@@ -617,16 +617,23 @@ RESEARCH_REVIEW_CONTINUATION_ATTEMPTS = 3
 # 它经 **SSE 心跳保活**端点对外返回(app._sse_run_with_heartbeat)：响应先吐字节、其间每隔几秒发心跳，
 # 喂住 Cloudflare ~100s「源站首字节」计时器，故**不再受 CF 100s 限**——生成可安心写完整全长综述。
 # 这里的总预算只作**兜底防呆**(防某次模型调用卡死把线程长期拖住)：每次发起修复/续写/重写前校验剩余预算，
-# 不足就带已成文返回；单次调用再按剩余预算压 http_timeout。默认 180s，可经环境变量 RESEARCH_REVIEW_BUDGET_SECONDS 调整。
+# 不足就带已成文返回；单次调用再按剩余预算压 http_timeout。默认 300s(容纳约 5000 字单轮 + 一次续写)，
+# 可经环境变量 RESEARCH_REVIEW_BUDGET_SECONDS 调整。
 try:
-    _RR_BUDGET_RAW = int((os.environ.get("RESEARCH_REVIEW_BUDGET_SECONDS") or "180").strip() or "180")
+    _RR_BUDGET_RAW = int((os.environ.get("RESEARCH_REVIEW_BUDGET_SECONDS") or "300").strip() or "300")
 except ValueError:
-    _RR_BUDGET_RAW = 180
+    _RR_BUDGET_RAW = 300
 RESEARCH_REVIEW_TOTAL_BUDGET_SECONDS = max(20, _RR_BUDGET_RAW)
-# 追加一轮(修复/续写/重写)前要求的最小剩余预算：不足则不再发起，避免最后一轮把总时长顶过 CF 上限。
+# 追加一轮(修复/续写/重写)前要求的最小剩余预算：不足则不再发起，避免最后一轮把总时长拖得过长。
 RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS = 22
 # 单次模型调用 HTTP 超时的下限：预算将尽时也别用过小的超时立刻判错(给最后一次机会留点余地)。
 RESEARCH_REVIEW_MIN_CALL_TIMEOUT_SECONDS = 8
+# 研究综述「生成调用」单次 HTTP 超时——刻意与全局 request_timeout_seconds(120s) 解耦。
+# 综述生成跑在 SSE 心跳保活的后台线程里(app._sse_run_with_heartbeat)：CF 边缘看到的是主生成器每 12s
+# 一条心跳、而非这条沉默的 DeepSeek 调用，故它可安全地远超 CF ~100s 首字节超时(5000 字单轮约需 ~150-200s)。
+# 关键：只放宽**生成调用**；expand/rerank 等跑在心跳「之前」的同步 AI 调用仍用全局 120s 快速失败
+# (它们慢就会顶在 CF 100s 之前，必须 fail-fast 兜底)，绝不可跟着放宽。
+RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS = 220
 _RESEARCH_REVIEW_START_MARKERS = (
     "【综述正文开始】",
     "【正式综述开始】",
@@ -810,14 +817,15 @@ class ZAIClient:
                 token_ladder.append(fallback)
         last_error: AIServiceError | None = None
         for budget in token_ladder:
-            # 非流式综述受 Cloudflare ~100s 边缘超时约束：把单次 HTTP 超时压到「剩余总预算」之内，
-            # 任一次调用都不会自己把整篇顶过 CF 上限。预算已不足一次最短调用则直接判超时，交上层兜底。
+            # 生成跑在 SSE 心跳保活线程里，已与 CF ~100s 解耦：单次 HTTP 超时用研究专用的较宽上限
+            # (RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS，非全局 120s)，再被「剩余总预算」夹一下不超整篇预算。
+            # 预算已不足一次最短调用则直接判超时，交上层兜底。
             http_timeout: float | None = None
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining < RESEARCH_REVIEW_MIN_CALL_TIMEOUT_SECONDS:
                     raise last_error or AIServiceError("研究综述生成已超出时间预算。")
-                http_timeout = min(float(self.config.request_timeout_seconds), remaining)
+                http_timeout = min(float(RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS), remaining)
             try:
                 return self.chat_complete(
                     messages,
@@ -944,11 +952,11 @@ class ZAIClient:
             "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
             f"{block}\n\n"
             "写作要求：\n"
-            "1. 紧扣研究论题，按问题内在层次分 3-5 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
-            "形成一篇连贯、详实、自然写完的综述（正文约 2600-3800 字；如材料较少也要保证结构完整，"
+            "1. 紧扣研究论题，按问题内在层次分 4-6 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
+            "形成一篇连贯、详实、自然写完的综述（正文约 5000 字；如材料较少也要保证结构完整，"
             "不要为了凑字数重复铺陈）。\n"
             "2. 围绕每个小节的论证需要择要使用材料，优先覆盖不同资料库、不同篇章和不同论证侧面；"
-            "原则上使用 12-18 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
+            "原则上使用 20-24 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
             "3. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
             "4. 直接引用原文时逐字照引并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
             "如果某个经典表述没有出现在上述原文段落中，只能转述，不得加引号、不得伪装为该编号的逐字引文。"

@@ -263,8 +263,8 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         self.assertEqual(cc.call_args_list[1].kwargs["max_tokens"], 12000)
 
     def test_research_review_passes_per_call_http_timeout(self) -> None:
-        # 研究综述是非流式同步请求：每次模型调用都按「剩余总预算」压一个 HTTP 超时，
-        # 任一次调用都不会自己把整篇顶过 Cloudflare ~100s 边缘超时（否则前端 resp.json() 收到 524 HTML）。
+        # 每次模型调用都按 min(研究专用超时, 剩余总预算) 压一个 HTTP 超时。生成跑在 SSE 心跳保活线程里、
+        # 已与 CF ~100s 解耦，故该超时刻意宽于全局 120s（用 RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS）。
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
         complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 60) + "## 小结\n综上，文章自然完成。[1]"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
@@ -272,7 +272,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         timeout = cc.call_args.kwargs.get("http_timeout")
         self.assertIsNotNone(timeout)
         self.assertGreater(timeout, 0)
-        self.assertLessEqual(timeout, app_module.AI_CLIENT.config.request_timeout_seconds)
+        self.assertLessEqual(timeout, ai_module.RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS)
 
     def test_research_review_stops_extra_rounds_when_time_budget_exhausted(self) -> None:
         # 预算不足以再安全跑一轮（这里把所需余量调到极大模拟「预算将尽」）时，即便首轮综述
