@@ -73,6 +73,7 @@ scripts/build_mao_index.py
 scripts/build_textbook_index.py
 scripts/build_maowenji_vol6.py
 scripts/build_scan_volumes.py
+scripts/build_quanji2_scan_toc.py
 scripts/build_zgl_toc.py
 scripts/build_xi_econ_toc.py
 scripts/refine_quanji_text.py
