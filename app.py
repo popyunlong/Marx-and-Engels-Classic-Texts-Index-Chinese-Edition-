@@ -5859,40 +5859,7 @@ def add_security_headers(response):
         response.headers.setdefault("X-Robots-Tag", "noindex,nofollow,noarchive")
     if DEPLOYMENT.public_scheme == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
-    _sync_cf_auth_marker_cookie(response)
     return response
-
-
-# 让 Cloudflare 边缘能区分"已登录真人"与"匿名爬虫"：只给登录用户下发一个独立标记 cookie，
-# CF 的 /viewer Managed Challenge 规则可加 `not (http.cookie contains "mz_auth=")`——
-# 这样真实读者（一律登录态）点检索结果进正文时零质询、无等待，匿名代理池仍被挑战。
-# 关键：该 cookie 不含任何鉴权能力，鉴权仍只认签名的 session["user_id"]；伪造它至多换来
-# 跳过 CF 质询，到了源站 /viewer 仍要过会员鉴权才能渲染，故安全。
-# 不能用 "有没有 session= cookie" 区分人机——Flask 给匿名访客也发 session cookie、爬虫同样带；
-# 必须用这个"仅登录态才存在"的独立标记。SameSite=Lax 保证从检索结果的 target=_blank 新标签页
-# （顶层 GET 导航）也会带上。
-_CF_AUTH_MARKER_COOKIE = "mz_auth"
-
-
-def _sync_cf_auth_marker_cookie(response) -> None:
-    if not DEPLOYMENT.is_server:
-        return
-    if (request.endpoint or "") == "static":
-        return
-    logged_in = bool(getattr(g, "current_user", None))
-    has_marker = _CF_AUTH_MARKER_COOKIE in request.cookies
-    if logged_in and not has_marker:
-        response.set_cookie(
-            _CF_AUTH_MARKER_COOKIE,
-            "1",
-            max_age=30 * 24 * 3600,
-            secure=(DEPLOYMENT.public_scheme == "https"),
-            httponly=True,
-            samesite="Lax",
-            path="/",
-        )
-    elif not logged_in and has_marker:
-        response.delete_cookie(_CF_AUTH_MARKER_COOKIE, path="/")
 
 
 @app.route("/robots.txt")
