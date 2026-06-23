@@ -2023,10 +2023,14 @@ def count_ai_usage_requests(
     end_day: str,
     feature: str = "",
     success_only: bool = True,
+    since_created_at: str = "",
 ) -> int:
     """Count AI request rows in a China-date day range.
 
     Day values are stored as YYYY-MM-DD text, so lexical range checks are stable.
+    ``since_created_at`` (UTC ISO, same format as ``created_at``) further restricts the
+    count to rows created at or after that instant — used by the research-quota "reset"
+    feature to zero out the current week's used count without deleting any audit rows.
     """
     start_value = (start_day or "").strip()
     end_value = (end_day or "").strip()
@@ -2045,6 +2049,10 @@ def count_ai_usage_requests(
         params.append((feature or "").strip()[:40])
     if success_only:
         where += " AND success = 1"
+    since_value = (since_created_at or "").strip()
+    if since_value:
+        where += " AND created_at >= ?"
+        params.append(since_value)
     with _connect() as conn:
         value = conn.execute(
             f"SELECT COUNT(*) FROM ai_usage {where}",

@@ -536,6 +536,11 @@ RESEARCH_WEEKLY_QUOTA_LABELS = {
     "yearly": "年度会员",
 }
 RESEARCH_QUOTA_FEATURE = "research_review"
+# 「研究级检索次数」重置标记：后台可把指定用户/某会员档/全体注册用户的本周已用次数清零。
+# 非破坏式——只记录一个 UTC 时间点，计数时改为「只统计该点之后的研究记录」，既不删 ai_usage
+# 审计、也不退还耦合的每日 token 额度；周窗口推进后旧标记自然失效。
+RESEARCH_QUOTA_RESETS_SETTING_KEY = "research_quota_resets"
+RESEARCH_QUOTA_RESET_SCOPES = ("all", "registered", "monthly", "quarterly", "yearly", "user")
 # DeepSeek 主通道「每日 AI token 额度」分档默认值（这里是每日参考；硬上限＝本周＝每日×AI_TOKEN_WEEKLY_FACTOR）。
 # 取舍依据：DeepSeek 价格（约 ¥2/1M 输入、¥8/1M 输出，混合约 ¥4-5/1M）与会员定价（月 ¥9 / 季 ¥24 / 年 ¥88）
 # 并兼顾 GLM 智谱日额 30k/60k/100k。给的是「封顶值」防滥用，真实用量通常远低于此；会员体验留足头寸。
@@ -780,6 +785,48 @@ def _research_quota_bucket_for_user(user: dict | None) -> str:
     return "registered"
 
 
+def _research_quota_resets() -> dict:
+    """读取「研究次数重置标记」：``{'all': ts, 'tiers': {bucket: ts}, 'users': {email: ts}}``。
+
+    ts 为 UTC ISO（与 ``ai_usage.created_at`` 同格式，可直接字符串比较）。计数时只统计
+    created_at >= 适用标记 的研究记录，即把「本周已用次数」清零——不删审计、不退 token 额度。
+    """
+    raw = get_setting(RESEARCH_QUOTA_RESETS_SETTING_KEY, {})
+    raw = raw if isinstance(raw, dict) else {}
+    tiers = raw.get("tiers") if isinstance(raw.get("tiers"), dict) else {}
+    users = raw.get("users") if isinstance(raw.get("users"), dict) else {}
+    return {
+        "all": str(raw.get("all") or ""),
+        "tiers": {str(k): str(v) for k, v in tiers.items() if v},
+        "users": {str(k): str(v) for k, v in users.items() if v},
+    }
+
+
+def _research_quota_effective_reset_at(user: dict | None, bucket: str) -> str:
+    """该用户当前生效的重置时间点＝全体/档位/个人三类标记中的最晚一个（无则空串）。"""
+    resets = _research_quota_resets()
+    candidates: list[str] = []
+    if resets.get("all"):
+        candidates.append(resets["all"])
+    tier_at = (resets.get("tiers") or {}).get(bucket)
+    if tier_at:
+        candidates.append(tier_at)
+    if user and user.get("email"):
+        user_at = (resets.get("users") or {}).get(normalize_email(str(user.get("email") or "")))
+        if user_at:
+            candidates.append(user_at)
+    return max(candidates) if candidates else ""
+
+
+def _prune_research_quota_resets(resets: dict) -> None:
+    """就地丢弃 14 天前的陈旧标记（周窗口早已使其失效，仅为防设置无限膨胀）。"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat(timespec="seconds")
+    if resets.get("all") and str(resets["all"]) < cutoff:
+        resets["all"] = ""
+    resets["tiers"] = {k: v for k, v in (resets.get("tiers") or {}).items() if str(v) >= cutoff}
+    resets["users"] = {k: v for k, v in (resets.get("users") or {}).items() if str(v) >= cutoff}
+
+
 def _research_quota_payload(user: dict | None = None) -> dict:
     if user is None and has_request_context():
         user = getattr(g, "current_user", None)
@@ -806,6 +853,8 @@ def _research_quota_payload(user: dict | None = None) -> dict:
     limit = int(settings.get(bucket, RESEARCH_WEEKLY_QUOTA_DEFAULTS[bucket]))
     week = _research_quota_week_window()
     user_id = int(user["id"]) if user and user.get("id") else None
+    # 「重置」标记：只统计该时间点之后的研究记录，等效把本周已用次数清零（非破坏式）。
+    reset_at = _research_quota_effective_reset_at(user, bucket)
     used = count_ai_usage_requests(
         user_id=user_id,
         session_key=_visitor_session_key() if has_request_context() else "",
@@ -813,6 +862,7 @@ def _research_quota_payload(user: dict | None = None) -> dict:
         end_day=week["end_day"],
         feature=RESEARCH_QUOTA_FEATURE,
         success_only=True,
+        since_created_at=reset_at,
     )
     free_remaining = max(0, limit - used)
     # 资源包次数（永久有效、可叠加）：免费周额用完后接续使用。
@@ -3875,6 +3925,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_ai_usage_url": url_for("admin_ai_usage") if remote_admin else "",
         "control_reader_access_url": url_for("admin_reader_access") if remote_admin else "",
         "control_research_quota_url": url_for("admin_research_quota") if remote_admin else "",
+        "control_reset_research_quota_url": url_for("admin_reset_research_quota") if remote_admin else "",
         "control_online_series_url": url_for("admin_online_series") if remote_admin else "",
         "control_notice_url": url_for("admin_notice") if remote_admin else url_for("control_notice"),
         "control_community_url": url_for("admin_community") if remote_admin else url_for("control_community"),
@@ -4288,6 +4339,51 @@ def _handle_research_quota_submit(*, remote_admin: bool):
         details=values,
     )
     flash("研究型检索每周次数额度已保存。", "success")
+    return _management_redirect(remote_admin, "members")
+
+
+def _handle_reset_research_quota_submit(*, remote_admin: bool):
+    """重置「研究级检索」本周已用次数（非破坏式：写重置标记，不删 ai_usage、不退 token 额度）。
+
+    范围 scope：all＝全体注册用户；registered/monthly/quarterly/yearly＝某会员档位；user＝按邮箱指定。
+    标记设为当前 UTC 时间，计数从该点起算 → 目标用户本周已用归零、恢复满额；下周一窗口推进后自动失效。
+    """
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，研究级检索次数请在网站 /admin 管理。")
+    scope = (request.form.get("scope") or "").strip().lower()
+    if scope not in RESEARCH_QUOTA_RESET_SCOPES:
+        flash("请选择有效的重置范围。", "warning")
+        return _management_redirect(remote_admin, "members")
+    resets = _research_quota_resets()
+    now_ts = utc_now_text()
+    if scope == "user":
+        email = normalize_email(request.form.get("user_email") or "")
+        if not email:
+            flash("请填写要重置的用户邮箱。", "warning")
+            return _management_redirect(remote_admin, "members")
+        if not get_user_by_email(email):
+            flash(f"未找到邮箱为 {email} 的用户，未做任何更改。", "warning")
+            return _management_redirect(remote_admin, "members")
+        resets.setdefault("users", {})[email] = now_ts
+        target_label = email
+    elif scope == "all":
+        resets["all"] = now_ts
+        target_label = "全体注册用户"
+    else:
+        resets.setdefault("tiers", {})[scope] = now_ts
+        target_label = RESEARCH_WEEKLY_QUOTA_LABELS.get(scope, scope)
+    _prune_research_quota_resets(resets)
+    set_setting(RESEARCH_QUOTA_RESETS_SETTING_KEY, resets, updated_by=_management_actor_label(remote_admin))
+    _log_management_action(
+        action="research_quota.reset",
+        target=f"{scope}:{target_label}",
+        result="success",
+        remote_admin=remote_admin,
+        details={"scope": scope, "target": target_label},
+    )
+    flash(f"已重置「{target_label}」的本周研究级检索次数（恢复满额，下周一自动失效）。", "success")
     return _management_redirect(remote_admin, "members")
 
 
@@ -6653,6 +6749,11 @@ def admin_plans():
 @app.post("/admin/research-quota")
 def admin_research_quota():
     return _handle_research_quota_submit(remote_admin=True)
+
+
+@app.post("/admin/reset-research-quota")
+def admin_reset_research_quota():
+    return _handle_reset_research_quota_submit(remote_admin=True)
 
 
 @app.post("/admin/ai-token-quota")

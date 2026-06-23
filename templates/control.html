@@ -1663,6 +1663,34 @@
         </section>
         {% endif %}
 
+        {% if control_reset_research_quota_url %}
+        <section class="card" id="reset-research-quota">
+          <h2>重置研究级检索次数</h2>
+          <p class="section-note">把目标用户「本周已用研究级检索次数」清零、恢复到满额（按所选范围立即生效，下周一随新周期自动失效）。仅重置研究级检索计数，不影响 AI 每日 token 额度，也不删除使用明细。</p>
+          <form class="item" method="post" action="{{ control_reset_research_quota_url }}" onsubmit="return confirm('确认重置所选范围的本周研究级检索次数？');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">重置范围
+                <select name="scope">
+                  <option value="all">全体注册用户</option>
+                  <option value="registered">仅登录用户（未开通会员）</option>
+                  <option value="monthly">月度会员</option>
+                  <option value="quarterly">季度会员</option>
+                  <option value="yearly">年度会员</option>
+                  <option value="user">指定用户（按邮箱）</option>
+                </select>
+              </label>
+              <label class="field">用户邮箱（仅「指定用户」时填）
+                <input type="email" name="user_email" placeholder="user@example.com" autocomplete="off">
+              </label>
+            </div>
+            <div class="actions">
+              <button class="btn primary" type="submit">重置研究级检索次数</button>
+            </div>
+          </form>
+        </section>
+        {% endif %}
+
         {% if control_ai_token_quota_url %}
         <section class="card" id="ai-token-quota">
           <h2>AI 每日 token 额度（DeepSeek 主通道）</h2>
