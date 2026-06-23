@@ -79,6 +79,70 @@ class AIServiceError(RuntimeError):
     pass
 
 
+# ---------------------------------------------------------------------------
+# 联网检索的「入口提纯」与「出口过滤」
+#
+# 智谱联网把检索词原样发给搜索引擎、又不过滤返回结果。而用户的口语问句
+# （「为什么…一点感觉都没有怎么回事」这类）恰好是中文医疗/养生/两性内容农场重点
+# SEO 的长尾句式，于是这些垃圾站霸屏检索结果、混进答案与来源卡。两道闸一起治：
+#   入口：zhipu_search_query 剥掉口语外壳 + 必要时补马列领域锚点；
+#   出口：_filter_web_sources 按内容农场域名/站点名 + “医疗信号且无主题锚点”剔除。
+# 词表均为模块级常量，便于日后增补（也为后续做成后台可配预留位置）。
+# ---------------------------------------------------------------------------
+
+# 马列主题「强锚点」：明确的专名/概念，命中即可确信与本站主题相关（几乎无歧义）。
+# 用于查询提纯（命中则无需再补领域词）与结果过滤（命中则不按医疗信号误删）。
+_MARX_CORE_ANCHORS = (
+    "马克思", "恩格斯", "列宁", "毛泽东", "斯大林", "资本论", "宣言",
+    "政治经济学", "剩余价值", "唯物", "辩证", "无产阶级", "资产阶级",
+    "共产主义", "社会主义", "拜物教", "异化", "生产关系", "生产力",
+    "阶级", "意识形态", "社会形态", "费尔巴哈", "黑格尔", "空想社会",
+    "历史唯物", "辩证法", "劳动力", "地租", "资本主义", "封建", "辩证唯物",
+)
+# 结果过滤额外容忍的「软锚点」泛词：单独不足以证明 on-topic，但与正文共现时不应误删。
+_MARX_SOFT_ANCHORS = _MARX_CORE_ANCHORS + (
+    "商品", "价值", "劳动", "经济", "哲学", "革命", "国家", "资本", "货币",
+    "理论", "思想", "社会", "历史", "政治",
+)
+
+# 已知中文医疗健康/养生/两性内容农场与问答站点名（智谱来源里的 media 字段）。
+_WEB_SOURCE_DENY_SITES = (
+    "医联媒体", "我爱康", "寻医问药", "有问必答", "39健康", "39问医生",
+    "快速问医生", "飞华健康", "民福康", "大众养生", "三九养生", "复禾健康",
+    "妙手医生", "放心医苑", "求医网", "健康一线", "家庭医生在线", "好大夫在线",
+    "微医", "新浪医药",
+)
+# 同类站点的域名兜底（站点名抓不到时按链接域名再拦一道）。
+_WEB_SOURCE_DENY_DOMAINS = (
+    "120ask.com", "xywy.com", "39.net", "iiyi.com", "haodf.com",
+    "familydoctor.com.cn", "fh21.com.cn", "vodjk.com", "9939.com",
+    "myzx.cn", "qiuyi.cn", "fx120.net", "jiankang.com", "5kang.com",
+    "club.xywy.com", "yilianmeiti.com",
+)
+# 医疗/两性/养生类「强信号词」：标题或摘要含这类词、且通篇不含任何马列主题锚点时，
+# 判为与本站主题无关的内容农场垃圾。只有“有信号且无锚点”才删，避免误伤正常马列文本。
+_WEB_SOURCE_JUNK_TERMS = (
+    "做爱", "性生活", "性功能", "性欲", "早泄", "阳痿", "射精", "勃起",
+    "壮阳", "月经", "姨妈", "例假", "妇科", "白带", "私处", "下体",
+    "怀孕", "备孕", "排卵", "前列腺", "尿频", "吃什么药", "挂号",
+    "病因", "确诊", "就医", "减肥", "丰胸", "祛痘", "植发", "整形",
+    "妇产", "男科", "性病",
+)
+
+# 口语问句的「求解外壳」：句首疑问/求助词。检索噪音，剥掉让查询更接近“关键词”。
+_QUERY_HEAD_NOISE = re.compile(
+    r"^(?:请问|麻烦问[一下]*|我想问[一下问]*|想请教[一下]*|谁能(?:告诉我)?|"
+    r"有没有人?知道|帮我?查[一下]*|帮忙[查问]*|顺便问[一下]*|我想了解[一下]*|"
+    r"为什么|为啥|为何|怎么样|怎样|咋样|咋|如何|怎么)+[\s，,、:：]*"
+)
+# 句尾追问/语气词（含医疗农场最爱的“怎么回事/是什么原因/怎么办”长尾收束）。
+_QUERY_TAIL_NOISE = re.compile(
+    r"[\s，,、]*(?:是?怎么回事|是什么原因|什么原因|是什么意思|什么意思|"
+    r"该?怎么办|怎么解决|怎么样|怎样|咋样|求解答|求解|求助|呢|吗|吧|啊|呀|"
+    r"嘛|啦|哦|哈)+[\s?？。.!！~～]*$"
+)
+
+
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S | re.I)
 
 # 联想检索线索抽取的进程内缓存：DeepSeek 即便 temperature=0 也并非严格确定，
@@ -1271,13 +1335,39 @@ class ZAIClient:
             "label": self.config.provider,
         }
 
+    @staticmethod
+    def _distill_query_terms(text: str) -> str:
+        """剥掉口语问句的句首/句尾“求解外壳”，让检索词更接近关键词；剥过头则回退原句。"""
+        s = " ".join(str(text or "").split())
+        if not s:
+            return ""
+        stripped = _QUERY_TAIL_NOISE.sub("", _QUERY_HEAD_NOISE.sub("", s)).strip(" \t，,、。.？?！!；;：:~～")
+        # 整句就是口语壳（剥成空/过短）时保留原句，避免把语义剥没。
+        return stripped if len(stripped) >= 2 else s
+
     def zhipu_search_query(self, question: str, page_context: dict[str, Any] | None = None) -> str:
-        """为强制联网生成简短检索词：用户问题 +（阅读场景）篇章/书名，截到 70 字以内。"""
-        parts = [str(question or "").strip()]
+        """为强制联网生成简短、聚焦的检索词。
+
+        两点调适，避免口语问句被医疗/养生等内容农场的长尾 SEO 霸屏：
+        1. 剥掉口语“求解外壳”（句首“为什么/请问…”、句尾“…怎么回事/是什么原因/呢吗”），
+           让检索词更接近关键词；阅读场景再带上篇章/书名。
+        2. 领域锚定：问题或场景已含马列主题词即原样保留；否则补“马克思主义”，把搜索引擎
+           拽回本站语料域（与出口过滤配合，跑题口语词基本无法再召回垃圾）。
+        """
+        raw = str(question or "").strip()
+        core = self._distill_query_terms(raw)
+        parts = [core or raw]
+        anchored = any(anchor in raw for anchor in _MARX_CORE_ANCHORS)
         if page_context:
-            section_title = str(page_context.get("section_title") or "").strip()
-            display_title = str(page_context.get("display_title") or "").strip()
-            parts.append(section_title or display_title)
+            ctx = (
+                str(page_context.get("section_title") or "").strip()
+                or str(page_context.get("display_title") or "").strip()
+            )
+            if ctx:
+                parts.append(ctx)
+                anchored = True  # 篇章/书名本身即强领域锚点
+        if not anchored:
+            parts.insert(0, "马克思主义")
         query = " ".join(part for part in parts if part)
         return " ".join(query.split())[:70]
 
@@ -1314,7 +1404,7 @@ class ZAIClient:
         }
 
     def _zhipu_sources_from_payload(self, data: dict[str, Any]) -> list[dict[str, str]]:
-        """从智谱响应中提取联网检索来源（开启 search_result 时返回在顶层 web_search 数组）。"""
+        """从智谱响应提取联网来源并过滤内容农场/无关垃圾（search_result 在顶层 web_search 数组）。"""
         sources: list[dict[str, str]] = []
         for item in data.get("web_search") or []:
             if not isinstance(item, dict):
@@ -1322,7 +1412,38 @@ class ZAIClient:
             source = self._zhipu_source_from_item(item)
             if source["title"] or source["link"]:
                 sources.append(source)
-        return sources
+        return self._filter_web_sources(sources)
+
+    @staticmethod
+    def _looks_like_web_junk(source: dict[str, str]) -> bool:
+        """单条联网来源是否应判为内容农场/与本站主题无关的垃圾。"""
+        site = source.get("site") or ""
+        link = (source.get("link") or "").lower()
+        if any(bad in site for bad in _WEB_SOURCE_DENY_SITES):
+            return True
+        if any(bad in link for bad in _WEB_SOURCE_DENY_DOMAINS):
+            return True
+        text = f"{source.get('title', '')} {source.get('snippet', '')}"
+        if any(term in text for term in _WEB_SOURCE_JUNK_TERMS):
+            # 有医疗/两性强信号、却通篇不含任何马列主题锚点 → 与本站主题无关。
+            if not any(anchor in text for anchor in _MARX_SOFT_ANCHORS):
+                return True
+        return False
+
+    def _filter_web_sources(
+        self, sources: list[dict[str, str]], query: str = ""
+    ) -> list[dict[str, str]]:
+        """剔除内容农场/与主题明显无关的联网来源，返回过滤后的列表。"""
+        kept = [s for s in (sources or []) if not self._looks_like_web_junk(s)]
+        dropped = len(sources or []) - len(kept)
+        if dropped:
+            LOGGER.info(
+                "web source filter: dropped %d/%d junk source(s); query=%r",
+                dropped,
+                len(sources or []),
+                (query or "")[:40],
+            )
+        return kept
 
     def _zhipu_standalone_search(self, query: str) -> tuple[list[dict[str, str]], str]:
         """服务端直调智谱独立检索端点 /web_search。返回 (来源列表, 错误信息)。
@@ -1394,13 +1515,27 @@ class ZAIClient:
         messages: list[dict[str, str]],
         web_search_query: str | None,
     ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[list[dict[str, Any]] | None]]:
-        """智谱联网主链路：先服务端直查；成功→注入对话且不再带检索工具，
-        失败→记日志并退回原对话内检索三级降级。返回 (messages, 来源, tool_stages)。"""
+        """智谱联网主链路：先服务端直查，再过滤内容农场/无关结果。
+        有可用结果→注入对话且不再带检索工具；端点失败→退回对话内检索三级降级；
+        检索成功但结果全被判为垃圾→纯对话作答（不注入 grounding、不显示来源），
+        不再对话内重搜（只会取回同样的垃圾）。返回 (messages, 来源, tool_stages)。"""
         if web_search_query:
-            grounded_sources, search_error = self._zhipu_standalone_search(web_search_query)
-            if grounded_sources:
-                return self._zhipu_grounded_messages(messages, grounded_sources), grounded_sources, [None]
-            LOGGER.warning("zhipu standalone search failed, falling back to in-chat web_search: %s", search_error)
+            raw_sources, search_error = self._zhipu_standalone_search(web_search_query)
+            if search_error:
+                # 端点真失败（网络/计费/无结果）→ 退回对话内检索兜底档。
+                LOGGER.warning(
+                    "zhipu standalone search failed, falling back to in-chat web_search: %s",
+                    search_error,
+                )
+                return messages, [], self._zhipu_tool_stages(web_search_query)
+            sources = self._filter_web_sources(raw_sources, web_search_query)
+            if sources:
+                return self._zhipu_grounded_messages(messages, sources), sources, [None]
+            LOGGER.info(
+                "zhipu web search returned %d source(s), all dropped as junk; answering without web grounding",
+                len(raw_sources),
+            )
+            return messages, [], [None]
         return messages, [], self._zhipu_tool_stages(web_search_query)
 
     def _zhipu_tool_stages(self, web_search_query: str | None) -> list[list[dict[str, Any]] | None]:
