@@ -10363,68 +10363,83 @@ def api_search_associative():
             plain = _research_review_passage_text(hit, base, gist)
             review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
             review_sources.append((i, hit, plain))
-        review_warnings: list[str] = []
-        review_md = ""
-        try:
-            review_md = AI_CLIENT.generate_research_review(gist, review_passages)
-        except AIServiceError as exc:
-            LOGGER.warning("Research review failed gist=%r: %s", gist[:80], exc)
-            review_md = _build_research_review_fallback(gist, review_passages)
-            review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
-        # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
-        # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
-        # [N] 所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。
-        review_quotes_by_index = _review_quotes_by_index(review_md)
-        review_units_by_index = _review_cited_units(review_md)
-        review_citations: list[dict] = []
-        for i, hit, plain in review_sources:
-            quote_spans = review_quotes_by_index.get(i, [])
-            base0 = hit.to_dict()
-            evidence, base, first_highlight = _make_review_evidence_items(
-                hit,
-                base0,
-                plain,
-                quote_spans,
-                review_units_by_index.get(i, []),
-                viewer_allowed,
-                gist,
+        # 综述生成是非流式慢活(可达 100s+)：丢到后台线程，外层用 SSE 心跳保活喂住 Cloudflare ~100s
+        # 「首字节」计时器，故能从容写完整全长综述、绝不被砍成 524 HTML。生成只吃纯数据(gist+passages)、
+        # 线程安全；接地引文匹配/记账等需要请求上下文的收尾，放回生成器里做(stream_with_context 保住 g/request)。
+        def _slow_generate_review():
+            return AI_CLIENT.generate_research_review(gist, review_passages)
+
+        def _finalize_research_review(review_md, error):
+            review_warnings: list[str] = []
+            if error is not None or not review_md:
+                if error is not None and not isinstance(error, AIServiceError):
+                    LOGGER.error("Research review crashed gist=%r", gist[:80], exc_info=error)
+                else:
+                    LOGGER.warning("Research review failed gist=%r: %s", gist[:80], error)
+                review_md = _build_research_review_fallback(gist, review_passages)
+                review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
+            # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
+            # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
+            # [N] 所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。
+            review_quotes_by_index = _review_quotes_by_index(review_md)
+            review_units_by_index = _review_cited_units(review_md)
+            review_citations: list[dict] = []
+            for i, hit, plain in review_sources:
+                quote_spans = review_quotes_by_index.get(i, [])
+                base0 = hit.to_dict()
+                evidence, base, first_highlight = _make_review_evidence_items(
+                    hit,
+                    base0,
+                    plain,
+                    quote_spans,
+                    review_units_by_index.get(i, []),
+                    viewer_allowed,
+                    gist,
+                )
+                d = _attach_viewer_payload(
+                    base, gist, viewer_allowed,
+                    highlight_override=(first_highlight or None),
+                )
+                d["evidence"] = evidence
+                d["context"] = evidence[0]["context"] if evidence else _review_citation_context(plain, "")
+                d["review_index"] = i
+                d["review_quoted"] = bool(evidence)
+                d["review_quote_unmatched"] = bool(quote_spans and not evidence)
+                review_citations.append(d)
+            # 研究综述按「完整 token」计入每日额度：输入含注入的 15 段真实原文（成本大头），
+            # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
+            _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
+            _record_ai_usage(
+                quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
+                completion_text=review_md, success=True,
+                prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
+                completion_tokens=_estimate_tokens_from_text(review_md),
             )
-            d = _attach_viewer_payload(
-                base, gist, viewer_allowed,
-                highlight_override=(first_highlight or None),
-            )
-            d["evidence"] = evidence
-            d["context"] = evidence[0]["context"] if evidence else _review_citation_context(plain, "")
-            d["review_index"] = i
-            d["review_quoted"] = bool(evidence)
-            d["review_quote_unmatched"] = bool(quote_spans and not evidence)
-            review_citations.append(d)
-        # 研究综述按「完整 token」计入每日额度：输入含注入的 15 段真实原文（成本大头），
-        # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
-        _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
-        _record_ai_usage(
-            quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
-            completion_text=review_md, success=True,
-            prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
-            completion_tokens=_estimate_tokens_from_text(review_md),
+            if paid_research_use:
+                _user = getattr(g, "current_user", None)
+                if _user:
+                    consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
+            return {
+                "ok": True, "query": gist, "display_mode": "research_review",
+                "intent": intent, "mode": mode,
+                "access_level": "full" if viewer_allowed else "summary",
+                "pdf_enabled": viewer_allowed,
+                "review_markdown": review_md,
+                "review_citations": review_citations,
+                "count": len(review_citations),
+                "warnings": review_warnings,
+                # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
+                "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
+                "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+            }
+
+        return Response(
+            stream_with_context(
+                _sse_run_with_heartbeat(_slow_generate_review, _finalize_research_review)
+            ),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
-        if paid_research_use:
-            _user = getattr(g, "current_user", None)
-            if _user:
-                consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
-        return jsonify({
-            "ok": True, "query": gist, "display_mode": "research_review",
-            "intent": intent, "mode": mode,
-            "access_level": "full" if viewer_allowed else "summary",
-            "pdf_enabled": viewer_allowed,
-            "review_markdown": review_md,
-            "review_citations": review_citations,
-            "count": len(review_citations),
-            "warnings": review_warnings,
-            # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
-            "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
-            "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
-        })
 
     # 候选已按综合权重降序。权重是主排序；AI 仅对权重最高的一小批做标注/解释（候选多时控成本），
     # 不丢弃任何已接地的候选——聚合展示靠权重优先呈现最可能段落。
@@ -10568,6 +10583,44 @@ def api_ai_pdf_chat():
 
 def _sse_event(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _sse_run_with_heartbeat(slow_fn, finalize_fn, *, heartbeat_interval: float = 12.0):
+    """跑一段**慢但非流式**的活，期间周期吐 SSE 心跳保活，完成后吐一个 done 事件。
+
+    用途：研究综述用非流式 ``generate_research_review`` 生成(逐 token 流式版曾翻车，不再用)，
+    单请求可达 100s+。直接同步返回会被 Cloudflare ~100s「源站首字节」超时砍成 524 HTML →
+    前端 ``resp.json()`` 撞 ``<``。这里把慢活丢到后台线程，主生成器**立即先吐一个字节、其后每隔
+    ``heartbeat_interval`` 秒吐一条 SSE 注释**喂住 CF 计时器，故全长综述也能从容写完、绝不触发 524。
+
+    - ``slow_fn()``：线程安全、**纯数据**的慢活(不得触碰 flask 请求上下文 g/request)，返回其结果。
+    - ``finalize_fn(result, error)``：在生成器(请求上下文仍在，靠 ``stream_with_context``)里把慢活
+      结果加工成最终 JSON dict(可做接地引文匹配、记账等需要上下文的收尾)；``error`` 为慢活抛出的异常或 None。
+    心跳是 SSE 注释行(``: ...``)，前端解析时自动忽略；最终负载走 ``event: done``。
+    """
+    holder: dict = {}
+
+    def _worker() -> None:
+        try:
+            holder["result"] = slow_fn()
+        except Exception as exc:  # noqa: BLE001 — 慢活任何异常都转交 finalize 决定兜底，不弄断流
+            holder["error"] = exc
+
+    worker = threading.Thread(target=_worker, daemon=True)
+    yield ": keepalive\n\n"  # 立刻首字节：抢在 CF 计时之前，之后心跳逐拍续命
+    worker.start()
+    while True:
+        worker.join(timeout=heartbeat_interval)
+        if not worker.is_alive():
+            break
+        yield ": keepalive\n\n"
+    try:
+        payload = finalize_fn(holder.get("result"), holder.get("error"))
+    except Exception:  # noqa: BLE001 — 收尾失败也要给前端一个干净的可读结果，而非半截流
+        LOGGER.exception("SSE finalize failed")
+        yield _sse_event("error", {"ok": False, "error": "生成失败，请稍后重试。"})
+        return
+    yield _sse_event("done", payload)
 
 
 @app.route("/api/ai/pdf-chat-stream", methods=["POST"])

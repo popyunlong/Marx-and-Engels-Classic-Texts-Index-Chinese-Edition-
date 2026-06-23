@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import re
 import shutil
@@ -56,6 +57,29 @@ def _corpus_sample(min_len: int = 16) -> tuple[str, str]:
             if len(nf) > 4000:
                 return book, nf[2000:2000 + min_len]
     raise RuntimeError("corpus has no usable volume for sampling")
+
+
+def _parse_sse_text(raw):
+    """从 SSE 文本里取最后一个 data: 负载并解析为 JSON；忽略以 ':' 开头的心跳注释行。失败返回 None。"""
+    result = None
+    for block in str(raw or "").split("\n\n"):
+        data_parts = [ln[5:].strip() for ln in block.split("\n") if ln.startswith("data:")]
+        if not data_parts:
+            continue
+        try:
+            result = json.loads("".join(data_parts))
+        except (ValueError, TypeError):
+            pass
+    return result
+
+
+def _read_result(resp):
+    """读取检索响应：研究综述走 SSE 心跳保活流(text/event-stream)，取最后一个 done 事件的 JSON；
+    其余仍是普通 JSON。"""
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if "text/event-stream" not in ctype:
+        return resp.get_json()
+    return _parse_sse_text(resp.get_data(as_text=True))
 
 
 class AssociativeUnitTests(unittest.TestCase):
@@ -238,6 +262,29 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         self.assertEqual(cc.call_args_list[0].kwargs["max_tokens"], ai_module.RESEARCH_REVIEW_MAX_TOKENS)
         self.assertEqual(cc.call_args_list[1].kwargs["max_tokens"], 12000)
 
+    def test_research_review_passes_per_call_http_timeout(self) -> None:
+        # 研究综述是非流式同步请求：每次模型调用都按「剩余总预算」压一个 HTTP 超时，
+        # 任一次调用都不会自己把整篇顶过 Cloudflare ~100s 边缘超时（否则前端 resp.json() 收到 524 HTML）。
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 60) + "## 小结\n综上，文章自然完成。[1]"
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
+            app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        timeout = cc.call_args.kwargs.get("http_timeout")
+        self.assertIsNotNone(timeout)
+        self.assertGreater(timeout, 0)
+        self.assertLessEqual(timeout, app_module.AI_CLIENT.config.request_timeout_seconds)
+
+    def test_research_review_stops_extra_rounds_when_time_budget_exhausted(self) -> None:
+        # 预算不足以再安全跑一轮（这里把所需余量调到极大模拟「预算将尽」）时，即便首轮综述
+        # 未自然收尾，也不再追加续写/重写，而是带着已成文返回——保证非流式链路在 CF 超时前回 JSON。
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        incomplete = "## 研究综述\n" + ("这是一段尚未收尾的正文。[1]\n" * 50)
+        with mock.patch.object(ai_module, "RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS", 10_000), \
+             mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=incomplete) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        self.assertEqual(cc.call_count, 1)  # 既不续写也不重写
+        self.assertIn("这是一段尚未收尾的正文。", review)  # 已成文照常返回，未抛错
+
     def test_research_review_passage_uses_complete_sentence_window(self) -> None:
         raw = (
             ("前置背景说明，暂不涉及核心命中。" * 18)
@@ -311,6 +358,50 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         self.assertEqual(ordered, ["c2", "c0"])
         self.assertEqual(rationale[0], {"confidence": 80, "reason": "好"})
         self.assertEqual(rationale[1]["confidence"], None)
+
+
+class SseHeartbeatStreamTests(unittest.TestCase):
+    """研究综述 SSE 心跳保活：慢活(非流式综述生成)丢后台线程，其间吐心跳喂住 Cloudflare ~100s
+    「首字节」计时器，完成后吐 done 事件——故全长综述也不会被砍成 524 HTML。"""
+
+    def _collect(self, slow_fn, finalize_fn):
+        # heartbeat_interval 取极小值不影响结果：join(timeout) 在线程瞬时完成时立即返回，不空等满拍。
+        return list(app_module._sse_run_with_heartbeat(slow_fn, finalize_fn, heartbeat_interval=0.01))
+
+    def test_emits_keepalive_first_then_done_payload(self) -> None:
+        chunks = self._collect(
+            lambda: "REVIEW_MD",
+            lambda result, error: {"ok": True, "md": result, "err": error},
+        )
+        self.assertTrue(chunks[0].startswith(":"))             # 首字节是心跳注释，抢在 CF 计时前
+        self.assertTrue(chunks[-1].startswith("event: done"))  # 末尾是 done 事件
+        payload = _parse_sse_text("".join(chunks))
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["md"], "REVIEW_MD")
+        self.assertIsNone(payload["err"])
+
+    def test_slow_fn_exception_passed_to_finalize(self) -> None:
+        # 生成抛错(如超时)不弄断流：异常转交 finalize 决定兜底，仍吐一个干净的 done 事件。
+        seen = {}
+
+        def _boom():
+            raise app_module.AIServiceError("boom")
+
+        def _finalize(result, error):
+            seen["error"] = error
+            return {"ok": True, "fellback": error is not None}
+
+        chunks = self._collect(_boom, _finalize)
+        self.assertIsInstance(seen["error"], app_module.AIServiceError)
+        self.assertTrue(_parse_sse_text("".join(chunks))["fellback"])
+
+    def test_finalize_failure_yields_error_event(self) -> None:
+        def _finalize(result, error):
+            raise RuntimeError("finalize broke")
+
+        chunks = self._collect(lambda: "x", _finalize)
+        self.assertTrue(chunks[-1].startswith("event: error"))
+        self.assertFalse(_parse_sse_text("".join(chunks))["ok"])
 
 
 class AssociativeRouteTests(unittest.TestCase):
@@ -490,7 +581,7 @@ class AssociativeRouteTests(unittest.TestCase):
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述"):
             resp = self._post({"gist": sample}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertTrue(data["ok"])
         self.assertGreaterEqual(data["count"], 1)  # 兜底命中
 
@@ -503,7 +594,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述正文 [1]") as rev:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
@@ -526,7 +617,7 @@ class AssociativeRouteTests(unittest.TestCase):
                  side_effect=app_module.AIServiceError("token limit"),
              ):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
@@ -601,7 +692,7 @@ class AssociativeRouteTests(unittest.TestCase):
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
         self.assertIn("research_quota", data)
@@ -634,7 +725,7 @@ class AssociativeRouteTests(unittest.TestCase):
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
         # 扣 1 次：剩余资源包 2 次
@@ -814,7 +905,7 @@ class AssociativeRouteTests(unittest.TestCase):
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", side_effect=_fake_review):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertTrue(data["ok"])
         cits = data["review_citations"]
         self.assertTrue(any(c.get("review_quoted") for c in cits), "应有引文被标注为综述已引用")

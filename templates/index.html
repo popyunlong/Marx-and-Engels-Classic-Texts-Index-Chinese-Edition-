@@ -3337,6 +3337,23 @@
   }
 
   // 联想检索 / 研究型检索共用本函数：mode='locate'(联想·精准定位) | 'research'(研究辅助)。
+  function parseSseResult(raw) {
+    // 从 SSE 文本中取最后一个 data: 负载并解析为 JSON；忽略以 ':' 开头的心跳注释行。
+    // 事件以空行(\n\n)分隔，data: 字段可跨多行(按 SSE 规范拼接)。失败返回 null。
+    let result = null;
+    const blocks = String(raw || '').split('\n\n');
+    for (let bi = 0; bi < blocks.length; bi++) {
+      const lines = blocks[bi].split('\n');
+      const dataParts = [];
+      for (let li = 0; li < lines.length; li++) {
+        if (lines[li].indexOf('data:') === 0) dataParts.push(lines[li].slice(5).trim());
+      }
+      if (!dataParts.length) continue;
+      try { result = JSON.parse(dataParts.join('')); } catch (_) {}
+    }
+    return result;
+  }
+
   async function doAssociativeSearch(text, mode) {
     const isResearch = (mode === 'research');
     if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
@@ -3368,7 +3385,28 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate' })
       });
-      const data = await resp.json();
+      let data;
+      const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+      if (ctype.indexOf('text/event-stream') >= 0) {
+        // 研究综述走 SSE「心跳保活」流(绕开 Cloudflare ~100s 边缘超时)：整段读完，取最后一个
+        // data: 事件的 JSON 负载；以 ':' 开头的心跳注释行自动忽略。读取方式不影响保活——保活靠
+        // 服务端持续吐字节，这里只需把流读完即可。
+        data = parseSseResult(await resp.text());
+        if (!data) {
+          renderEmpty('研究综述生成超时或返回异常，请稍后重试（如反复失败，可把研究论题写得更聚焦一些）。');
+          return;
+        }
+      } else {
+        try {
+          data = await resp.json();
+        } catch (parseErr) {
+          // 兜底：万一仍收到 HTML 错误页(如边缘超时)，给可读提示而非 "Unexpected token '<'"。
+          renderEmpty(isResearch
+            ? '研究综述生成耗时较长或服务繁忙，请稍后重试。'
+            : '网络繁忙或返回异常，请稍后重试。');
+          return;
+        }
+      }
       if (data.research_quota) updateResearchQuota(data.research_quota);
       if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {

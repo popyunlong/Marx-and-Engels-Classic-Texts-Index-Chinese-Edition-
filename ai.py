@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -546,6 +547,22 @@ RESEARCH_REVIEW_MAX_TOKENS = 16000
 RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS = 6000
 RESEARCH_REVIEW_REWRITE_MAX_TOKENS = 16000
 RESEARCH_REVIEW_CONTINUATION_ATTEMPTS = 3
+
+# —— 研究综述「整篇挂钟预算」(兜底防呆，非 CF 超时约束) ——
+# 研究综述用**非流式**生成(逐 token 流式版曾翻车回退，见记忆)，单篇可达上万 token、最多 ~5 次顺序调用。
+# 它经 **SSE 心跳保活**端点对外返回(app._sse_run_with_heartbeat)：响应先吐字节、其间每隔几秒发心跳，
+# 喂住 Cloudflare ~100s「源站首字节」计时器，故**不再受 CF 100s 限**——生成可安心写完整全长综述。
+# 这里的总预算只作**兜底防呆**(防某次模型调用卡死把线程长期拖住)：每次发起修复/续写/重写前校验剩余预算，
+# 不足就带已成文返回；单次调用再按剩余预算压 http_timeout。默认 180s，可经环境变量 RESEARCH_REVIEW_BUDGET_SECONDS 调整。
+try:
+    _RR_BUDGET_RAW = int((os.environ.get("RESEARCH_REVIEW_BUDGET_SECONDS") or "180").strip() or "180")
+except ValueError:
+    _RR_BUDGET_RAW = 180
+RESEARCH_REVIEW_TOTAL_BUDGET_SECONDS = max(20, _RR_BUDGET_RAW)
+# 追加一轮(修复/续写/重写)前要求的最小剩余预算：不足则不再发起，避免最后一轮把总时长顶过 CF 上限。
+RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS = 22
+# 单次模型调用 HTTP 超时的下限：预算将尽时也别用过小的超时立刻判错(给最后一次机会留点余地)。
+RESEARCH_REVIEW_MIN_CALL_TIMEOUT_SECONDS = 8
 _RESEARCH_REVIEW_START_MARKERS = (
     "【综述正文开始】",
     "【正式综述开始】",
@@ -685,7 +702,10 @@ class ZAIClient:
         if ZAIClient._research_review_has_reasoning_leak(compact[:1000]):
             return False
         tail = compact[-700:]
-        has_closing_section = any(marker in tail for marker in ("小结", "结语", "结论", "综上", "总之"))
+        has_closing_section = any(
+            marker in tail
+            for marker in ("小结", "总结", "结语", "结束语", "结论", "综上", "总之", "余论")
+        )
         stripped = tail.rstrip()
         has_final_punctuation = stripped.endswith(("。", "！", "？", ".”", "！”", "？”", "）", "】")) or bool(
             re.search(r"[。！？][\]）】》」』”']*(?:\[\d+\])?$", stripped)
@@ -718,6 +738,7 @@ class ZAIClient:
         messages: list[dict[str, str]],
         *,
         max_tokens: int,
+        deadline: float | None = None,
     ) -> str:
         token_ladder = [max_tokens]
         for fallback in (12000, 8192, 6000):
@@ -725,11 +746,20 @@ class ZAIClient:
                 token_ladder.append(fallback)
         last_error: AIServiceError | None = None
         for budget in token_ladder:
+            # 非流式综述受 Cloudflare ~100s 边缘超时约束：把单次 HTTP 超时压到「剩余总预算」之内，
+            # 任一次调用都不会自己把整篇顶过 CF 上限。预算已不足一次最短调用则直接判超时，交上层兜底。
+            http_timeout: float | None = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining < RESEARCH_REVIEW_MIN_CALL_TIMEOUT_SECONDS:
+                    raise last_error or AIServiceError("研究综述生成已超出时间预算。")
+                http_timeout = min(float(self.config.request_timeout_seconds), remaining)
             try:
                 return self.chat_complete(
                     messages,
                     max_tokens=budget,
                     allow_reasoning_fallback=False,
+                    http_timeout=http_timeout,
                 )
             except AIServiceError as exc:
                 if not self._looks_like_token_limit_error(exc):
@@ -874,12 +904,20 @@ class ZAIClient:
                        "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。"
                        "只输出最终综述正文，绝不输出思考过程、推理过程、分析草稿或提示词说明。",
         }
+        # 整篇生成的总挂钟预算：每次发起模型调用前校验剩余预算，确保在 Cloudflare 边缘超时前回 JSON。
+        # 首轮给足预算一次写完；后续修复/续写/重写只有在剩余预算充足时才追加，否则带着已成文返回。
+        deadline = time.monotonic() + RESEARCH_REVIEW_TOTAL_BUDGET_SECONDS
+
+        def _budget_left() -> float:
+            return deadline - time.monotonic()
+
         raw_answer = self._chat_research_review(
             [system_message, {"role": "user", "content": prompt}],
             max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
+            deadline=deadline,
         )
         answer = self._sanitize_research_review_output(raw_answer)
-        if not answer:
+        if not answer and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
             repair_prompt = (
                 "上一轮输出没有得到合格的正式综述正文。请重新生成一篇完整的学术综述，"
                 "不要输出思考过程、分析过程、写作计划或自我说明；只输出【综述正文开始】与"
@@ -889,12 +927,16 @@ class ZAIClient:
             raw_answer = self._chat_research_review(
                 [system_message, {"role": "user", "content": repair_prompt}],
                 max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
+                deadline=deadline,
             )
             answer = self._sanitize_research_review_output(raw_answer)
         if not answer:
             raise AIServiceError("模型未返回可用的正式综述正文。")
         for _ in range(RESEARCH_REVIEW_CONTINUATION_ATTEMPTS):
             if self._research_review_complete(answer):
+                break
+            # 预算不足以再安全跑一轮续写，就带着当前已成文返回，绝不冒险把整篇顶过 CF 边缘超时。
+            if _budget_left() < RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
                 break
             continuation_prompt = (
                 "下面这篇研究综述还没有自然完成。请从已有正文的末尾继续写下去，不要重写全文，不要重复已经写过的段落；"
@@ -909,12 +951,13 @@ class ZAIClient:
             raw_continuation = self._chat_research_review(
                 [system_message, {"role": "user", "content": continuation_prompt}],
                 max_tokens=RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
+                deadline=deadline,
             )
             continuation = self._sanitize_research_review_output(raw_continuation, allow_fragment=True).strip()
             if not continuation:
                 break
             answer = f"{answer.rstrip()}\n\n{continuation}"
-        if not self._research_review_complete(answer):
+        if not self._research_review_complete(answer) and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
             rewrite_prompt = (
                 "前面的版本仍未自然写完。请重新写一篇完整的学术综述，保持严谨但不要输出思考过程。"
                 "这次请控制整体结构，确保文章一次性完整收束：有开篇、有 3-5 个自然展开的小节、有充分论证、"
@@ -924,6 +967,7 @@ class ZAIClient:
             raw_rewrite = self._chat_research_review(
                 [system_message, {"role": "user", "content": rewrite_prompt}],
                 max_tokens=RESEARCH_REVIEW_REWRITE_MAX_TOKENS,
+                deadline=deadline,
             )
             rewrite = self._sanitize_research_review_output(raw_rewrite)
             if rewrite:
@@ -1477,6 +1521,7 @@ class ZAIClient:
         web_search_query: str | None = None,
         allow_reasoning_fallback: bool = True,
         model: str | None = None,
+        http_timeout: float | None = None,
     ) -> str:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
@@ -1508,6 +1553,7 @@ class ZAIClient:
                     base_url=route["base_url"],
                     api_key=route["api_key"],
                     service_label=route["label"],
+                    http_timeout=http_timeout,
                 )
                 break
             except AIServiceError as exc:
@@ -1655,8 +1701,11 @@ class ZAIClient:
         base_url: str | None = None,
         api_key: str | None = None,
         service_label: str | None = None,
+        http_timeout: float | None = None,
     ) -> dict[str, Any]:
         label = service_label or self.config.provider
+        # 调用方(如研究综述)可按「剩余总预算」压低单次超时；默认沿用全局 request_timeout_seconds。
+        timeout = http_timeout if (http_timeout and http_timeout > 0) else self.config.request_timeout_seconds
         url = f"{base_url or self.config.base_url}{path}"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib_request.Request(
@@ -1670,7 +1719,7 @@ class ZAIClient:
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, timeout=self.config.request_timeout_seconds) as resp:
+            with urllib_request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib_error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
