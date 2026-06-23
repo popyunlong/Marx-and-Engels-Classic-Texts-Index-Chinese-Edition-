@@ -1869,6 +1869,10 @@
         </span>
       </div>
       <div class="topbar-actions">
+        {% if not current_user %}
+        <a class="mini-btn" href="{{ url_for('login') }}">登录</a>
+        <a class="mini-btn" href="{{ url_for('register') }}">注册</a>
+        {% endif %}
         <a class="mini-btn" href="{{ url_for('pricing') }}">会员套餐</a>
         {% if local_console_available %}
         <a class="mini-btn" href="{{ url_for('control') }}">本地控制台</a>
@@ -1882,9 +1886,6 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <button type="submit" class="secondary">退出登录</button>
         </form>
-        {% else %}
-        <a class="mini-btn" href="{{ url_for('login') }}">登录</a>
-        <a class="mini-btn" href="{{ url_for('register') }}">注册</a>
         {% endif %}
       </div>
     </section>
@@ -2078,9 +2079,9 @@
           {% else %}
           <input type="search" placeholder="{{ site_text('index.chapter_search_disabled_placeholder') }}" aria-label="搜索篇章名称" disabled>
           <p class="muted chapter-search-hint">
-            {% if chapter_search.status == 'login_required' %}登录后即可使用「{{ chapter_search.label }}」篇章直达。
-            {% elif chapter_search.status == 'subscribe_required' %}开通会员后即可使用「{{ chapter_search.label }}」篇章直达。
-            {% else %}篇章直达功能暂未开放。{% endif %}
+            {% if chapter_search.status == 'login_required' %}{{ site_text('index.chapter_search_hint_login', label=chapter_search.label) }}
+            {% elif chapter_search.status == 'subscribe_required' %}{{ site_text('index.chapter_search_hint_subscribe', label=chapter_search.label) }}
+            {% else %}{{ site_text('index.chapter_search_hint_unavailable') }}{% endif %}
           </p>
           {% if chapter_search.href %}
           <a class="feature-action" href="{{ chapter_search.href }}">{% if chapter_search.status == 'login_required' %}去登录{% elif chapter_search.status == 'subscribe_required' %}查看会员套餐{% else %}了解更多{% endif %}</a>
