@@ -4,6 +4,7 @@ import json
 import html
 import ipaddress
 import os
+import queue
 import re
 import secrets
 import signal
@@ -473,6 +474,13 @@ READER_AUDIT_PRUNE_INTERVAL_SECONDS = 60 * 60
 # 在线变化图按 15 分钟时槽留存，保留 48 小时足够覆盖 24 小时窗口与跨时区显示。
 ONLINE_PRESENCE_KEEP_HOURS = 48
 ONLINE_PRESENCE_PRUNE_INTERVAL_SECONDS = 60 * 60
+# 异步审计写：阅读热路径上的三类「尽力而为」记账(reader_access_events / site_activity /
+# online_presence)原本每请求同步写 SQLite。被拒匿名洪峰会让 8 个工作线程同时抢单一写锁、
+# 队列堆高(2026-06-24 攻击实测队列峰值 11、2 分钟写 593 行审计)。改为投递到单个后台写线程
+# 串行落库，请求线程零写锁等待；队列触顶即丢弃并限频告警(best-effort 审计，宁丢记录不拖垮请求)。
+# 测试态(app.testing)仍同步写以保证「请求后立即查库」的断言成立。
+ASYNC_AUDIT_QUEUE_MAX = 8000
+ASYNC_AUDIT_DROP_WARN_INTERVAL_SECONDS = 60
 READER_ENDPOINTS = {
     "reader",
     "library",
@@ -602,6 +610,11 @@ _last_order_expiry_sweep: list[float] = [0.0]
 _last_reader_audit_prune: list[float] = [0.0]
 _last_online_presence_prune: list[float] = [0.0]
 _last_reader_auto_ban: list[float] = [0.0]
+_async_audit_queue: "queue.Queue[tuple[str, dict]]" = queue.Queue(maxsize=ASYNC_AUDIT_QUEUE_MAX)
+_async_audit_dropped: list[int] = [0]
+_async_audit_last_drop_warn: list[float] = [0.0]
+_async_audit_writer_started = threading.Event()
+_async_audit_writer_lock = threading.Lock()
 ADMIN_SECTION_MODULES = {
     "overview": "overview",
     "copy": "content",
@@ -2692,13 +2705,86 @@ def _reader_audit_payload(*, is_rate_limited: bool = False) -> dict:
     }
 
 
+# 三类尽力而为的记账写，按 kind 分派到对应的落库函数(均接受关键字 payload)。
+_ASYNC_AUDIT_WRITERS: dict = {
+    "reader": lambda p: record_reader_access_event(**p),
+    "activity": lambda p: record_site_activity(**p),
+    "online": lambda p: record_online_presence(**p),
+}
+
+
+def _async_audit_writer_loop() -> None:
+    # 单个后台守护线程串行落库：与请求线程零竞争，被拒匿名洪峰不再挤 SQLite 写锁。
+    while True:
+        try:
+            kind, payload = _async_audit_queue.get()
+        except Exception:
+            continue
+        writer = _ASYNC_AUDIT_WRITERS.get(kind)
+        try:
+            if writer is not None:
+                writer(payload)
+        except Exception as exc:
+            LOGGER.debug("Async audit write (%s) failed: %s", kind, exc)
+        finally:
+            _async_audit_queue.task_done()
+
+
+def _ensure_async_audit_writer() -> None:
+    if _async_audit_writer_started.is_set():
+        return
+    with _async_audit_writer_lock:
+        if _async_audit_writer_started.is_set():
+            return
+        threading.Thread(
+            target=_async_audit_writer_loop,
+            name="async-audit-writer",
+            daemon=True,
+        ).start()
+        _async_audit_writer_started.set()
+
+
+def _record_async_audit_drop() -> None:
+    _async_audit_dropped[0] += 1
+    now = time.time()
+    if now - _async_audit_last_drop_warn[0] >= ASYNC_AUDIT_DROP_WARN_INTERVAL_SECONDS:
+        _async_audit_last_drop_warn[0] = now
+        LOGGER.warning(
+            "Async audit queue full; dropped %d best-effort audit writes so far.",
+            _async_audit_dropped[0],
+        )
+
+
+def _enqueue_audit_write(kind: str, payload: dict) -> None:
+    """把一条尽力而为的审计/记账写投递到后台单写线程。
+
+    生产态请求线程只做 O(1) 入队、不碰 SQLite；测试态(app.testing)直接同步写，
+    保证既有「请求后立即查库断言」成立。队列触顶则丢弃并限频告警。"""
+    writer = _ASYNC_AUDIT_WRITERS.get(kind)
+    if writer is None:
+        return
+    if app.testing:
+        try:
+            writer(payload)
+        except Exception as exc:
+            LOGGER.debug("Sync audit write (%s) failed: %s", kind, exc)
+        return
+    _ensure_async_audit_writer()
+    try:
+        _async_audit_queue.put_nowait((kind, payload))
+    except queue.Full:
+        _record_async_audit_drop()
+
+
 def _record_reader_access_event(*, is_rate_limited: bool = False) -> None:
     if not _is_reader_audit_endpoint():
         return
     try:
-        record_reader_access_event(**_reader_audit_payload(is_rate_limited=is_rate_limited))
+        payload = _reader_audit_payload(is_rate_limited=is_rate_limited)
     except Exception as exc:
-        LOGGER.debug("Reader access recording failed: %s", exc)
+        LOGGER.debug("Reader access payload build failed: %s", exc)
+        return
+    _enqueue_audit_write("reader", payload)
 
 
 def _prune_reader_audit_if_due() -> None:
@@ -5577,18 +5663,26 @@ def record_current_activity():
         user = getattr(g, "current_user", None)
         session_key = _visitor_session_key()
         user_id = int(user["id"]) if user else None
-        record_site_activity(
-            session_key=session_key,
-            user_id=user_id,
-            day=china_day_text(),
-            feature=feature,
-            path=request.path,
+        # 与请求上下文相关的值(会话键、去重键)在请求线程内先解析好，再投递；后台写线程只拿
+        # 已解析的纯数据落库，不依赖 request/g。两类写都移出热路径，避免被拒匿名洪峰挤 SQLite 写锁。
+        _enqueue_audit_write(
+            "activity",
+            {
+                "session_key": session_key,
+                "user_id": user_id,
+                "day": china_day_text(),
+                "feature": feature,
+                "path": request.path,
+            },
         )
-        # 同步写入 15 分钟时槽在线记录，供 24 小时在线变化图统计。匿名访客的去重键按是否回传
-        # 会话 cookie 走 cookie 或真实 IP（见 _online_presence_dedup_key），避免「每请求换 cookie」
-        # 的爬虫把在线人数刷高失真。
-        record_online_presence(
-            session_key=_online_presence_dedup_key(session_key), user_id=user_id
+        # 15 分钟时槽在线记录，供 24 小时在线变化图统计。匿名访客去重键按是否回传会话 cookie 走
+        # cookie 或真实 IP（见 _online_presence_dedup_key），避免「每请求换 cookie」的爬虫刷高在线数。
+        _enqueue_audit_write(
+            "online",
+            {
+                "session_key": _online_presence_dedup_key(session_key),
+                "user_id": user_id,
+            },
         )
         _prune_online_presence_if_due()
     except Exception as exc:
