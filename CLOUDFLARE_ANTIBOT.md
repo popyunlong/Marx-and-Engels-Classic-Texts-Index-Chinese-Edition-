@@ -10,8 +10,14 @@
 
 ## 在 Cloudflare 后台操作（域名 mazhuzuojiansuo.com）
 
-### 1) 立即：打开 Bot Fight Mode（最快、免费、通用）
-Security → Bots → **Bot Fight Mode** 打开。（Pro 版可用 Super Bot Fight Mode：把 "Definitely automated" 设为 Block。）
+### 1) ⚠️ 不要开 Bot Fight Mode（Free 版）
+~~Security → Bots → Bot Fight Mode 打开~~ ——**撤回此建议**：Free 版 BFM **不受 WAF Custom Rules 的 Skip/Allow 豁免**，
+会把 ZPay/支付宝的**服务器回调**（`/payments/*/notify`，无浏览器无 JS）当机器人挑战 → 支付静默失败、会员开不通
+（与 CLOUDFLARE_CUTOVER.md 第 6 步的支付回调警告冲突）。
+可以安全开启的替代项：Security → Bots → **Block AI bots / AI Scrapers and Crawlers**（只拦自报身份的 AI 采集爬虫
+GPTBot 等，正是源站 UA 黑名单在硬扛的主力，不影响支付回调与普通访客）。
+另：2026-07-05 起源站已做 Caddy 层锁定（见 CLOUDFLARE_CUTOVER.md 第 7 步），直连源站 IP 绕过 CF 的路已封死，
+CF 边缘规则从此没有旁路。
 
 ### 2) WAF 自定义规则 A —— 直接拦掉本波 UA（精准、对登录用户零误伤）
 Security → WAF → Custom rules → Create rule

@@ -82,12 +82,32 @@ CF 代理后，直连 Caddy 的是 CF 边缘节点，Caddy 会把 *CF 边缘 IP*
   仅**后台「发布文件上传」**（`MAX_RELEASE_UPLOAD_MB`，可达 ~200MB）若走被代理的域名会被 CF 413。
   解决：发布走 `update_cloud.ps1`/`scp`（本就是 SSH，不经 CF），或上传时临时把记录改灰云。语料/PDF 走独立 scp 脚本，不受影响。
 
-### 7. （推荐、放最后、谨慎做）锁源站防火墙到 CF 段——隐藏源站 + 让 `CF-Connecting-IP` 真正不可伪造
-> 在此之前 CF 已经给你 CDN/WAF/DDoS；这一步是"藏源站"，把 80/443 只放行 CF，杜绝有人摸到源站 IP 直连绕过 CF（并伪造 `CF-Connecting-IP`）。
-- **务必先确认流量已走 CF**（第 5 步生效后观察一会儿），再收紧防火墙；否则 DNS 还缓存着灰云、直连源站的真实用户会被挡。
-- `ufw`：放行 CF 官方 IPv4/IPv6 段到 80/443；**22 端口务必保留对你管理 IP 的放行**（别把自己锁外面），并准备好云厂商的 VNC/控制台兜底。
-- CF 的 IP 段会变化，建议用脚本定期同步官方列表（`https://www.cloudflare.com/ips/`）。
-- 这步不做也能用（CDN/WAF/DDoS 照常），代价仅是源站 IP 若泄露可被绕过——按需取舍。
+### 7. 源站锁定（✅ 已于 2026-07-05 上线，Caddy 层方案）——隐藏源站 + 让 `CF-Connecting-IP` 真正不可伪造
+> 最终采用 **Caddy 层（L7）软锁定**而非 ufw：上次 ufw 锁 443 因「部分用户断连 + 站长直连断」回滚；
+> L7 方案拦错也只是可读 403 + 秒级单命令回滚，且能按 UA token 豁免动态 IP 的监控/调试直连（ufw 做不到）。
+
+**机制**：`/etc/caddy/cf_origin_lock.caddy` 定义 snippet `(cf_origin_lock)`——
+既不来自 CF 官方段/本机回环、又不带监控豁免 UA（`mazhumonitor`，与 app.py 一致）→ Caddy 静态 403，不进 waitress；
+同时对所有非 CF 来源剥除 `CF-Connecting-IP`/`CF-IPCountry`/`True-Client-IP` 头（伪造缺口闭合）。
+Caddyfile 顶部 `import /etc/caddy/cf_origin_lock.caddy`，站点块内 `import cf_origin_lock`。
+
+**IP 段维护**：`/usr/local/sbin/update_cf_ips.sh`（仓库 `deploy/update_cf_ips.sh`）拉官方
+`cloudflare.com/ips-v4|v6`，逐行 CIDR 校验 + 数量下限，`caddy validate` 通过才 reload，失败保持现状；
+`marx-search-cfip-sync.timer` 每周触发，手动：`systemctl start marx-search-cfip-sync.service`。
+离线兜底样本：`deploy/cf_origin_lock.caddy.example`。
+
+**验证**（上线时全过）：经 CF 访问 200；`curl --resolve 域名:443:源站IP` 直连 → 403；
+直连带 `MazhuMonitor/1.0` UA → 放行；直连 80 → 308 跳回 https（落回 CF）；
+直连伪造 `CF-Connecting-IP` 头 → 应用侧看到的是真实 IP（头已被剥）。
+
+**回滚**（秒级）：注释掉站点块内 `import cf_origin_lock`（或还原 `/etc/caddy/Caddyfile.bak.*`）+ `systemctl reload caddy`。
+
+**站长自己要直连调试时**：UA 里带上 `MazhuMonitor/1.0` 即可，例如
+`curl -A "Mozilla/5.0 MazhuMonitor/1.0" --resolve mazhuzuojiansuo.com:443:源站IP https://mazhuzuojiansuo.com/...`；或走 SSH 隧道。
+
+**（可选附录）ufw 硬锁定**：边际收益仅剩内核层丢弃直连 SYN；前置条件 = 监控/调试直连全部改走域名或 SSH 隧道。
+若做：先 `systemd-run --on-active=15min` 挂自动恢复保险丝再收紧，22 端口全程不碰，备好云厂商 VNC 兜底。
+CF 段变化还需把 ufw 同步挂进 update_cf_ips.sh。**功能目标 Caddy 层已 100% 达成，此步可无限期推迟。**
 
 ---
 

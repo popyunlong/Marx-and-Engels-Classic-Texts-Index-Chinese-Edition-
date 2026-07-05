@@ -1,0 +1,19 @@
+# Caddy「源站锁定」snippet 离线兜底/审阅版（线上真实文件由 deploy/update_cf_ips.sh 自动生成并每周刷新）。
+# IP 段以官方为准：https://www.cloudflare.com/ips/ （下方为 2026-07 时点的 15×IPv4 + 7×IPv6 官方段）
+# 放行 = 来自 CF 边缘 或 本机回环 或 带监控豁免 UA（与 app.py _DEFAULT_MONITORING_UA_TOKENS 一致）；其余一律 403。
+# 用法：放到 /etc/caddy/cf_origin_lock.caddy，Caddyfile 顶部 `import /etc/caddy/cf_origin_lock.caddy`，
+#      站点块内 `import cf_origin_lock`。回滚 = 移除站点块内那行 import + reload。
+(cf_origin_lock) {
+	@deny_direct {
+		not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32 127.0.0.0/8 ::1
+		not header_regexp User-Agent (?i)mazhumonitor
+	}
+	@not_cf not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32 127.0.0.0/8 ::1
+	request_header @not_cf -CF-Connecting-IP
+	request_header @not_cf -CF-IPCountry
+	request_header @not_cf -True-Client-IP
+	respond @deny_direct 403 {
+		body "403 Forbidden: direct origin access is blocked. Use https://mazhuzuojiansuo.com/"
+		close
+	}
+}
