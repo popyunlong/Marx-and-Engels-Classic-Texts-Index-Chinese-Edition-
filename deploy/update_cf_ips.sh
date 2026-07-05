@@ -28,7 +28,14 @@ if [ "$v4_ok" -lt 10 ] || [ "$v4_ok" != "$v4_all" ] || [ "$v6_ok" -lt 5 ] || [ "
   exit 1
 fi
 
-ranges="$(tr '\n' ' ' < "$tmp_v4")$(tr '\n' ' ' < "$tmp_v6")127.0.0.0/8 ::1"
+# 注意：$( ) 会剥末尾空白、官方文件末尾无换行——必须显式加分隔空格，否则 v4/v6 段粘连
+ranges="$(tr '\n' ' ' < "$tmp_v4") $(tr '\n' ' ' < "$tmp_v6") 127.0.0.0/8 ::1"
+expected=$((v4_ok + v6_ok + 2))
+actual=$(echo "$ranges" | wc -w)
+if [ "$actual" -ne "$expected" ]; then
+  echo "网段拼接数量不符(expected=${expected} actual=${actual})，保持现有 snippet 不动" >&2
+  exit 1
+fi
 
 # 注意：不要在生成内容里放时间戳——靠 cmp 判断“列表没变就不 reload”
 cat > "$tmp_out" <<EOF
