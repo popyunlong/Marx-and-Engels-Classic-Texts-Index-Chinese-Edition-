@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ home_title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{--bg:#f4efe7;--panel:#fffdf8;--line:#e3d8c8;--text:#241d17;--muted:#766a5d;--accent:#8f1d1d;--accent-soft:#f4e3dc;}
+    *{box-sizing:border-box}
+    body{margin:0;color:var(--text);font-family:"Microsoft YaHei","Noto Sans CJK SC",sans-serif;background:var(--bg);line-height:1.6;}
+    .topbar{display:flex;align-items:center;gap:14px;padding:13px 24px;border-bottom:1px solid var(--line);background:rgba(255,253,248,.96);position:sticky;top:0;z-index:5;backdrop-filter:blur(8px);}
+    .topbar a.back{color:var(--accent);text-decoration:none;font-size:.92em;white-space:nowrap;}
+    .topbar h1{font-size:1.08em;margin:0;font-weight:600;letter-spacing:.02em;}
+    .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 64px;}
+    .intro{color:var(--muted);margin:0 0 26px;font-size:.94em;}
+    .reading-history-strip{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin:0 0 24px;}
+    .reading-history-strip[hidden]{display:none;}
+
+    .book{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 26px 26px;margin-bottom:26px;box-shadow:0 1px 4px rgba(60,40,20,.05);}
+    .book-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px;}
+    .book-head h2{margin:0;font-size:1.32em;letter-spacing:.01em;}
+    .badge{font-size:.66em;font-weight:700;color:#fff;background:var(--accent);border-radius:6px;padding:2px 7px;letter-spacing:.06em;}
+    .vcount{margin-left:auto;font-size:.8em;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 12px;white-space:nowrap;}
+    .book .desc{color:var(--muted);font-size:.88em;margin:12px 0 18px;padding-top:14px;border-top:1px dashed var(--line);}
+
+    .vols{display:flex;flex-direction:column;gap:10px;}
+    .vol{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:11px;padding:11px 13px;background:#fff;color:var(--text);text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s;min-height:56px;}
+    .vol:hover{border-color:var(--accent);box-shadow:0 3px 12px rgba(143,29,29,.10);transform:translateY(-1px);}
+    .vol .vnum{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:48px;height:36px;padding:0 9px;background:var(--accent-soft);color:var(--accent);border-radius:8px;font-weight:700;font-size:.9em;white-space:nowrap;}
+    .vol .vdetail{font-size:.86em;line-height:1.35;color:var(--text);overflow:hidden;}
+    .empty{color:var(--muted);}
+  </style>
+</head>
+<body>
+  <div class="topbar"><a class="back" href="/">← 返回首页</a><h1>{{ home_title }}</h1></div>
+  <div class="wrap">
+    {% if home_intro %}<p class="intro">{{ home_intro }}</p>{% endif %}
+
+    {# 阅读历史「继续阅读」：本设备记录、按账号隔离、有记录才显示，一键回到上次阅读处。 #}
+    <section class="reading-history-strip" id="readingHistoryStrip" hidden></section>
+
+    {% for book in books %}
+    <div class="book">
+      <div class="book-head">
+        <h2>{{ book.title_zh }}</h2>
+        {% if book.badge %}<span class="badge">{{ book.badge }}</span>{% endif %}
+        {% if book.volumes %}<span class="vcount">共 {{ book.volumes|length }} 卷</span>{% endif %}
+      </div>
+      {% if book.desc %}<p class="desc">{{ book.desc }}</p>{% endif %}
+
+      <div class="vols">
+        {% for v in book.volumes %}
+        <a class="vol" href="{{ url_for(reader_endpoint, book_key=book.key, vol=v.n) }}" title="{{ v.label }}">
+          <span class="vnum">{{ v.tag or ('第' ~ v.n ~ '卷') }}</span>
+          <span class="vdetail">{{ v.label }}</span>
+        </a>
+        {% else %}
+        <span class="empty">（暂无卷次）</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="empty">流式阅读暂无内容。</p>
+    {% endfor %}
+  </div>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
+  {# 阅读历史「继续阅读」：模块自渲染上方 #readingHistoryStrip 容器（空则保持隐藏）。 #}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  <script>window.MarxReadingHistory && MarxReadingHistory.mount('#readingHistoryStrip', { title: '继续阅读' });</script>
+</body>
+</html>

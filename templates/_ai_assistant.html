@@ -1,0 +1,83 @@
+{# ===========================================================================
+   全站「AI 随心问」可复用 partial（自包含、命名空间 aia*、与各页脚本零冲突）。
+   两种形态，由 include 前的 aia_variant 决定（缺省 drawer）：
+     · drawer（默认）：右侧偏上竖向标签 + 点击展开的右侧固定抽屉（ESC/×/标签/抽屉外点击收起）；
+       放在 </body> 前 include。
+     · inline：首页「留言反馈」下方的固定卡片（常驻、无标签/无收起）；放在右栏对应位置 include：
+       {% set aia_variant = 'inline' %}{% include "_ai_assistant.html" %}
+   配置经 /api/ai/assistant-config 拉取；文案走 site_text（控制台可改）。沉浸式 PDF 阅读器(viewer)不引入。
+   =========================================================================== #}
+{% set aia_variant = aia_variant | default('drawer') %}
+<link rel="stylesheet" href="/static/ai-assistant/ai-assistant.css?v=6">
+<link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
+<div id="ai-assistant-root" class="aia-mode-{{ aia_variant }}"
+     data-csrf="{{ csrf_token }}"
+     data-empty="{{ site_text('index.ai_empty_state') }}"
+     data-locked="{{ site_text('index.ai_drawer_locked_login') }}"
+     data-unavailable="{{ site_text('index.ai_unavailable') }}">
+
+  {% if aia_variant != 'inline' %}
+  <button type="button" class="aia-tab" aria-label="打开 AI 随心问" aria-expanded="false">
+    <span class="aia-tab-rail">
+      <span class="aia-tab-badge" aria-hidden="true">AI</span>
+      <span class="aia-tab-main">{{ site_text('index.ai_drawer_title') }}</span>
+      <span class="aia-tab-divline" aria-hidden="true"></span>
+      <span class="aia-tab-sub">{{ site_text('index.ai_drawer_subtitle') }}</span>
+    </span>
+    <span class="aia-tab-dot" aria-hidden="true"></span>
+  </button>
+  {% endif %}
+
+  <aside class="aia-panel" role="{{ 'region' if aia_variant == 'inline' else 'dialog' }}" aria-label="AI 随心问" aria-modal="false">
+    <div class="aia-head">
+      <div class="aia-head-titles">
+        <h2><span class="aia-head-badge" aria-hidden="true">AI</span>{{ site_text('index.ai_drawer_title') }}</h2>
+        <p class="aia-head-sub">{{ site_text('index.ai_drawer_subtitle') }}</p>
+      </div>
+      <span class="aia-model" id="aiaModelBadge">{{ site_text('index.ai_status_loading') }}</span>
+      <button type="button" class="aia-close" aria-label="收起">×</button>
+    </div>
+
+    <p class="aia-status" id="aiaStatus">{{ site_text('index.ai_status_loading') }}</p>
+    <div class="aia-lock-note" hidden></div>
+
+    <div class="aia-provider-row" hidden>
+      <label for="aiaProviderSelect">选择模型</label>
+      <select id="aiaProviderSelect">
+        <option value="deepseek">DeepSeek（默认，不联网）</option>
+        <option value="zhipu">智谱 GLM-5.1（可联网检索）</option>
+      </select>
+    </div>
+
+    <div class="aia-grounding-row" hidden>
+      <label class="aia-grounding-label">
+        <input type="checkbox" id="aiaGroundingToggle">
+        <span>检索引文库作答</span>
+      </label>
+      <span class="aia-grounding-hint">开启后先检索原著原文，回答附准确出处</span>
+    </div>
+
+    <div class="aia-scope-row" hidden>
+      <span class="aia-scope-label">检索范围</span>
+      <div class="aia-scope-chips" id="aiaScopeChips" role="group" aria-label="检索范围（可多选著作群）"></div>
+      <span class="aia-book-scope" id="aiaBookScopeMount"></span>
+    </div>
+
+    <div class="aia-quota hidden" id="aiaTokenQuota">
+      <div class="aia-quota-bar"><span id="aiaTokenQuotaFill"></span></div>
+      <span class="aia-quota-text" id="aiaTokenQuotaText"></span>
+    </div>
+
+    <div class="chat-box" id="aiaMessages"></div>
+
+    <textarea class="aia-input" id="aiaPrompt" placeholder="{{ site_text('index.ai_prompt_placeholder') }}"></textarea>
+
+    <div class="aia-actions">
+      <button type="button" class="aia-primary" id="aiaSendBtn">发送提问</button>
+      <button type="button" class="aia-secondary" id="aiaInsertBtn">插入当前检索框文本</button>
+      <button type="button" class="aia-secondary" id="aiaClearBtn">清空会话</button>
+    </div>
+  </aside>
+</div>
+<script src="/static/book-scope/book-scope.js?v=3" defer></script>
+<script src="/static/ai-assistant/ai-assistant.js?v=6" defer></script>

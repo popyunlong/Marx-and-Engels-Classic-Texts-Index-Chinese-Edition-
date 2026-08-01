@@ -42,7 +42,7 @@
       margin: 0 auto;
       padding: 24px 16px 56px;
     }
-    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .community-card, .feedback-card, .ai-card {
+    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .community-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 20px;
@@ -126,6 +126,24 @@
     }
     /* 脚本均衡后，每行是一个 flex 行容器；行内各项按内容宽度并 grow 撑满两端。 */
     .hero-corpus-row { display: flex; gap: 8px; align-items: stretch; }
+    /* 「收录文献」折叠按钮：并入 meta 行（「联系方式」旁），小字低调、悬停下划线；点击展开/收起下方清单。
+       折叠用 max-height（内容仍参与布局，故 setupHeroCorpusLayout 能正确测量并均衡分行）。 */
+    .hero-corpus-toggle {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 0; margin: 0; cursor: pointer; font: inherit;
+      font-size: .82rem; letter-spacing: .02em;
+      color: rgba(255, 241, 226, 0.72);
+      background: transparent; border: none;
+      transition: color .14s ease;
+    }
+    .hero-corpus-toggle:hover { color: rgba(255, 250, 244, 0.98); text-decoration: underline; }
+    .hero-corpus-toggle .hcc-caret { font-size: .68rem; transition: transform .16s ease; }
+    .hero-corpus-toggle[aria-expanded="true"] .hcc-caret { transform: rotate(90deg); }
+    .hero-corpus-toggle .hcc-hint { margin-left: 4px; opacity: .7; }
+    .hero-corpus { max-height: 1600px; transition: max-height .34s ease, margin-top .3s ease, padding-top .3s ease; }
+    .hero-corpus.collapsed {
+      max-height: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top-color: transparent;
+    }
     .topbar, .member-strip, .flash {
       background: var(--card);
       border: 1px solid var(--line);
@@ -168,12 +186,74 @@
     .mini-btn:hover {
       background: var(--soft);
     }
+    /* 「赞助」友情打赏弹层：顶栏赞助按钮点开，访客/会员均可打赏（复用 /donate 下单管线）。 */
+    .donate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9995;               /* 高于马克思宠物(9990)与 AI 抽屉(9991/9992)，低于顶部提示(9999) */
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 48px 16px;
+      overflow-y: auto;
+      background: rgba(24, 14, 14, 0.5);
+    }
+    .donate-overlay.open { display: flex; }
+    .donate-modal {
+      position: relative;
+      width: min(520px, 100%);
+      margin: auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+      padding: 26px 26px 22px;
+    }
+    .donate-modal h2 {
+      margin: 0 0 6px;
+      padding-right: 32px;
+      font-size: 1.3rem;
+      color: var(--text);
+    }
+    .donate-close {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 1.4rem;
+      line-height: 1;
+    }
+    .donate-close:hover { background: var(--soft); color: var(--text); }
+    .donate-presets { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 12px; }
+    .donate-amount-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .donate-amount-row input {
+      flex: 1;
+      min-width: 180px;
+      padding: 11px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+    }
     .member-strip {
       padding: 16px 18px;
       margin-top: 16px;
       display: grid;
       gap: 12px;
     }
+    .reading-history-strip {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px 18px;
+      margin-top: 16px;
+    }
+    .reading-history-strip[hidden] { display: none; }
     .member-strip p {
       margin: 0;
       color: var(--muted);
@@ -189,6 +269,86 @@
       gap: 10px;
       margin-bottom: 16px;
     }
+    /* 首页双入口：hero 下方两张大卡（阅读学习 / AI 研究对话）。左卡滚到功能区，右卡进 /ai 全页。 */
+    .home-entries {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .home-entry {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+      padding: 18px 20px;
+      border-radius: 18px;
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(255, 244, 214, 0.95), rgba(255, 253, 249, 0.98));
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    }
+    .home-entry:hover { transform: translateY(-2px); box-shadow: 0 22px 50px rgba(64, 44, 27, 0.14); }
+    .home-entry .he-kicker { font-size: .86rem; font-weight: 700; color: var(--accent); }
+    .home-entry h2 { margin: 0; font-size: 1.24rem; }
+    .home-entry p { margin: 0; color: var(--muted); line-height: 1.65; font-size: .95rem; }
+    .home-entry .he-go {
+      margin-top: 6px; font-weight: 700; color: var(--accent);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    /* 阅读学习卡：冷灰蓝（沉静、次级），与右侧暖金 AI 卡形成冷暖对照。 */
+    .home-entry.study {
+      border-color: rgba(88, 108, 130, 0.34);
+      background: linear-gradient(135deg, rgba(228, 236, 243, 0.96), rgba(248, 251, 253, 0.98));
+    }
+    .home-entry.study .he-kicker,
+    .home-entry.study .he-go { color: #37587a; }
+    /* AI 卡：暖金玻璃 + 华典古金描边 + 缓慢流光——沿用暖黄基调但更醒目、有玻璃反射，高贵夺目，
+       作为进入「AI 研究对话」的预告（与「研究综述」玻璃质感一脉相承，唯配色由黑金转暖金）。 */
+    .home-entry.ai {
+      position: relative;
+      overflow: hidden;
+      border-color: #c9a227;
+      background:
+        linear-gradient(135deg, #fbe7ac 0%, #fdf1cf 46%, #fffaf0 100%),
+        repeating-linear-gradient(45deg, rgba(201, 162, 39, 0.10) 0 2px, transparent 2px 14px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.7),
+        0 0 0 1px rgba(201, 162, 39, 0.45),
+        0 18px 46px rgba(120, 96, 30, 0.20);
+    }
+    /* 顶部玻璃高光（恒亮，覆盖上半部，玻璃质感） */
+    .home-entry.ai::before {
+      content: "";
+      position: absolute; left: 0; right: 0; top: 0; height: 46%;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.06) 78%, transparent);
+      pointer-events: none;
+    }
+    /* 斜向流光，缓慢扫过（玻璃反射）——白色高光扫过暖金底 */
+    .home-entry.ai::after {
+      content: "";
+      position: absolute; top: -20%; bottom: -20%; left: -60%; width: 40%;
+      background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+      transform: skewX(-18deg);
+      animation: homeAiSheen 6s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes homeAiSheen { 0%, 62% { left: -60%; } 100% { left: 132%; } }
+    .home-entry.ai > * { position: relative; z-index: 1; }  /* 内容压在玻璃高光/流光之上 */
+    .home-entry.ai:hover {
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.85),
+        0 0 0 1px rgba(201, 162, 39, 0.7),
+        0 24px 58px rgba(120, 96, 30, 0.28);
+    }
+    .home-entry.ai .he-kicker { color: #9a6a12; }
+    .home-entry.ai h2 { color: #6a3a12; }
+    .home-entry.ai p { color: #6f5c37; }
+    .home-entry.ai .he-go { color: #8f1d1d; }
+    @media (prefers-reduced-motion: reduce) { .home-entry.ai::after { animation: none; } }
+    #homeStudyAnchor { scroll-margin-top: 16px; }
+    @media (max-width: 720px) { .home-entries { grid-template-columns: 1fr; } }
     .flash {
       padding: 12px 14px;
       line-height: 1.7;
@@ -206,8 +366,55 @@
       gap: 14px;
       align-content: start;
     }
-    .panel, .status-card, .notice-card, .community-card, .feedback-card, .ai-card {
+    .panel, .status-card, .notice-card, .community-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
       padding: 20px;
+    }
+    /* 引文检索卡：上下留白更充裕，不显局促（仅纵向加大，左右与宽度不变）。 */
+    .search-panel-v2 {
+      padding-top: 24px;
+      padding-bottom: 24px;
+    }
+    /* 网站支持的文库卡：标题 + 收录清单竖向无缝循环滚动（与社区建设同款，配色取品牌红暖调） */
+    /* 卡片标题：字号/字重全部沿用全局 h2（与「网站公告 / 注册用户分布」等功能栏标题一致），
+       这里只管布局与配色；衬线只用在下方条目文字上。 */
+    .library-head {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      margin: 0 0 10px; color: var(--accent);
+    }
+    .library-head .library-count { font-size: .82rem; font-weight: 600; color: var(--muted); white-space: nowrap; letter-spacing: 0; }
+    .library-marquee {
+      position: relative; height: 340px; overflow: hidden;
+      /* 上下淡入淡出，让循环更柔和 */
+      -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+              mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+    }
+    .library-track {
+      display: flex; flex-direction: column; will-change: transform;
+      animation: libraryScroll calc(max(var(--library-count, 8), 6) * 2.1s) linear infinite;
+    }
+    .library-marquee:hover .library-track { animation-play-state: paused; }
+    @keyframes libraryScroll {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-50%); }
+    }
+    /* 条目文字：思源宋体（与 hero 收录清单同款），字号略大、字距微开、行高放松，
+       书名号《》在宋体下形态更端正，整块更显典雅；底色改为极淡暖粉渐变，不再是死板色块。 */
+    .library-item {
+      margin-bottom: 8px; padding: 10px 14px; border-radius: 12px;
+      font-family: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+      font-size: .95rem; font-weight: 600; line-height: 1.7;
+      letter-spacing: .03em;
+      color: #4a2320;
+      background: linear-gradient(180deg, rgba(255, 253, 250, .92), var(--soft));
+      border: 1px solid rgba(222, 207, 189, .85);
+      text-align: center;
+      font-variant-numeric: lining-nums;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .library-track { animation: none; }
+      .library-marquee { height: auto; -webkit-mask-image: none; mask-image: none; }
+      /* 关闭动画时只显示第一份内容，避免重复 */
+      .library-track > .library-item[aria-hidden="true"] { display: none; }
     }
     h2 {
       margin: 0 0 12px;
@@ -228,6 +435,10 @@
       outline: none;
       border-color: #b03838;
       box-shadow: 0 0 0 4px rgba(176, 56, 56, 0.08);
+    }
+    /* 引文检索输入框：仅拉高，宽度不变（不影响留言反馈等其他 textarea） */
+    #q {
+      min-height: 320px;
     }
     .row {
       display: flex;
@@ -259,6 +470,13 @@
       border: 1px solid var(--accent);
     }
     .secondary:hover { background: var(--soft); }
+    .search-mode-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .search-mode-row .search-mode-tabs { margin-bottom: 0; }
     .search-mode-tabs {
       display: inline-flex;
       gap: 6px;
@@ -291,6 +509,10 @@
     }
     .cooc-toggle input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
     .cooc-toggle.hidden { display: none; }
+    /* 「指定著作」与「同段多词检索」同一行：复选框在左，「指定著作」方框靠右对齐 */
+    .cooc-scope-row { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin: 8px 0 2px; }
+    .cooc-scope-row .cooc-toggle { margin: 0; }
+    .book-scope-inline { margin-left: auto; }
 
     /* 引文检索「使用提示」：标题旁的圆形 ? 按钮 + 可折叠提示面板 */
     .help-trigger {
@@ -438,6 +660,26 @@
       background: radial-gradient(circle at 30% 30%, #ffe9a8, #c9a227);
       box-shadow: 0 0 6px rgba(201,162,39,.7);
     }
+    /* 联想/研究检索「检索范围」选择条（两种 AI 模式的暗底面板通用）：自动/全部 + 多选著作群 chips */
+    .search-scope-row {
+      display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+      margin: 8px 0 4px; font-size: .86rem; color: #e9e2cf;
+    }
+    .search-scope-row.hidden { display: none; }
+    .search-scope-label { font-weight: 700; white-space: nowrap; color: #f6ecc6; }
+    .search-scope-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .search-chip {
+      padding: 4px 12px; font: inherit; font-size: .82rem; line-height: 1.4; cursor: pointer;
+      color: #d7cfb8; background: rgba(20,21,26,.55);
+      border: 1px solid rgba(201,162,39,.42); border-radius: 999px; transition: all .12s;
+    }
+    .search-chip:hover { border-color: #e8dcae; color: #f6ecc6; }
+    .search-chip.active {
+      color: #141519; font-weight: 700;
+      background: linear-gradient(180deg, #f2e7bd, #c9a227); border-color: #e8dcae;
+    }
+    .search-scope-hint { color: #b9c2cf; font-size: .8rem; flex-basis: 100%; }
+    .panel.assoc-mode .search-scope-hint { color: #c7d4e6; }
     /* 研究模式输入框：炭灰/石墨底 + 古金细边 + 浅金字（仅覆盖研究模式，不影响联想检索的象牙风） */
     .panel.research-mode #q.brainstorm {
       color: #efe7d0;
@@ -522,34 +764,68 @@
     }
     .assoc-note .assoc-conf { font-weight: 700; white-space: nowrap; }
     /* 研究型检索结果：雅典黑配色（黑曜石面板 + 石墨卡片 + 浅金字），与研究输入区统一 */
+    /* 研究综述输出：默认「护眼」暖羊皮纸底 + 鎏金点缀（不再纯黑刺眼）；加 .rv-dark 切回原深色底。
+       两套主题只切换下列 CSS 变量的值，子元素统一引用变量。切换按钮在结果头部，选择记忆于 localStorage。 */
     .assoc-results.research {
+      --rv-bg:
+        linear-gradient(180deg, #f6efdc, #efe5cb),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.06) 0 2px, transparent 2px 14px);
+      --rv-ringshadow: 0 0 0 4px rgba(201,162,39,.14), 0 14px 40px rgba(120,96,30,.18);
+      --rv-surface: #fdf9ee;      /* 卡片/综述框底：象牙白 */
+      --rv-surface-2: #efe6cf;    /* 次级块（篇章）底 */
+      --rv-ink: #332c1c;          /* 正文墨色（暖深棕，护眼不刺眼） */
+      --rv-ink-soft: #6a5c3e;     /* 次级文字 */
+      --rv-head: #7a5c12;         /* 标题/出处/加粗：深鎏金棕，可读又配金 */
+      --rv-accent: #9a7714;       /* 小号金色标签（篇位/操作/证据） */
+      --rv-border: rgba(201,162,39,.5);
+      --rv-note-bg: linear-gradient(180deg, #f3ead0, #ece0c0);
       border-color: #c9a227;
-      background:
+      background: var(--rv-bg);
+      box-shadow: var(--rv-ringshadow);
+    }
+    .assoc-results.research.rv-dark {
+      --rv-bg:
         linear-gradient(180deg, rgba(24,25,31,.98), rgba(10,11,15,.99)),
         repeating-linear-gradient(45deg, rgba(201,162,39,.07) 0 2px, transparent 2px 14px);
-      box-shadow: 0 0 0 4px rgba(10,11,15,.9), 0 18px 50px rgba(0,0,0,.5);
+      --rv-ringshadow: 0 0 0 4px rgba(10,11,15,.9), 0 18px 50px rgba(0,0,0,.5);
+      --rv-surface: #26272d;
+      --rv-surface-2: #34353c;
+      --rv-ink: #e8e3d4;
+      --rv-ink-soft: #b9bccb;
+      --rv-head: #f6ecc6;
+      --rv-accent: #e8dcae;
+      --rv-border: rgba(201,162,39,.4);
+      --rv-note-bg: linear-gradient(180deg, #2f3037, #232429);
     }
-    .assoc-results.research .assoc-result-head h2 { color: #f6ecc6; }
-    .assoc-results.research .assoc-lede { color: #b9bccb; }
-    .assoc-results.research .pager-info { color: #d8d3c4; }
+    .assoc-results.research .assoc-result-head h2 { color: var(--rv-head); }
+    .assoc-results.research .assoc-lede { color: var(--rv-ink-soft); }
+    .assoc-results.research .pager-info { color: var(--rv-ink-soft); }
     .assoc-results.research .assoc-list .hit {
-      background: #26272d; border: 1px solid rgba(201,162,39,.32); color: #e8e3d4;
+      background: var(--rv-surface); border: 1px solid var(--rv-border); color: var(--rv-ink);
     }
-    .assoc-results.research .loc { color: #f0e6c4; }
+    .assoc-results.research .loc { color: var(--rv-accent); }
     .assoc-results.research .section {
-      background: #34353c; color: #cfcad6; border: 1px solid rgba(201,162,39,.18);
+      background: var(--rv-surface-2); color: var(--rv-ink-soft); border: 1px solid var(--rv-border);
     }
-    .assoc-results.research .ctx { background: #1d1e23; color: #e3ded0; border-left-color: #c9a227; }
+    .assoc-results.research .ctx { background: var(--rv-surface); color: var(--rv-ink); border-left-color: #c9a227; }
     .assoc-results.research .ctx-hl { background: #e0c068; color: #1c1a12; }
-    .assoc-results.research .cite { background: #1d1e23; color: #e3ded0; border-color: rgba(201,162,39,.4); }
+    .assoc-results.research .cite { background: var(--rv-surface); color: var(--rv-ink); border-color: var(--rv-border); }
     .assoc-results.research .assoc-note {
-      background: linear-gradient(180deg, #2f3037, #232429);
-      border-color: rgba(201,162,39,.4); border-left-color: #c9a227; color: #ded8c8;
+      background: var(--rv-note-bg);
+      border-color: var(--rv-border); border-left-color: #c9a227; color: var(--rv-ink-soft);
     }
     .assoc-results.research .action-buttons .secondary {
-      background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.55);
+      background: transparent; color: var(--rv-accent); border: 1px solid rgba(201,162,39,.55);
     }
     .assoc-results.research .action-buttons .secondary:hover { background: rgba(201,162,39,.14); }
+    /* 背景切换按钮（结果头部右侧） */
+    .rv-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .rv-theme-toggle {
+      flex: none; cursor: pointer; font: inherit; font-size: .8rem; font-weight: 700;
+      padding: 4px 12px; border-radius: 999px; white-space: nowrap;
+      color: var(--rv-head); background: transparent; border: 1px solid var(--rv-border); transition: all .12s;
+    }
+    .rv-theme-toggle:hover { border-color: #c9a227; background: rgba(201,162,39,.14); }
     /* 名目索引命中徽章（P2a）：权威感金色 */
     .subject-badge {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -561,36 +837,36 @@
       border-radius: 999px; padding: 1px 10px; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset;
     }
     .assoc-hit.subject-hit { border-color: rgba(201,162,39,.5); }
-    .assoc-results.research .subject-badge { color: #e8dcae; }
-    /* 研究综述输出框 + 引文条 */
+    .assoc-results.research .subject-badge { color: var(--rv-accent); }
+    /* 研究综述输出框 + 引文条（配色统一取自 .assoc-results.research 的 --rv-* 变量，随护眼/深色切换） */
     .rv-essay {
       margin: 6px 0 14px; padding: 16px 18px;
-      background: rgba(255,255,255,.04); border: 1px solid rgba(201,162,39,.3); border-radius: 12px;
-      color: #ece6d6; line-height: 1.9; font-size: 1rem;
+      background: var(--rv-surface); border: 1px solid var(--rv-border); border-radius: 12px;
+      color: var(--rv-ink); line-height: 1.9; font-size: 1rem;
     }
-    .rv-essay h1, .rv-essay h2, .rv-essay h3 { color: #f6ecc6; margin: 14px 0 6px; line-height: 1.5; }
+    .rv-essay h1, .rv-essay h2, .rv-essay h3 { color: var(--rv-head); margin: 14px 0 6px; line-height: 1.5; }
     .rv-essay h1 { font-size: 1.2rem; } .rv-essay h2 { font-size: 1.08rem; } .rv-essay h3 { font-size: 1rem; }
     .rv-essay p { margin: 8px 0; }
-    .rv-essay strong { color: #f6ecc6; }
+    .rv-essay strong { color: var(--rv-head); }
     .rv-essay ul, .rv-essay ol { margin: 8px 0; padding-left: 22px; }
-    .rv-cites-title { font-weight: 800; color: #f6ecc6; margin: 14px 0 8px; font-size: .98rem; }
+    .rv-cites-title { font-weight: 800; color: var(--rv-head); margin: 14px 0 8px; font-size: .98rem; }
     .rv-cites { display: grid; gap: 10px; }
-    .rv-cite { background: #26272d; border: 1px solid rgba(201,162,39,.3); border-radius: 10px; padding: 10px 12px; }
-    .rv-cite-head { color: #f0e6c4; font-weight: 700; font-size: .92rem; line-height: 1.6; }
+    .rv-cite { background: var(--rv-surface); border: 1px solid var(--rv-border); border-radius: 10px; padding: 10px 12px; }
+    .rv-cite-head { color: var(--rv-head); font-weight: 700; font-size: .92rem; line-height: 1.6; }
     .rv-cite-head .rv-idx { color: #c9a227; font-weight: 800; margin-right: 6px; }
     .rv-cite-head .rv-used { display: inline-block; font-size: .72rem; font-weight: 700; color: #1c1a12; background: #7fb98a; border-radius: 999px; padding: 1px 8px; margin-right: 6px; vertical-align: middle; }
-    .rv-cite-ctx { color: #d6d1c2; font-size: .9rem; line-height: 1.7; margin: 5px 0; }
+    .rv-cite-ctx { color: var(--rv-ink-soft); font-size: .9rem; line-height: 1.7; margin: 5px 0; }
     .rv-cite-ctx .ctx-hl { background: #e0c068; color: #1c1a12; border-radius: 3px; padding: 0 2px; }
     .rv-evidence-list { display: grid; gap: 8px; margin: 8px 0 2px; }
     .rv-evidence { border-left: 2px solid rgba(201,162,39,.58); padding-left: 10px; }
-    .rv-evidence-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: #f0e6c4; font-size: .82rem; font-weight: 800; margin-bottom: 2px; }
+    .rv-evidence-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--rv-head); font-size: .82rem; font-weight: 800; margin-bottom: 2px; }
     .rv-evidence-kind { color: #1c1a12; background: #c9a227; border-radius: 999px; padding: 1px 7px; font-size: .7rem; }
-    .rv-evidence-page { color: #d8d3c4; font-weight: 700; }
-    .rv-evidence-open { color: #e8dcae; font-weight: 700; text-decoration: none; }
+    .rv-evidence-page { color: var(--rv-ink-soft); font-weight: 700; }
+    .rv-evidence-open { color: var(--rv-accent); font-weight: 700; text-decoration: none; }
     .rv-evidence-open:hover { text-decoration: underline; }
     .rv-cite-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-    .rv-cite-actions .secondary { background: transparent; color: #e8dcae; border: 1px solid rgba(201,162,39,.5); }
-    .rv-open { color: #e8dcae; font-weight: 600; font-size: .86rem; text-decoration: none; white-space: nowrap; }
+    .rv-cite-actions .secondary { background: transparent; color: var(--rv-accent); border: 1px solid rgba(201,162,39,.5); }
+    .rv-open { color: var(--rv-accent); font-weight: 600; font-size: .86rem; text-decoration: none; white-space: nowrap; }
     .rv-open:hover { text-decoration: underline; }
     .assoc-mode-row {
       display: flex; align-items: center; gap: 10px; margin: 2px 0 4px; flex-wrap: wrap;
@@ -612,6 +888,14 @@
       background: var(--oil-gold-hi, #f3e1a8); border-radius: 999px;
       padding: 3px 12px; margin-bottom: 8px;
     }
+    /* 「精确检索零命中 → 自动联想检索」的兜底说明条：整块显示（不是圆角小标签），
+       因为这句话必须被读完——下面的结果是凭大意召回的，不是逐字精确命中。 */
+    .assoc-fallback-banner {
+      font-size: .86rem; line-height: 1.6; color: #4a2a08;
+      background: #fdf3df; border: 1px solid #e8cf9d; border-left: 4px solid #c8912f;
+      border-radius: 8px; padding: 8px 12px; margin-bottom: 10px;
+    }
+    .assoc-fallback-banner strong { color: #7d1616; }
     .assoc-relation {
       display: inline-block; font-size: .76rem; font-weight: 800; letter-spacing: .02em;
       border-radius: 999px; padding: 1px 9px; margin-right: 8px; vertical-align: middle;
@@ -919,6 +1203,102 @@
       padding: 4px 14px;
       white-space: nowrap;
     }
+    /* 注册用户省际分布：公告正下方的小卡片（窄右栏）。地图为内联 SVG choropleth，
+       数据走 /api/community/registry-geo（仅省级聚合计数，无任何明细 IP）。 */
+    .registry-geo-card {
+      background: linear-gradient(135deg, rgba(250, 244, 236, 0.95), rgba(255, 253, 249, 0.98));
+    }
+    .rg-head {
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .rg-head h2 { margin: 0; margin-right: auto; }
+    .rg-live {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: .76rem; font-weight: 700; color: var(--accent, #8f1d1d);
+      background: rgba(143, 29, 29, 0.07); border: 1px solid rgba(143, 29, 29, 0.16);
+      border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+    }
+    .rg-live::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%;
+      background: #d33; box-shadow: 0 0 0 0 rgba(211, 51, 51, 0.5);
+      animation: rgPulse 2s infinite;
+    }
+    @keyframes rgPulse {
+      0% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0.45); }
+      70% { box-shadow: 0 0 0 6px rgba(211, 51, 51, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0); }
+    }
+    .rg-total {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 4px 0 12px;
+    }
+    .rg-total .rg-num {
+      font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+      font-size: 2.5rem; font-weight: 800; line-height: 1;
+      color: var(--accent-deep, #651313); letter-spacing: .01em;
+      font-variant-numeric: tabular-nums;
+    }
+    .rg-total .rg-num-label { font-size: .92rem; color: var(--muted); font-weight: 700; }
+    .rg-mapwrap { position: relative; }
+    .rg-map { width: 100%; height: auto; display: block; }
+    .rg-map .rg-prov {
+      stroke: #fffdf9; stroke-width: 0.8; stroke-linejoin: round;
+      transition: fill .25s ease, filter .15s ease;
+      cursor: default;
+    }
+    .rg-map .rg-prov:hover { filter: brightness(1.06); stroke: var(--accent-deep, #651313); stroke-width: 1.1; }
+    .rg-map .rg-scs-box { fill: rgba(255, 255, 255, 0.35); stroke: #b6a079; stroke-width: 1; }
+    .rg-map .rg-scs { fill: #8f1d1d; stroke: #8f1d1d; stroke-width: 0.6; }
+    .rg-tip {
+      position: absolute; z-index: 5; pointer-events: none; opacity: 0;
+      transform: translate(-50%, -130%); transition: opacity .12s ease;
+      background: rgba(40, 22, 16, 0.93); color: #fff5ec;
+      font-size: .78rem; font-weight: 600; line-height: 1.2;
+      padding: 4px 9px; border-radius: 7px; white-space: nowrap;
+      box-shadow: 0 6px 18px rgba(40, 8, 6, 0.3);
+    }
+    .rg-tip.show { opacity: 1; }
+    .rg-legend {
+      display: flex; align-items: center; gap: 8px;
+      font-size: .72rem; color: var(--muted); margin: 8px 2px 4px;
+    }
+    .rg-legend .rg-bar {
+      flex: 1; height: 7px; border-radius: 999px;
+      background: linear-gradient(90deg, var(--rg-c-zero, #ece2d2), var(--rg-c-low, #f3ddc2) 28%, var(--rg-c-high, #7d1616));
+      border: 1px solid rgba(123, 31, 31, 0.12);
+    }
+    .rg-rank {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px;
+      margin: 10px 0 2px;
+    }
+    .rg-chip {
+      position: relative; overflow: hidden;
+      display: flex; align-items: baseline; gap: 5px;
+      padding: 4px 9px; border-radius: 8px;
+      background: rgba(143, 29, 29, 0.05); border: 1px solid rgba(143, 29, 29, 0.1);
+      font-size: .82rem;
+    }
+    .rg-chip .rg-chip-bar {
+      position: absolute; left: 0; top: 0; bottom: 0; z-index: 0;
+      background: rgba(143, 29, 29, 0.12);
+    }
+    .rg-chip b, .rg-chip .rg-chip-n { position: relative; z-index: 1; }
+    .rg-chip b { color: var(--text); font-weight: 700; }
+    .rg-chip .rg-chip-rk { position: relative; z-index: 1; color: var(--accent, #8f1d1d); font-weight: 800; font-size: .72rem; }
+    .rg-chip .rg-chip-n { margin-left: auto; color: var(--accent-deep, #651313); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .rg-overseas, .rg-unknown {
+      font-size: .82rem; line-height: 1.55; color: var(--muted); margin-top: 9px;
+    }
+    .rg-overseas b { color: var(--accent-deep, #651313); }
+    .rg-unknown { font-size: .76rem; opacity: .82; }
+    .rg-foot { font-size: .72rem; color: var(--muted); opacity: .72; margin-top: 9px; }
+    .rg-empty { grid-column: 1 / -1; font-size: .82rem; color: var(--muted); padding: 6px 0; }
+    .rg-loading { font-size: .84rem; color: var(--muted); padding: 18px 0; text-align: center; }
+    @media (prefers-reduced-motion: reduce) {
+      .rg-live::before { animation: none; }
+      .rg-map .rg-prov { transition: none; }
+    }
     /* 社区建设：从公告中拆分出的独立栏，竖向逐条无缝循环滚动 */
     .community-card {
       background:
@@ -1183,8 +1563,12 @@
       color: #f6edd2;
     }
     .search-loading.research {
-      background: linear-gradient(180deg, rgba(20,20,24,.97), rgba(8,8,12,.99));
+      background: linear-gradient(180deg, #f6efdc, #efe5cb);
       border-color: rgba(201, 162, 39, .5);
+      color: #7a5c12;
+    }
+    .search-loading.research.rv-dark {
+      background: linear-gradient(180deg, rgba(20,20,24,.97), rgba(8,8,12,.99));
       color: #f6ecc6;
     }
     .search-loading-head {
@@ -1261,6 +1645,13 @@
     .search-loading.research .search-loading-steps span {
       background: rgba(246, 236, 198, .1);
     }
+    /* 研究综述加载态：默认护眼暖底（覆盖上面 associative+research 共用的深色值），随背景切换同步。 */
+    .search-loading.research .search-loading-bar { background: rgba(201,162,39,.18); }
+    .search-loading.research .search-loading-steps { color: #6a5c3e; }
+    .search-loading.research .search-loading-steps span { background: rgba(201,162,39,.12); }
+    .search-loading.research.rv-dark .search-loading-bar { background: rgba(246,236,198,.16); }
+    .search-loading.research.rv-dark .search-loading-steps { color: rgba(246,236,198,.78); }
+    .search-loading.research.rv-dark .search-loading-steps span { background: rgba(246,236,198,.1); }
     @keyframes searchLoadingSweep {
       0% { transform: translateX(-110%); }
       55% { transform: translateX(82%); }
@@ -1277,6 +1668,32 @@
       margin: 4px 0 14px;
     }
     .book-tabs[hidden] { display: none; }
+    /* 引用格式全局切换条（位于结果上方，控制三处引文出处的显示格式与「复制引文」内容） */
+    .cite-format-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 2px 0 14px;
+      padding: 8px 12px;
+      border: 1px solid var(--border, #d0d4dc);
+      border-radius: 10px;
+      background: var(--surface, #fff);
+      font-size: 13px;
+    }
+    .cite-format-bar[hidden] { display: none; }
+    .cite-format-bar .cfb-label { font-weight: 600; white-space: nowrap; }
+    .cite-format-bar select {
+      padding: 5px 10px;
+      border: 1px solid var(--border, #d0d4dc);
+      border-radius: 8px;
+      background: var(--surface, #fff);
+      color: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .cite-format-bar .cfb-hint { color: var(--muted, #6b7280); font-size: 12px; }
+    @media (max-width: 560px) { .cite-format-bar .cfb-hint { display: none; } }
     .book-tab {
       border: 1px solid var(--border, #d0d4dc);
       background: var(--surface, #fff);
@@ -1432,6 +1849,81 @@
       text-align: center;
       background: rgba(255, 255, 255, 0.5);
     }
+    /* ===== 检索结果框（紧贴检索面板正下方，随内容自适应） =====================
+       精确/模糊=中性有界可拉伸框；联想=油画蓝有界框；研究/加载/空态=自然铺展。
+       有内容才留出间距(.is-active)；向下拖动展开(上限=完整结果长度)；不持久化，
+       刷新即回初始收起高度。#searchBookTabs/#citeFormatBar/#results 逻辑与 id 全保留。*/
+    .results-box { margin-top: 0; }
+    .results-box.is-active { margin-top: 16px; }
+    .results-box-head { display: grid; gap: 8px; }
+    .results-box .book-tabs, .results-box .cite-format-bar { margin: 0; }
+    /* 框头右上角工具行：「收起」(退出高度调整,保留结果) + 「退出」(关闭本次结果)。有结果时露出。 */
+    .results-box-tools { display: none; justify-content: flex-end; gap: 8px; }
+    .results-box.has-results .results-box-tools { display: flex; }
+    .results-collapse-btn, .results-close-btn {
+      display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+      font: inherit; font-size: 0.8rem; font-weight: 700; line-height: 1;
+      color: var(--muted); background: #fff; border: 1px solid var(--line);
+      border-radius: 999px; padding: 5px 13px;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    .results-collapse-btn[hidden] { display: none; }
+    .results-collapse-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--soft); }
+    .results-close-btn:hover { color: #fff; background: var(--accent); border-color: var(--accent); }
+    .results-collapse-btn .rc-ic, .results-close-btn .rc-ic { font-size: 0.82rem; }
+    .results-box.theme-assoc .results-collapse-btn, .results-box.theme-assoc .results-close-btn { color: #f0e0a0; background: rgba(18, 32, 52, 0.5); border-color: rgba(201, 162, 39, 0.5); }
+    .results-box.theme-assoc .results-collapse-btn:hover { color: #f6ecc6; border-color: #c9a227; background: rgba(18, 32, 52, 0.72); }
+    .results-box.theme-assoc .results-close-btn:hover { color: #14233c; background: #e8cf86; border-color: #e8cf86; }
+    .results-scrollwrap { position: relative; }
+    .results-fade[hidden], .results-handle[hidden] { display: none; }
+    .results-box.is-bounded {
+      background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08); overflow: hidden;
+    }
+    .results-box.is-bounded .results-box-head { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .results-box.is-bounded .results-scroll {
+      overflow-y: auto; padding: 12px 16px 18px;
+      scrollbar-width: thin; scrollbar-color: #cbb79b transparent;
+    }
+    .results-box.is-bounded .results-scroll::-webkit-scrollbar { width: 9px; }
+    .results-box.is-bounded .results-scroll::-webkit-scrollbar-thumb { background: #d3c3a7; border-radius: 999px; border: 2px solid rgba(0, 0, 0, 0.05); }
+    .results-box.is-bounded .hit:last-child, .results-box.is-bounded .group-card:last-child { margin-bottom: 2px; }
+    .results-fade {
+      position: absolute; left: 0; right: 0; bottom: 0; height: 26px; pointer-events: none;
+      background: linear-gradient(180deg, rgba(255, 253, 249, 0), rgba(255, 253, 249, 0.92));
+    }
+    /* 拖拽手柄：点状抓手 + 文案 + 悬停高亮，明确提示此处可上下拖动 */
+    .results-handle {
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+      height: 34px; cursor: ns-resize; user-select: none;
+      border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, #f6ecdd, #eee2cd);
+      color: var(--muted); font-size: 0.76rem; font-weight: 700;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .results-handle:hover { background: linear-gradient(180deg, #efe1c8, #e6d6b8); color: var(--accent); }
+    .results-box.resizing .results-handle { background: linear-gradient(180deg, #ecdcbf, #e1cfae); color: var(--accent); }
+    .results-handle .rh-grip {
+      width: 46px; height: 10px;
+      background-image: radial-gradient(currentColor 1.5px, transparent 1.8px);
+      background-size: 9px 5px; background-position: center; opacity: 0.5;
+    }
+    .results-handle:hover .rh-grip, .results-box.resizing .results-handle .rh-grip { opacity: 0.95; }
+    .results-handle .rh-txt { display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
+    .results-handle .rh-arrows { font-size: 0.98rem; }
+    #resultsHpx, #resultsHmax { font-variant-numeric: tabular-nums; }
+    /* 联想（油画蓝）：框着色 + 剥去内层 .assoc-results 外框，让象牙卡直接坐蓝底 */
+    .results-box.is-bounded.theme-assoc {
+      background: linear-gradient(180deg, #163a63, #0f2542); border-color: #c9a227;
+      box-shadow: 0 0 0 3px rgba(15, 37, 66, 0.5), 0 16px 40px rgba(12, 28, 52, 0.4);
+    }
+    .results-box.is-bounded.theme-assoc .results-box-head { border-bottom-color: #c9a227; }
+    .results-box.theme-assoc .book-tabs { display: none; }
+    .results-box.theme-assoc .results-scroll { background: transparent; }
+    .results-box.theme-assoc .assoc-results { background: none; border: none; box-shadow: none; padding: 0; border-radius: 0; }
+    .results-box.is-bounded.theme-assoc .results-fade { background: linear-gradient(180deg, rgba(15, 37, 66, 0), rgba(15, 37, 66, 0.9)); }
+    .results-box.is-bounded.theme-assoc .results-handle { background: linear-gradient(180deg, #1f4e79, #163a63); color: #e8cf86; border-top-color: #c9a227; }
+    .results-box.is-bounded.theme-assoc .results-handle:hover { background: linear-gradient(180deg, #24598a, #1a4370); color: #f6ecc6; }
     .ai-card {
       display: grid;
       gap: 12px;
@@ -1854,8 +2346,17 @@
       }
     }
   </style>
+  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=24">{% endif %}
 </head>
-<body>
+<body{% if layout_v2 %} class="v2"{% endif %}>
+  {# 四页面布局（layout_v2）：同一模板按 layout_page 分区渲染。
+     旧首页 / 不传 layout_v2 时以下三个开关全为 true，渲染结果与改造前完全一致。 #}
+  {% set v2 = layout_v2 | default(false) %}
+  {% set _pg = layout_page | default('search') %}
+  {% set show_search = (not v2) or _pg == 'search' %}
+  {% set show_read = (not v2) or _pg == 'read' %}
+  {% set show_more = (not v2) or _pg == 'more' %}
+  {% if v2 %}{% include "_appnav.html" %}{% endif %}
   <div class="page">
     <section class="topbar">
       <div class="topbar-title">
@@ -1872,6 +2373,9 @@
         {% if not current_user %}
         <a class="mini-btn" href="{{ url_for('login') }}">登录</a>
         <a class="mini-btn" href="{{ url_for('register') }}">注册</a>
+        {% endif %}
+        {% if sponsor_enabled %}
+        <button type="button" class="mini-btn" id="sponsorBtn">赞助</button>
         {% endif %}
         <a class="mini-btn" href="{{ url_for('pricing') }}">会员套餐</a>
         {% if local_console_available %}
@@ -1902,11 +2406,7 @@
     <section class="hero">
       <h1>{{ site_text("index.hero_title") }}</h1>
       <p>{{ site_text("index.hero_intro") }}</p>
-      <div class="hero-meta">
-        <span>{{ site_text("index.stat_app_version_label") }} {{ app_version_display }}</span>
-        <span class="sep">·</span>
-        <span>{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</span>
-      </div>
+      {# 收录文献清单先算好，供 meta 行「联系方式」旁的折叠按钮显示总数 #}
       {% set corpus_items = [] %}
       {% for item in book_stats %}
         {% set label_raw = site_text(item.text_key) or item.fixed_pill %}
@@ -1916,8 +2416,22 @@
           {% set _ = corpus_items.append(item.short_title ~ " " ~ item.count ~ " 卷") %}
         {% endif %}
       {% endfor %}
+      {% if wenku_available %}
+        {% set _ = corpus_items.append("外文文库") %}
+      {% endif %}
+      <div class="hero-meta">
+        <span>{{ site_text("index.stat_app_version_label") }} {{ app_version_display }}</span>
+        <span class="sep">·</span>
+        <span>{{ site_text("index.stat_data_version_label") }} {{ site_text("index.stat_data_version_value") or state.data_version }}</span>
+        {% if corpus_items %}
+        <span class="sep">·</span>
+        <button type="button" class="hero-corpus-toggle" id="heroCorpusToggle" aria-expanded="false" aria-controls="heroCorpus">
+          <span class="hcc-caret" aria-hidden="true">▸</span>收录文献 · 共 {{ corpus_items|length }} 种<span class="hcc-hint">展开</span>
+        </button>
+        {% endif %}
+      </div>
       {% if corpus_items %}
-      <div class="hero-corpus" id="heroCorpus">
+      <div class="hero-corpus collapsed" id="heroCorpus">
         {% for label in corpus_items %}
         <span class="hero-corpus-item">{{ label }}</span>
         {% endfor %}
@@ -1925,32 +2439,53 @@
       {% endif %}
     </section>
 
-    <section class="member-strip">
-      {% if state.desktop_mode %}
-      <p>当前为本地桌面模式，完整资料与 AI 按本机资料直接可用，不校验网站会员状态。</p>
-      {% elif is_admin %}
-      <p>当前账号为管理员，已开放完整资料、PDF 阅读与 AI 辅助功能。</p>
-      {% elif membership.is_active_member %}
-      <p>{{ site_text("index.member_active") }}</p>
-      {% elif current_user %}
-      <p>{{ site_text("index.member_logged_in") }}</p>
-      {% else %}
-      <p>{{ site_text("index.member_guest") }}</p>
-      {% endif %}
-      {# 套餐与价格不在首页直接陈列（避免推销感）：订阅入口收敛为顶部导航「会员套餐」
-         与下方期刊卡片（按权限动态显示）。这里只保留账号状态与中性的下一步动作。 #}
-      <div class="member-actions">
-        {% if current_user %}
-        <a class="mini-btn" href="{{ url_for('account') }}">进入{{ account_center_label }}</a>
-        {% else %}
-        <a class="mini-btn" href="{{ url_for('register') }}">先注册账号</a>
-        {% endif %}
-      </div>
+    {# 首页双入口：一为原「阅读学习」全部功能模块（就在下方，点击滚入）；一为「AI 研究对话」全页（/ai）。 #}
+    <section class="home-entries" aria-label="选择使用方式">
+      <a class="home-entry study" href="#homeStudyAnchor">
+        <span class="he-kicker">阅读 · 检索 · 学习</span>
+        <h2>阅读学习界面</h2>
+        <p>引文检索、篇章直达、全文阅读、大辞典、期刊与流式阅读等全部功能模块。</p>
+        <span class="he-go">进入功能区 ↓</span>
+      </a>
+      <a class="home-entry ai" href="{{ url_for('ai_page') }}">
+        <span class="he-kicker">连续问答 · 带上下文</span>
+        <h2>AI 研究对话</h2>
+        <p>把「随心问」与「研究综述」合为一页：可连续追问、承接上下文，答案附原著准确出处。</p>
+        <span class="he-go">进入对话 →</span>
+      </a>
     </section>
 
-    <div class="grid">
+    {# 「账号状态 / 注册登录提醒」条已从首页移除（登录前后皆不显示）：登录/注册/账户入口收敛到顶部导航。 #}
+
+    {# 四页面布局的页头：旧首页不渲染（由 hero 承担）。 #}
+    {% if v2 %}
+    <div class="v2head">
+      {% if _pg == 'search' %}
+      <div class="v2kicker">Citation Search</div>
+      <h1>{{ site_text("index.search_title") }}</h1>
+      <p class="v2lede">把需要核查的原文粘贴进来，精确 / 模糊定位它在马克思主义经典原著中的准确出处；或用「联想检索」按意思找相关论述。</p>
+      {% elif _pg == 'read' %}
+      <div class="v2kicker">Reading</div>
+      <h1>阅读</h1>
+      <p class="v2lede">输入书名或篇名直达，或从下方入口进入原版影印阅读器——阅读器内置 AI 导读、本书查找与引文报错。</p>
+      {% elif _pg == 'more' %}
+      <div class="v2kicker">More</div>
+      <h1>会员功能</h1>
+      <p class="v2lede">流式阅读、期刊订阅与我的知识库——会员专享，随时进入。</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# 阅读历史「继续阅读」：本设备记录、按账号隔离、有记录才显示，点标签即回到上次阅读处。
+       旧首页 legacy 放在此处（页头下方）；四页面布局改放到「篇章直达」下方（见下），故此处仅 legacy。 #}
+    {% if show_read and not v2 %}
+    <section class="reading-history-strip" id="readingHistoryStrip" hidden></section>
+    {% endif %}
+
+    <div class="grid" id="homeStudyAnchor">
       <div class="left-stack">
-        <section class="panel">
+        {% if show_search %}
+        <section class="panel search-panel-v2">
           {% if feature_tags['citation'] %}
           <div class="reader-status-row" style="margin-bottom:6px">
             <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
@@ -1959,19 +2494,21 @@
             <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
             {% endfor %}
             </span>
-            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
           </div>
           {% else %}
           <div class="reader-status-row" style="margin-bottom:6px">
             <h2 style="margin:0">{{ site_text("index.search_title") }}</h2>
-            <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
           </div>
           {% endif %}
           <form id="searchForm">
-            <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
-              <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">{{ site_text('index.search_standard_tab') }}</button>
-              <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">{{ site_text('search.assoc_tab') }}</button>
-              <button type="button" class="search-mode-tab tab-research" data-mode="research" aria-pressed="false">{{ site_text('search.research_tab') }}</button>
+            {# 使用提示「?」紧挨检索模式标签（联想检索）右侧，而非孤零零浮在标题行。 #}
+            <div class="search-mode-row">
+              <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
+                <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">{{ site_text('index.search_standard_tab') }}</button>
+                <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">{{ site_text('search.assoc_tab') }}</button>
+                {# 「研究型检索」入口已移至独立的「AI 研究对话」页(/ai)，首页搜索面板保留精确/模糊 + 联想两档。 #}
+              </div>
+              <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
             </div>
             <div id="searchHelpPanel" class="search-help-panel" hidden>
               <button type="button" class="search-help-close" id="searchHelpClose" aria-label="{{ site_text('index.search_help_close_label') }}">×</button>
@@ -1979,9 +2516,12 @@
               <div id="searchHelpBody"></div>
             </div>
             <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
-            <label class="cooc-toggle" id="coocToggle">
-              <input type="checkbox" id="coocCheckbox"> {{ site_text('index.search_cooc_label') }}
-            </label>
+            <div class="cooc-scope-row">
+              <label class="cooc-toggle" id="coocToggle">
+                <input type="checkbox" id="coocCheckbox"> {{ site_text('index.search_cooc_label') }}
+              </label>
+              <span class="book-scope-inline"><span id="bookScopeMount"></span></span>
+            </div>
             <div class="research-note hidden" id="researchNote">
               <span class="research-note-dot" aria-hidden="true"></span>
               <span>
@@ -1992,6 +2532,16 @@
                 <span class="research-quota" id="researchQuotaText"></span>
                 {% endif %}
               </span>
+            </div>
+            {# 检索范围（著作群）：联想/研究检索共用。「自动」按语义路由；也可多选著作群限定。 #}
+            <div class="search-scope-row hidden" id="searchScopeRow">
+              <span class="search-scope-label">检索范围</span>
+              <div class="search-scope-chips" id="searchScopeChips" role="group" aria-label="检索范围（可多选著作群）">
+                {% for s in (search_scopes or []) %}
+                <button type="button" class="search-chip" data-scope="{{ s.id }}" aria-pressed="false">{{ s.label }}</button>
+                {% endfor %}
+              </div>
+              <span class="search-scope-hint">选「自动」由 AI 判断该问题属于哪位作者/文献；也可勾选一个或多个著作群限定检索</span>
             </div>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>{{ site_text('index.search_submit') }}</button>
@@ -2015,7 +2565,41 @@
           </form>
         </section>
 
-        {% if chapter_search %}
+        {# 检索结果框：紧贴检索面板正下方。精确/模糊=中性有界可拉伸框（向下拖动展开，
+           上限=完整结果长度，刷新复位）；联想=油画蓝有界框；研究/加载/空态=自然铺展。
+           仅在有内容时显形；书库栏/引用格式栏/结果区的 id 与逻辑全部沿用，只换位置+套框。 #}
+        <div id="resultsBox" class="results-box">
+          <div id="resultsBoxHead" class="results-box-head">
+            <div class="results-box-tools">
+              <button type="button" id="resultsCollapseBtn" class="results-collapse-btn" title="收起到初始高度（退出拖动调整），并回到结果顶部"><span class="rc-ic" aria-hidden="true">▴</span>收起</button>
+              <button type="button" id="resultsCloseBtn" class="results-close-btn" title="关闭本次检索结果"><span class="rc-ic" aria-hidden="true">✕</span>退出</button>
+            </div>
+            <div id="searchBookTabs" class="book-tabs" hidden></div>
+            <div id="citeFormatBar" class="cite-format-bar" hidden>
+              <span class="cfb-label">引用格式</span>
+              <select id="citeFormatSelect" aria-label="引用格式">
+                <option value="gb2015">国标 GB/T 7714—2015</option>
+                <option value="zgshkx">《中国社会科学》</option>
+                <option value="mkszyj">《马克思主义研究》</option>
+              </select>
+              <span class="cfb-hint">切换后下方所有引文出处与「复制引文」即按此格式</span>
+            </div>
+          </div>
+          <div class="results-scrollwrap">
+            <div id="resultsScroll" class="results-scroll">
+              <div id="results"></div>
+            </div>
+            <div id="resultsFade" class="results-fade" hidden></div>
+          </div>
+          <div id="resultsHandle" class="results-handle" hidden title="拖动调整结果框高度（向下展开，最长=完整结果；双击复位；刷新回到初始高度）">
+            <span class="rh-grip" aria-hidden="true"></span>
+            <span class="rh-txt"><span class="rh-arrows" aria-hidden="true">⇕</span>拖动调整高度 · <span id="resultsHpx">—</span> / 完整 <span id="resultsHmax">—</span> px</span>
+          </div>
+        </div>
+
+        {% endif %}{# /show_search：引文检索面板 + 结果框 #}
+
+        {% if show_read and chapter_search %}
         <style>
           .chapter-search-panel h2 { margin-bottom: 6px; }
           .chapter-search { position: relative; }
@@ -2051,11 +2635,27 @@
           .chapter-suggest .tag.jingji { background: #8a6d2b; }
           .chapter-suggest .tag.dangdaihui { background: #a13a2f; }
           .chapter-suggest .tag.quanhui { background: #3f5aa0; }
+          .chapter-suggest .tag.maxuanji { background: #3b4a6b; }
           .chapter-suggest .tag.book-other { background: var(--muted); }
           .chapter-suggest .s-title { flex: 1; line-height: 1.5; }
           .chapter-suggest .s-page { flex: none; color: var(--muted); font-size: .85rem; }
           .chapter-search-empty { padding: 12px 14px; color: var(--muted); }
           .chapter-search-hint { margin-top: 8px; }
+          /* 底部一行：说明文字在左，「切换书库」下拉在右下角。 */
+          .chapter-search-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 12px; margin-top: 8px; }
+          .chapter-search-foot .chapter-search-hint { margin: 0; flex: 1 1 220px; }
+          .chapter-scope-select {
+            flex: none; margin-left: auto; align-self: flex-end;
+            font: inherit; font-size: .9rem; color: var(--text); background: var(--card);
+            border: 1px solid var(--accent); border-radius: 8px; padding: 6px 28px 6px 10px;
+            max-width: min(60%, 230px); cursor: pointer;
+          }
+          .chapter-scope-select:focus { outline: none; box-shadow: 0 0 0 3px rgba(143,29,29,.15); }
+          .chapter-suggest.book-jump { background: linear-gradient(90deg, rgba(143,29,29,.06), transparent 60%); }
+          .chapter-suggest .s-title .s-jump {
+            margin-left: 8px; font-size: .72rem; font-weight: 700; color: var(--accent);
+            border: 1px solid var(--accent); border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+          }
         </style>
         <section class="panel chapter-search-panel" aria-label="篇章直达搜索">
           {% if feature_tags['chapter'] %}
@@ -2075,7 +2675,15 @@
                    aria-label="搜索篇章名称">
             <div id="chapterSearchResults" class="chapter-search-results" role="listbox" hidden></div>
           </div>
-          <p class="muted chapter-search-hint">{{ site_text('index.chapter_search_hint', label=chapter_search.label) }}</p>
+          <div class="chapter-search-foot">
+            <p class="muted chapter-search-hint">{{ site_text('index.chapter_search_hint', label=chapter_search.label) }}</p>
+            {% if chapter_books %}
+            <select id="chapterBookScope" class="chapter-scope-select" aria-label="切换检索书库（全部书库 / 指定书库）">
+              <option value="">全部书库</option>
+              {% for b in chapter_books %}<option value="{{ b.key }}">{{ '◆ ' if b.is_collection else '' }}{{ b.label }}</option>{% endfor %}
+            </select>
+            {% endif %}
+          </div>
           {% else %}
           <input type="search" placeholder="{{ site_text('index.chapter_search_disabled_placeholder') }}" aria-label="搜索篇章名称" disabled>
           <p class="muted chapter-search-hint">
@@ -2090,12 +2698,155 @@
         </section>
         {% endif %}
 
-        {# 首页左栏功能卡：顺序完全由控制台「首页功能卡·顺序」(index_card_order 设置) 驱动，
-           后端 _index_feature_cards() 按设定顺序产出 feature_cards，并按卡型(reader/journal/wenku)
-           携带各自字段。这里只按 card.type 渲染对应版式，排序逻辑不在模板里写死。
-           .reader-entry-grid 与 .left-stack 同为 gap:14px 网格，5 张卡同放一格内间距一致。 #}
-        <div class="reader-entry-grid" aria-label="首页功能卡">
+        {# 四页面布局：继续阅读放在「篇章直达」下方、书目上方（篇章直达为主入口，故置顶并突出）。 #}
+        {% if v2 and _pg == 'read' %}
+        <section class="reading-history-strip" id="readingHistoryStrip" hidden></section>
+        {% endif %}
+
+        {# 四页面布局·阅读页：直接陈列书目，点书名进入「内置 AI 导读」的阅读器（AI 对话本身需登录）。
+           取代原先「全文阅读器 / AI 导学阅读器」两张中转入口卡。 #}
+        {% if v2 and _pg == 'read' %}
+        <div class="v2read-books" aria-label="书目">
+          {% if read_book_groups or read_foreign_books %}
+          <div class="v2sec-label">
+            <h2>选择书目</h2>
+            <span>点书名进入阅读器阅读原著影印 · 内置 AI 导读（AI 对话需登录后使用）</span>
+          </div>
+          {# 按著作集（collection）分节，与阅读器一致：经典著作 / 马中化 / 习思想 / 党国文献 / 西马；
+             每本书封面用首卷第 1 页的真实影印（/page-image）缩略图。 #}
+          {% for group in (read_book_groups or []) %}
+          <section class="v2book-cat">
+            <h3 class="v2cat-title">{{ group.label }}<span class="v2cat-n">{{ group.books|length }} 部 · {{ group.volume_count }} 卷</span></h3>
+            <div class="v2books">
+              {% for book in group.books %}
+              <a class="v2book" data-bk="{{ book.key }}" href="{{ book.volumes[0].viewer_url }}&from=v2read">
+                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=book.volumes[0].source_file) }}" alt="{{ book.title }} 封面" onerror="this.remove()"></span>
+                <span class="v2book-body">
+                  <span class="v2book-title">{{ book.title }}</span>
+                  <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>
+                  <span class="v2book-tag">AI 导读</span>
+                </span>
+              </a>
+              {% endfor %}
+            </div>
+          </section>
+          {% endfor %}
+          {% if read_foreign_books %}
+          <section class="v2book-cat">
+            <h3 class="v2cat-title">外文原著<span class="v2cat-n">{{ read_foreign_books|length }} 种</span></h3>
+            <div class="v2books">
+              {% for fb in read_foreign_books %}
+              {% if fb.volumes %}
+              <a class="v2book" data-bk="foreign:{{ fb.title }}" href="{{ fb.volumes[0].url }}">
+                <span class="v2book-cover v2book-cover-foreign" aria-hidden="true">{{ fb.title[:1] }}</span>
+                <span class="v2book-body">
+                  <span class="v2book-title">{{ fb.title }}</span>
+                  <span class="v2book-meta">{{ fb.volumes|length }} 卷 · 外文原著</span>
+                  <span class="v2book-tag">AI 导读</span>
+                </span>
+              </a>
+              {% endif %}
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+          {% else %}
+          <div class="v2read-locked">
+            <p>书库暂不可用（资料包未就绪或维护中），请稍后再试。</p>
+          </div>
+          {% endif %}
+        </div>
+
+        {# 分卷 / 分目录抽屉：点书目卡在此展开「卷列表 → 卷内目录 → 进正文」，取代直接跳第 1 卷。
+           每本书的卷列表随页内嵌 JSON（read_books_nav），卷内目录点开时才向 /api/library/volume-toc 懒取。 #}
+        <script id="v2ReadNav" type="application/json">{{ read_books_nav | tojson }}</script>
+        <div class="v2drawer-overlay" id="v2DrawerOverlay" hidden></div>
+        <aside class="v2drawer" id="v2Drawer" hidden aria-label="分卷与目录">
+          <div class="v2drawer-head">
+            <button type="button" class="v2drawer-back" id="v2DrawerBack" hidden>← 卷列表</button>
+            <div class="v2drawer-titles">
+              <div class="v2drawer-title" id="v2DrawerTitle"></div>
+              <div class="v2drawer-sub" id="v2DrawerSub"></div>
+            </div>
+            <button type="button" class="v2drawer-x" id="v2DrawerClose" aria-label="关闭">×</button>
+          </div>
+          <div class="v2drawer-body" id="v2DrawerBody"></div>
+        </aside>
+        <script>
+        (function(){
+          var nav=[]; try{ nav=JSON.parse(document.getElementById('v2ReadNav').textContent||'[]'); }catch(e){}
+          if(!nav.length) return;
+          var byKey={}; nav.forEach(function(b){ byKey[b.key]=b; });
+          var overlay=document.getElementById('v2DrawerOverlay'), drawer=document.getElementById('v2Drawer');
+          var elBack=document.getElementById('v2DrawerBack'), elTitle=document.getElementById('v2DrawerTitle');
+          var elSub=document.getElementById('v2DrawerSub'), elBody=document.getElementById('v2DrawerBody');
+          if(!drawer) return;
+          var curBook=null;
+          function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+          function withFrom(u){ return u ? (u+(u.indexOf('?')>-1?'&':'?')+'from=v2read') : '#'; }
+          function open(){ overlay.hidden=false; drawer.hidden=false; document.body.style.overflow='hidden'; void drawer.offsetWidth; drawer.classList.add('open'); overlay.classList.add('open'); }
+          function close(){ drawer.classList.remove('open'); overlay.classList.remove('open'); document.body.style.overflow=''; setTimeout(function(){ drawer.hidden=true; overlay.hidden=true; },240); }
+          function showVolumes(book){
+            curBook=book; elBack.hidden=true; elTitle.textContent=book.title;
+            var unit0=(book.volumes[0]&&book.volumes[0].unit)||'卷';
+            elSub.textContent=book.label+' · 共 '+book.volumes.length+' '+unit0;
+            if(book.volumes.length===1){ showToc(book, book.volumes[0]); return; }
+            elBody.innerHTML='<div class="v2vlist">'+book.volumes.map(function(v,i){
+              var meta=book.kind==='foreign'?'':((v.pages?v.pages+' 页':'')+(v.toc?' · '+v.toc+' 目录项':''));
+              var heading=book.kind==='foreign'?v.v:(v.heading||('第 '+v.v+' '+((v.unit)||'卷')));
+              var main=book.kind==='foreign'?(v.title||''):(v.subtitle||'');
+              return '<button type="button" class="v2vrow" data-vi="'+i+'">'
+                +'<span class="v2vrow-n">'+esc(heading)+'</span>'
+                +(main?'<span class="v2vrow-t">'+esc(main)+'</span>':'')
+                +(meta?'<span class="v2vrow-m">'+esc(meta)+'</span>':'')
+                +'<span class="v2vrow-go">'+(book.kind==='foreign'?'阅读 →':'目录 ›')+'</span></button>';
+            }).join('')+'</div>';
+            elBody.scrollTop=0;
+            elBody.querySelectorAll('.v2vrow').forEach(function(btn){ btn.addEventListener('click',function(){
+              var v=book.volumes[Number(btn.dataset.vi)];
+              if(book.kind==='foreign'){ window.location.href=v.url; return; }
+              showToc(book,v);
+            }); });
+          }
+          function showToc(book,vol){
+            elBack.hidden=(book.volumes.length===1);
+            elTitle.textContent=book.title;
+            var heading=book.kind==='foreign'?(vol.v||''):(vol.heading||((book.volumes.length>1)?'第 '+vol.v+' '+((vol.unit)||'卷'):''));
+            var vsub=book.kind==='foreign'?(vol.title||''):(vol.subtitle||'');
+            elSub.textContent=[heading,vsub].filter(Boolean).join(' · ');
+            elBody.innerHTML='<div class="v2toc-actions"><a class="v2toc-read" href="'+esc(withFrom(vol.url))+'">进入阅读器 · 从头通读本卷</a></div><div class="v2toc-list" id="v2TocList"><div class="v2toc-loading">正在载入目录…</div></div>';
+            elBody.scrollTop=0;
+            var list=document.getElementById('v2TocList');
+            fetch('/api/library/volume-toc?mode=ai&file='+encodeURIComponent(vol.file),{headers:{'Accept':'application/json'}})
+              .then(function(r){ return r.ok?r.json():{results:[]}; })
+              .then(function(d){ var items=(d&&d.results)||[];
+                if(!items.length){ list.innerHTML='<div class="v2toc-empty">本卷暂无结构化目录，可点上方「进入阅读器」通读，或用「篇章直达」检索具体篇名。</div>'; return; }
+                list.innerHTML=items.map(function(it){ var lv=Math.max(1,Math.min(6,it.level||1));
+                  var pg=it.printed_page?('第 '+it.printed_page+' 页'):('PDF '+it.pdf_page);
+                  return '<a class="v2toc-item lv'+lv+'" href="'+esc(withFrom(it.url))+'"><span class="v2toc-t">'+esc(it.title)+'</span><span class="v2toc-p">'+esc(pg)+'</span></a>';
+                }).join('');
+              })
+              .catch(function(){ list.innerHTML='<div class="v2toc-empty">目录载入失败，请重试。</div>'; });
+          }
+          document.querySelectorAll('.v2book[data-bk]').forEach(function(card){ card.addEventListener('click',function(e){
+            var book=byKey[card.getAttribute('data-bk')]; if(!book) return; e.preventDefault(); showVolumes(book); open();
+          }); });
+          elBack.addEventListener('click',function(){ if(curBook) showVolumes(curBook); });
+          document.getElementById('v2DrawerClose').addEventListener('click',close);
+          overlay.addEventListener('click',close);
+          document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&!drawer.hidden) close(); });
+        })();
+        </script>
+        {% endif %}
+
+        {# 功能卡：四页面布局下仅「进阶功能」页渲染（大辞典 / 期刊 / 流式阅读）；
+           全文阅读 / AI 导学阅读器已由上面的书目网格取代，不再作为中转卡出现。
+           旧首页 legacy（not v2）照常渲染全部卡片。 #}
+        {% if (not v2) or _pg == 'more' %}
+        <div class="reader-entry-grid{% if v2 and _pg == 'more' %} v2more-grid{% endif %}" aria-label="功能卡">
           {% for card in feature_cards %}
+          {% set _more_card = card.key in ('journal', 'liushi') %}
+          {% if (not v2) or _more_card %}
           {% if card.type == 'reader' %}
           {% set entry = card.entry %}
           <section class="feature-bar reader-{{ entry.kind }} {% if entry.disabled %}locked{% endif %}" aria-label="{{ site_text(entry.title_key) }}">
@@ -2136,35 +2887,55 @@
             <a class="feature-action" href="{{ url_for('pricing') }}?from=journal">{{ site_text("index.journal_locked") }}</a>
             {% endif %}
           </section>
-          {% elif card.type == 'wenku' %}
-          {# 原文文库卡：自托管静态 HTML 原文库（列宁ПСС 俄文等），含页码级引文；
-             权限随控制台「会员与权限」的 static_library 授权动态切换。 #}
-          <section class="journal-bar" aria-label="原文文库">
+          {% elif card.type == 'liushi' %}
+          {# 流式阅读卡：《马克思恩格斯文集》网页适配（可重排）阅读，自托管静态 HTML；
+             权限随控制台「会员与权限」的 stream_reading 授权动态切换。 #}
+          <section class="journal-bar" aria-label="流式阅读">
             <div class="feature-copy">
-              <div class="feature-kicker">{{ site_text("index.wenku_kicker") }}</div>
+              <div class="feature-kicker">{{ site_text("index.liushi_kicker") }}</div>
               <div class="reader-status-row">
                 <span class="reader-status">{{ site_text(card.status_key) }}</span>
-                {% for tag in feature_tags['wenku'] %}
+                {% for tag in feature_tags['liushi'] %}
                 <span class="reader-tag" style="background:{{ tag.color }};color:{{ tag.fg }}">{{ tag.text }}</span>
                 {% endfor %}
               </div>
-              <h2>{{ site_text("index.wenku_title") }}</h2>
-              <p>{{ site_text("index.wenku_description") }}</p>
+              <h2>{{ site_text("index.liushi_title") }}</h2>
+              <p>{{ site_text("index.liushi_description") }}</p>
             </div>
-            {% if wenku_access_enabled %}
-            <a class="feature-action" href="{{ url_for('wenku_home') }}">{{ site_text("index.wenku_action") }}</a>
+            {% if liushi_access_enabled %}
+            <a class="feature-action" href="{{ url_for('liushi_home') }}">{{ site_text("index.liushi_action") }}</a>
             {% else %}
-            <a class="feature-action" href="{{ url_for('pricing') }}?from=wenku">{{ site_text("index.wenku_locked") }}</a>
+            <a class="feature-action" href="{{ url_for('pricing') }}?from=liushi">{{ site_text("index.liushi_locked") }}</a>
             {% endif %}
           </section>
           {% endif %}
+          {% endif %}{# /卡片归属页 #}
           {% endfor %}
         </div>
+        {% endif %}{# /功能卡网格（仅 more 页或 legacy） #}
 
-        <div id="searchBookTabs" class="book-tabs" hidden></div>
-        <div id="results"></div>
+        {% if v2 and _pg == 'more' %}
+        {# 「我的知识库」：会员专享；非会员也陈列，按钮显示「开通会员后使用」引导开通（仿期刊/流式卡）。 #}
+        <section class="journal-bar" aria-label="我的知识库">
+          <div class="feature-copy">
+            <div class="feature-kicker">会员专属 · 个人积累</div>
+            <div class="reader-status-row">
+              <span class="reader-status">阅读器记笔记 · 跨书聚合</span>
+            </div>
+            <h2>我的知识库</h2>
+            <p>你在扫描版、流式与文库各阅读器里选中原文记下的笔记，都会汇聚到这里：可搜索、一键跳回原文、导出备份。</p>
+          </div>
+          {% if notes_access_enabled %}
+          <a class="feature-action" href="{{ url_for('knowledge_base_page') }}">进入知识库</a>
+          {% else %}
+          <a class="feature-action" href="{{ url_for('pricing') }}?from=notes">开通会员后使用</a>
+          {% endif %}
+        </section>
+        {% endif %}
+
       </div>
 
+      {% if show_search %}
       <aside class="right-stack">
         <div class="right-top-stack">
           <section class="notice-card">
@@ -2176,7 +2947,59 @@
             <div class="notice-body">{{ render_announcement(site_text("index.notice_body")) }}</div>
           </section>
 
-          {% set community_items = render_community_items(site_text("index.community_body")) %}
+          {% if registry_geo_enabled %}
+          <section class="registry-geo-card" id="registryGeoCard" aria-label="{{ site_text('index.registry_geo_title') }}">
+            <div class="rg-head">
+              <h2>{{ site_text("index.registry_geo_title") }}</h2>
+              <span class="rg-live">{{ site_text("index.registry_geo_live") }}</span>
+            </div>
+            <div class="rg-total">
+              <span class="rg-num" id="rgTotal">—</span>
+              <span class="rg-num-label">{{ site_text("index.registry_geo_total_label") }}</span>
+            </div>
+            <div class="rg-mapwrap">
+              <div class="rg-map" id="rgMap"><div class="rg-loading">{{ site_text("index.registry_geo_loading") }}</div></div>
+              <div class="rg-tip" id="rgTip"></div>
+            </div>
+            <div class="rg-legend"><span>{{ site_text("index.registry_geo_legend_low") }}</span><span class="rg-bar"></span><span>{{ site_text("index.registry_geo_legend_high") }}</span></div>
+            {# 代表性省份排行榜（rgRank）：注册人数前 8 省，每省一枚 chip（名次·简称·人数 + 比例底条）。
+               数据来自 /api/community/registry-geo 的 provinces（仅省级聚合、无明细 IP）。 #}
+            <div class="rg-rank" id="rgRank"></div>
+            <p class="rg-overseas" id="rgOverseas" style="display:none"></p>
+            <p class="rg-unknown" id="rgUnknown" style="display:none"></p>
+            <div class="rg-foot">{{ site_text("index.registry_geo_foot") }}</div>
+          </section>
+          {% endif %}
+
+          {# 第三卡：网站支持的文库——复用首页 hero 的收录清单逻辑（book_stats 固定版次文案／实时卷数），
+             与左侧「公告 / 注册分布」同宽等高对齐。 #}
+          <section class="library-card" aria-label="网站支持的文库">
+            {% set lib_items = [] %}
+            {% for item in book_stats %}
+              {% set label_raw = site_text(item.text_key) or item.fixed_pill %}
+              {% if label_raw %}{% set _ = lib_items.append(label_raw) %}
+              {% elif item.count and item.count > 0 %}{% set _ = lib_items.append(item.short_title ~ " " ~ item.count ~ " 卷") %}{% endif %}
+            {% endfor %}
+            {% if wenku_available %}{% set _ = lib_items.append("外文原著（俄 / 德 / 英）") %}{% endif %}
+            <h2 class="library-head"><span>网站支持的文库</span><span class="library-count">共 {{ lib_items|length }} 种</span></h2>
+            {# 竖向逐条无缝循环（与社区建设同款）：轨道放两份内容，CSS 平移 -50%（一份高度）到末尾
+               时第二份恰好顶到起点，肉眼无跳变。鼠标悬停暂停，尊重「减少动态」无障碍设置。 #}
+            <div class="library-marquee">
+              <div class="library-track" style="--library-count: {{ lib_items|length }}">
+                {% for label in lib_items %}
+                <div class="library-item">{{ label }}</div>
+                {% endfor %}
+                {% for label in lib_items %}
+                <div class="library-item" aria-hidden="true">{{ label }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </section>
+        </div>{# /right-top-stack：公告 / 注册分布 / 文库 三卡一行 #}
+
+        {# 第二行：社区建设 + 留言反馈，两卡等宽等高对齐 #}
+        {% set community_items = render_community_items(site_text("index.community_body")) %}
+        <div class="right-bottom-stack">
           {% if community_items %}
           <section class="community-card" aria-label="社区建设">
             <h2 class="community-head">
@@ -2230,60 +3053,18 @@
           </section>
         </div>
 
-        <section class="ai-card">
-          <div class="ai-head">
-            <div>
-              <h2>{{ site_text("index.ai_title") }}</h2>
-              <p class="ai-status" id="aiStatus">{{ site_text("index.ai_status_loading") }}</p>
-            </div>
-            <div class="ai-model" id="aiModelBadge">{{ ai_runtime.model if search_chat_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if search_chat_access_enabled else "未开放") }}</div>
-          </div>
-
-          {% if not search_chat_access_enabled %}
-          <div class="ai-lock-note">{{ site_text("index.ai_member_locked") }}</div>
-          {% endif %}
-
-          {% if search_chat_access_enabled and ai_web_access_enabled %}
-          <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin:6px 0 2px">
-            <label for="aiProviderSelect" style="font-size:13px;white-space:nowrap">选择模型</label>
-            <select id="aiProviderSelect" style="flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:13px">
-              <option value="deepseek">DeepSeek（默认，不联网）</option>
-              <option value="zhipu">智谱 {{ ai_runtime.zhipu_model or "GLM-5.1" }}（可联网检索）</option>
-            </select>
-          </div>
-          {% endif %}
-
-          {% if search_chat_access_enabled %}
-          <div class="ai-grounding-row">
-            <label class="ai-grounding-label">
-              <input type="checkbox" id="aiGroundingToggle">
-              <span>检索引文库作答</span>
-            </label>
-            <span class="ai-grounding-hint">开启后先检索原著原文，回答附准确出处</span>
-          </div>
-          {% endif %}
-
-          {% if search_chat_access_enabled %}
-          <div class="ai-quota hidden" id="aiTokenQuota">
-            <div class="ai-quota-bar"><span id="aiTokenQuotaFill"></span></div>
-            <span class="ai-quota-text" id="aiTokenQuotaText"></span>
-          </div>
-          {% endif %}
-
-          <div class="chat-box" id="aiMessages"></div>
-
-          <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("index.ai_prompt_placeholder") }}" {% if not search_chat_access_enabled %}disabled{% endif %}></textarea>
-
-          <div class="ai-actions">
-            <button type="button" class="ai-primary" id="aiSendBtn">发送提问</button>
-            <button type="button" class="secondary" id="aiInsertSearchBtn">插入当前检索框文本</button>
-            <button type="button" class="secondary" id="aiClearBtn">清空会话</button>
-          </div>
-        </section>
+        {# 「AI 随心问」卡片/抽屉已从首页移除：首页 AI 入口改为上方「AI 研究对话」双卡（跳 /ai 全页）。
+           其余内容页（阅读器等）仍保留右侧抽屉。 #}
       </aside>
+      {% endif %}{# /show_search：右侧辅栏（公告/注册分布/社区/反馈） #}
     </div>
   </div>
 
+  {# 主检索脚本取 #searchForm/#q 时无空值保护，故只在有检索面板的页面加载。
+     后面几段脚本（使用提示/篇章直达/注册分布/赞助）本身都有空值早返回，可全局保留。 #}
+  {% if show_search %}
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
+  <script src="/static/book-scope/book-scope.js?v=3"></script>
   <script>
   const requestToken = {{ request_token | tojson }};
   const csrfToken = {{ csrf_token | tojson }};
@@ -2318,6 +3099,9 @@
   const feedbackReplyNotice = {{ site_text("index.feedback_reply_notice") | tojson }};
   const SEARCH_STATE_KEY = 'marx-search-state-v2';
   const AI_STATE_KEY = 'marx-search-ai-state-v1';
+  // 供全站导航判断「本页检索是否在飞」：结果区出现加载态即视为在飞（联想检索走 AI，较慢）。
+  // 在飞时点其它导航标签改为新标签打开，不打断本页检索。
+  window.__marxBusy = function () { return !!document.querySelector('.search-loading'); };
 
   const form = document.getElementById('searchForm');
   const q = document.getElementById('q');
@@ -2325,9 +3109,184 @@
   const coocToggle = document.getElementById('coocToggle');
   const coocCheckbox = document.getElementById('coocCheckbox');
   const researchNote = document.getElementById('researchNote');
+  const searchScopeRow = document.getElementById('searchScopeRow');
+  const searchScopeChips = document.getElementById('searchScopeChips');
+  const SEARCH_SCOPE_KEY = 'marx-search-scope-v2';
+  const BOOK_SCOPE_TREE = {{ (book_scope_tree or []) | tojson }};
+  const bookScopeMount = document.getElementById('bookScopeMount');
+  let bookScopeCtl = null;
   const out = document.getElementById('results');
   const bookTabsEl = document.getElementById('searchBookTabs');
   const aiMessages = document.getElementById('aiMessages');
+
+  // ---- 引用格式（全局切换）：国标 GB/T 7714 / 《中国社会科学》/《马克思主义研究》 ----
+  // 三处引文出处（标准·联想检索命中、研究综述引文条、AI 随心问接地引文）共用同一套多格式
+  // 出处串（后端 hit.citations）。用户在结果上方下拉里选定格式后，本地记忆并即时重排所有
+  // 已渲染引文；新检索/恢复亦按当前格式渲染；「复制引文」复制的就是当前所选格式的文本。
+  const CITE_FORMAT_KEY = 'marx-citation-format-v1';
+  const CITE_FORMAT_LABELS = { gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+  const CITE_FORMAT_DEFAULT = 'gb2015';
+  function loadCiteFormat() {
+    try { const v = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[v] ? v : CITE_FORMAT_DEFAULT; }
+    catch (_) { return CITE_FORMAT_DEFAULT; }
+  }
+  let citeFormat = loadCiteFormat();
+  // 取某条命中/引文在当前格式下的出处串（缺 citations 时回退到旧的单一 citation 字段）。
+  function pickCite(obj) {
+    const m = obj && obj.citations;
+    if (m && m[citeFormat]) return m[citeFormat];
+    return (obj && obj.citation) || '';
+  }
+  // 把多格式出处串序列化进 data-citations 属性，供切换时就地重写（无需重渲染）。
+  function citeDataAttr(obj) {
+    let m = obj && obj.citations;
+    if ((!m || !Object.keys(m).length) && obj && obj.citation) {
+      m = { gb2015: obj.citation, zgshkx: obj.citation, mkszyj: obj.citation };
+    }
+    return m ? escAttr(JSON.stringify(m)) : '';
+  }
+  function applyCiteFormat(fmt) {
+    if (!CITE_FORMAT_LABELS[fmt]) return;
+    citeFormat = fmt;
+    try { localStorage.setItem(CITE_FORMAT_KEY, fmt); } catch (_) {}
+    document.querySelectorAll('[data-citations]').forEach(el => {
+      let m; try { m = JSON.parse(el.dataset.citations || '{}'); } catch (_) { m = {}; }
+      if (m && m[fmt]) el.textContent = m[fmt];
+    });
+  }
+  (function initCiteFormatBar() {
+    const bar = document.getElementById('citeFormatBar');
+    const sel = document.getElementById('citeFormatSelect');
+    if (!bar || !sel) return;
+    sel.value = citeFormat;
+    sel.addEventListener('change', () => applyCiteFormat(sel.value));
+    // 只要出现引文类结果就显示格式条。标准检索的书库/篇章分组（.group-card）默认折叠、
+    // 逐字引文(.cite[data-citations]) 展开某篇章后才渲染，故不能只等 [data-citations]——
+    // 否则「结果已出、尚未展开具体引文」时格式条一直不出现（用户反馈的 bug）。这里改为：
+    // 结果区一旦有分组卡或引文数据，或 AI 对话出现引文，即显示。
+    const toggle = () => {
+      const has = (out && (out.querySelector('[data-citations]') || out.querySelector('.group-card'))) ||
+                  (aiMessages && aiMessages.querySelector('[data-citations]'));
+      bar.hidden = !has;
+    };
+    if (out) new MutationObserver(toggle).observe(out, { childList: true, subtree: true });
+    if (aiMessages) new MutationObserver(toggle).observe(aiMessages, { childList: true, subtree: true });
+    toggle();
+  })();
+
+  // ===== 检索结果框：定位于检索面板正下方，随内容自适应 =====================
+  // 精确/模糊 → 中性有界可拉伸框；联想 → 油画蓝有界框；研究/加载/空态 → 自然铺展。
+  // 向下拖动展开，上限=完整结果自然长度；不持久化，刷新即回初始收起高度(DEFAULT)。
+  (function initResultsBox() {
+    const box = document.getElementById('resultsBox');
+    const head = document.getElementById('resultsBoxHead');
+    const scroll = document.getElementById('resultsScroll');
+    const fade = document.getElementById('resultsFade');
+    const handle = document.getElementById('resultsHandle');
+    const hpx = document.getElementById('resultsHpx');
+    const hmax = document.getElementById('resultsHmax');
+    const citeBar = document.getElementById('citeFormatBar');
+    const collapseBtn = document.getElementById('resultsCollapseBtn');
+    const closeBtn = document.getElementById('resultsCloseBtn');
+    if (!box || !scroll || !out) return;
+
+    let userH = null;          // 本会话拖动过的高度；null=用初始收起高度；刷新（重载）即重置为 null
+    let floorH = 560, maxH = 560, bounded = false;
+    // 初始收起高度（舒适上限）：随视口自适应(约 0.68 视口高)，夹在 [540,820]。
+    // 实际初始高度 = min(完整内容, 本值)：结果少则贴合内容不留空，结果多则展开到此舒适高度。
+    function defaultH() { return Math.round(Math.min(Math.max((window.innerHeight || 900) * 0.68, 540), 820)); }
+
+    // #results 未受高度约束，其 scrollHeight 即完整自然高度；+滚动区上下内边距(12+18)+底部留白
+    function contentH() { return Math.ceil(out.scrollHeight) + 40; }
+    function applyH() {
+      if (!bounded) return;
+      const applied = Math.max(floorH, Math.min(maxH, userH == null ? floorH : userH));
+      scroll.style.height = applied + 'px';
+      if (hpx) hpx.textContent = applied;
+      if (hmax) hmax.textContent = maxH;
+      const expandable = maxH > floorH + 8;    // 内容比初始高度还高时才可展开
+      handle.hidden = !expandable;             // 装得下初始高度就不必给手柄
+      if (collapseBtn) collapseBtn.hidden = !expandable;  // 「收起」仅在可展开/已调整时露出；「退出」始终在
+      fade.hidden = !(applied < maxH - 2);     // 拖到最长(全展开)即隐去底部渐隐
+    }
+    function detectKind() {
+      if (out.childElementCount === 0) return 'none';
+      if (out.querySelector('.assoc-results.research')) return 'research';
+      if (out.querySelector('.assoc-results')) return 'associative';
+      if (out.querySelector('.search-loading')) return 'loading';
+      if (out.querySelector('.empty')) return 'empty';
+      return 'standard';
+    }
+    function update() {
+      const kind = detectKind();
+      const hasResults = (kind === 'standard' || kind === 'associative' || kind === 'research');
+      box.classList.toggle('is-active', kind !== 'none');
+      box.classList.toggle('has-results', hasResults);   // 有实际结果才显示「收起/退出」工具行
+      box.classList.toggle('theme-assoc', kind === 'associative');
+      box.classList.toggle('theme-research', kind === 'research');
+      bounded = (kind === 'standard' || kind === 'associative');
+      box.classList.toggle('is-bounded', bounded);
+      // 联想/研究无书库分栏——强制隐藏，避免上一次标准检索的分栏残留
+      if ((kind === 'associative' || kind === 'research') && bookTabsEl) bookTabsEl.hidden = true;
+      // 头部：有结果（含工具行）或书库栏/引用格式栏可见时显示，否则整条收起
+      if (head) head.style.display = (hasResults || (bookTabsEl && !bookTabsEl.hidden) || (citeBar && !citeBar.hidden)) ? '' : 'none';
+      if (bounded) {
+        const ch = contentH();
+        maxH = Math.max(ch, 200);
+        floorH = Math.min(defaultH(), ch);
+        applyH();
+      } else {
+        scroll.style.height = '';   // 研究/加载/空态：自然铺展
+        handle.hidden = true;
+        fade.hidden = true;
+        if (collapseBtn) collapseBtn.hidden = true;   // 自然模式无高度调整，不显示「收起」（「退出」仍在）
+      }
+    }
+
+    // 拖动改高度（仅有界模式）
+    let dragging = false, startY = 0, startH = 0;
+    handle.addEventListener('pointerdown', e => {
+      if (!bounded) return;
+      dragging = true; startY = e.clientY;
+      startH = scroll.getBoundingClientRect().height;
+      box.classList.add('resizing');
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    window.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      userH = Math.max(floorH, Math.min(maxH, Math.round(startH + (e.clientY - startY))));
+      applyH();
+    });
+    window.addEventListener('pointerup', () => { if (dragging) { dragging = false; box.classList.remove('resizing'); } });
+    handle.addEventListener('dblclick', () => { if (bounded) { userH = null; applyH(); } });   // 双击复位到初始收起高度
+    window.addEventListener('resize', () => { if (bounded) update(); });
+
+    // 框头右上角「收起」键：退出拖动调整、回到初始高度并滚回结果顶部
+    if (collapseBtn) collapseBtn.addEventListener('click', () => {
+      userH = null; applyH();
+      try { scroll.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { scroll.scrollTop = 0; }
+    });
+
+    // 框头右上角「退出」键：关闭本次检索结果——清空结果区、收起书库栏/引用格式栏、
+    // 清掉本次结果的会话缓存（刷新也不再恢复），并滚回检索面板。查询词保留，便于再次检索。
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      try { out.innerHTML = ''; } catch (_) {}
+      if (bookTabsEl) { bookTabsEl.hidden = true; try { bookTabsEl.innerHTML = ''; } catch (_) {} }
+      if (citeBar) citeBar.hidden = true;
+      try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch (_) {}
+      userH = null;
+      update();   // 结果区已空 → box 收起消失（观察者亦会触发，此处即时收起）
+      const panel = document.querySelector('.left-stack .panel');
+      try { (panel || document.body).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch (_) { window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    });
+
+    // #results 内容变化即重算（检索/翻页/切书库/恢复态都会触发）
+    new MutationObserver(() => update()).observe(out, { childList: true, subtree: true });
+    update();
+  })();
+
   const aiPrompt = document.getElementById('aiPrompt');
   const aiSendBtn = document.getElementById('aiSendBtn');
   const aiInsertSearchBtn = document.getElementById('aiInsertSearchBtn');
@@ -2679,11 +3638,15 @@
         continue;
       }
 
-      const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+      // ATX 标题：兼容「**### 标题**」这类被整行加粗包裹的写法（flash 偶发把 ### 与 ** 叠用），
+      // 先剥掉整行 ** 包裹再判定，命中即渲染纯净标题、不残留字面 ### 或 **；未命中则原样继续。
+      const atxLine = trimmed.replace(/^\*\*(.+?)\*\*$/, '$1');
+      const heading = atxLine.match(/^(#{1,6})\s+(.+)$/);
       if (heading) {
         flushMarkdownBlocks(paragraph, list, quote, html);
         const level = Math.min(Math.max(heading[1].length + 2, 3), 5);
-        html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+        const htext = heading[2].replace(/\s*#+\s*$/, '');  // 去掉「### 标题 ###」闭合式的尾随 #
+        html.push(`<h${level}>${renderInlineMarkdown(htext)}</h${level}>`);
         continue;
       }
 
@@ -2746,8 +3709,10 @@
   function renderSearchLoading(kind, message, steps) {
     const safeKind = ['standard', 'associative', 'research'].includes(kind) ? kind : 'standard';
     const stepHtml = (steps || []).map(item => `<span>${esc(item)}</span>`).join('');
+    // 研究加载态也随「护眼/深色」背景偏好走（默认护眼），避免长达数十秒的等待盯着黑框。
+    const darkCls = (safeKind === 'research' && rvTheme() === 'dark') ? ' rv-dark' : '';
     out.innerHTML = `
-      <div class="search-loading ${safeKind}" role="status" aria-live="polite">
+      <div class="search-loading ${safeKind}${darkCls}" role="status" aria-live="polite">
         <div class="search-loading-head">
           <div class="search-loading-title">${esc(message)}</div>
           <div class="search-loading-dots" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -2971,13 +3936,17 @@
 
   function fuzzyNoticeHtml(items) {
     // 全模糊=精确零命中时的整体兜底；混合=部分书库逐字命中、零命中书库按近似补位。
+    // 差异字数取当前结果的实际最大值动态呈现，切勿写死：长段落引文的容错随长度增长
+    // （可达数十字），写死「2 字」会与逐条「近似匹配·相差 N 字」徽标自相矛盾。
     const list = Array.isArray(items) ? items : [];
-    const fuzzyCount = list.filter(item => item.match_type === 'fuzzy').length;
-    if (!fuzzyCount) return '';
-    if (fuzzyCount === list.length) {
-      return `<div class="fuzzy-notice">未找到与检索词<strong>逐字一致</strong>的原文，以下为容错近似命中（与检索词至多相差 2 字）。差异可能来自检索词或扫描件 OCR 的个别错字，请打开正文核对。</div>`;
+    const fuzzy = list.filter(item => item && item.match_type === 'fuzzy');
+    if (!fuzzy.length) return '';
+    const errs = fuzzy.map(it => Number(it.fuzzy_errors)).filter(n => Number.isFinite(n) && n > 0);
+    const diff = errs.length ? `与检索词最多相差 ${esc(String(Math.max(...errs)))} 字` : '与检索词存在个别文字出入';
+    if (fuzzy.length === list.length) {
+      return `<div class="fuzzy-notice">未找到与检索词<strong>逐字一致</strong>的原文，以下均为<strong>近似检索</strong>结果（${diff}）。差异可能来自检索词本身或扫描件 OCR 的错字漏字，每条结果已标注实际相差字数，请打开正文核对。</div>`;
     }
-    return `<div class="fuzzy-notice">部分书库未逐字命中，已补充标注「<strong>近似匹配</strong>」的结果（与检索词至多相差 2 字，差异常为扫描件 OCR 错字），请打开正文核对。</div>`;
+    return `<div class="fuzzy-notice">部分书库未逐字命中，已按「<strong>近似匹配</strong>」补充呈现（${diff}，差异常为扫描件 OCR 错字漏字），每条结果均标注实际相差字数，请打开正文核对。</div>`;
   }
 
   function renderHitRow(hit, indexKey) {
@@ -3013,7 +3982,7 @@
         ${section}
         <div class="ctx">${renderCtx(hit.context)}</div>
         <div class="actions">
-          <div class="cite" id="cite-${indexKey}">${esc(hit.citation)}</div>
+          <div class="cite" id="cite-${indexKey}" data-citations="${citeDataAttr(hit)}">${esc(pickCite(hit))}</div>
           <div class="action-buttons">
             <button class="secondary copy-btn" data-target="cite-${indexKey}">复制引文</button>
             ${openButton}
@@ -3251,6 +4220,29 @@
     `;
   }
 
+  // 「精确检索零命中 → 自动联想检索」兜底的门控与状态。
+  // autoAssocFallbackFrom 记下是哪一次精确检索触发的兜底，供结果页顶部加说明条——必须让读者
+  // 看清这批结果来自联想检索（凭大意召回的真实原文），不能与「逐字精确命中」混为一谈。
+  let autoAssocFallbackFrom = '';
+  // 说明条要跨「翻页重渲染」保留（renderAssociativePage 会被分页反复调用），故与上面那个
+  // 一次性触发标记分开存：触发标记用完即清，这个跟着本次联想结果一直显示。
+  let autoAssocNoticeQuery = '';
+  // 触发下限 4 字：中文短句信息密度高，「宗教是鸦片」这类少打几个字的引文只有 5 字，
+  // 6 字门槛会把它挡在兜底之外（实测该查询精确零命中、容错也够不着——5 字 < 容错下限 10 字，
+  // 而联想检索能凭 AI 补出原句「宗教是人民的鸦片」并召回文集/全集/选集等真实原文）。
+  // 再往下放到 2–3 字则多半是误打或生僻字，零命中很常见，不值得每次都烧一次 AI 额度。
+  const AUTO_ASSOC_MIN_LEN = 4;
+  function shouldAutoAssoc(text, options, isCooc) {
+    if (!assocAccessEnabled) return false;          // 无联想检索权限的身份：保持原文案
+    if (isCooc) return false;                        // 同段多词是另一种意图，不转联想
+    if (options && (options.book || Number(options.groupPage || 1) > 1)) return false; // 翻页/切书库不是新检索
+    if (options && options.noAutoAssoc) return false;         // 恢复检索态等场景显式禁用
+    const t = String(text || '').replace(/\s+/g, '');
+    if (t.length < AUTO_ASSOC_MIN_LEN) return false;
+    if (/^(book:|vol:)/i.test(t)) return false;      // 纯范围限定 token，不是要检索的正文
+    return true;
+  }
+
   async function doSearch(text, options = {}) {
     if (!state.searchEnabled) {
       renderEmpty('当前索引不可用，请先检查资料包与数据库校验状态。');
@@ -3269,10 +4261,14 @@
       ['扫描书库索引', '定位页码与段落', '整理命中结果']
     );
     try {
+      // 「精选到书/卷」有选择时随请求带上 scope（多本/卷级后置过滤）；无选择则不发，保持全库/书库分栏原行为。
+      const bscopeTokens = (bookScopeCtl && bookScopeCtl.hasSelection()) ? bookScopeCtl.getTokens() : null;
+      const searchBody = { q: text, group_page: groupPage, book, mode };
+      if (bscopeTokens) searchBody.scope = bscopeTokens;
       const resp = await apiFetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: text, group_page: groupPage, book, mode })
+        body: JSON.stringify(searchBody)
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -3282,6 +4278,15 @@
       }
       const isCooc = (mode === 'cooccurrence');
       if (!data.results.length) {
+        // 精确检索零命中 → 自动转 AI 联想检索兜底：读者手里的引文常与扫描原文有个别字出入
+        // （OCR 错字、版本差异、凭记忆默写），精确检索一个字都不能差，此时联想检索能凭大意
+        // 找回真正的原文。仅在「本次是新检索、查询够长、无同段多词、且该身份有联想检索权限」
+        // 时触发——否则每次打错字都会白烧一次 AI 额度；无权限身份保持原「未找到」文案。
+        if (shouldAutoAssoc(text, options, isCooc)) {
+          autoAssocFallbackFrom = text;
+          await doAssociativeSearch(text, 'locate');
+          return;
+        }
         renderEmpty('未找到匹配结果。');
         updateBookTabs(data);
         saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: '未找到匹配结果。' }, data));
@@ -3355,6 +4360,99 @@
     return result;
   }
 
+  // 「检索范围」：自动 / 全部 / 多选著作群 chips。mode ∈ auto|all|custom；记忆到 localStorage 跨会话保持。
+  let searchScopeState = { mode: 'auto', selected: [] };
+  function saveSearchScope() { try { localStorage.setItem(SEARCH_SCOPE_KEY, JSON.stringify(searchScopeState)); } catch (_) {} }
+  function paintSearchChips() {
+    if (!searchScopeChips) return;
+    searchScopeChips.querySelectorAll('.search-chip').forEach(btn => {
+      const id = btn.getAttribute('data-scope');
+      const on = (id === 'auto' && searchScopeState.mode === 'auto') ||
+                 (id === 'all' && searchScopeState.mode === 'all') ||
+                 (searchScopeState.mode === 'custom' && searchScopeState.selected.indexOf(id) >= 0);
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  // 当前检索范围值：'auto' | 'all' | [著作群 id...]（多选）。后端 _resolve_search_scope 三者都吃。
+  function currentSearchScope() {
+    // D2：「精选到书/卷」有选择即以其为准（覆盖著作群 chips）。
+    if (bookScopeCtl && bookScopeCtl.hasSelection()) return bookScopeCtl.getTokens();
+    if (searchScopeState.mode === 'all') return 'all';
+    if (searchScopeState.mode === 'custom' && searchScopeState.selected.length) return searchScopeState.selected.slice();
+    return 'auto';
+  }
+  (function initSearchScope() {
+    if (!searchScopeChips) return;
+    const validIds = Array.prototype.map.call(searchScopeChips.querySelectorAll('.search-chip'), b => b.getAttribute('data-scope'));
+    try {
+      const s = JSON.parse(localStorage.getItem(SEARCH_SCOPE_KEY) || 'null');
+      if (s && (s.mode === 'auto' || s.mode === 'all' || s.mode === 'custom')) {
+        const sel = Array.isArray(s.selected) ? s.selected.filter(x => validIds.indexOf(x) >= 0) : [];
+        searchScopeState = { mode: (s.mode === 'custom' && !sel.length) ? 'auto' : s.mode, selected: sel };
+      }
+    } catch (_) {}
+    searchScopeChips.addEventListener('click', e => {
+      const btn = (e.target && e.target.closest) ? e.target.closest('.search-chip') : null;
+      const id = btn && btn.getAttribute('data-scope');
+      if (!id) return;
+      if (id === 'auto') searchScopeState = { mode: 'auto', selected: [] };
+      else if (id === 'all') searchScopeState = { mode: 'all', selected: [] };
+      else {
+        const sel = searchScopeState.mode === 'custom' ? searchScopeState.selected.slice() : [];
+        const i = sel.indexOf(id);
+        if (i >= 0) sel.splice(i, 1); else sel.push(id);
+        searchScopeState = sel.length ? { mode: 'custom', selected: sel } : { mode: 'auto', selected: [] };
+      }
+      saveSearchScope();
+      paintSearchChips();
+    });
+    paintSearchChips();
+  })();
+
+  // 「精选到书/卷」多选控件：挂在检索框下方（所有模式可见）；有选择即覆盖著作群 chips（D2）。
+  (function initBookScope() {
+    if (bookScopeMount && window.BookScope && Array.isArray(BOOK_SCOPE_TREE) && BOOK_SCOPE_TREE.length) {
+      bookScopeCtl = BookScope.mount(bookScopeMount, BOOK_SCOPE_TREE, { storageKey: 'marx-book-scope-index-v1' });
+    }
+  })();
+
+  // 结果里回显「本次检索范围」：applied 时才显示；自动路由标「智能判断」，手动标「手动指定」。
+  function scopeBannerHtml(scope) {
+    if (!scope || !scope.applied || !scope.label) return '';
+    const how = scope.manual ? '手动指定' : 'AI 智能判断';
+    return `<div class="assoc-intent-banner">检索范围：${esc(scope.label)} · ${how}（可在检索框下方切换）</div>`;
+  }
+
+  // 研究综述背景色主题：'light'（护眼暖底，默认）| 'dark'（原深色底）。记忆在 localStorage，跨会话保持。
+  const RV_THEME_KEY = 'marx-rv-theme-v1';
+  function rvTheme() {
+    try { return localStorage.getItem(RV_THEME_KEY) === 'dark' ? 'dark' : 'light'; } catch (_) { return 'light'; }
+  }
+  // 结果头部「标题 + 背景切换按钮」一行；按钮点击切换护眼/深色并记忆（研究综述与研究卡片列表共用）。
+  function rvHeadRow(headingHtml) {
+    const dark = rvTheme() === 'dark';
+    const label = dark ? '☀ 护眼背景' : '☾ 深色背景';
+    return `<div class="rv-head-row"><h2>${headingHtml}</h2>` +
+      `<button type="button" class="rv-theme-toggle" id="rvThemeToggle" aria-pressed="${dark ? 'true' : 'false'}" title="切换研究综述背景色（护眼暖底 / 深色底）">${label}</button></div>`;
+  }
+  // 把当前主题应用到已渲染的研究结果/加载容器（加/去 .rv-dark），并同步切换按钮文案。
+  function applyRvTheme() {
+    const dark = rvTheme() === 'dark';
+    out.querySelectorAll('.assoc-results.research, .search-loading.research').forEach(el => el.classList.toggle('rv-dark', dark));
+    const btn = out.querySelector('#rvThemeToggle');
+    if (btn) { btn.textContent = dark ? '☀ 护眼背景' : '☾ 深色背景'; btn.setAttribute('aria-pressed', dark ? 'true' : 'false'); }
+  }
+  // 事件委托：点击背景切换按钮 → 翻转主题、记忆、即时应用（无需重渲染）。
+  if (out) {
+    out.addEventListener('click', e => {
+      const t = (e.target && e.target.closest) ? e.target.closest('#rvThemeToggle') : null;
+      if (!t) return;
+      try { localStorage.setItem(RV_THEME_KEY, rvTheme() === 'dark' ? 'light' : 'dark'); } catch (_) {}
+      applyRvTheme();
+    });
+  }
+
   async function doAssociativeSearch(text, mode) {
     const isResearch = (mode === 'research');
     if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
@@ -3384,7 +4482,7 @@
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate' })
+        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate', scope: currentSearchScope() })
       });
       let data;
       const ctype = (resp.headers.get('content-type') || '').toLowerCase();
@@ -3452,13 +4550,23 @@
   function renderAssociativeResults(data) {
     const results = Array.isArray(data.results) ? data.results : [];
     const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    // 由「精确检索零命中」自动转来的这一次：无论有没有结果，都要如实说明来路。
+    const fellBackFrom = autoAssocFallbackFrom;
+    autoAssocFallbackFrom = '';
     if (!results.length) {
       assocState = null;
-      renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
+      if (fellBackFrom) {
+        renderEmpty('未找到与「' + fellBackFrom + '」逐字相符的原文；已自动改用联想检索，仍未找到接近的段落。'
+          + '可只保留其中最有特征的一句再试，或换用「随心问」描述这段话的大意。');
+      } else {
+        renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
+      }
       return;
     }
-    assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto' };
-    saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results, warnings, intent: data.intent || '', mode: data.mode || 'auto' });
+    // 每次都按本次来路重置：否则用户接着手动跑一次联想检索时，上一次的兜底说明条会残留误显。
+    autoAssocNoticeQuery = fellBackFrom || '';
+    assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null };
+    saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results, warnings, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null });
     renderAssociativePage();
   }
 
@@ -3473,23 +4581,24 @@
       return;
     }
     const heading = {{ site_text('search.research_result_heading') | tojson }};
+    const scopeBanner = scopeBannerHtml(data.scope);
     const warnHtml = warnings.length ? `<div class="assoc-note">${warnings.map(esc).join('；')}</div>` : '';
     const citHtml = cits.map(c => {
       const idx = c.review_index || '';
-      const cite = esc(c.citation || '');
+      const cite = esc(pickCite(c));
       const ctx = esc(c.context || '').replace(/\[\[H\]\]/g, '<span class="ctx-hl">').replace(/\[\[\/H\]\]/g, '</span>');
       const usedTag = c.review_quoted ? '<span class="rv-used">综述已引用</span> ' : '';
       const sub = c.subject_label ? `<span class="sb-tag">名目索引</span> ${esc(c.subject_label)} · ` : '';
       const evidence = Array.isArray(c.evidence) ? c.evidence : [];
       const evidenceHtml = evidence.length ? `<div class="rv-evidence-list">${evidence.map((ev, evIdx) => {
         const evCtx = esc(ev.context || '').replace(/\[\[H\]\]/g, '<span class="ctx-hl">').replace(/\[\[\/H\]\]/g, '</span>');
-        const evCite = esc(ev.citation || '');
+        const evCite = esc(pickCite(ev));
         const evKind = ev.kind === 'paraphrase' ? '转述定位' : '直接引用';
         const pageLabel = ev.printed_page ? `原书页 ${esc(ev.printed_page)} · PDF ${esc(ev.pdf_page || '')}` : `PDF ${esc(ev.pdf_page || '')}`;
         const evLink = ev.viewer_url ? `<a class="rv-evidence-open" href="${escAttr(ev.viewer_url)}" target="_blank" rel="noopener">打开此页 →</a>` : '';
         return `<div class="rv-evidence">
             <div class="rv-evidence-head"><span class="rv-evidence-kind">${evKind}</span><span>证据页 ${evIdx + 1}</span><span class="rv-evidence-page">${pageLabel}</span>${evLink}</div>
-            ${evCite ? `<div class="rv-cite-head">${evCite}</div>` : ''}
+            ${evCite ? `<div class="rv-cite-head" data-citations="${citeDataAttr(ev)}">${evCite}</div>` : ''}
             ${evCtx ? `<div class="rv-cite-ctx">${evCtx}</div>` : ''}
           </div>`;
       }).join('')}</div>` : '';
@@ -3497,21 +4606,23 @@
         ? `<a class="rv-open" href="${escAttr(c.viewer_url)}" target="_blank" rel="noopener">打开原文 →</a>`
         : '';
       return `<div class="rv-cite">
-          <div class="rv-cite-head"><span class="rv-idx">[${idx}]</span>${usedTag}${sub}<span id="rvc-${idx}">${cite}</span></div>
+          <div class="rv-cite-head"><span class="rv-idx">[${idx}]</span>${usedTag}${sub}<span id="rvc-${idx}" data-citations="${citeDataAttr(c)}">${cite}</span></div>
           ${evidenceHtml || (ctx ? `<div class="rv-cite-ctx">${ctx}</div>` : '')}
           <div class="rv-cite-actions"><button class="secondary copy-btn" data-target="rvc-${idx}">复制引文</button>${link}</div>
         </div>`;
     }).join('');
     out.innerHTML = `
       <div class="assoc-results research">
-        <div class="assoc-result-head"><h2>${esc(heading)}</h2>
+        <div class="assoc-result-head">${rvHeadRow(esc(heading))}
           <div class="assoc-lede">依据检索到的真实原文综合生成，文中【序号】对应下方引文，可点开逐条核对（引文不可伪造）。</div>
         </div>
+        ${scopeBanner}
         ${warnHtml}
         ${md ? `<div class="rv-essay">${renderBasicMarkdown(md)}</div>` : ''}
         <div class="rv-cites-title">引文出处 · 真实可查（${cits.length}）</div>
         <div class="rv-cites">${citHtml}</div>
       </div>`;
+    applyRvTheme();
     if (!fromRestore) {
       saveSearchState({ kind: 'review', query: data.query || q.value.trim(), review_markdown: md, review_citations: cits, warnings });
     }
@@ -3534,6 +4645,12 @@
     const intentBanner = intentLabel
       ? `<div class="assoc-intent-banner">本次检索取向：${intentLabel}${assocState.mode === 'auto' ? ' · AI 自动判断（可在上方手动指定）' : ' · 已手动指定'}</div>`
       : '';
+    // 兜底说明条：这批结果是精确检索零命中后自动转联想检索得来的。必须写明「凭大意召回」，
+    // 读者才不会把它当成逐字精确命中——下面每条仍是语料里的真实原文，可照常引用。
+    const fallbackBanner = autoAssocNoticeQuery
+      ? `<div class="assoc-fallback-banner">未找到与「${esc(autoAssocNoticeQuery)}」<strong>逐字相符</strong>的原文，已自动改用<strong>联想检索</strong>按大意召回以下真实段落（可能与你手里的文字有个别字出入，请以原文为准）。</div>`
+      : '';
+    const scopeBanner = scopeBannerHtml(assocState.scope);
     const rows = slice.map((hit, i) => renderHitRow(hit, `assoc-${start + i}`)).join('');
     const pager = totalPages > 1 ? `
       <div class="pager group-list-pager">
@@ -3545,18 +4662,23 @@
     const resultHeading = assocState.intent === 'research'
       ? {{ site_text('search.research_result_heading') | tojson }}
       : {{ site_text('search.assoc_result_heading') | tojson }};
+    const isResearch = assocState.intent === 'research';
+    const headHtml = isResearch ? rvHeadRow(esc(resultHeading)) : `<h2>${esc(resultHeading)}</h2>`;
     out.innerHTML = `
-      <div class="assoc-results${assocState.intent === 'research' ? ' research' : ''}">
-        <div class="assoc-result-head"><h2>${esc(resultHeading)}</h2>
+      <div class="assoc-results${isResearch ? ' research' : ''}">
+        <div class="assoc-result-head">${headHtml}
           <div class="assoc-lede">${ledeOrder} · 共 ${total} 段，每组 ${ASSOC_PAGE_SIZE} 段，分 ${totalPages} 组显示</div>
         </div>
+        ${fallbackBanner}
         ${intentBanner}
+        ${scopeBanner}
         ${warnHtml}
         ${pager}
         <div class="assoc-list">${rows}</div>
         ${pager}
       </div>
     `;
+    if (isResearch) applyRvTheme();
   }
 
   function sendPing() {
@@ -3579,14 +4701,22 @@
     if (!Array.isArray(sources) || !sources.length) return '';
     return `
       <div class="sources">
-        ${sources.map((source, index) => `
+        ${sources.map((source, index) => {
+          // 来源链接来自联网检索结果，可能含 javascript: 等危险 scheme：过 safeMarkdownUrl 白名单，
+          // 非法则退化为纯文本（不可点），杜绝 DOM XSS。
+          const safeUrl = safeMarkdownUrl(source.link || '');
+          const label = `${index + 1}. ${esc(source.title || '未命名来源')}`;
+          const head = safeUrl
+            ? `<a href="${escAttr(safeUrl)}" target="_blank" rel="noopener">${label}</a>`
+            : `<span>${label}</span>`;
+          return `
           <div class="source-item">
-            <a href="${escAttr(source.link || '#')}" target="_blank" rel="noopener">${index + 1}. ${esc(source.title || '未命名来源')}</a>
+            ${head}
             <div class="source-meta">
               ${esc(source.site || '未知站点')}${source.date ? ` · ${esc(source.date)}` : ''}
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     `;
   }
@@ -3604,7 +4734,7 @@
         <div class="ai-citations-title">引用原文 · 来自引文库（${citations.length}）</div>
         ${citations.map(c => {
           const idx = c.grounding_index || '';
-          const cite = esc(c.citation || '');
+          const cite = esc(pickCite(c));
           const ctx = esc(c.context || '')
             .replace(/\[\[H\]\]/g, '<mark>')
             .replace(/\[\[\/H\]\]/g, '</mark>');
@@ -3613,7 +4743,7 @@
             : '';
           return `
             <div class="ai-citation-item">
-              <div class="ai-citation-cite">${idx ? `[${idx}] ` : ''}${cite}</div>
+              <div class="ai-citation-cite">${idx ? `[${idx}] ` : ''}<span data-citations="${citeDataAttr(c)}">${cite}</span></div>
               ${ctx ? `<div class="ai-citation-ctx">${ctx}</div>` : ''}
               ${link}
             </div>`;
@@ -3765,7 +4895,17 @@
           grounding: currentGroundingEnabled()
         })
       });
-      const data = await resp.json();
+      // 云端版「随心问」走 SSE 心跳保活流：接地+长答整链路可逼近/超过 Cloudflare ~100s 边缘超时，
+      // 服务端持续吐心跳喂住首字节计时器，避免被砍成 524 HTML（resp.json() 撞 '<'）。桌面版仍是普通
+      // JSON、额度超限等也照旧返回 JSON——按响应类型分流解析即可（与联想/研究检索同一套处理）。
+      let data;
+      const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+      if (ctype.indexOf('text/event-stream') >= 0) {
+        data = parseSseResult(await resp.text());
+        if (!data) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+      } else {
+        data = await resp.json();
+      }
       if (data.ai_credits) state.aiCredits = data.ai_credits;
       if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {
@@ -3825,6 +4965,8 @@
     if (coocToggle) coocToggle.classList.toggle('hidden', aiSearch);
     // 研究型检索说明条仅在研究模式露出
     if (researchNote) researchNote.classList.toggle('hidden', !research);
+    // 「检索范围」选择条在两种 AI 检索下露出（标准检索无需——结果出来后有书库分栏）
+    if (searchScopeRow) searchScopeRow.classList.toggle('hidden', !aiSearch);
     // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
     const tagGroup = document.getElementById('citationFeatureTags');
     if (tagGroup) tagGroup.style.display = aiSearch ? 'none' : '';
@@ -3908,27 +5050,31 @@
     }
   });
 
-  aiPrompt.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      e.preventDefault();
-      submitAiQuestion(aiPrompt.value);
-    }
-  });
+  // 「AI 随心问」已迁出为全站右侧抽屉(_ai_assistant.html)；首页不再有这些 DOM 元素。
+  // 旧内联处理逻辑整体加守卫，元素缺失即跳过，绝不在加载时抛错（搜索等其余脚本不受影响）。
+  if (aiPrompt && aiSendBtn) {
+    aiPrompt.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        submitAiQuestion(aiPrompt.value);
+      }
+    });
 
-  aiSendBtn.addEventListener('click', () => submitAiQuestion(aiPrompt.value));
+    aiSendBtn.addEventListener('click', () => submitAiQuestion(aiPrompt.value));
 
-  aiInsertSearchBtn.addEventListener('click', () => {
-    const value = q.value.trim();
-    if (!value) return;
-    aiPrompt.value = aiPrompt.value.trim() ? `${aiPrompt.value.trim()}\n\n${value}` : value;
-    aiPrompt.focus();
-  });
+    if (aiInsertSearchBtn) aiInsertSearchBtn.addEventListener('click', () => {
+      const value = q.value.trim();
+      if (!value) return;
+      aiPrompt.value = aiPrompt.value.trim() ? `${aiPrompt.value.trim()}\n\n${value}` : value;
+      aiPrompt.focus();
+    });
 
-  aiClearBtn.addEventListener('click', () => {
-    aiMessagesState = [];
-    saveAiState();
-    renderAiMessages();
-  });
+    if (aiClearBtn) aiClearBtn.addEventListener('click', () => {
+      aiMessagesState = [];
+      saveAiState();
+      renderAiMessages();
+    });
+  }
 
   if (feedbackSubmitBtn) {
     feedbackSubmitBtn.addEventListener('click', submitFeedbackMessage);
@@ -3963,6 +5109,7 @@
       const query = (payload && payload.query) || q.value.trim();
       if (!query) return;
       const mode = (payload && payload.searchCooc) ? 'cooccurrence' : '';
+      if (bookScopeCtl && bookScopeCtl.hasSelection()) bookScopeCtl.clear();  // 点书库分栏=切到该本，清掉「精选到书/卷」
       await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode });
     });
   }
@@ -4207,6 +5354,19 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(layout).catch(() => {});
   })();
 
+  // 「收录文献」清单折叠开关：默认收起，点击展开/收起（内容用 max-height 折叠，布局脚本已在其上正确分行）。
+  (function setupHeroCorpusToggle() {
+    const list = document.getElementById('heroCorpus');
+    const btn = document.getElementById('heroCorpusToggle');
+    if (!list || !btn) return;
+    btn.addEventListener('click', () => {
+      const collapsed = list.classList.toggle('collapsed');
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      const hint = btn.querySelector('.hcc-hint');
+      if (hint) hint.textContent = collapsed ? '展开' : '收起';
+    });
+  })();
+
   try {
     const raw = sessionStorage.getItem(AI_STATE_KEY);
     if (raw) {
@@ -4214,15 +5374,16 @@
     }
   } catch (_) {}
 
-  renderAiMessages();
+  if (aiMessages) renderAiMessages();     // 首页 AI 卡片已迁出为右侧抽屉；元素不存在则跳过。
   renderFeedbackThread(feedbackThread);
   loadFeedbackThread();
-  loadAiRuntime();
+  if (aiStatus) loadAiRuntime();
   if (state.heartbeatEnabled) {
     startHeartbeat();
     window.addEventListener('focus', sendPing);
   }
   </script>
+  {% endif %}{# /show_search：主检索脚本 #}
   <script>
     // 引文检索「使用提示」拆分：将冗长 placeholder 的提示部分剥离到可折叠面板里
     (function () {
@@ -4333,17 +5494,32 @@
       const panel = document.getElementById('chapterSearchResults');
       if (!box || !input || !panel) return;
       const mode = box.getAttribute('data-mode') || 'ai';
+      const scopeSel = document.getElementById('chapterBookScope');
       let items = [], activeIndex = -1, timer = null, seq = 0;
       function hide() { panel.hidden = true; panel.innerHTML = ''; items = []; activeIndex = -1; }
       function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+      // escAttr 原定义在「引文检索」主脚本里；四页面布局下阅读页不加载该脚本，
+      // 故在本作用域内自带一份（转义规则与 esc 相同），避免 render() 抛未定义错误。
+      const escAttr = esc;
+      // 四页面布局下，篇章直达跳进阅读器也带 from=v2read，使阅读器「返回文库目录/返回检索」回到 /v2/read、/v2，
+      // 而非旧版文库/首页。r.url 已含 ?file=&page=&mode=，直接追加 &from=v2read。
+      const hrefU = function (u) { return escAttr(u ? (u + (document.body.classList.contains('v2') ? '&from=v2read' : '')) : '#'); };
       function render(results) {
         items = results || []; activeIndex = -1;
         if (!items.length) { panel.innerHTML = '<div class="chapter-search-empty">没有匹配的篇章，换个关键词试试。</div>'; panel.hidden = false; return; }
         panel.innerHTML = items.map(function (r, i) {
           const tagClass = 'tag ' + (r.tag_class || 'book-other');
           const label = r.book_short_title || r.book_title || ('《' + r.book + '》');
+          if (r.kind === 'book') {
+            // 书名/卷次直达：徽标只标书库简称（单卷本不缀卷次），主文本给整书全名 + 「整卷直达」标记。
+            const vtag = r.single ? '' : ('·第' + esc(r.volume) + '卷');
+            return '<a class="chapter-suggest book-jump" data-i="' + i + '" href="' + hrefU(r.url) + '">' +
+                   '<span class="' + escAttr(tagClass) + '">' + esc(label) + vtag + '</span>' +
+                   '<span class="s-title">' + esc(r.title) + '<span class="s-jump">整卷直达</span></span>' +
+                   '<span class="s-page">打开</span></a>';
+          }
           const page = r.printed ? r.printed : ('PDF ' + r.page);
-          return '<a class="chapter-suggest" data-i="' + i + '" href="' + escAttr(r.url || '#') + '">' +
+          return '<a class="chapter-suggest" data-i="' + i + '" href="' + hrefU(r.url) + '">' +
                  '<span class="' + escAttr(tagClass) + '">' + esc(label) + '·第' + esc(r.volume) + '卷</span>' +
                  '<span class="s-title">' + esc(r.title) + '</span>' +
                  '<span class="s-page">' + esc(page) + '</span></a>';
@@ -4358,8 +5534,9 @@
       }
       async function suggest(q) {
         const mine = ++seq;
+        const bookArg = scopeSel && scopeSel.value ? '&book=' + encodeURIComponent(scopeSel.value) : '';
         try {
-          const resp = await fetch('/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } });
+          const resp = await fetch('/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q) + bookArg, { headers: { 'Accept': 'application/json' } });
           if (!resp.ok) { if (mine === seq) hide(); return; }
           const data = await resp.json();
           if (mine !== seq) return;
@@ -4372,6 +5549,12 @@
         if (q.length < 2) { hide(); return; }
         timer = setTimeout(function () { suggest(q); }, 180);
       });
+      if (scopeSel) {
+        scopeSel.addEventListener('change', function () {
+          const q = input.value.trim();
+          if (q.length >= 2) { suggest(q); input.focus(); } else { hide(); }
+        });
+      }
       input.addEventListener('keydown', function (e) {
         if (panel.hidden || !items.length) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIndex + 1, items.length - 1)); }
@@ -4379,7 +5562,7 @@
         else if (e.key === 'Enter') { if (activeIndex >= 0 && items[activeIndex]) { e.preventDefault(); window.location.href = items[activeIndex].url; } }
         else if (e.key === 'Escape') { hide(); }
       });
-      document.addEventListener('click', function (e) { if (!box.contains(e.target)) hide(); });
+      document.addEventListener('click', function (e) { if (!box.contains(e.target) && !(scopeSel && scopeSel.contains(e.target))) hide(); });
       input.addEventListener('focus', function () { if (input.value.trim().length >= 2 && items.length) panel.hidden = false; });
     })();
 
@@ -4404,6 +5587,271 @@
       setInterval(sync, 60000);
     })();
   </script>
+
+  <script>
+  // 注册用户省际分布卡片：内联 SVG choropleth + 实时总数 + 海外人数（仅总数）。
+  // 文案 + 配色全部走 site_text（控制台·内容运营·「首页 · 注册用户分布」分组可改），此处注入。
+  // 地图省界路径走 /static/geo（静态、可缓存）；计数走 /api/community/registry-geo（仅聚合）。
+  (function () {
+    if (!{{ registry_geo_enabled | tojson }}) return;
+    var card = document.getElementById('registryGeoCard');
+    if (!card) return;
+    var RG_CFG = {
+      colorZero: {{ site_text("index.registry_geo_color_zero") | tojson }},
+      colorLow: {{ site_text("index.registry_geo_color_low") | tojson }},
+      colorHigh: {{ site_text("index.registry_geo_color_high") | tojson }},
+      overseasTpl: {{ site_text("index.registry_geo_overseas_tpl") | tojson }},
+      unknownTpl: {{ site_text("index.registry_geo_unknown_tpl") | tojson }},
+      rankEmpty: {{ site_text("index.registry_geo_rank_empty") | tojson }},
+      mapUnavailable: {{ site_text("index.registry_geo_map_unavailable") | tojson }}
+    };
+    var elTotal = document.getElementById('rgTotal');
+    var elNumLabel = card.querySelector('.rg-num-label');
+    var elLive = card.querySelector('.rg-live');
+    var elMap = document.getElementById('rgMap');
+    var elTip = document.getElementById('rgTip');
+    var elRank = document.getElementById('rgRank');
+    var elOverseas = document.getElementById('rgOverseas');
+    var elUnknown = document.getElementById('rgUnknown');
+    var SVGNS = 'http://www.w3.org/2000/svg';
+    var GEO_URL = '/static/geo/china_provinces.min.json?v=1';
+    var API_URL = '/api/community/registry-geo';
+    var mapData = null, lastStats = null, shownTotal = 0;
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // 配色：可后台改，转成 RGB 供插值；图例渐变同步走 CSS 变量。
+    function hexToRgb(h) {
+      h = String(h || '').trim().replace('#', '');
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      var n = parseInt(h, 16);
+      if (h.length !== 6 || isNaN(n)) return [200, 200, 200];
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    var C_LOW = hexToRgb(RG_CFG.colorLow), C_HIGH = hexToRgb(RG_CFG.colorHigh);
+    card.style.setProperty('--rg-c-zero', RG_CFG.colorZero);
+    card.style.setProperty('--rg-c-low', RG_CFG.colorLow);
+    card.style.setProperty('--rg-c-high', RG_CFG.colorHigh);
+
+    function fmt(n) { return (Number(n) || 0).toLocaleString('en-US'); }
+    function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
+    function fillFor(count, max) {
+      if (!count || count <= 0) return RG_CFG.colorZero;
+      var t = 0.22 + 0.78 * Math.sqrt(count / Math.max(1, max));
+      return 'rgb(' + lerp(C_LOW[0], C_HIGH[0], t) + ',' + lerp(C_LOW[1], C_HIGH[1], t) + ',' + lerp(C_LOW[2], C_HIGH[2], t) + ')';
+    }
+
+    function animateCount(target) {
+      target = Number(target) || 0;
+      if (reduceMotion || shownTotal === target) { shownTotal = target; elTotal.textContent = fmt(target); return; }
+      var from = shownTotal, start = null, dur = 750;
+      function step(ts) {
+        if (start === null) start = ts;
+        var p = Math.min(1, (ts - start) / dur);
+        var eased = 1 - Math.pow(1 - p, 3);
+        elTotal.textContent = fmt(Math.round(from + (target - from) * eased));
+        if (p < 1) requestAnimationFrame(step); else { shownTotal = target; elTotal.textContent = fmt(target); }
+      }
+      requestAnimationFrame(step);
+    }
+
+    function moveTip(evt, name, count) {
+      var rect = elMap.getBoundingClientRect();
+      elTip.textContent = name + ' · ' + fmt(count) + ' 位';
+      elTip.style.left = (evt.clientX - rect.left) + 'px';
+      elTip.style.top = (evt.clientY - rect.top) + 'px';
+      elTip.classList.add('show');
+    }
+    function hideTip() { elTip.classList.remove('show'); }
+
+    function buildMap() {
+      if (!mapData) return;
+      var counts = {}, max = (lastStats && lastStats.province_max) || 0;
+      if (lastStats && lastStats.provinces) lastStats.provinces.forEach(function (p) { counts[p.name] = p.count; });
+      var svg = document.createElementNS(SVGNS, 'svg');
+      svg.setAttribute('viewBox', mapData.viewBox);
+      svg.setAttribute('class', 'rg-map');
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', card.getAttribute('aria-label') || '注册用户分布地图');
+      Object.keys(mapData.provinces).forEach(function (name) {
+        var c = counts[name] || 0;
+        var path = document.createElementNS(SVGNS, 'path');
+        path.setAttribute('d', mapData.provinces[name]);
+        path.setAttribute('class', 'rg-prov');
+        path.setAttribute('fill', fillFor(c, max));
+        var title = document.createElementNS(SVGNS, 'title');
+        title.textContent = name + '：' + fmt(c) + ' 位';
+        path.appendChild(title);
+        path.addEventListener('pointermove', function (e) { moveTip(e, name, c); });
+        path.addEventListener('pointerleave', hideTip);
+        svg.appendChild(path);
+      });
+      if (mapData.scs) {
+        var b = mapData.scs.box;
+        var rect = document.createElementNS(SVGNS, 'rect');
+        rect.setAttribute('x', b[0]); rect.setAttribute('y', b[1]);
+        rect.setAttribute('width', b[2]); rect.setAttribute('height', b[3]);
+        rect.setAttribute('class', 'rg-scs-box');
+        svg.appendChild(rect);
+        (mapData.scs.paths || []).forEach(function (d) {
+          var p = document.createElementNS(SVGNS, 'path');
+          p.setAttribute('d', d); p.setAttribute('class', 'rg-scs');
+          svg.appendChild(p);
+        });
+      }
+      elMap.innerHTML = '';
+      elMap.appendChild(svg);
+    }
+
+    function setNote(el, text) { el.innerHTML = ''; el.textContent = text; }
+
+    function renderStats(s) {
+      lastStats = s;
+      // 注册总数三种显示：exact 精确数字（带 count-up）/ fuzzy 模糊「800+」/ custom 自定义文本。
+      var mode = s.count_mode || 'exact';
+      if (s.total_display) {
+        elTotal.textContent = s.total_display;
+        shownTotal = Number(s.total_registered) || 0;
+      } else {
+        animateCount(s.total_registered);
+      }
+      // 自定义模式：隐藏「位注册用户」后缀与「实时」角标（此时不是实时数字）。
+      if (elNumLabel) elNumLabel.style.display = (mode === 'custom') ? 'none' : '';
+      if (elLive) elLive.style.display = (mode === 'custom') ? 'none' : '';
+      // 代表性省份排行榜：注册人数前 8 省渲染成 chip（元素存在才填充，缺失则整块跳过）。
+      if (elRank) {
+        var top = (s.provinces || []).slice(0, 8);
+        elRank.innerHTML = '';
+        if (top.length) {
+          top.forEach(function (p, i) {
+            var w = Math.round(100 * Math.sqrt(p.count / Math.max(1, s.province_max || 1)));
+            var chip = document.createElement('div');
+            chip.className = 'rg-chip';
+            var bar = document.createElement('span'); bar.className = 'rg-chip-bar'; bar.style.width = w + '%';
+            var rk = document.createElement('span'); rk.className = 'rg-chip-rk'; rk.textContent = (i + 1);
+            var nm = document.createElement('b'); nm.textContent = p.short;
+            var num = document.createElement('span'); num.className = 'rg-chip-n'; num.textContent = fmt(p.count);
+            chip.appendChild(bar); chip.appendChild(rk); chip.appendChild(nm); chip.appendChild(num);
+            elRank.appendChild(chip);
+          });
+        } else {
+          var empty = document.createElement('div'); empty.className = 'rg-empty'; empty.textContent = RG_CFG.rankEmpty;
+          elRank.appendChild(empty);
+        }
+      }
+      // 海外：仅显示总人数（不列具体国家）
+      if (s.overseas_total > 0) {
+        elOverseas.textContent = RG_CFG.overseasTpl.replace('{n}', fmt(s.overseas_total));
+        elOverseas.style.display = '';
+      } else { elOverseas.style.display = 'none'; }
+      if (s.unknown > 0) {
+        elUnknown.textContent = RG_CFG.unknownTpl.replace('{n}', fmt(s.unknown));
+        elUnknown.style.display = '';
+      } else { elUnknown.style.display = 'none'; }
+      buildMap();
+    }
+
+    function loadStats() {
+      fetch(API_URL, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || j.ok === false) { card.style.display = 'none'; return; }
+          renderStats(j);
+        })
+        .catch(function () { /* 保留上一次渲染 */ });
+    }
+
+    fetch(GEO_URL).then(function (r) { return r.json(); })
+      .then(function (j) { mapData = j; buildMap(); })
+      .catch(function () { if (elMap) setNote(elMap.querySelector('.rg-loading') || elMap, RG_CFG.mapUnavailable); });
+    loadStats();
+    setInterval(loadStats, 60000);
+  })();
+  </script>
+  {% if sponsor_enabled %}
+  <!-- 「赞助」友情打赏弹层：顶栏「赞助」按钮点开；访客与登录用户均可打赏（表单 POST /donate）。 -->
+  <div class="donate-overlay" id="donateOverlay" role="dialog" aria-modal="true" aria-labelledby="donateModalTitle" aria-hidden="true">
+    <div class="donate-modal">
+      <button type="button" class="donate-close" id="donateClose" aria-label="关闭">×</button>
+      <h2 id="donateModalTitle">{{ site_text("pricing.donate_title") }}</h2>
+      <p class="muted">{{ site_text("pricing.donate_intro") }}</p>
+      {% if alipay_runtime and alipay_runtime.enabled %}
+      <form method="post" action="{{ url_for('create_donation') }}" id="donateForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="donate-presets" id="donatePresets">
+          {% for amt in [5, 10, 20, 50, 100] %}
+          <button type="button" class="secondary donate-preset" data-amt="{{ amt }}">¥{{ amt }}</button>
+          {% endfor %}
+        </div>
+        <div class="donate-amount-row">
+          <input type="number" name="amount" id="donateAmount" min="1" max="5000" step="0.01" inputmode="decimal"
+                 placeholder="自定义金额（元）" required>
+          <button class="primary" type="submit">去打赏</button>
+        </div>
+        <p class="muted" style="margin-top:10px;font-size:0.9rem">{{ site_text("pricing.donate_hint") }}</p>
+      </form>
+      {% else %}
+      <p class="muted" style="margin-top:14px">在线支付暂时不可用，请稍后再试。</p>
+      {% endif %}
+    </div>
+  </div>
+  <script>
+  (function () {
+    var overlay = document.getElementById('donateOverlay');
+    var openBtn = document.getElementById('sponsorBtn');
+    if (!overlay || !openBtn) { return; }
+    var closeBtn = document.getElementById('donateClose');
+
+    function openModal() {
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';  // 弹层打开时锁背景滚动
+      var amt = document.getElementById('donateAmount');
+      if (amt) { try { amt.focus(); } catch (e) {} }
+    }
+    function closeModal() {
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+    openBtn.addEventListener('click', openModal);
+    if (closeBtn) { closeBtn.addEventListener('click', closeModal); }
+    // 点遮罩空白处关闭（点在弹层内部不关闭）
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) { closeModal(); }
+    });
+    // Esc 关闭
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) { closeModal(); }
+    });
+
+    // 预设金额：点选即填入自定义金额输入框并高亮；手动改金额时取消高亮。
+    var form = document.getElementById('donateForm');
+    if (form) {
+      var input = document.getElementById('donateAmount');
+      var presets = form.querySelectorAll('.donate-preset');
+      function clearActive() {
+        presets.forEach(function (x) { x.classList.remove('primary'); x.classList.add('secondary'); });
+      }
+      presets.forEach(function (b) {
+        b.addEventListener('click', function () {
+          input.value = b.getAttribute('data-amt');
+          clearActive();
+          b.classList.remove('secondary');
+          b.classList.add('primary');
+        });
+      });
+      input.addEventListener('input', clearActive);
+    }
+  })();
+  </script>
+  {% endif %}
+  {# 「AI 随心问」右侧抽屉不在首页出现（首页 AI 入口＝上方「AI 研究对话」双卡 → /ai 全页）；其余内容页仍保留抽屉。 #}
   {% include "_marx_mascot.html" %}
+  {# 阅读历史「继续阅读」：模块自渲染上方 #readingHistoryStrip 容器（空则保持隐藏）。
+     四页面布局下容器只在「阅读」页渲染（show_read），故挂载脚本也只在该页加载。 #}
+  {% if show_read %}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  <script>window.MarxReadingHistory && MarxReadingHistory.mount('#readingHistoryStrip', { title: '继续阅读' });</script>
+  {% endif %}
 </body>
 </html>

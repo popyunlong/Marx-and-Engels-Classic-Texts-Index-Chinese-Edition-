@@ -260,6 +260,52 @@ class SecurityRegressionTests(unittest.TestCase):
             else:
                 self.assertEqual(result["book"], selected)
 
+    def test_member_search_scope_book_and_volume(self) -> None:
+        # 标准检索「指定著作/卷」：scope=book:/vol: token 后置过滤；book_counts 仍全库分布（D3）。
+        app_module.set_setting(
+            "access_policy",
+            {"audience": {"registered": {"search": True, "library": True, "ai": True}}},
+        )
+        self._create_active_member("scope-book-vol@example.test")
+        self._login("scope-book-vol@example.test")
+        token = self._csrf_from("/")
+
+        def _search(extra):
+            resp = self.client.post(
+                "/api/search", json={"group_page": 1, **extra},
+                headers={"X-CSRF-Token": token},
+            )
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["ok"])
+            return data
+
+        base = _search({"q": "国家"})
+        counts = base.get("book_counts") or []
+        if len(counts) < 2:
+            self.skipTest("本地语料该词命中书库不足 2")
+        full_len = len(counts)
+        key = counts[-1]["key"]
+
+        # 单本 scope（book:<键>）：结果全属该本；book_counts 仍全库（D3）；回显 book_filter=该本。
+        scoped = _search({"q": "国家", "scope": [f"book:{key}"]})
+        self.assertEqual(scoped["book_filter"], key)
+        self.assertEqual(len(scoped.get("book_counts") or []), full_len)
+        self.assertTrue(scoped["results"])
+        for r in scoped["results"]:
+            self.assertEqual(r["book"], key)
+
+        # 卷级 scope（vol:<键>:<n>）：从单本结果取一个真实卷，限定后结果全属该本该卷；book_counts 仍全库。
+        vol = scoped["results"][0].get("volume")
+        if vol is None:
+            self.skipTest("结果无卷号信息")
+        vscoped = _search({"q": "国家", "scope": [f"vol:{key}:{vol}"]})
+        self.assertTrue(vscoped["results"])
+        for r in vscoped["results"]:
+            self.assertEqual(r["book"], key)
+            self.assertEqual(r["volume"], vol)
+        self.assertEqual(len(vscoped.get("book_counts") or []), full_len)
+
     def test_member_search_viewer_url_carries_highlight_text(self) -> None:
         app_module.set_setting(
             "access_policy",
@@ -1156,6 +1202,83 @@ class SecurityRegressionTests(unittest.TestCase):
         # \u53cd\u6298\u53e0\u5b88\u62a4\uff1a\u5b58\u5728\u7cbe\u786e\u547d\u4e2d\u65f6\uff0c\u76f8\u5173\u7684\u975e\u7cbe\u786e\u7bc7\u7ae0\uff08\u5404\u7248\u5e8f\u8a00\u7b49\uff09\u4ecd\u4fdd\u7559\u3002
         self.assertTrue(any(_rank(row) != 0 for row in results))
 
+    def test_cn_to_int_and_book_alias_helpers(self) -> None:
+        # \u5377/\u7248\u53f7\u89e3\u6790\uff1a\u4e2d\u6587\u3001\u963f\u62c9\u4f2f\u3001\u5168\u89d2\u3001\u542b\u300c\u5341\u300d\u7684\u7ec4\u5408\u90fd\u8981\u6b63\u786e\u3002
+        self.assertEqual(app_module._cn_to_int("5"), 5)
+        self.assertEqual(app_module._cn_to_int("\u5341"), 10)
+        self.assertEqual(app_module._cn_to_int("\u5341\u4e00"), 11)
+        self.assertEqual(app_module._cn_to_int("\u4e8c\u5341\u4e5d"), 29)
+        self.assertEqual(app_module._cn_to_int("\u516d\u5341"), 60)
+        self.assertEqual(app_module._cn_to_int("\uff11\uff12"), 12)  # \u5168\u89d2
+        self.assertIsNone(app_module._cn_to_int(""))
+        self.assertIsNone(app_module._cn_to_int("\u7532"))
+        # \u300c\u9a6c\u514b\u601d\u6069\u683c\u65af\u2192\u9a6c\u6069\u300d\u53e3\u8bed\u522b\u540d\u8981\u80fd\u6d3e\u751f\u51fa\u6765\u3002
+        aliases = app_module._book_aliases(app_module.BOOK_CONFIG_BY_KEY["\u5168\u96c6"])
+        self.assertIn("\u9a6c\u6069\u5168\u96c6", aliases)
+        # \u7248\u6b21\u4ece\u5f15\u6587\u5168\u540d\u89e3\u6790\uff1a\u7b2c\u4e00\u7248\u65e0\u6807\u6ce8\u2192None\uff0c\u7b2c\u4e8c\u7248\u21922\u3002
+        self.assertIsNone(app_module._book_edition(app_module.BOOK_CONFIG_BY_KEY["\u5168\u96c6"]))
+        self.assertEqual(app_module._book_edition(app_module.BOOK_CONFIG_BY_KEY["\u5168\u96c6\u4e8c\u7248"]), 2)
+
+    def test_toc_suggest_book_name_direct_jump(self) -> None:
+        # \u76f4\u63a5\u8f93\u5165\u4e66\u540d+\u5377\u6b21\uff08\u6a21\u7cca\u3001\u542b\u4e66\u540d\u53f7\uff09\u2192 \u7f6e\u9876\u4e00\u6761\u300c\u6574\u5377\u76f4\u8fbe\u300d\uff08kind=book\uff09\u3002
+        app_module.set_setting(
+            "access_policy",
+            {"audience": {"registered": {"search": True, "library": True, "ai": True}}},
+        )
+        self._create_active_member("toc-book@example.test")
+        self._login("toc-book@example.test")
+        resp = self.client.get(
+            "/api/library/toc-suggest",
+            query_string={"q": "\u300a\u6587\u96c6\u300b\u7b2c1\u5377", "mode": "ai"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        results = resp.get_json()["results"]
+        self.assertTrue(results, "\u4e66\u540d\u76f4\u8fbe\u5e94\u81f3\u5c11\u8fd4\u56de\u4e00\u6761\u7ed3\u679c")
+        top = results[0]
+        self.assertEqual(top["kind"], "book")
+        self.assertEqual(top["book"], "\u6587\u96c6")  # \u6587\u96c6
+        self.assertEqual(top["volume"], 1)
+        self.assertIn("/viewer", top["url"])
+
+    def test_toc_suggest_book_scope_filters_chapters(self) -> None:
+        # \u300c\u5207\u6362\u4e66\u7c4d\u300d\u4e0b\u62c9\uff1abook=\u6587\u96c6 \u65f6\u7bc7\u7ae0\u547d\u4e2d\u53ea\u843d\u5728\u6587\u96c6\uff0c\u4e0d\u63ba\u5176\u5b83\u4e66\u5e93\u3002
+        app_module.set_setting(
+            "access_policy",
+            {"audience": {"registered": {"search": True, "library": True, "ai": True}}},
+        )
+        self._create_active_member("toc-scope@example.test")
+        self._login("toc-scope@example.test")
+        # \u4e0d\u9650\u5b9a\uff1a\u8d44\u672c\u8bba\u5e94\u8de8\u591a\u4e2a\u4e66\u5e93\u547d\u4e2d\u3002
+        wide = self.client.get(
+            "/api/library/toc-suggest", query_string={"q": "\u8d44\u672c\u8bba", "mode": "ai"}
+        ).get_json()["results"]
+        self.assertTrue({r["book"] for r in wide} - {"\u6587\u96c6"}, "\u4e0d\u9650\u5b9a\u65f6\u5e94\u8de8\u4e66\u5e93\u547d\u4e2d")
+        # \u9650\u5b9a\u5230\u6587\u96c6\uff1a\u5168\u90e8\u7ed3\u679c\u90fd\u5728\u6587\u96c6\u3002
+        scoped = self.client.get(
+            "/api/library/toc-suggest",
+            query_string={"q": "\u8d44\u672c\u8bba", "mode": "ai", "book": "\u6587\u96c6"},
+        ).get_json()["results"]
+        self.assertTrue(scoped)
+        self.assertTrue(all(r["book"] == "\u6587\u96c6" for r in scoped))
+        # \u975e\u6cd5\u4e66\u5e93\u952e\u88ab\u5ffd\u7565\uff08\u5f53\u4f5c\u5168\u90e8\uff09\uff0c\u4e0d\u62a5\u9519\u3002
+        bad = self.client.get(
+            "/api/library/toc-suggest",
+            query_string={"q": "\u8d44\u672c\u8bba", "mode": "ai", "book": "__nope__"},
+        )
+        self.assertEqual(bad.status_code, 200)
+
+    def test_homepage_chapter_search_has_book_scope_select(self) -> None:
+        # \u9996\u9875\u7bc7\u7ae0\u76f4\u8fbe\u9762\u677f\u5e94\u5e26\u300c\u5207\u6362\u4e66\u7c4d\u300d\u4e0b\u62c9\uff08\u542b\u5168\u90e8\u4e66\u5e93\u9009\u9879\uff09\u3002
+        app_module.set_setting(
+            "access_policy",
+            {"audience": {"registered": {"search": True, "library": True, "ai": True}}},
+        )
+        self._create_active_member("toc-select@example.test")
+        self._login("toc-select@example.test")
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('id="chapterBookScope"', html)
+        self.assertIn("\u5168\u90e8\u4e66\u5e93", html)
+
     def test_homepage_chapter_search_guest_reader_then_member_ai(self) -> None:
         app_module.set_setting(
             "access_policy",
@@ -1303,6 +1426,25 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertIn("开通会员后使用", html)
         self.assertIn("/pricing?next=/reader", html)
         self.assertIn("/pricing?next=/library", html)
+
+    def test_safe_next_url_rejects_open_redirect_variants(self) -> None:
+        # _safe_next_url 是登录/注册/结账后跳转的唯一过滤点：只允许站内绝对路径，
+        # 拒绝带 scheme/netloc、协议相对（//、/\）等会把已登录用户带去站外的目标。
+        with app_module.app.test_request_context():
+            index = app_module.url_for("index")
+            # 合法站内路径原样保留
+            self.assertEqual(app_module._safe_next_url("/reader"), "/reader")
+            self.assertEqual(app_module._safe_next_url("/library?q=x"), "/library?q=x")
+            # 各类开放重定向变体都被打回首页
+            for bad in (
+                "https://evil.com",
+                "//evil.com",
+                "/\\evil.com",        # 反斜杠协议相对：浏览器会规整成 //evil.com
+                "\\/evil.com",
+                "http:evil.com",
+                "  //evil.com",
+            ):
+                self.assertEqual(app_module._safe_next_url(bad), index, f"should reject {bad!r}")
 
     def test_reader_entries_explain_unavailable_features(self) -> None:
         app_module.set_setting(
@@ -1537,6 +1679,37 @@ class SecurityRegressionTests(unittest.TestCase):
             ).fetchone()[0]
         # 三次无 cookie 请求塌缩为同一 IP 的一行，而非三个「访客」。
         self.assertEqual(rows, 1)
+
+    def test_site_activity_collapses_cookieless_scraper_for_daily_online(self) -> None:
+        app_module.set_setting("access_policy", {"audience": {"guest": {"library": True}}})
+        ip = "198.51.100.204"
+        day = app_module.china_day_text()
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            conn.execute(
+                "DELETE FROM site_activity WHERE day = ? AND session_key = ?",
+                (day, f"ip:{ip}"),
+            )
+            conn.commit()
+
+        for _ in range(3):
+            client = app_module.app.test_client()
+            response = client.get("/reader", environ_base={"REMOTE_ADDR": ip})
+            self.assertEqual(response.status_code, 200)
+
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS rows, COALESCE(SUM(request_count), 0) AS requests,
+                       MAX(client_ip) AS client_ip
+                FROM site_activity
+                WHERE day = ? AND session_key = ? AND feature = 'reader'
+                """,
+                (day, f"ip:{ip}"),
+            ).fetchone()
+
+        self.assertEqual(row[0], 1)
+        self.assertEqual(row[1], 3)
+        self.assertEqual(row[2], ip)
 
     def test_page_image_cookieless_requests_rate_limited_per_ip(self) -> None:
         from werkzeug.exceptions import TooManyRequests
@@ -1826,6 +1999,85 @@ class SecurityRegressionTests(unittest.TestCase):
         finally:
             os.environ.pop("READER_AUTO_BAN_DAILY_MIN", None)
             os.environ.pop("READER_AUTO_BAN_MINUTE_MIN", None)
+            app_module.delete_setting("monitoring_exemptions")
+            app_module.delete_setting("reader_bans")
+
+    def test_auto_ban_rotating_ip_pool_by_shared_user_agent_over_short_window(self) -> None:
+        day = app_module.china_day_text()
+        pool_ips = [f"8.8.4.{i}" for i in range(1, 26)]
+        monitor_ip = "1.1.1.1"
+        member_ip = "9.9.9.9"
+        shared_ua = "Mozilla/5.0 AppleWebKit/537.36 Chrome/124 Safari/537.36 Edg/124"
+        rows = []
+        for idx, ip in enumerate([*pool_ips, monitor_ip], 1):
+            minute = 15 + (idx % 15)
+            rows.append(
+                (
+                    day,
+                    f"ip:{ip}",
+                    "ip",
+                    f"sess-{idx}",
+                    None,
+                    "",
+                    ip,
+                    shared_ua,
+                    "pdf_viewer",
+                    "GET",
+                    f"/viewer?file=pool-{idx}.pdf&page={idx}",
+                    "reader",
+                    f"pool-{idx}.pdf",
+                    idx,
+                    0,
+                    f"{day}T08:{minute:02d}:{idx % 60:02d}+00:00",
+                )
+            )
+        rows.append(
+            (
+                day,
+                "user:9001",
+                "user",
+                "member-session",
+                9001,
+                "member@example.test",
+                member_ip,
+                shared_ua,
+                "pdf_viewer",
+                "GET",
+                "/viewer?file=member.pdf&page=1",
+                "reader",
+                "member.pdf",
+                1,
+                0,
+                f"{day}T08:41:55+00:00",
+            )
+        )
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+            conn.executemany(
+                "INSERT INTO reader_access_events(day, actor_key, actor_type, session_key, "
+                "user_id, email, client_ip, user_agent, endpoint, method, path, reader_mode, "
+                "source_file, page, is_rate_limited, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows,
+            )
+            conn.commit()
+
+        app_module.set_setting("monitoring_exemptions", {"ips": [monitor_ip]})
+        os.environ["READER_AUTO_BAN_POOL_IP_MIN"] = "20"
+        os.environ["READER_AUTO_BAN_POOL_REQUEST_MIN"] = "20"
+        os.environ["READER_AUTO_BAN_POOL_PATH_MIN"] = "15"
+        os.environ["READER_AUTO_BAN_POOL_WINDOW_MINUTES"] = "15"
+        try:
+            app_module._last_reader_auto_ban[0] = 0.0
+            app_module._auto_ban_egregious_scrapers_if_due()
+            banned_ips = set(app_module._reader_ip_bans(app_module._reader_bans()).keys())
+            self.assertIn(pool_ips[0], banned_ips, "IP 池中的公网匿名 IP 应被自动封")
+            self.assertIn(pool_ips[-1], banned_ips, "同一分钟同 UA 的轮换 IP 应全部写入封禁")
+            self.assertNotIn(monitor_ip, banned_ips, "监控豁免 IP 不应被自动封")
+            self.assertNotIn(member_ip, banned_ips, "登录会员 actor 不应被 IP 池规则封禁")
+        finally:
+            os.environ.pop("READER_AUTO_BAN_POOL_IP_MIN", None)
+            os.environ.pop("READER_AUTO_BAN_POOL_REQUEST_MIN", None)
+            os.environ.pop("READER_AUTO_BAN_POOL_PATH_MIN", None)
+            os.environ.pop("READER_AUTO_BAN_POOL_WINDOW_MINUTES", None)
             app_module.delete_setting("monitoring_exemptions")
             app_module.delete_setting("reader_bans")
 

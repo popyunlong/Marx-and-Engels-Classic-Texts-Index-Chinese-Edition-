@@ -13,6 +13,8 @@
     .topbar h1{font-size:1.08em;margin:0;font-weight:600;letter-spacing:.02em;}
     .wrap{max-width:1080px;margin:0 auto;padding:26px 20px 64px;}
     .intro{color:var(--muted);margin:0 0 26px;font-size:.94em;}
+    .reading-history-strip{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin:0 0 24px;}
+    .reading-history-strip[hidden]{display:none;}
 
     .book{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 26px 26px;margin-bottom:26px;box-shadow:0 1px 4px rgba(60,40,20,.05);}
     .book-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px;}
@@ -36,6 +38,9 @@
   <div class="topbar"><a class="back" href="/">← 返回首页</a><h1>原文文库</h1></div>
   <div class="wrap">
     <p class="intro">原文原版 · 网页直读，文字可检索、可复制 · 每页内嵌原书页码，阅读时一键生成规范引文，并支持中文对照翻译与 AI 导读。</p>
+
+    {# 阅读历史「继续阅读」：本设备记录、按账号隔离、有记录才显示，一键回到上次阅读处。 #}
+    <section class="reading-history-strip" id="readingHistoryStrip" hidden></section>
 
     {% for book in books %}
     <div class="book">
@@ -95,5 +100,9 @@
     <p class="empty">文库暂无内容。</p>
     {% endfor %}
   </div>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
+  {# 阅读历史「继续阅读」：模块自渲染上方 #readingHistoryStrip 容器（空则保持隐藏）。 #}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  <script>window.MarxReadingHistory && MarxReadingHistory.mount('#readingHistoryStrip', { title: '继续阅读' });</script>
 </body>
 </html>

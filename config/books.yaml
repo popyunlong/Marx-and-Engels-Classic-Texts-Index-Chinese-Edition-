@@ -11,6 +11,7 @@ books:
   folder: pdfs/文集
   sort_order: 10
   tag_class: wenji
+  collection: classical_marxism
   available: true
 - key: 全集
   title: 《马克思恩格斯全集》
@@ -19,14 +20,16 @@ books:
   folder: pdfs/全集
   sort_order: 20
   tag_class: quanji
+  collection: classical_marxism
   available: true
 # 《马克思恩格斯全集》中文第二版（人民出版社，以 MEGA² 为基础逐卷编译，各卷出版年不同）。
 # 与中文第一版（key=全集）是两套不同版本：正文经重新校订、卷次编排不同、页码与出版年各异，
 # 故独立成库。界面/标签简称用《全集·二版》以与第一版《全集》区分；引文全名用
 # 「马克思恩格斯全集（第二版）」（citation_title），确保引用可区分版次。sort_order=25 使其
 # 在阅读器/篇章直达中紧排在第一版《全集》（20）之下、《列宁全集》（30）之上。
-# 当前 29 卷：第 28/36/42 卷为文本层 PDF（正文/检索即时可用），其余 26 卷为高清扫描件
-# （正文走 GLM-4V 多模态 OCR sidecar 注入，目录优先取 PDF 书签）。
+# 当前 37 卷：第 28/36/42 卷为文本层 PDF（正文/检索即时可用），其余 34 卷为高清扫描件
+# （正文走 GLM-4V 多模态 OCR sidecar 注入，目录优先取 PDF 书签；2026-07 新增
+# 22/29/37/38/43/49/50/51 共 8 卷）。
 - key: 全集二版
   title: 《马克思恩格斯全集（第二版）》
   short_title: 《全集·二版》
@@ -34,6 +37,20 @@ books:
   folder: pdfs/马克思恩格斯全集（第二版）
   sort_order: 25
   tag_class: quanji2
+  collection: classical_marxism
+  available: true
+# 《马克思恩格斯选集》第 3 版 4 卷（人民出版社 2012 年 9 月第 3 版，主编韦建桦）：文本层 PDF，
+# 正文/页码直接从文本层抽取（无需 OCR）；PDF 无书签，目录由 scripts/build_maxuanji_toc.py 从印刷
+# 「目录」页解析。界面/标签简称用「马恩《选集》」，引文全名「马克思恩格斯选集」。sort_order=28 紧排在
+# 《全集·二版》（25）之下、《列宁全集》（30）之上，与马恩其它三套（文集 10/全集 20/二版 25）同簇。
+- key: 马恩选集
+  title: 《马克思恩格斯选集》
+  short_title: 马恩《选集》
+  citation_title: 马克思恩格斯选集
+  folder: pdfs/马恩选集
+  sort_order: 28
+  tag_class: maxuanji
+  collection: classical_marxism
   available: true
 - key: 列宁全集
   title: 《列宁全集》
@@ -42,6 +59,46 @@ books:
   folder: pdfs/列宁《全集》
   sort_order: 30
   tag_class: lenin
+  collection: classical_marxism
+  available: true
+# 《斯大林全集》13 卷（人民出版社，中共中央马恩列斯著作编译局依俄文版译出，1953 年起陆续出版）：
+# 扫描件、无书签、原生分辨率偏低（800×1200 ~ 1632×2400），正文走 GLM-4V OCR + RapidOCR 兜底。
+# 原书为**繁体字**排印（1950 年代初大陆出版物通例），故 raw_text/引文片段忠实保留繁体；检索不受
+# 影响——build_index.normalize() 已做繁→简归一化。目录无书签，从印刷「目录」页解析。
+- key: 斯大林全集
+  title: 《斯大林全集》
+  short_title: 斯大林《全集》
+  citation_title: 斯大林全集
+  folder: pdfs/斯大林全集
+  publisher: 人民出版社
+  sort_order: 32
+  tag_class: stalin
+  collection: classical_marxism
+  available: true
+# 《李大钊全集》（修订本）5 卷（人民出版社 2013.9，中国李大钊研究会编注，「中国共产党先驱领袖文库」）
+# 与《陈独秀文集》4 卷（人民出版社）：中国早期马克思主义传播者的著作集，归「马克思主义中国化」组，
+# sort_order 36/38 使其按年代排在列宁/斯大林之后、毛泽东之前。均为高清扫描件，走 GLM-4V OCR。
+# 目录：李大钊全集卷 2/3/4 自带篇名书签（走 build_toc），卷 1/5 与陈独秀文集书签全是纯数字页码
+# （逐页书签，search.py 会正确过滤掉）→ 从印刷「目录」页解析。
+- key: 李大钊全集
+  title: 《李大钊全集》
+  short_title: 李大钊《全集》
+  citation_title: 李大钊全集
+  folder: pdfs/李大钊全集
+  publisher: 人民出版社
+  sort_order: 36
+  tag_class: lidazhao
+  collection: marxism_china
+  available: true
+- key: 陈独秀文集
+  title: 《陈独秀文集》
+  short_title: 陈独秀《文集》
+  citation_title: 陈独秀文集
+  folder: pdfs/陈独秀文集
+  publisher: 人民出版社
+  sort_order: 38
+  tag_class: chenduxiu
+  collection: marxism_china
   available: true
 # 《毛泽东选集》为扫描版（pdfs/《毛泽东选集》），无文本层；检索正文与页码取自项目根目录
 # 的可选文字版（毛泽东选集文字版/），但 source_file/pdf_page 锚定到扫描版，由
@@ -53,6 +110,7 @@ books:
   folder: pdfs/《毛泽东选集》
   sort_order: 40
   tag_class: mao
+  collection: marxism_china
   available: true
 # 《毛泽东文集》8 卷：正文为可选择文本层、书签目录可用，走标准文本书库流程
 # （scripts/build_textbook_index.py 定向写 pages + scripts/build_toc.py 写目录）。
@@ -64,6 +122,7 @@ books:
   folder: pdfs/《毛泽东文集》
   sort_order: 50
   tag_class: maowenji
+  collection: marxism_china
   available: true
 # 《邓小平文选》3 卷：第 1、2 卷为扫描件（无文本层，~1650px 原生，正文走本地 OCR
 # sidecar 注入，scripts/build_scan_volumes.py）；第 3 卷为文本层 PDF，书签目录完整，
@@ -75,6 +134,7 @@ books:
   folder: pdfs/邓小平文选
   sort_order: 60
   tag_class: deng
+  collection: marxism_china
   available: true
 # 《江泽民文选》3 卷：均为文本层 PDF，书签目录完整，走标准文本书库流程
 # （build_textbook_index + build_toc）。
@@ -85,6 +145,7 @@ books:
   folder: pdfs/江泽民文选
   sort_order: 70
   tag_class: jiang
+  collection: marxism_china
   available: true
 # 《胡锦涛文选》3 卷：均为扫描件（无文本层，~725px 低清原生），但书签目录完整
 # （目录走 build_toc 书签路线），正文走本地 OCR sidecar 注入（build_scan_volumes.py）。
@@ -95,49 +156,152 @@ books:
   folder: pdfs/胡锦涛文选
   sort_order: 80
   tag_class: hu
+  collection: marxism_china
   available: true
-# 《治国理政》5 卷（外文出版社）：界面展示一律用《治国理政》（title/short_title），
-# 仅引文文本用全名（citation_title），勿改动这一分流。
+# 《周恩来选集》上下 2 卷（人民出版社 1984，2004 重印）：高清扫描件（原生 1760×2598 /
+# 下卷 994×1467 偏低），正文走 GLM-4V OCR + RapidOCR 兜底；每卷自带 442/538 条篇名级
+# 书签，目录走 build_toc 书签路线。原书标「上卷/下卷」，故 volume_unit 用「卷」。
+- key: 周恩来选集
+  title: 《周恩来选集》
+  short_title: 周恩来《选集》
+  citation_title: 周恩来选集
+  folder: pdfs/周恩来选集
+  publisher: 人民出版社
+  sort_order: 52
+  tag_class: zhouxuan
+  collection: marxism_china
+  available: true
+# 《陈云文集》1—3 卷（中央文献出版社 2005）：高清扫描件（原生 1760×2432），走 GLM-4V OCR
+# + RapidOCR 兜底；每卷 121—150 条篇名级书签，目录走 build_toc 书签路线。
+- key: 陈云文集
+  title: 《陈云文集》
+  short_title: 陈云《文集》
+  citation_title: 陈云文集
+  folder: pdfs/陈云文集
+  publisher: 中央文献出版社
+  sort_order: 56
+  tag_class: chenyun
+  collection: marxism_china
+  available: true
+# 《习近平谈治国理政》5 卷（外文出版社）。
 # 卷1/5 为扫描图+文字层、卷2/4 为纯文本 PDF（卷4 书签乱码不可用，目录由
 # build_scan_volumes 的 detect_db 模式从正文识别覆盖）、卷3 纯扫描走 OCR sidecar 注入。
 - key: 治国理政
-  title: 《治国理政》
-  short_title: 《治国理政》
+  title: 《习近平谈治国理政》
+  short_title: 《习近平谈治国理政》
   citation_title: 习近平谈治国理政
   folder: pdfs/《治国理政》
   sort_order: 90
   tag_class: zgl
+  collection: xi_thought
   publisher: 外文出版社
   available: true
-# 《习近平经济文选》第一卷（人民出版社 2025 年第 1 版）：与《治国理政》同样的命名分流——
-# 界面展示一律用《经济文选》（title/short_title），全名「习近平经济文选」仅出现在引文文本
-# （citation_title），勿改动这一分流。文本层 PDF + 书签目录可用，但每篇书签被拆成多行
+  # 卷1 我们服务的是 2014 年 9 月无卷次初版（ISBN 978-7-119-09087-0，扉页仅「习近平谈治国理政」，
+  # 无「第一卷」；「第一卷」是 2018 年 1 月第 2 版才回溯标注）。故卷1 引文不冠卷次，径作
+  # 《习近平谈治国理政》……2014 年；卷2-5 出生即带卷次、年份自洽，照常出「第N卷」。
+  unnumbered_volumes: [1]
+# 《习近平经济文选》第一卷（人民出版社 2025 年第 1 版）。文本层 PDF + 书签目录可用，但每篇书签被拆成多行
 # （标题折行片段 + 单独的日期行），故 pages 走标准 build_textbook_index，目录走专用
 # scripts/build_xi_econ_toc.py（合并同篇片段为一条、日期并入标题消歧），覆盖通用 build_toc。
 - key: 习近平经济文选
-  title: 《经济文选》
-  short_title: 《经济文选》
+  title: 《习近平经济文选》
+  short_title: 《习近平经济文选》
   citation_title: 习近平经济文选
   folder: pdfs/习近平经济文选
   sort_order: 100
   tag_class: jingji
+  collection: xi_thought
   publisher: 中央文献出版社  # 据版权页 CIP：中央文献出版社 2025.03，ISBN 978-7-5073-5082-1
   available: true
+# 习近平专题文献（6 种「学习纲要 / 概论」权威辅助读物）：各自独立成库、独立引文全名，
+# sort_order 101-106 紧排在《经济文选》（100）之下聚成一簇。界面用「学习纲要」类简称、
+# 引文用官方全名（citation_title）。除总纲《新时代思想学习纲要（2023年版）》与《党的建设概论》
+# 外，均为扫描件（正文走 GLM-4V OCR sidecar 注入 build_scan_volumes；目录：#经济思想有 78 条
+# PDF 书签走 build_toc，其余无书签者由印刷「目录」页解析 build_xi_thematic_toc.py）。
+# #新时代纲要（2023年版）为文本层 PDF（正文 build_textbook_index，目录 233 条书签 build_toc）。
+- key: 习近平新时代中国特色社会主义思想学习纲要
+  title: 《习近平新时代中国特色社会主义思想学习纲要（2023年版）》
+  short_title: 《新时代思想·纲要》
+  citation_title: 习近平新时代中国特色社会主义思想学习纲要（2023年版）
+  folder: pdfs/习近平专题文献
+  sort_order: 101
+  tag_class: xi-gangyao
+  collection: xi_thought
+  publisher: 学习出版社、人民出版社
+  available: true
+  single_volume: true
+- key: 习近平经济思想学习纲要
+  title: 《习近平经济思想学习纲要》
+  short_title: 《经济思想·纲要》
+  citation_title: 习近平经济思想学习纲要
+  folder: pdfs/习近平专题文献
+  sort_order: 102
+  tag_class: xi-jingji-sixiang
+  collection: xi_thought
+  publisher: 人民出版社、学习出版社
+  available: true
+  single_volume: true
+- key: 习近平法治思想学习纲要
+  title: 《习近平法治思想学习纲要》
+  short_title: 《法治思想·纲要》
+  citation_title: 习近平法治思想学习纲要
+  folder: pdfs/习近平专题文献
+  sort_order: 103
+  tag_class: xi-fazhi
+  collection: xi_thought
+  publisher: 人民出版社、学习出版社
+  available: true
+  single_volume: true
+- key: 习近平生态文明思想学习纲要
+  title: 《习近平生态文明思想学习纲要》
+  short_title: 《生态文明·纲要》
+  citation_title: 习近平生态文明思想学习纲要
+  folder: pdfs/习近平专题文献
+  sort_order: 104
+  tag_class: xi-shengtai
+  collection: xi_thought
+  publisher: 学习出版社、人民出版社
+  available: true
+  single_volume: true
+- key: 习近平文化思想学习纲要
+  title: 《习近平文化思想学习纲要》
+  short_title: 《文化思想·纲要》
+  citation_title: 习近平文化思想学习纲要
+  folder: pdfs/习近平专题文献
+  sort_order: 105
+  tag_class: xi-wenhua
+  collection: xi_thought
+  publisher: 学习出版社、人民出版社
+  available: true
+  single_volume: true
+- key: 习近平总书记关于党的建设的重要思想概论
+  title: 《习近平总书记关于党的建设的重要思想概论》
+  short_title: 《党的建设·概论》
+  citation_title: 习近平总书记关于党的建设的重要思想概论
+  folder: pdfs/习近平专题文献
+  sort_order: 106
+  tag_class: xi-dangjian
+  collection: xi_thought
+  publisher: 党建读物出版社
+  available: true
+  single_volume: true
 - key: 历次党代会报告
   title: 《历次党代会报告》
   short_title: 党代会报告
   citation_title: 历次党代会报告
   folder: pdfs/历次党代会报告
-  sort_order: 110
+  sort_order: 120
   tag_class: dangdaihui
+  collection: party_state_documents
   available: true
 - key: 历届全会公报
   title: 《历届全会公报》
   short_title: 全会公报
   citation_title: 历届全会公报
   folder: pdfs/历届全会公报
-  sort_order: 120
+  sort_order: 122
   tag_class: quanhui
+  collection: party_state_documents
   available: true
 - key: 十八大以来重要文献选编
   title: 《十八大以来重要文献选编》
@@ -145,8 +309,9 @@ books:
   citation_title: 十八大以来重要文献选编
   folder: pdfs/十八大以来重要文献选编
   publisher: 中央文献出版社
-  sort_order: 130
+  sort_order: 114
   tag_class: xuanbian18
+  collection: party_state_documents
   available: true
 - key: 十九大以来重要文献选编
   title: 《十九大以来重要文献选编》
@@ -154,8 +319,48 @@ books:
   citation_title: 十九大以来重要文献选编
   folder: pdfs/十九大以来重要文献选编
   publisher: 中央文献出版社
-  sort_order: 140
+  sort_order: 116
   tag_class: xuanbian19
+  collection: party_state_documents
+  available: true
+- key: 二十大以来重要文献选编
+  title: 《二十大以来重要文献选编》
+  short_title: 文献选编·二十大
+  citation_title: 二十大以来重要文献选编
+  folder: pdfs/二十大以来重要文献选编
+  publisher: 中央文献出版社
+  sort_order: 118
+  tag_class: xuanbian20
+  collection: party_state_documents
+  available: true
+# 《建党以来重要文献选编(1921–1949)》26 册、《建国以来重要文献选编》20 册（中央文献出版社 2011）：
+# 均为高清扫描件（无文本层，原生 ~1840×2657），正文走本地 RapidOCR sidecar 注入
+# （scripts/_ocr_scan_volume.py 产 sidecar + build_scan_volumes.py 注入，同《胡锦涛文选》扫描卷流程）；
+# 每册自带干净的 PDF 书签（篇名带日期+责任者），目录走 build_toc 书签路线。原始 PDF 存服务器
+# 【数据盘】（/home/data/pdfs 经 bind mount 挂入 pdfs/，见部署说明）。sort_order 126/128 按年代
+# 排在选编族最前（建党1921→建国1949→十八大2012…）。上线前 available: false，待 46 册全部
+# 构建完成后统一改 true 大爆发上线（避免多日构建期间向用户暴露半成品库）。
+- key: 建党以来重要文献选编
+  title: 《建党以来重要文献选编》
+  short_title: 文献选编·建党
+  citation_title: 建党以来重要文献选编
+  folder: pdfs/建党以来重要文献选编
+  publisher: 中央文献出版社
+  sort_order: 110
+  tag_class: xuanbian-jiandang
+  collection: party_state_documents
+  volume_unit: 册
+  available: true
+- key: 建国以来重要文献选编
+  title: 《建国以来重要文献选编》
+  short_title: 文献选编·建国
+  citation_title: 建国以来重要文献选编
+  folder: pdfs/建国以来重要文献选编
+  publisher: 中央文献出版社
+  sort_order: 112
+  tag_class: xuanbian-jianguo
+  collection: party_state_documents
+  volume_unit: 册
   available: true
 - key: 五年规划
   title: 《国民经济和社会发展五年规划纲要》
@@ -165,4 +370,203 @@ books:
   publisher: 人民出版社
   sort_order: 150
   tag_class: wunianguihua
+  collection: party_state_documents
   available: true
+
+# 领袖年谱专题（编年体生平记录，与「著作」体裁不同，故单列一组）。
+# 《毛泽东年谱》9 卷（中央文献出版社 2023，全九卷合编本）：扫描原书版，原生 2445×3514 高清，
+#   正文走 GLM-4V OCR + RapidOCR 兜底；印刷页码可从版面读出，引文页码准确。
+# 《周恩来年谱》上下 2 卷（1898—1949 / 1949—1976）：手头是「文字版」重排 PDF（A4 版式），
+#   自带文本层（约 1400 字/页）故无需 OCR，但**版面已重排、正文里没有印刷页码**，
+#   页与原书页不对应 → 引文只能标「按PDF页码」（同五年规划/列宁笔记的既有处理）。
+#   年谱为编年体、书签是年份级，读者按「1958 年」定位比页码更自然。
+- key: 毛泽东年谱
+  title: 《毛泽东年谱》
+  short_title: 毛泽东《年谱》
+  citation_title: 毛泽东年谱
+  folder: pdfs/毛泽东年谱
+  publisher: 中央文献出版社
+  sort_order: 155
+  tag_class: maonianpu
+  collection: leader_chronicles
+  available: true
+- key: 周恩来年谱
+  title: 《周恩来年谱》
+  short_title: 周恩来《年谱》
+  citation_title: 周恩来年谱
+  folder: pdfs/周恩来年谱
+  publisher: 中央文献出版社
+  sort_order: 156
+  tag_class: zhounianpu
+  collection: leader_chronicles
+  available: true
+# 2026-07-30 新增五套年谱。sort_order 按谱主生年编年排列（列宁 1870 → 斯大林 1878 →
+# 李大钊 1889 → 毛泽东 1893 → 周恩来 1898 → 邓小平 1904 → 陈云 1905）。均为扫描件，
+# 正文走 GLM-4V OCR + RapidOCR 兜底；目录按「年份」层级组织（编年体按年定位最自然）。
+# 《列宁年谱》4 卷（生活·读书·新知三联书店，据苏联国家政治书籍出版社 1970 年俄文版译出）：
+#   卷 4 有 22 条月份级书签，卷 1—3 书签全是纯数字页码 → 由正文年份/月份识别建目录。
+- key: 列宁年谱
+  title: 《列宁年谱》
+  short_title: 列宁《年谱》
+  citation_title: 列宁年谱
+  folder: pdfs/列宁年谱
+  publisher: 生活·读书·新知三联书店
+  sort_order: 151
+  tag_class: leninnianpu
+  collection: leader_chronicles
+  available: true
+# 《斯大林年谱》（人民出版社 2003.7，刘彦章、项国兰、高晓惠编，ISBN 7-01-003760-4）：单卷本，
+# 无 PDF 书签 → 目录由正文年份识别。
+- key: 斯大林年谱
+  title: 《斯大林年谱》
+  short_title: 斯大林《年谱》
+  citation_title: 斯大林年谱
+  folder: pdfs/斯大林年谱
+  publisher: 人民出版社
+  sort_order: 152
+  tag_class: stalinnianpu
+  collection: leader_chronicles
+  available: true
+  single_volume: true
+# 《李大钊年谱》（云南教育出版社 2020.12，杨琥著，国家出版基金项目，ISBN 978-7-5599-1812-3）：
+# 原书分上、下册。手头 PDF 原是上下册合订的单一文件（1829 页），但**下册自带封面版权且
+# 印刷页码从 1 重编**，合订后有 867 个重号页码——引文写「第50页」读者有一半概率翻错册，
+# 故已按 pdf 957/958 处拆成两个文件、两卷入库（volume_unit 用「册」与原书封面相符）。
+# 书签为「年份 → 谱主事略/时事纪要」两级，目录直接走 build_toc 书签路线。
+- key: 李大钊年谱
+  title: 《李大钊年谱》
+  short_title: 李大钊《年谱》
+  citation_title: 李大钊年谱
+  folder: pdfs/李大钊年谱
+  publisher: 云南教育出版社
+  place: 昆明
+  sort_order: 153
+  tag_class: lidazhaonianpu
+  collection: leader_chronicles
+  volume_unit: 册
+  available: true
+# 《邓小平年谱（1904—1997）》5 卷（中央文献出版社 2019.11 第 2 版，ISBN 978-7-5073-4744-9）：
+# 无书签，目录由正文年份识别。
+- key: 邓小平年谱
+  title: 《邓小平年谱》
+  short_title: 邓小平《年谱》
+  citation_title: 邓小平年谱
+  folder: pdfs/邓小平年谱
+  publisher: 中央文献出版社
+  sort_order: 157
+  tag_class: dengnianpu
+  collection: leader_chronicles
+  available: true
+# 《陈云年谱》（修订本）上中下 3 卷（中央文献出版社，ISBN 978-7-5073-4312-0，「再版后记」署
+# 2015 年 6 月）：每卷自带年份级书签（44/13/44 条），目录走 build_toc 书签路线。
+- key: 陈云年谱
+  title: 《陈云年谱》
+  short_title: 陈云《年谱》
+  citation_title: 陈云年谱
+  folder: pdfs/陈云年谱
+  publisher: 中央文献出版社
+  sort_order: 158
+  tag_class: chenyunnianpu
+  collection: leader_chronicles
+  available: true
+
+# 西方马克思主义专题：七本均为独立单卷本。authors/translators 用于单行本完整引文；
+# 正式入库前必须按 PDF 版权页/CIP 与 config/western_marxism_sources.yaml 复核。
+- key: 历史与阶级意识
+  title: 《历史与阶级意识》
+  short_title: 《历史与阶级意识》
+  citation_title: 历史与阶级意识
+  folder: pdfs/西马文库
+  sort_order: 160
+  tag_class: western-marxism lukacs
+  publisher: 商务印书馆
+  place: 北京
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔匈〕格奥尔格·卢卡奇]
+  translators: [杜章智, 任立, 燕宏远]
+- key: 马克思主义和哲学
+  title: 《马克思主义和哲学》
+  short_title: 《马克思主义和哲学》
+  citation_title: 马克思主义和哲学
+  folder: pdfs/西马文库
+  sort_order: 161
+  tag_class: western-marxism korsch
+  publisher: 重庆出版社
+  place: 重庆
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔德〕卡尔·科尔施]
+  translators: [王南湜, 荣新海]
+- key: 狱中札记
+  title: 《狱中札记》
+  short_title: 《狱中札记》
+  citation_title: 狱中札记
+  folder: pdfs/西马文库
+  sort_order: 162
+  tag_class: western-marxism gramsci
+  publisher: 中国社会科学出版社
+  place: 北京
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔意〕安东尼奥·葛兰西]
+  translators: [曹雷雨, 姜丽, 张跣]
+- key: 希望的原理（第一卷）
+  title: 《希望的原理》第一卷
+  short_title: 《希望的原理》第一卷
+  citation_title: 希望的原理（第一卷）
+  folder: pdfs/西马文库
+  sort_order: 163
+  tag_class: western-marxism bloch
+  publisher: 上海译文出版社
+  place: 上海
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔德〕恩斯特·布洛赫]
+  translators: [梦海]
+- key: 启蒙辩证法
+  title: 《启蒙辩证法》
+  short_title: 《启蒙辩证法》
+  citation_title: 启蒙辩证法
+  folder: pdfs/西马文库
+  sort_order: 164
+  tag_class: western-marxism frankfurt
+  publisher: 上海人民出版社
+  place: 上海
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔德〕马克斯·霍克海默尔, 〔德〕西奥多·阿多诺]
+  translators: [渠敬东, 曹卫东]
+- key: 保卫马克思
+  title: 《保卫马克思》
+  short_title: 《保卫马克思》
+  citation_title: 保卫马克思
+  folder: pdfs/西马文库
+  sort_order: 165
+  tag_class: western-marxism althusser
+  publisher: 商务印书馆
+  place: 北京
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔法〕路易·阿尔都塞]
+  translators: [顾良]
+- key: 空间的生产
+  title: 《空间的生产》
+  short_title: 《空间的生产》
+  citation_title: 空间的生产
+  folder: pdfs/西马文库
+  sort_order: 166
+  tag_class: western-marxism lefebvre
+  publisher: 商务印书馆
+  place: 北京
+  available: true
+  single_volume: true
+  collection: western_marxism
+  authors: [〔法〕亨利·列斐伏尔]
+  translators: [刘怀玉]

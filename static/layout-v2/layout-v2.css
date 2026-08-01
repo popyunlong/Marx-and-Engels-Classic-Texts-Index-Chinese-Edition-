@@ -1,0 +1,574 @@
+/* =============================================================================
+   四页面布局 v2 · 全站外壳样式
+   仅在 body.v2（layout_v2=True）下生效；旧首页完全不受影响。
+   视觉方向：沿用品牌暗红 + 宣纸暖色，走「更简约现代」——更亮更净的底、
+   更轻的卡片（描边与阴影不再叠加）、更清晰的层级、8pt 留白节奏。
+   复用 index.html :root 里既有的品牌变量（--accent/--card/--line/...）。
+   ============================================================================= */
+
+body.v2{
+  /* 在既有品牌变量基础上提亮、减装饰 */
+  --bg:#f7f4ef;
+  --card:#ffffff;
+  --line:#eae2d6;
+  --line-strong:#dbcdb9;
+  --surface-2:#fbf8f3;
+  --faint:#9c9186;
+  /* 品牌/语义色：layout-v2 自带一份，别依赖宿主页 index.html 的内联 :root——
+     否则在 ai.html 等不带这份 :root 的页面上，--accent 等会落空（马方块变透明、白字消失）。 */
+  --accent:#8f1d1d;
+  --accent-deep:#6f1717;
+  --accent-soft:#f6e9e6;
+  --text:#221c16;
+  --muted:#756a5f;
+  --ai:#264653;
+  --ai-soft:#e8eff1;
+  --v2-shadow:0 1px 2px rgba(60,40,20,.06);
+  --v2-shadow-pop:0 12px 34px rgba(60,40,20,.16);
+  --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  background:
+    radial-gradient(circle at top, rgba(178,146,96,.10), transparent 32%),
+    linear-gradient(180deg,#f9f6f1 0%, #f3ede4 100%);
+}
+
+/* ---------- 顶部常驻导航 ---------- */
+.v2nav{
+  position:sticky; top:0; z-index:90;
+  display:flex; align-items:center; gap:var(--s5);
+  height:62px; padding:0 var(--s5);
+  background:rgba(252,249,244,.88);
+  -webkit-backdrop-filter:saturate(1.4) blur(12px);
+  backdrop-filter:saturate(1.4) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.v2brand{display:flex; align-items:center; gap:var(--s2); flex:none; text-decoration:none; color:inherit;}
+.v2brand-mark{
+  width:30px; height:30px; border-radius:8px; flex:none;
+  background:linear-gradient(140deg,var(--accent),var(--accent-deep));
+  display:grid; place-items:center; color:#fff;
+  font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-weight:700; font-size:17px;
+  box-shadow:0 2px 8px rgba(143,29,29,.3);
+}
+.v2brand-word{
+  font-family:"Noto Serif CJK SC","Source Han Serif SC",serif;
+  font-weight:700; font-size:16.5px; white-space:nowrap; color:var(--text);
+}
+
+.v2tabs-top{display:flex; align-items:center; gap:2px;}
+.v2tab{
+  position:relative; color:var(--muted); text-decoration:none;
+  font-size:14.5px; font-weight:600; padding:8px 14px; border-radius:9px;
+  display:flex; align-items:center; gap:6px; white-space:nowrap; transition:.15s;
+}
+.v2tab svg{width:17px; height:17px; opacity:.85;}
+.v2tab:hover{color:var(--text); background:rgba(143,29,29,.06);}
+.v2tab.active{color:var(--accent);}
+.v2tab.active::after{
+  content:""; position:absolute; left:14px; right:14px; bottom:-11px;
+  height:2.5px; background:var(--accent); border-radius:3px;
+}
+.v2nav-spacer{flex:1;}
+
+/* ---------- 账户区 ---------- */
+.v2acct{display:flex; align-items:center; gap:var(--s2); flex:none; position:relative;}
+.v2btn-link{
+  color:var(--muted); font-weight:600; font-size:13.5px; padding:8px 10px;
+  border-radius:9px; text-decoration:none; background:none; border:0; cursor:pointer;
+  font-family:inherit;
+}
+.v2btn-link:hover{color:var(--text); background:rgba(0,0,0,.035);}
+.v2btn-outline{
+  border:1px solid var(--line-strong); background:var(--card); color:var(--text);
+  font-weight:600; font-size:13.5px; padding:8px 14px; border-radius:9px;
+  text-decoration:none; transition:.15s;
+}
+.v2btn-outline:hover{border-color:var(--accent); color:var(--accent);}
+.v2btn-solid{
+  border:1px solid var(--accent); background:var(--accent); color:#fff;
+  font-weight:600; font-size:13.5px; padding:8px 15px; border-radius:9px;
+  text-decoration:none; transition:.15s;
+}
+.v2btn-solid:hover{background:var(--accent-deep);}
+/* 会员套餐：柔和品牌红底药丸——有配色背景，又不与实心「注册」抢焦点；悬停填实。 */
+.v2btn-soft{
+  border:1px solid rgba(143,29,29,.22); background:rgba(143,29,29,.09); color:var(--accent);
+  font-weight:600; font-size:13.5px; padding:8px 14px; border-radius:9px;
+  text-decoration:none; transition:.15s;
+}
+.v2btn-soft:hover{background:var(--accent); border-color:var(--accent); color:#fff;}
+
+.v2avatar{
+  display:flex; align-items:center; gap:var(--s2); cursor:pointer;
+  border:1px solid var(--line-strong); background:var(--card); border-radius:999px;
+  padding:4px 11px 4px 4px; font-size:13.5px; font-weight:600; font-family:inherit;
+  color:var(--text); transition:.15s; max-width:230px;
+}
+.v2avatar:hover{border-color:var(--accent);}
+.v2ini{
+  width:26px; height:26px; border-radius:50%; flex:none;
+  background:linear-gradient(140deg,var(--accent),var(--accent-deep));
+  color:#fff; display:grid; place-items:center; font-size:12.5px; font-weight:700;
+}
+.v2aname{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.v2caret{color:var(--faint); font-size:10px; flex:none;}
+
+.v2menu{
+  position:absolute; right:0; top:calc(100% + 9px); min-width:216px; z-index:120;
+  background:var(--card); border:1px solid var(--line); border-radius:13px;
+  box-shadow:var(--v2-shadow-pop); padding:var(--s2);
+}
+.v2mhead{padding:9px var(--s3) var(--s2); border-bottom:1px solid var(--line); margin-bottom:4px;}
+.v2mhead b{display:block; font-size:13.5px; color:var(--text);}
+.v2mhead span{font-size:12px; color:var(--muted); word-break:break-all;}
+.v2menu a{
+  display:block; padding:8px var(--s3); border-radius:8px;
+  font-size:13.5px; color:var(--text); text-decoration:none;
+}
+.v2menu a:hover{background:var(--surface-2); color:var(--accent);}
+.v2menu hr{border:0; border-top:1px solid var(--line); margin:4px 0;}
+.v2logout{margin:0;}
+.v2logout button{
+  width:100%; text-align:left; padding:8px var(--s3); border:0; background:none;
+  border-radius:8px; font-size:13.5px; color:var(--muted); cursor:pointer; font-family:inherit;
+}
+.v2logout button:hover{background:var(--surface-2); color:var(--accent);}
+
+/* ---------- 页面容器与页头 ---------- */
+body.v2 .page{max-width:1200px; padding:var(--s6) var(--s5) 72px;}
+.v2head{margin-bottom:var(--s5);}
+.v2head .v2kicker{
+  color:var(--accent); font-weight:700; font-size:12px;
+  letter-spacing:.1em; text-transform:uppercase;
+}
+.v2head h1{
+  font-family:"Noto Serif CJK SC","Source Han Serif SC",serif;
+  font-size:27px; margin:4px 0 6px; text-wrap:balance; color:var(--text);
+}
+.v2head .v2lede{margin:0; color:var(--muted); max-width:62ch; line-height:1.8;}
+
+/* ---------- 更简约现代：轻卡片 ---------- */
+body.v2 .panel,
+body.v2 .hit,
+body.v2 .group-card,
+body.v2 .status-card,
+body.v2 .notice-card,
+body.v2 .community-card,
+body.v2 .feedback-card,
+body.v2 .ai-card,
+body.v2 .registry-geo-card{
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:var(--v2-shadow);
+}
+/* 注意：.results-box 本身不能给边框——它在无结果时也存在于 DOM，
+   加了边框就会在检索框下方留一个空的带框盒子（多出一条横线）。
+   原样式只在有结果时用 .is-bounded 成框，这里只跟进圆角/阴影。 */
+body.v2 .results-box.is-bounded{
+  border-radius:14px;
+  box-shadow:var(--v2-shadow);
+}
+body.v2 .feature-bar,
+body.v2 .journal-bar{
+  border-radius:14px;
+  box-shadow:var(--v2-shadow);
+}
+/* 新布局下不再出现的旧首页构件 */
+body.v2 .hero,
+body.v2 .home-entries,
+body.v2 .topbar{display:none;}
+
+/* ---------- 更多功能页：入口卡网格 ---------- */
+.v2more-grid{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(272px,1fr));
+  gap:var(--s4); align-items:start;
+}
+.v2info-row{
+  margin-top:var(--s6); padding-top:var(--s4); border-top:1px solid var(--line);
+  display:flex; flex-wrap:wrap; gap:var(--s2) var(--s5);
+  font-size:12.5px; color:var(--muted);
+}
+.v2info-row a{color:var(--accent); font-weight:600; text-decoration:none;}
+
+/* ---------- 检索页排版收紧（消除重复标题与大片死白） ---------- */
+/* 站名较长，给个上限并省略，避免把导航标签挤走 */
+.v2brand-word{max-width:min(30vw,300px); overflow:hidden; text-overflow:ellipsis;}
+
+/* 页头已有大标题「引文检索」，卡片内的同名 h2 属重复，隐去；
+   同一行的彩色标签与「?」帮助按钮保留。 */
+body.v2 .panel .reader-status-row h2{display:none;}
+body.v2 .panel .reader-status-row{margin-bottom:0 !important; gap:var(--s2);}
+body.v2 .v2head{margin-bottom:var(--s4);}
+body.v2 .v2head .v2lede{font-size:14px; line-height:1.75;}
+
+/* 输入区不必那么高，减少首屏空旷感 */
+body.v2 #q{min-height:104px;}
+
+/* 「退出服务」是本地/桌面模式才出现的按钮（线上 remote_quit_enabled=false），
+   在主操作区权重过高，降级为次要。 */
+body.v2 #quitBtn{opacity:.5; font-size:12.5px; padding:9px 12px;}
+body.v2 #quitBtn:hover{opacity:1;}
+
+/* ---------- 检索页：通栏单列 ----------
+   原布局是「左检索 + 右辅栏」两栏，未检索时左栏只有一张矮卡、右栏是高栈，
+   左下必然空一大片。改为单列通栏：检索框与结果吃满整宽（长引文更好读），
+   公告 / 注册分布 / 社区 / 反馈落到页面下方横排一行。
+   DOM 顺序本就是 left-stack 在前、right-stack 在后，故只需把栅格改成块级。 */
+body.v2 .grid{display:block; margin-top:0;}
+body.v2 .left-stack{width:100%;}
+body.v2 .right-stack{
+  display:block; width:100%;
+  margin-top:var(--s6);
+  padding-top:var(--s5);
+  border-top:1px solid var(--line);
+}
+/* 下方信息区：公告 / 注册分布 / 留言反馈 三列等高，社区条通栏。
+   等高不靠「碰运气内容一样多」，而是「统一高度上限 + 卡内滚动」——
+   真实公告写多长、地图数据多满，这一行都不会被撑歪。
+   留言反馈放回可见位置：右下角浮标会被马克思宠物（z-index 9991）挡住。 */
+/* 第一行：公告 / 注册分布 / 文库 三卡等宽等高 */
+body.v2 .right-top-stack{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:var(--s4);
+  align-items:stretch;
+}
+/* 第二行：社区建设 + 留言反馈 两卡等宽等高对齐 */
+body.v2 .right-bottom-stack{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:var(--s4);
+  margin-top:var(--s4);
+  align-items:stretch;
+}
+body.v2 .right-top-stack > section,
+body.v2 .right-bottom-stack > section{
+  display:flex; flex-direction:column;
+  max-height:430px; min-height:0;
+}
+/* 社区建设回到普通半宽卡（原先 order/通栏/max-height:none 规则已撤），与留言反馈并排等高；
+   竖向滚动区填满卡内剩余高度。 */
+body.v2 .community-marquee{flex:1 1 auto; min-height:0;}
+/* 文库收录清单竖向无缝滚动：填满卡内剩余高度（覆盖基础 340px 固定值），与左侧两卡等高 */
+body.v2 .library-marquee{flex:1 1 auto; min-height:0; height:auto;}
+
+/* 公告：标题固定，正文超出即内部滚动 */
+body.v2 .notice-body{flex:1 1 auto; min-height:0; overflow-y:auto; padding-right:6px;}
+/* 注册分布 / 留言反馈：整卡内滚动 */
+body.v2 .registry-geo-card,
+body.v2 .feedback-card{overflow-y:auto;}
+body.v2 .feedback-messages{max-height:190px;}
+/* 细滚动条，避免粗滚动条破坏观感 */
+body.v2 .notice-body::-webkit-scrollbar,
+body.v2 .registry-geo-card::-webkit-scrollbar,
+body.v2 .feedback-card::-webkit-scrollbar{width:8px;}
+body.v2 .notice-body::-webkit-scrollbar-thumb,
+body.v2 .registry-geo-card::-webkit-scrollbar-thumb,
+body.v2 .feedback-card::-webkit-scrollbar-thumb{background:#dccfba; border-radius:99px;}
+
+/* 注册分布卡：窄栏里 choropleth 地图会被裁不全，四页面布局下索性不显示地图，
+   只保留「计数 + 图例 + 省份榜 + 海外/待识别」——信息更聚焦、卡片更干净。 */
+body.v2 .rg-mapwrap{display:none;}
+/* 网站公告卡：自动显示的日期（今天）意义不大，四页面布局下隐藏，只留标题 + 程序版本。 */
+body.v2 .notice-date{display:none;}
+
+/* ── 下方信息区五卡统一配色/版式：暖白底 + 品牌红标题 + 暖调条目，去掉社区蓝/公告米/分布米等杂色，
+   让公告 / 注册分布 / 文库 / 社区 / 反馈五张卡整齐利落、同一视觉系统。 ── */
+body.v2 .notice-card,
+body.v2 .registry-geo-card,
+body.v2 .community-card,
+body.v2 .library-card,
+body.v2 .feedback-card{background:var(--card);}
+/* 五卡标题统一品牌红（原公告/注册分布为深色，社区/文库/反馈为红——这里全部拉齐为红） */
+body.v2 .notice-heading-text,
+body.v2 .registry-geo-card .rg-head h2,
+body.v2 .community-heading-text,
+body.v2 .library-head,
+body.v2 .feedback-card > h2{color:var(--accent);}
+/* 社区建设条目由蓝转暖：暖底 + 暖边 + 品牌红项目符号，与文库/榜单同一调性 */
+body.v2 .community-item{color:var(--text); background:var(--soft); border-color:var(--line); box-shadow:none;}
+body.v2 .community-item::before{color:var(--accent);}
+/* 「少…多」渐变条随地图一并去掉（地图已隐藏，此条无所指、显得多余） */
+body.v2 .rg-legend{display:none;}
+body.v2 .notice-card,
+body.v2 .registry-geo-card,
+body.v2 .community-card,
+body.v2 .library-card,
+body.v2 .feedback-card{padding:var(--s4);}
+
+@media (max-width:1000px){
+  body.v2 .right-top-stack{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:720px){
+  body.v2 .right-top-stack,
+  body.v2 .right-bottom-stack{grid-template-columns:1fr;}
+  body.v2 .right-top-stack > section,
+  body.v2 .right-bottom-stack > section{max-height:none;}
+  /* 单列时卡不再定高，文库滚动条改用固定高度，避免整份 66 条把卡撑到几千像素 */
+  body.v2 .library-marquee{flex:none; height:340px;}
+  body.v2 .registry-geo-card,
+  body.v2 .feedback-card{overflow-y:visible;}
+}
+
+/* ---------- 功能卡（阅读页 / 更多功能页）----------
+   原 .feature-bar/.journal-bar 是「文案在左、按钮在右」的横向宽条
+   （grid-template-columns:1fr auto; min-height:166px），为旧首页单列左栏而设。
+   放进多列网格后每张只有 ~370px，内部两栏被挤压变形，故在新布局里改为纵向卡片。
+   配色也一并归一：原 reader-full/ai/dictionary 是冷灰底 + 绿色按钮 #157f4c，
+   与暖色品牌红的新 UI 冲突，这里统一成白底 + 品牌红按钮。 */
+/* 单列：每张功能卡通栏横条，一个个往下排（回到 .feature-bar 的原生形态：
+   文案在左、按钮在右）。多列网格会把宽条压成窄竖卡、显得拥挤。 */
+body.v2 .reader-entry-grid{
+  grid-template-columns:1fr;
+  gap:var(--s4);
+}
+body.v2 .feature-bar,
+body.v2 .journal-bar{
+  grid-template-columns:minmax(0,1fr) auto;   /* 文案 | 按钮，横向宽条 */
+  align-items:center;
+  min-height:0;
+  padding:var(--s5) var(--s6);
+  gap:var(--s5);
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:var(--card);
+  box-shadow:var(--v2-shadow);
+}
+/* 描述文字限宽，避免通栏后单行拉得过长不好读 */
+body.v2 .feature-copy p{max-width:72ch;}
+body.v2 .feature-bar:hover,
+body.v2 .journal-bar:hover{border-color:var(--accent); box-shadow:var(--sh-2,0 10px 26px rgba(80,50,30,.10));}
+
+/* 冷灰/绿色一律归一到暖白底 + 品牌红 */
+body.v2 .feature-bar.reader-full,
+body.v2 .feature-bar.reader-ai,
+body.v2 .feature-bar.reader-dictionary{
+  border-color:var(--line);
+  background:var(--card);
+  box-shadow:var(--v2-shadow);
+}
+body.v2 .feature-bar .feature-kicker,
+body.v2 .feature-bar .reader-status,
+body.v2 .journal-bar .feature-kicker,
+body.v2 .journal-bar .reader-status{color:var(--muted);}
+body.v2 .feature-bar .reader-status,
+body.v2 .journal-bar .reader-status{background:var(--surface-2);}
+body.v2 .feature-bar .feature-action,
+body.v2 .journal-bar .feature-action{
+  background:var(--accent); border-color:var(--accent); color:#fff;
+  box-shadow:none; width:auto; white-space:nowrap;
+}
+body.v2 .feature-bar .feature-action:hover,
+body.v2 .journal-bar .feature-action:hover{background:var(--accent-deep); border-color:var(--accent-deep);}
+body.v2 .feature-bar .feature-action.disabled,
+body.v2 .journal-bar .feature-action.disabled{
+  background:var(--surface-2); border-color:var(--line-strong); color:var(--muted); box-shadow:none;
+}
+/* 窄屏：横条竖过来，文案在上、按钮占满一行 */
+@media (max-width:640px){
+  body.v2 .feature-bar,
+  body.v2 .journal-bar{grid-template-columns:1fr; align-items:start; gap:var(--s3); padding:var(--s5);}
+  body.v2 .feature-bar .feature-action,
+  body.v2 .journal-bar .feature-action{width:100%; justify-self:stretch; text-align:center;}
+}
+
+/* ---------- 引用格式栏：用品牌红点出「可切换格式」，别让读者忽略 ---------- */
+body.v2 .cite-format-bar{
+  background:var(--accent-soft);
+  border:1px solid #ecd6d1;
+  border-radius:10px;
+  padding:6px 12px;
+}
+body.v2 .cite-format-bar .cfb-label{color:var(--accent); font-weight:700;}
+body.v2 .cite-format-bar .cfb-label::before{content:"⇅ "; font-weight:700;}
+body.v2 #citeFormatSelect{
+  border:1.5px solid var(--accent); color:var(--accent-deep); font-weight:600;
+  background:#fff; cursor:pointer;
+}
+body.v2 .cite-format-bar .cfb-hint{color:#8a5b52;}
+
+/* ---------- 阅读页：书目网格 ---------- */
+body.v2 .v2read-books{margin-top:var(--s5);}
+body.v2 .v2sec-label{display:flex; align-items:baseline; gap:var(--s3); flex-wrap:wrap; margin-bottom:var(--s4);}
+body.v2 .v2sec-label h2{font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-size:23px; color:var(--text);}
+body.v2 .v2sec-label span{font-size:13px; color:var(--muted);}
+
+/* 篇章直达：阅读页的主检索入口——放大标题与输入框、加淡红框，明确「在这里检索篇章/著作」 */
+/* 用页面统一的干净卡片（.panel 已给底/描边/阴影），标题用深色衬线，与「选择书目」等一致；
+   仅输入框保留品牌红描边点出「这是主检索入口」，突出而不突兀。 */
+body.v2 .chapter-search-panel h2{font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-size:21px; color:var(--text);}
+body.v2 .chapter-search-panel .chapter-search input{font-size:16px; padding:14px 16px;}
+body.v2 .chapter-search-panel .chapter-search-hint{font-size:12.5px; color:var(--muted);}
+/* 分类分节：与阅读器一致（经典著作 / 马中化 / 习思想 / 党国文献 / 西马 / 外文原著） */
+body.v2 .v2book-cat{margin-top:var(--s5);}
+body.v2 .v2cat-title{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-size:20px; font-weight:700; color:var(--text);
+  margin:0 0 var(--s3); padding-bottom:9px; border-bottom:2px solid var(--accent-soft);
+}
+body.v2 .v2cat-n{font-family:var(--sans,inherit); font-size:13px; font-weight:400; color:var(--faint); font-variant-numeric:tabular-nums;}
+body.v2 .v2books{
+  display:grid; grid-template-columns:repeat(auto-fill,minmax(248px,1fr)); gap:var(--s4);
+}
+body.v2 .v2book{
+  display:flex; align-items:flex-start; gap:var(--s3);
+  padding:var(--s3); border:1px solid var(--line); border-radius:12px;
+  background:var(--card); box-shadow:var(--v2-shadow); text-decoration:none; color:inherit;
+  transition:.16s; position:relative;
+}
+body.v2 .v2book:hover{border-color:var(--accent); box-shadow:0 10px 26px rgba(80,50,30,.10); transform:translateY(-2px);}
+/* 真实封面缩略图：首卷第 1 页影印，portrait；外文书无 PDF → 首字色块占位 */
+body.v2 .v2book-cover{
+  width:56px; height:78px; flex:none; border-radius:4px; overflow:hidden;
+  background:var(--surface-2); box-shadow:0 1px 5px rgba(60,40,20,.22);
+  display:grid; place-items:center;
+}
+body.v2 .v2book-cover img{width:100%; height:100%; object-fit:cover; display:block;}
+body.v2 .v2book-cover-foreign{
+  background:linear-gradient(160deg,#2b5a6b,#1c3b47); color:#fff;
+  font-family:"Noto Serif CJK SC",serif; font-weight:700; font-size:22px;
+}
+body.v2 .v2book-body{display:flex; flex-direction:column; gap:5px; min-width:0; flex:1; padding-right:56px;}
+body.v2 .v2book-title{font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-weight:700; font-size:15px; line-height:1.42; color:var(--text);}
+body.v2 .v2book-meta{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums;}
+body.v2 .v2book-tag{
+  position:absolute; top:12px; right:12px;
+  font-size:10.5px; font-weight:700; color:var(--ai);
+  background:var(--ai-soft); border-radius:999px; padding:2px 8px;
+}
+body.v2 .v2read-locked{
+  display:flex; align-items:center; gap:var(--s4); flex-wrap:wrap;
+  padding:var(--s5); border:1px dashed var(--line-strong); border-radius:14px;
+  background:var(--surface-2); color:var(--muted); font-size:14px;
+}
+body.v2 .v2read-locked p{margin:0; flex:1;}
+
+/* ---------- 阅读页·分卷/分目录抽屉 ---------- */
+/* 抽屉靠【左】滑出：右下角有马克思宠物，靠右会被它压住/遮挡。z-index 抬到宠物(9991)之上，
+   遮罩连同宠物一起变暗，抽屉在最上层。 */
+.v2drawer-overlay{position:fixed; inset:0; z-index:9995; background:rgba(40,28,18,.34); opacity:0; transition:opacity .24s;}
+.v2drawer-overlay.open{opacity:1;}
+.v2drawer{
+  position:fixed; top:0; left:0; bottom:0; z-index:9996; width:min(468px,95vw);
+  background:var(--card,#fff); border-right:1px solid var(--line,#eae2d6);
+  box-shadow:16px 0 44px rgba(60,40,20,.2);
+  display:flex; flex-direction:column; transform:translateX(-100%); transition:transform .26s ease;
+}
+.v2drawer.open{transform:none;}
+.v2drawer-head{display:flex; align-items:center; gap:12px; padding:16px; border-bottom:1px solid var(--line,#eae2d6);}
+.v2drawer-back{border:1px solid var(--line-strong,#dbcdb9); background:var(--surface-2,#fbf8f3); color:var(--muted,#756a5f); font:inherit; font-size:12.5px; font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer; flex:none; white-space:nowrap;}
+.v2drawer-back:hover{color:var(--accent,#8f1d1d); border-color:var(--accent,#8f1d1d);}
+.v2drawer-titles{flex:1; min-width:0;}
+.v2drawer-title{font-family:"Noto Serif CJK SC","Source Han Serif SC",serif; font-weight:700; font-size:17px; color:var(--text,#221c16); line-height:1.35;}
+.v2drawer-sub{font-size:12.5px; color:var(--muted,#756a5f); margin-top:3px;}
+.v2drawer-x{border:0; background:none; color:var(--faint,#9c9186); font-size:25px; line-height:1; cursor:pointer; flex:none; padding:0 2px;}
+.v2drawer-x:hover{color:var(--accent,#8f1d1d);}
+.v2drawer-body{flex:1; overflow-y:auto; padding:14px 16px 28px;}
+.v2vlist{display:flex; flex-direction:column; gap:8px;}
+.v2vrow{display:flex; align-items:center; gap:10px; text-align:left; width:100%; cursor:pointer;
+  border:1px solid var(--line,#eae2d6); background:var(--surface-2,#fbf8f3); border-radius:10px; padding:11px 13px; font:inherit; transition:.14s;}
+.v2vrow:hover{border-color:var(--accent,#8f1d1d); background:#fff;}
+.v2vrow-n{flex:none; font-weight:700; color:var(--accent,#8f1d1d); font-size:13.5px; min-width:56px;}
+.v2vrow-t{flex:1; min-width:0; font-size:13.5px; color:var(--text,#221c16); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.v2vrow-m{flex:none; font-size:11.5px; color:var(--faint,#9c9186); font-variant-numeric:tabular-nums;}
+.v2vrow-go{flex:none; font-size:12px; font-weight:700; color:var(--muted,#756a5f);}
+.v2toc-actions{margin-bottom:14px;}
+.v2toc-read{display:block; text-align:center; background:var(--accent,#8f1d1d); color:#fff; text-decoration:none; font-weight:700; font-size:14px; padding:11px; border-radius:10px;}
+.v2toc-read:hover{background:var(--accent-deep,#6f1717);}
+.v2toc-list{display:flex; flex-direction:column;}
+.v2toc-item{display:flex; align-items:baseline; gap:10px; padding:9px 6px; border-bottom:1px solid var(--line,#eae2d6); text-decoration:none; color:var(--text,#221c16);}
+.v2toc-item:hover{background:var(--surface-2,#fbf8f3);}
+.v2toc-item .v2toc-t{flex:1; min-width:0; font-size:13.5px; line-height:1.5;}
+.v2toc-item .v2toc-p{flex:none; font-size:11.5px; color:var(--faint,#9c9186); font-variant-numeric:tabular-nums; white-space:nowrap;}
+/* 逐级清晰的层级：字号/字重/颜色/缩进渐变。一级像分节（顶部红细线+淡底+加大加粗），
+   往下逐级更小更淡更缩进，直到 (a)/(1) 也能一眼看出从属关系。 */
+.v2toc-item.lv1{border-top:2px solid var(--accent-soft,#f6e9e6); margin-top:4px; background:linear-gradient(90deg, rgba(143,29,29,.05), transparent 42%);}
+.v2toc-item.lv1 .v2toc-t{font-weight:800; font-size:15.5px; color:var(--text,#221c16);}
+.v2toc-item.lv2 .v2toc-t{font-weight:700; font-size:14px; color:var(--text,#221c16); padding-left:15px;}
+.v2toc-item.lv3 .v2toc-t{font-weight:600; font-size:13.5px; color:#443a31; padding-left:31px;}
+.v2toc-item.lv4 .v2toc-t{font-weight:400; font-size:13px; color:var(--muted,#756a5f); padding-left:47px;}
+.v2toc-item.lv5 .v2toc-t{font-weight:400; font-size:12.5px; color:var(--muted,#756a5f); padding-left:63px;}
+.v2toc-item.lv6 .v2toc-t{font-weight:400; font-size:12px; color:var(--faint,#9c9186); padding-left:79px;}
+.v2toc-loading,.v2toc-empty{padding:16px 6px; color:var(--muted,#756a5f); font-size:13px; line-height:1.7;}
+@media (max-width:720px){ .v2drawer{width:100vw;} }
+
+/* 「生成进行中·已在新标签打开」提示 toast（居中底部，短暂浮现） */
+.v2navtoast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(12px);
+  z-index:99997; background:#241f1a; color:#f3e9db; font-size:13.5px; font-weight:600;
+  padding:10px 18px; border-radius:999px; box-shadow:0 12px 34px rgba(0,0,0,.28);
+  opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; max-width:88vw;
+}
+.v2navtoast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+/* ---------- AI 研究对话页（/v2/ai）：套壳后的微调 ----------
+   原 .aip-topbar 是暗红渐变条 + 浅色文字，设计给独立全屏页用。套进 v2 外壳后：
+   ① 它 position:sticky top:0 会与 v2 顶栏叠住；② 若只把底色改透明，浅色标题就落在
+   暖白页面上→发虚看不清（正是所见的"显示问题"）。这里把它改成一条干净的浅色页头：
+   静态定位、深色文字、去暗红底与投影，与检索/阅读/进阶三页的页头观感一致。 */
+body.v2 .aip-back{display:none;}  /* 「← 返回首页」与顶栏重复 */
+body.v2 .aip-topbar{
+  position:static;
+  background:transparent;
+  color:var(--text);
+  box-shadow:none;
+  border-bottom:1px solid var(--line);
+  padding:var(--s5) clamp(14px,4vw,40px) var(--s4);
+}
+body.v2 .aip-title-text h1{color:var(--text); text-shadow:none;}
+body.v2 .aip-title-text p{color:var(--muted);}
+body.v2 .aip-model{background:var(--surface-2); color:var(--muted); border-color:var(--line);}
+body.v2 .aip-main{padding-bottom:80px;}
+
+/* AI 回答排版：收窄阅读版心（1080→860，行不过长）、加大正文字号、标题/加粗/引文更醒目。
+   全部 body.v2 限定，不影响独立 /ai 页；标题(h3/h4)与引文(blockquote)样式在模型用
+   markdown 结构(### / >)时自动生效——见随附的提示词增强。 */
+body.v2 .aip-stage{width:min(860px,100%);}
+body.v2 #aip-root .chat-box{padding:20px clamp(16px,2.2vw,26px);}
+body.v2 #aip-root .msg{font-size:15.5px; line-height:1.92;}
+body.v2 #aip-root .msg.user{max-width:76%; font-size:15px;}
+body.v2 #aip-root .msg-body{gap:13px;}
+/* 主节标题：红左条 + 淡红底更实、字更大、上间距更足 */
+body.v2 #aip-root .msg-body h3{
+  font-size:1.14rem; margin-top:8px; padding:9px 14px;
+  border-left:5px solid var(--accent); background:var(--accent-soft); color:var(--accent-deep);
+}
+body.v2 #aip-root .msg-body h4{font-size:1.03rem; margin-top:6px; color:var(--accent-deep);}
+/* 重点加粗：更重 + 品牌红加深，明显区别于正文 */
+body.v2 #aip-root .msg-body strong{font-weight:800; color:var(--accent-deep);}
+/* 引文块：左红条 + 米底 + 稍大行距，凸显"原著原文" */
+body.v2 #aip-root .msg-body blockquote{
+  border-left:4px solid var(--accent); background:#fbf6ee; color:#4a3b30;
+  padding:12px 16px; border-radius:0 10px 10px 0; line-height:1.9;
+}
+/* 段内引用出处标记 [N]：小号品牌红上标，便于扫读 */
+body.v2 #aip-root .msg-body sup{color:var(--accent); font-weight:700;}
+
+/* ---------- 移动端底部标签栏 ---------- */
+.v2tabbar{display:none;}
+
+@media (max-width:820px){
+  .v2tabs-top{display:none;}
+  .v2nav{gap:var(--s3); padding:0 var(--s4); height:56px;}
+  .v2hide-sm{display:none;}
+  .v2avatar{max-width:150px;}
+  body.v2 .page{padding:var(--s5) var(--s4) 96px;}
+  .v2head h1{font-size:23px;}
+  .v2tabbar{
+    display:flex; position:fixed; left:0; right:0; bottom:0; z-index:95;
+    background:rgba(252,249,244,.96);
+    -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom,0));
+  }
+  .v2tabbar a{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+    color:var(--muted); font-size:10.5px; font-weight:600; padding:5px 0;
+    border-radius:9px; text-decoration:none;
+  }
+  .v2tabbar a svg{width:21px; height:21px;}
+  .v2tabbar a.active{color:var(--accent);}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .v2tab,.v2btn-outline,.v2btn-solid,.v2avatar{transition:none;}
+}

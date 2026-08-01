@@ -498,6 +498,15 @@
                      placeholder="社区建设">
             </label>
             <label class="field" style="margin-bottom:6px">滚动条目（每行一条）</label>
+            {% if control_community_from_feedback_url %}
+            <div class="actions" style="margin:0 0 6px">
+              <button type="button" class="btn" id="communityFromFeedbackBtn"
+                      data-url="{{ control_community_from_feedback_url }}"
+                      style="background:#2f7a53">从近期留言智能生成条目</button>
+              <span class="muted" id="communityFromFeedbackStatus" style="margin-left:8px"></span>
+            </div>
+            <p class="section-note" style="margin:0 0 8px">点此让 AI 把最近的用户留言提炼成简短、健康的社区建设条目（自动剔除谩骂等不良信息，署名邮箱按长度自动打码、仅留头尾），<strong>追加填入下方编辑框供你复核</strong>，确认无误后再点「保存社区建设」发布到首页。生成本身不会自动发布。</p>
+            {% endif %}
             <textarea name="community_body" id="communityBodyInput" rows="6"
                       placeholder="每行一条，例如：&#10;欢迎加入读者交流群，一起研读马恩经典。&#10;定期举办线上读书会，共享学习心得。">{{ site_text('index.community_body') }}</textarea>
             <div class="notice-preview-wrap">
@@ -546,6 +555,54 @@
             }
             ta.addEventListener('input', update);
             update();
+
+            // 从近期留言智能生成条目：AI 提炼 → 去重追加进编辑框 → 刷新预览，交管理员复核后再保存发布。
+            var genBtn = document.getElementById('communityFromFeedbackBtn');
+            var genStatus = document.getElementById('communityFromFeedbackStatus');
+            if (genBtn) {
+              genBtn.addEventListener('click', function () {
+                var url = genBtn.getAttribute('data-url');
+                if (!url) return;
+                var form = ta.closest('form');
+                var tokenEl = form ? form.querySelector('[name=csrf_token]') : null;
+                var fd = new FormData();
+                fd.append('csrf_token', tokenEl ? tokenEl.value : '');
+                fd.append('existing', ta.value);   // 现有条目 → 服务端据此跳过已陈列过的用户
+                genBtn.disabled = true;
+                var original = genBtn.textContent;
+                genBtn.textContent = '正在提炼…';
+                if (genStatus) genStatus.textContent = '';
+                fetch(url, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                  .then(function (r) { return r.json(); })
+                  .then(function (d) {
+                    if (!d.ok) { throw new Error(d.error || '生成失败'); }
+                    var items = d.items || [];
+                    if (!items.length) {
+                      if (genStatus) genStatus.textContent = d.message || '本次没有可陈列的条目（可能均被过滤或暂无留言）。';
+                      return;
+                    }
+                    var seen = {};
+                    String(ta.value).split('\n').forEach(function (ln) { seen[ln.trim()] = 1; });
+                    var base = ta.value.replace(/\s*$/, '');
+                    var buf = base ? [base] : [];
+                    var added = 0;
+                    items.forEach(function (line) {
+                      var s = String(line).trim();
+                      if (!s || seen[s]) return;
+                      seen[s] = 1; buf.push(s); added++;
+                    });
+                    ta.value = buf.join('\n') + (added ? '\n' : '');
+                    update();
+                    if (genStatus) {
+                      genStatus.textContent = '已为 ' + (d.source_count || 0) + ' 位新用户生成 ' + added + ' 条（已在栏中的用户自动跳过）'
+                        + (items.length > added ? ('（另 ' + (items.length - added) + ' 条已存在，跳过）') : '')
+                        + '。请复核后点「保存社区建设」发布。';
+                    }
+                  })
+                  .catch(function (e) { if (genStatus) genStatus.textContent = '生成失败：' + e.message; })
+                  .finally(function () { genBtn.disabled = false; genBtn.textContent = original; });
+              });
+            }
           })();
         </script>
         {% endif %}
@@ -859,6 +916,190 @@
         {% if admin_module == "content" %}
         <div class="admin-category">内容运营</div>
         {% if remote_admin %}
+        <section class="card" id="broadcast-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>群发邮件</h2>
+          <p class="section-note">给「全部有效会员 / 全部注册用户 / 指定会员等级 / 指定邮箱」群发一封公告邮件。正文用 <strong>Markdown 排版</strong>（标题、加粗、列表、引用等，与期刊综述采用同一套邮件内联样式，各邮件客户端都能正确呈现）。发送前可「预览排版」核对样式与人数、「发送测试邮件」到自己邮箱确认效果；正式群发在后台进行，稍后刷新本页在下方「群发记录」查看发送结果。{% if not journal_smtp_enabled %}<br><strong style="color:#b45309">当前全站发信邮箱尚未配置，需先到「期刊订阅」页配置发信邮箱后才能发送。</strong>{% endif %}</p>
+          <form method="post" action="{{ control_broadcast_send_url }}" id="broadcast-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field-wide">邮件主题
+                <input type="text" name="subject" id="bc-subject" maxlength="200" required placeholder="如：马著作检索 · 新功能上线通知" value="{{ broadcast_draft.subject }}">
+              </label>
+              <label class="field">收件范围
+                <select name="scope" id="bc-scope" required>
+                  <option value="members">全部有效会员</option>
+                  <option value="registered">全部注册用户</option>
+                  <option value="plans">指定会员等级（可多选）</option>
+                  <option value="specific">指定邮箱</option>
+                  <option value="dormant_noip">久未回访用户（{{ broadcast_dormant_recipients|length }} 人）</option>
+                </select>
+              </label>
+            </div>
+            <div id="bc-plans" style="display:none;margin:10px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px;background:#fffdf8">
+              <strong style="display:block;margin-bottom:8px">选择会员等级（勾选一个或多个）</strong>
+              <div style="display:flex;flex-wrap:wrap;gap:14px">
+                {% for plan in plans_all if plan.is_active and (plan.kind or 'membership') == 'membership' %}
+                <label class="checkbox"><input type="checkbox" name="plan_codes" value="{{ plan.code }}"> {{ plan.name }}（{{ plan.code }}）</label>
+                {% else %}
+                <span class="muted">暂无可选的会员套餐。</span>
+                {% endfor %}
+              </div>
+            </div>
+            <div id="bc-emails" style="display:none;margin:10px 0">
+              <label class="field-wide">指定邮箱（逗号 / 空格 / 换行分隔，可不是注册用户）
+                <textarea name="emails" placeholder="a@example.com, b@example.com"></textarea>
+              </label>
+            </div>
+            <div id="bc-dormant" style="display:none;margin:10px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px;background:#fffdf8">
+              <strong style="display:block;margin-bottom:6px">久未回访用户（当前 {{ broadcast_dormant_recipients|length }} 人）</strong>
+              <p class="section-note" style="margin:0 0 8px">这批账号注册于 2026-06-24 之前、此后没有任何登录访问（判据：系统未捕获到其任何访问 IP——只要回访一次就会被自动记录并离开本名单，因此该名单随用户回访自然缩小）。适合发一封召回/新功能介绍邮件。</p>
+              <details>
+                <summary style="cursor:pointer;font-weight:600">查看名单（{{ broadcast_dormant_recipients|length }} 个邮箱）</summary>
+                <div class="scroll-box" style="max-height:260px;overflow:auto;margin-top:8px;font-size:13px;line-height:1.9">
+                  {% for r in broadcast_dormant_recipients %}
+                  <div>{{ loop.index }}. {{ r.email }}{% if r.display_name %}（{{ r.display_name }}）{% endif %}</div>
+                  {% else %}
+                  <div class="muted">名单为空——所有老用户都已回访过。</div>
+                  {% endfor %}
+                </div>
+              </details>
+            </div>
+            <div style="margin:12px 0">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+                <strong>邮件正文（Markdown 排版）</strong>
+                <span class="section-note" style="margin:0">工具按钮插入 Markdown 记号；正文与主题里的 <code>{name}</code>＝收件人昵称、<code>{email}</code>＝收件人邮箱，发送时按人自动替换。</span>
+              </div>
+              <div class="bc-toolbar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+                <button type="button" class="btn secondary" data-md="h2">标题</button>
+                <button type="button" class="btn secondary" data-md="bold">加粗</button>
+                <button type="button" class="btn secondary" data-md="italic">斜体</button>
+                <button type="button" class="btn secondary" data-md="ul">无序列表</button>
+                <button type="button" class="btn secondary" data-md="ol">有序列表</button>
+                <button type="button" class="btn secondary" data-md="quote">引用</button>
+                <button type="button" class="btn secondary" data-md="name">插入昵称</button>
+              </div>
+              <textarea name="body" id="bc-body" rows="12" style="width:100%;font-family:Consolas,'Microsoft YaHei',monospace;line-height:1.7" placeholder="## 亲爱的{name}&#10;&#10;正文段落……&#10;&#10;- 要点一&#10;- 要点二&#10;&#10;> 引用或落款">{{ broadcast_draft.body }}</textarea>
+              {% if broadcast_draft.subject or broadcast_draft.body %}
+              <div class="section-note" style="margin-top:4px">
+                {% if broadcast_draft.source == 'saved' %}已自动载入上次保存的草稿{% if broadcast_draft.saved_at %}（{{ format_datetime(broadcast_draft.saved_at) }}）{% endif %}。{% else %}已自动载入随程序部署的草稿，可直接修改后预览、发送。{% endif %}
+              </div>
+              {% endif %}
+            </div>
+            <div class="actions" style="margin-top:8px;flex-wrap:wrap;gap:8px">
+              <button type="button" class="btn" id="bc-preview-btn">预览排版 / 统计人数</button>
+              <button type="submit" class="btn secondary" formaction="{{ control_broadcast_draft_url }}" formnovalidate>保存草稿</button>
+              <input type="email" name="test_email" id="bc-test-email" placeholder="测试收件邮箱" style="padding:7px 10px;border:1px solid var(--line,#ddd);border-radius:8px;min-width:220px">
+              <button type="submit" class="btn" name="action" value="test">发送测试邮件</button>
+            </div>
+            <div id="bc-preview" style="display:none;margin:12px 0;padding:14px;border:1px solid var(--line,#ddd);border-radius:10px;background:#fff">
+              <div class="section-note" id="bc-preview-meta" style="margin-bottom:8px"></div>
+              <div id="bc-preview-body"></div>
+            </div>
+            <label class="checkbox" style="margin-top:10px">
+              <input type="checkbox" name="confirm_all" value="1">
+              我确认向所选范围的全体收件人正式群发（收件范围为「全部注册用户」「全部有效会员」或「久未回访用户」时必须勾选）
+            </label>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit" name="action" value="send" onclick="return marxConfirmBroadcast(this.form);">正式群发</button>
+            </div>
+          </form>
+          <h3 style="margin-top:20px">群发记录</h3>
+          <div class="scroll-box">
+            {% for c in broadcast_recent_campaigns %}
+            <div class="item">
+              <h3 style="margin:0 0 4px">{{ c.subject }}
+                <span class="muted" style="font-weight:400">· {% if c.status == 'done' %}已完成{% elif c.status == 'sending' %}发送中{% elif c.status == 'partial' %}部分失败{% else %}失败{% endif %}</span>
+              </h3>
+              <div class="kv">
+                <div>范围：{{ {'registered':'全部注册用户','members':'全部有效会员','plans':'指定会员等级','specific':'指定邮箱','dormant_noip':'久未回访用户'}.get(c.scope, c.scope) }}{% if c.plan_codes %}（{{ c.plan_codes }}）{% endif %}</div>
+                <div>成功 {{ c.sent }} · 失败 {{ c.failed }} · 共 {{ c.total_recipients }}</div>
+                <div>发起：{{ format_datetime(c.created_at) if c.created_at else "" }}</div>
+              </div>
+              {% if c.error %}<div class="muted" style="color:#b45309;white-space:pre-wrap;font-size:13px;margin-top:4px">{{ c.error }}</div>{% endif %}
+            </div>
+            {% else %}
+            <div class="item muted">暂无群发记录。</div>
+            {% endfor %}
+          </div>
+        </section>
+        <script>
+        (function () {
+          var form = document.getElementById('broadcast-form');
+          if (!form) { return; }
+          var scope = document.getElementById('bc-scope');
+          var plansBox = document.getElementById('bc-plans');
+          var emailsBox = document.getElementById('bc-emails');
+          var dormantBox = document.getElementById('bc-dormant');
+          function syncScope() {
+            plansBox.style.display = (scope.value === 'plans') ? '' : 'none';
+            emailsBox.style.display = (scope.value === 'specific') ? '' : 'none';
+            if (dormantBox) { dormantBox.style.display = (scope.value === 'dormant_noip') ? '' : 'none'; }
+          }
+          scope.addEventListener('change', syncScope);
+          syncScope();
+
+          var body = document.getElementById('bc-body');
+          function wrap(before, after) {
+            var s = body.selectionStart, e = body.selectionEnd, v = body.value;
+            var sel = v.substring(s, e);
+            body.value = v.substring(0, s) + before + sel + after + v.substring(e);
+            body.focus();
+            body.selectionStart = s + before.length;
+            body.selectionEnd = s + before.length + sel.length;
+          }
+          function linePrefix(prefix) {
+            var s = body.selectionStart, v = body.value;
+            var lineStart = v.lastIndexOf('\n', s - 1) + 1;
+            body.value = v.substring(0, lineStart) + prefix + v.substring(lineStart);
+            body.focus();
+            body.selectionStart = body.selectionEnd = s + prefix.length;
+          }
+          form.querySelectorAll('.bc-toolbar [data-md]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              var k = btn.getAttribute('data-md');
+              if (k === 'bold') { wrap('**', '**'); }
+              else if (k === 'italic') { wrap('*', '*'); }
+              else if (k === 'h2') { linePrefix('## '); }
+              else if (k === 'ul') { linePrefix('- '); }
+              else if (k === 'ol') { linePrefix('1. '); }
+              else if (k === 'quote') { linePrefix('> '); }
+              else if (k === 'name') { wrap('{name}', ''); }
+            });
+          });
+
+          var previewBtn = document.getElementById('bc-preview-btn');
+          var previewBox = document.getElementById('bc-preview');
+          var previewBody = document.getElementById('bc-preview-body');
+          var previewMeta = document.getElementById('bc-preview-meta');
+          previewBtn.addEventListener('click', function () {
+            var fd = new FormData();
+            fd.append('csrf_token', form.querySelector('[name=csrf_token]').value);
+            fd.append('subject', document.getElementById('bc-subject').value);
+            fd.append('body', body.value);
+            fd.append('scope', scope.value);
+            form.querySelectorAll('[name=plan_codes]:checked').forEach(function (c) { fd.append('plan_codes', c.value); });
+            var em = form.querySelector('[name=emails]');
+            if (em) { fd.append('emails', em.value); }
+            previewBtn.disabled = true;
+            previewBtn.textContent = '生成预览…';
+            fetch('{{ control_broadcast_preview_url }}', { method: 'POST', body: fd, credentials: 'same-origin' })
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (!d.ok) { throw new Error(d.error || '预览失败'); }
+                previewBox.style.display = '';
+                previewBody.innerHTML = d.html || '';
+                previewMeta.textContent = '主题：' + (d.subject || '（未填写）') + '　·　按当前范围约 ' + (d.recipient_count || 0) + ' 位收件人';
+              })
+              .catch(function (e) { previewBox.style.display = ''; previewMeta.textContent = '预览失败：' + e.message; previewBody.innerHTML = ''; })
+              .finally(function () { previewBtn.disabled = false; previewBtn.textContent = '预览排版 / 统计人数'; });
+          });
+        })();
+        function marxConfirmBroadcast(form) {
+          var scope = form.querySelector('[name=scope]').value;
+          var label = { registered: '全部注册用户', members: '全部有效会员', plans: '指定会员等级', specific: '指定邮箱' }[scope] || scope;
+          return window.confirm('确认向【' + label + '】正式群发这封邮件吗？发送将立即开始、不可撤销。');
+        }
+        </script>
         <section class="card" id="card-order-editor" style="border:2px solid var(--accent,#7b1f1f)">
           <h2>首页功能卡·顺序</h2>
           <p class="section-note">调整首页左栏功能卡（全文阅读器 / 马克思主义大辞典 / AI 导学阅读器 / 原文文库 / 期刊提醒）的上下排列顺序。用每行的 ↑ ↓ 调整位置后点「保存顺序」即生效。不可用的卡（如尚无镜像内容的文库）在首页会自动隐藏，但仍可在此排序，待其可用时按此处顺序出现。将来新增的功能卡会自动排在最末。</p>
@@ -915,13 +1156,73 @@
           sync();
         })();
         </script>
+        <section class="card" id="sponsor-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>首页「赞助」按钮</h2>
+          <p class="section-note">首页右上角是否显示「赞助」按钮（在「登录 / 注册」之后、「会员套餐」之前）。开启后，访客与会员点它即弹出「友情打赏」界面、可自定金额打赏；关闭则首页完全不露出该入口。后台的打赏收款功能本身始终保留，这里只控制首页是否露出。默认关闭。</p>
+          <form method="post" action="{{ control_sponsor_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+              <input type="checkbox" name="sponsor_enabled" value="1" {% if sponsor_enabled_setting %}checked{% endif %}>
+              <span>在首页顶栏显示「赞助」按钮</span>
+            </label>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存设置</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        <section class="card" id="registry-geo-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>注册用户分布卡片</h2>
+          <p class="section-note">公告栏下方「注册用户分布」卡片的开关，以及「注册总数」这一行的显示方式。地图与各省排行不受影响。三种方式：① <strong>实时精确数字</strong>（如 816，带「实时」角标）；② <strong>模糊数字</strong>（以百为整、向下取整，如 800+）；③ <strong>自行编辑内容</strong>（你写一句话或数字，原样显示，此时不显示「实时」角标与「位注册用户」后缀）。</p>
+          <form method="post" action="{{ control_registry_geo_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+              <input type="checkbox" name="registry_geo_enabled" value="1" {% if registry_geo_settings.enabled %}checked{% endif %}>
+              <span>在首页公告下方显示这张卡片</span>
+            </label>
+            <div style="margin:12px 0">
+              <label for="registry-geo-mode" style="font-weight:700;display:block;margin-bottom:6px">注册总数显示方式</label>
+              <select name="registry_geo_mode" id="registry-geo-mode" style="padding:7px 10px;border:1px solid var(--line,#ddd);border-radius:8px;min-width:260px">
+                <option value="exact" {% if registry_geo_settings.mode == 'exact' %}selected{% endif %}>实时精确数字（如 816）</option>
+                <option value="fuzzy" {% if registry_geo_settings.mode == 'fuzzy' %}selected{% endif %}>模糊数字（以百为整，如 800+）</option>
+                <option value="custom" {% if registry_geo_settings.mode == 'custom' %}selected{% endif %}>自行编辑内容（下方填写）</option>
+              </select>
+            </div>
+            <div style="margin:12px 0">
+              <label for="registry-geo-custom" style="font-weight:700;display:block;margin-bottom:6px">自定义内容<span style="font-weight:400;color:var(--muted,#888)">（仅「自行编辑内容」模式生效，最多 40 字）</span></label>
+              <input type="text" name="registry_geo_custom" id="registry-geo-custom" maxlength="40" value="{{ registry_geo_settings.custom }}" placeholder="例如：千名马列学人在用" style="width:100%;max-width:420px;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px">
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存设置</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
+        <section class="card" id="ai-assistant-mode-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>AI 随心问·展示形态</h2>
+          <p class="section-note">「AI 随心问」在首页的展示方式（两种都已做好、随时切，沿用同一套暖色 UI）：① <strong>首页固定卡片</strong>——放在首页「留言反馈」下方常驻显示，其它功能页（辞典/文库/期刊等）仍用右侧抽屉；② <strong>右侧收纳抽屉</strong>——全站统一为右侧偏上的竖向标签，点击展开。</p>
+          <form method="post" action="{{ control_ai_assistant_mode_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div style="margin:12px 0">
+              <label for="ai-assistant-mode" style="font-weight:700;display:block;margin-bottom:6px">展示形态</label>
+              <select name="ai_assistant_mode" id="ai-assistant-mode" style="padding:7px 10px;border:1px solid var(--line,#ddd);border-radius:8px;min-width:300px">
+                <option value="card" {% if ai_assistant_mode_setting == 'card' %}selected{% endif %}>首页固定卡片（留言反馈下方；其它页仍抽屉）</option>
+                <option value="drawer" {% if ai_assistant_mode_setting == 'drawer' %}selected{% endif %}>右侧收纳抽屉（全站）</option>
+              </select>
+            </div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存形态</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看首页效果</a>
+            </div>
+          </form>
+        </section>
         <section class="card" id="feature-tags-editor" style="border:2px solid var(--accent,#7b1f1f)">
           <h2>首页功能栏·彩色标签</h2>
           <p class="section-note">在首页各功能区（全文阅读器、马克思主义大辞典、AI 导学阅读器、期刊提醒，以及「引文检索」「篇章直达」两个搜索面板）的标题区，叠加显示你自定义的彩色小标签（如「新上线」「限时免费」）。原有「已可用 / 登录即可使用 / 开通会员后使用」等状态提示保持不变、自动按权限显示，这里只是额外添加。每张卡最多 12 个标签，文字留空的标签保存时会被忽略。</p>
           <form method="post" action="{{ control_feature_tags_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            {% set ftag_card_labels = {'full': '全文阅读器卡片', 'dictionary': '马克思主义大辞典卡片', 'ai': 'AI 导学阅读器卡片', 'journal': '期刊提醒卡片', 'wenku': '原文文库卡片', 'citation': '引文检索面板（标准 / 联想检索）', 'chapter': '篇章直达面板'} %}
-            {% for card in ['full', 'dictionary', 'ai', 'journal', 'wenku', 'citation', 'chapter'] %}
+            {% set ftag_card_labels = {'full': '全文阅读器卡片', 'dictionary': '马克思主义大辞典卡片', 'ai': 'AI 导学阅读器卡片', 'journal': '期刊提醒卡片', 'liushi': '流式阅读卡片', 'citation': '引文检索面板（标准 / 联想检索）', 'chapter': '篇章直达面板'} %}
+            {% for card in ['full', 'dictionary', 'ai', 'journal', 'liushi', 'citation', 'chapter'] %}
             <div class="ftag-group" style="margin:14px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px">
               <strong>{{ ftag_card_labels[card] }}</strong>
               <div class="ftag-rows" data-card="{{ card }}" style="display:grid;gap:8px;margin:10px 0">
@@ -996,6 +1297,63 @@
           }
         })();
         </script>
+        <section class="card" id="citation-formats-editor" style="border:2px solid var(--accent,#7b1f1f)">
+          <h2>引文检索·引用格式</h2>
+          <p class="section-note">自定义「引文检索」结果中三种引用格式（国标 GB/T 7714—2015、《中国社会科学》、《马克思主义研究》）的输出写法。仅作用于「卷·页」型经典著作（马恩文集 / 全集、列宁全集、毛邓江胡习等）的引文出处；公文（党代会报告 / 全会公报 / 五年规划）、重要文献选编等特殊体例会自动沿用其规范写法、不受此处影响。文本框留空或点「恢复默认」即回到内置默认格式。改动保存后整站即时生效。</p>
+          <p class="section-note" style="background:#fffdf8;border:1px dashed var(--line,#ddd);border-radius:8px;padding:8px 10px;line-height:1.9">
+            可用占位符（保存后按命中实际数据替换）：
+            <code>{title}</code> 题名 ·
+            <code>{volume}</code> 卷次 ·
+            <code>{place}</code> 出版地 ·
+            <code>{publisher}</code> 出版者 ·
+            <code>{year}</code> 出版年 ·
+            <code>{page}</code> 脚注式页码（如 第781页） ·
+            <code>{page_range}</code> 纯页码（如 781） ·
+            <code>{page_note}</code> 页码脚注（印刷页缺失时为「（此为PDF页码，非原书印刷页码）」，否则为空）。
+          </p>
+          <form method="post" action="{{ control_citation_formats_url }}" id="citation-formats-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            {% for row in citation_formats_editor %}
+            <div class="cfmt-group" style="margin:14px 0;padding:12px;border:1px solid var(--line,#ddd);border-radius:10px">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <strong style="flex:1">{{ row.label }}{% if row.is_custom %}<span style="color:var(--accent);font-weight:700"> · 已自定义</span>{% endif %}</strong>
+                <button type="button" class="btn secondary cfmt-reset">恢复默认</button>
+              </div>
+              <textarea class="cfmt-tpl" name="citation_tpl_{{ row.key }}" data-default="{{ row.default }}" rows="2" maxlength="240" style="width:100%;margin-top:8px;font-family:inherit;line-height:1.7;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px">{{ row.template }}</textarea>
+              <div class="cfmt-preview" style="margin-top:6px;font-size:13px;color:var(--muted,#666)">预览：<span class="cfmt-preview-out"></span></div>
+            </div>
+            {% endfor %}
+            <div class="actions" style="margin-top:10px">
+              <button class="btn primary" type="submit">保存引用格式</button>
+              <a class="btn secondary" href="https://mazhuzuojiansuo.com/" target="_blank" rel="noopener">查看引文检索效果</a>
+            </div>
+          </form>
+        </section>
+        <script>
+        (function () {
+          var SAMPLE = { title: '马克思恩格斯文集', volume: '1', place: '北京', publisher: '人民出版社', year: '2009', page: '第781页', page_range: '781', page_note: '' };
+          function render(tpl) {
+            return String(tpl).replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(SAMPLE, k) ? SAMPLE[k] : ''; });
+          }
+          var form = document.getElementById('citation-formats-form');
+          if (!form) { return; }
+          form.querySelectorAll('.cfmt-group').forEach(function (group) {
+            var ta = group.querySelector('.cfmt-tpl');
+            var out = group.querySelector('.cfmt-preview-out');
+            if (!ta || !out) { return; }
+            function sync() { out.textContent = render(ta.value); }
+            ta.addEventListener('input', sync);
+            var reset = group.querySelector('.cfmt-reset');
+            if (reset) {
+              reset.addEventListener('click', function () {
+                ta.value = ta.getAttribute('data-default') || '';
+                sync();
+              });
+            }
+            sync();
+          });
+        })();
+        </script>
         {% endif %}
         <section class="card" id="feedback-replies">
           <h2>用户留言回复</h2>
@@ -1049,6 +1407,46 @@
             </section>
             {% else %}
             <div class="item muted">暂无用户留言。</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="card" id="page-errors">
+          <h2>页码报错{% if page_error_open_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ page_error_open_count }} 条待处理）</span>{% endif %}</h2>
+          <p class="section-note">读者在阅读器引文处点「一键报错」上报「此处页码有误」。新报错会发提醒到 {{ feedback_admin_email }}；同一页多人上报只计一条（累加次数）。核对修正后点「标记已处理」。</p>
+          <div class="scroll-box">
+            {% for r in page_error_reports %}
+            <section class="item">
+              <h3>
+                {{ r.book_title or "（未知书目）" }} {{ r.volume_label }}
+                <span class="muted">第 {{ r.page or "?" }} 页</span>
+              </h3>
+              <div class="kv">
+                <div>阅读器：{% if r.reader == "viewer" %}扫描页阅读器{% elif r.reader == "liushi" %}流式阅读{% elif r.reader == "wenku" %}原文文库{% else %}{{ r.reader }}{% endif %}</div>
+                <div>状态：{% if r.status == "resolved" %}<span style="color:var(--muted)">已处理</span>{% else %}<strong style="color:var(--accent)">待处理</strong>{% endif %}{% if r.report_count and r.report_count > 1 %} · 被上报 {{ r.report_count }} 次{% endif %}</div>
+                <div>最近上报：{{ format_datetime(r.last_reported_at or r.created_at) }}</div>
+                {% if r.user_email %}<div>上报用户：{{ r.user_email }}</div>{% endif %}
+              </div>
+              {% if r.citation_text %}<div style="margin-top:8px;padding:8px 11px;background:rgba(180,83,9,.06);border-radius:8px;line-height:1.7;word-break:break-word">{{ r.citation_text }}</div>{% endif %}
+              {% if r.source_ref %}<div class="muted" style="margin-top:6px;word-break:break-all;font-size:.82em">定位来源：{{ r.source_ref }}</div>{% endif %}
+              <div class="pe-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+                {% if r.jump_url %}
+                <a class="btn secondary" href="{{ r.jump_url }}" target="_blank" rel="noopener" title="在扫描页阅读器中打开读者上报的这一页">↗ {% if r.jump_exact %}跳转该页{% else %}打开该书{% endif %}</a>
+                {% endif %}
+                <form method="post" action="{{ url_for('admin_page_error_resolve', report_id=r.id) }}" style="margin:0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  {% if r.status == "resolved" %}
+                  <input type="hidden" name="status" value="open">
+                  <button class="btn" type="submit">重新打开</button>
+                  {% else %}
+                  <input type="hidden" name="status" value="resolved">
+                  <button class="btn primary" type="submit">标记已处理</button>
+                  {% endif %}
+                </form>
+              </div>
+            </section>
+            {% else %}
+            <div class="item muted">暂无页码报错。</div>
             {% endfor %}
           </div>
         </section>
@@ -1147,9 +1545,18 @@
             <div class="stat"><strong>订阅邮箱</strong>{{ dashboard_metrics.journal_subscriptions or 0 }}</div>
             <div class="stat"><strong>待审文章</strong>{{ dashboard_metrics.journal_pending_articles or 0 }}</div>
             <div class="stat"><strong>待发送</strong>{{ dashboard_metrics.journal_ready_articles or 0 }}</div>
+            <div class="stat" title="超过单期发布上限、留待后续批次逐周释放的文章；不会丢弃。上限见「发送设置 · 单期发布上限」">
+              <strong>顺延待办</strong>{{ journal_deferred_count or 0 }} 篇{% if journal_deferred_count %} · 后续逐周释放{% endif %}
+            </div>
             <div class="stat"><strong>近期发送</strong>{{ dashboard_metrics.journal_recent_sends or 0 }}</div>
             <div class="stat"><strong>中文摘要覆盖</strong>{{ journal_abstract_coverage.cn_with_abstract or 0 }}/{{ journal_abstract_coverage.cn_total or 0 }}</div>
             <div class="stat"><strong>摘要总覆盖</strong>{{ journal_abstract_coverage.with_abstract or 0 }}/{{ journal_abstract_coverage.total or 0 }}</div>
+            {% set relay = journal_relay_status or {} %}
+            <div class="stat" title="中文刊采集数据由站内每周同步；过期时中文刊本期将缺席">
+              <strong>中文源数据</strong>
+              {% if relay.present and not relay.expired %}{{ relay.source_count }} 刊 {{ relay.article_count }} 篇 · {{ '%.1f'|format(relay.age_days or 0) }} 天前{% if relay.stale %} ⚠{% endif %}
+              {% else %}<span style="color:#c0392b">未就绪</span>{% endif %}
+            </div>
           </div>
 
           <h3 style="margin-top:18px">发送设置</h3>
@@ -1173,6 +1580,9 @@
               </label>
               <label class="field">抓取时间范围（天）
                 <input type="number" name="lookback_days" value="{{ journal_alert_settings.lookback_days }}" min="1" max="365">
+              </label>
+              <label class="field" title="每期综述最多纳入多少篇文章（中英搭配）。超出的转入「顺延待办」，由后续各期按此上限逐周释放，不会丢弃。0=不限。避免一次性涌入压垮综述生成。">单期发布上限（篇，0=不限）
+                <input type="number" name="weekly_release_cap" value="{{ journal_alert_settings.weekly_release_cap }}" min="0" max="1000">
               </label>
               <label class="field">发送时间（北京时间 HH:MM）
                 <input type="text" name="send_time" value="{{ journal_alert_settings.send_time }}" placeholder="08:00">
@@ -1252,7 +1662,20 @@
             <button class="btn" type="submit" name="action" value="generate_review">② 生成本期文献综述</button>
             <button class="btn" type="submit" name="action" value="send_batch" {% if not journal_smtp_enabled %}disabled{% endif %}>③ 立即发送本期综述</button>
           </form>
-          <p class="section-note">完整顺序：① 采集 → 在「文章审核」批准 → ② 生成综述 → 在「综述审核」批准 → ③ 发送。开启自动化档位后这些步骤可自动衔接，但你随时可手动介入。</p>
+          <p class="section-note">完整顺序：① 采集 → 在「文章审核」批准 → ② 生成综述 → 在「综述审核」批准 → ③ 发送。开启自动化档位后这些步骤可自动衔接，但你随时可手动介入。中英文期刊在同一批次里统一采集、统一发送：英文刊由服务器直采（OpenAlex/Crossref），中文刊取用下方「中文源同步数据」（国内网络定时抓取后同步到服务器，绕开 NCPSSD 对境外服务器的访问拦截）。</p>
+
+          {% set relay = journal_relay_status or {} %}
+          <div class="item" style="margin-top:12px;border:1px solid {% if relay.present and not relay.expired and not relay.uncovered %}#2e7d3255{% elif relay.present and not relay.expired %}#e6950055{% else %}#d9534f88{% endif %};border-radius:8px;padding:10px 12px">
+            <strong>中文源同步数据</strong>
+            {% if relay.present and not relay.expired %}
+              ：<span style="color:#2e7d32">{{ relay.source_count }} 刊 / {{ relay.article_count }} 篇</span>，
+              {{ '%.1f'|format(relay.age_days or 0) }} 天前更新（{{ relay.generated_at[:16] }} UTC）。
+              {% if relay.stale %}<span style="color:#8a5b00">已超过 {{ relay.stale_warn_days }} 天未更新——请确认本机每周日 10:00 的同步任务在跑（MarxJournalRelayPush），或手动运行项目根目录 run_journal_relay.ps1。</span>{% endif %}
+              {% if relay.uncovered %}<br><span style="color:#c0392b">以下已启用的中文刊本期缺同步数据（采集时将直抓失败）：{{ relay.uncovered|join('、') }}</span>{% endif %}
+            {% else %}
+              ：<span style="color:#c0392b">未就绪或已过期（超过 {{ relay.max_age_days or 10 }} 天）</span>——中文刊将在采集时回退直抓，境外服务器上必失败、本期只会有英文文章。请在站长本机运行 run_journal_relay.ps1 重新同步。
+            {% endif %}
+          </div>
 
           <h3 style="margin-top:18px">期刊来源（共 {{ journal_sources|length }} 个，{{ journal_source_catalog.auto_count or 0 }} 个可自动抓取）</h3>
           <p class="section-note">英文刊选 OpenAlex/Crossref 并填 ISSN；中文刊选「国哲社期刊页」并填刊号 gch（在 ncpssd.cn 期刊页地址 details?gch=… 中可见）；提供 RSS 的可选 RSS。默认网页抓取需人工审核，确认稳定后勾选「可信来源」即可自动发送。常用项直接可见，其余在每条的「高级设置」里。</p>
@@ -1646,9 +2069,13 @@
         {% if control_research_quota_url %}
         <section class="card" id="research-quota">
           <h2>研究型检索额度</h2>
-          <p class="section-note">按北京时间周一至周日统计本周已用次数。达到额度后，本周不能继续生成研究型综述（不会消耗 AI），下周一自动恢复。设为 0 表示该类用户本周不可用。</p>
+          <p class="section-note">研究综述始终按 AI token 额度计量（生成前过 token 闸、生成后按完整 token 记账）。是否<strong>额外</strong>叠加「按次数」限制由下方总开关控制——<strong>默认关闭</strong>，即只按 token 额度、不限次数。开启后按北京时间周一至周日统计本周已用次数，达到分档额度即本周暂停生成（不消耗 AI），下周一自动恢复；设为 0 表示该档用户本周不可用。</p>
           <form class="item" method="post" action="{{ control_research_quota_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+              <input type="checkbox" name="research_count_limit_enabled" value="1" {% if research_count_limit_enabled %}checked{% endif %}>
+              <span>启用「按次数」限制（不勾选＝仅按 AI token 额度计量、不限次数）</span>
+            </label>
             <div class="form-grid">
               {% for key, label in research_quota_labels.items() %}
               <label class="field">{{ label }}每周次数
@@ -1708,6 +2135,47 @@
               <button class="btn primary" type="submit">保存 AI 每日额度</button>
             </div>
           </form>
+        </section>
+        {% endif %}
+
+        {% if control_reset_ai_token_quota_url %}
+        <section class="card" id="reset-ai-token-quota">
+          <h2>重置本周 AI 额度</h2>
+          <p class="section-note">把目标用户「本周已用 AI token」清零、恢复到满额（按所选范围立即生效，下周一随新周期自动失效）。适用于会员反馈额度提前用尽、或活动期间临时放量。只重置<strong>已用量计数</strong>：不改上面的分档额度、不删使用明细（「AI 用量」里照常可查全部记录），也不影响研究级检索次数（那有单独的重置）。</p>
+          <form class="item" method="post" action="{{ control_reset_ai_token_quota_url }}" onsubmit="return marxConfirmResetAiQuota(this);" id="reset-ai-quota-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">重置范围
+                <select name="scope" required>
+                  <option value="user">指定用户（按邮箱，可多个）</option>
+                  <option value="registered_all">全部注册用户（含会员）</option>
+                  <option value="members">全部会员用户（月 / 季 / 年）</option>
+                  <option value="registered">仅登录用户（未开通会员）</option>
+                  <option value="monthly">月度会员</option>
+                  <option value="quarterly">季度会员</option>
+                  <option value="yearly">年度会员</option>
+                  <option value="guest">访客（未登录）</option>
+                  <option value="all">全体用户（含未登录访客）</option>
+                </select>
+              </label>
+              <label class="field-wide">用户邮箱（范围选「指定用户」时填，逗号 / 空格 / 换行分隔）
+                <textarea name="emails" placeholder="a@example.com, b@example.com" autocomplete="off"></textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button class="btn primary" type="submit">重置本周 AI 额度</button>
+            </div>
+          </form>
+          {% if ai_token_quota_resets_active %}
+          <div class="item">
+            <h3>本周生效中的重置</h3>
+            <div class="kv">
+              {% for row in ai_token_quota_resets_active %}
+              <div>{{ row.label }}：{{ row.at }} 起重新计数</div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
         </section>
         {% endif %}
 
@@ -1949,6 +2417,87 @@
             </div>
             <div class="actions"><button class="btn primary" type="submit">手动开通</button></div>
           </form>
+
+          {% if bulk_grant_coverage %}
+          <div class="item" id="bulk-grant-coverage">
+            <h3>批量续期覆盖情况</h3>
+            <p class="section-note">
+              以订阅来源区分：批量操作写入的订阅带 <code>manual-bulk</code> 标记，付费订阅为 <code>zpay_notify</code>。
+              下方「未获批量续期」即从未收到过任何批量赠送的有效会员——通常是最近一次批量操作之后才订阅的新会员。
+            </p>
+            <div class="kv">
+              <div>当前有效会员：{{ bulk_grant_coverage.active_total }} 人</div>
+              <div>已获批量续期：{{ bulk_grant_coverage.granted_total }} 人</div>
+              <div>未获批量续期：<strong{% if bulk_grant_coverage.ungranted %} style="color:#c0392b"{% endif %}>{{ bulk_grant_coverage.ungranted | length }} 人</strong></div>
+            </div>
+            {% if bulk_grant_coverage.batches %}
+            <p style="margin:10px 0 4px">历次批量操作：</p>
+            <ul style="margin:0 0 8px; padding-left:20px">
+              {% for batch in bulk_grant_coverage.batches %}
+              <li>{{ format_datetime(batch.created_at) }} — {{ batch.granted }} 人{% if batch.note %} <span class="muted">（{{ batch.note }}）</span>{% endif %}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if bulk_grant_coverage.ungranted %}
+            <p style="margin:10px 0 4px">未获批量续期的有效会员（按注册时间从新到旧）：</p>
+            <ul style="margin:0 0 8px; padding-left:20px">
+              {% for member in bulk_grant_coverage.ungranted %}
+              <li>{{ member.email }}{% if member.display_name %} <span class="muted">{{ member.display_name }}</span>{% endif %}
+                —— 注册 {{ format_datetime(member.created_at) }}，会员到期 {{ format_datetime(member.expires_at) }}</li>
+              {% endfor %}
+            </ul>
+            <div class="actions">
+              <button class="btn" type="button" id="bulkFillUngrantedBtn"
+                data-emails="{{ bulk_grant_coverage.ungranted | map(attribute='email') | join(', ') }}">
+                把这些邮箱填入下方「指定邮箱」
+              </button>
+            </div>
+            {% else %}
+            <p class="muted" style="margin:10px 0 0">所有有效会员都已收到过批量续期。</p>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <form class="item" method="post" action="{{ control_membership_bulk_grant_url }}" onsubmit="return marxConfirmBulkGrant(this);" id="bulk-grant-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <h3>批量赠送 / 续期 / 升级会员</h3>
+            <p class="section-note">
+              一键给「全部注册用户」「全部有效会员」或「指定邮箱」批量开通、续期或升级会员。新增时长会
+              <strong>叠加在各自现有到期日之后</strong>；升级即时生效、绝不降级（按最高档 + 最远到期判定）。
+              选「沿用各自现有档次」＝只按各人当前档次延长天数（非会员会被跳过）。
+            </p>
+            <div class="form-grid">
+              <label class="field">目标范围
+                <select name="scope" required>
+                  <option value="active_members">全部有效会员（续期 / 升级）</option>
+                  <option value="active_members_ungranted">仅「未获批量续期」的有效会员（补发用）</option>
+                  <option value="all_registered">全部注册用户（可登录账号）</option>
+                  <option value="emails">指定邮箱（可多个）</option>
+                </select>
+              </label>
+              <label class="field">套餐 / 档次
+                <select name="plan_code" required>
+                  <option value="__keep__">沿用各自现有档次（仅延长天数，跳过非会员）</option>
+                  {% for plan in plans_all if plan.is_active and (plan.kind or 'membership') == 'membership' %}
+                  <option value="{{ plan.code }}">{{ plan.name }}（{{ plan.code }}）</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label class="field">自定义天数（选填）
+                <input type="number" name="extra_days" min="1" placeholder="留空＝按套餐时长；「沿用档次」必填">
+              </label>
+              <label class="field-wide">指定邮箱（目标范围选“指定邮箱”时填，逗号 / 空格 / 换行分隔）
+                <textarea name="emails" placeholder="a@example.com, b@example.com"></textarea>
+              </label>
+              <label class="field-wide">备注 <textarea name="note" placeholder="如：开站庆典赠送 7 天体验"></textarea></label>
+            </div>
+            <label class="checkbox" style="margin-top:8px">
+              <input type="checkbox" name="confirm_all" value="1">
+              我确认执行此批量操作（目标为“全部注册用户”时必须勾选）
+            </label>
+            <div class="actions"><button class="btn primary" type="submit">执行批量操作</button></div>
+          </form>
+
           <form class="item" method="get" action="{{ control_user_search_url }}" style="margin-top:12px">
             <input type="hidden" name="section" value="members">
             <label class="field">搜索用户 <input type="text" name="user_q" value="{{ user_q }}"></label>
@@ -1964,6 +2513,10 @@
                 <div>会员：{{ user.membership_status or "free" }} / {{ user.membership_plan_name or "未开通" }}</div>
                 <div>到期：{{ format_datetime(user.membership_expires_at) if user.membership_expires_at else "暂无" }}</div>
                 <div>最近登录：{{ format_datetime(user.last_login_at) if user.last_login_at else "暂无" }}</div>
+                <div>批量续期：
+                  {%- if user.last_bulk_grant_at %}已获（{{ format_datetime(user.last_bulk_grant_at) }}）
+                  {%- elif user.membership_status == "active" %}<strong style="color:#c0392b">未获</strong>
+                  {%- else %}—{% endif %}</div>
               </div>
               <div class="form-grid" style="margin-top:12px">
                 <label class="field">角色
@@ -2018,6 +2571,41 @@
   <script>
     const section = new URLSearchParams(window.location.search).get('section');
     if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' });
+
+    function marxConfirmResetAiQuota(form) {
+      const select = form.scope;
+      const scope = select.value;
+      const label = select.options[select.selectedIndex].text;
+      if (scope === 'user' && !(form.emails.value || '').trim()) {
+        alert('请先填写要重置的用户邮箱（可多个）。');
+        form.emails.focus();
+        return false;
+      }
+      return window.confirm('确定重置本周 AI 额度？\n目标范围：' + label + '\n目标用户本周已用 token 将归零、恢复满额（不影响使用明细）。');
+    }
+
+    function marxConfirmBulkGrant(form) {
+      const select = form.scope;
+      const scope = select.value;
+      const label = select.options[select.selectedIndex].text;
+      if (scope === 'all_registered' && !form.confirm_all.checked) {
+        alert('赠送给「全部注册用户」不可撤销，请先勾选下方确认框。');
+        return false;
+      }
+      return window.confirm('确定执行批量会员操作？\n目标范围：' + label + '\n此操作会立即为目标用户开通/续期/升级会员，且不可撤销。');
+    }
+
+    (function () {
+      const btn = document.getElementById('bulkFillUngrantedBtn');
+      const form = document.getElementById('bulk-grant-form');
+      if (!btn || !form) return;
+      btn.addEventListener('click', function () {
+        form.emails.value = btn.dataset.emails || '';
+        form.scope.value = 'emails';
+        form.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        form.emails.focus();
+      });
+    })();
 
     (function () {
       const btn = document.getElementById('zhipuSelftestBtn');

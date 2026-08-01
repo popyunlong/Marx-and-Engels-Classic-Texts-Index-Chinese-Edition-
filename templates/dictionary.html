@@ -5,23 +5,30 @@
   <title>{{ site_text("dictionary.heading") }} - {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
+    /* 配色与全站一致（暖米底 + 品牌红），变量取自首页 index.html */
     :root {
-      --bg: #f3f5f6;
-      --panel: #ffffff;
-      --panel-soft: #f6f8f9;
-      --line: #d8dee3;
-      --text: #20262d;
-      --muted: #65717d;
-      --accent: #157f4c;
-      --accent-deep: #0f6d40;
-      --accent-soft: #e6f3ec;
+      --bg: #f4efe8;
+      --panel: #fffdf9;
+      --panel-soft: #f7f1e9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --accent-soft: #f5e2dc;
+      --warn: #815400;
+      --warn-bg: #fff2cf;
+      --serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       color: var(--text);
       font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+      background-attachment: fixed;
     }
     .topbar {
       position: sticky;
@@ -33,11 +40,11 @@
       align-items: center;
       padding: 14px 24px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.94);
+      background: rgba(255, 253, 249, 0.94);
       backdrop-filter: blur(10px);
     }
     .brand { display: grid; gap: 2px; min-width: 0; }
-    .brand strong { font-size: 1.05rem; }
+    .brand strong { font-size: 1.05rem; font-family: var(--serif); color: var(--accent); }
     .brand span { color: var(--muted); font-size: .9rem; }
     .nav { display: flex; gap: 10px; flex-wrap: wrap; }
     .nav a, .entry-link, .primary-link {
@@ -49,15 +56,18 @@
       padding: 8px 14px;
       text-decoration: none;
       color: var(--accent);
-      border: 1px solid rgba(21, 127, 76, .35);
-      background: white;
+      border: 1px solid rgba(143, 29, 29, .35);
+      background: var(--panel);
       font-weight: 700;
+      transition: background .18s ease, color .18s ease, border-color .18s ease;
     }
+    .nav a:hover, .entry-link:hover, .primary-link:hover { background: var(--accent-soft); }
     .nav a.primary, .primary-link {
       color: white;
       background: var(--accent);
       border-color: var(--accent);
     }
+    .nav a.primary:hover, .primary-link:hover { background: var(--accent-deep); color: white; }
     main {
       width: min(1180px, calc(100% - 32px));
       margin: 24px auto 52px;
@@ -67,7 +77,8 @@
     .intro, .letter-section {
       border: 1px solid var(--line);
       background: var(--panel);
-      border-radius: 8px;
+      border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
     }
     .intro {
       display: grid;
@@ -75,7 +86,12 @@
       padding: 22px 24px;
     }
     h1, h2, p { margin: 0; }
-    h1 { font-size: clamp(1.5rem, 3vw, 2.15rem); line-height: 1.35; }
+    h1 {
+      font-size: clamp(1.5rem, 3vw, 2.15rem);
+      line-height: 1.35;
+      font-family: var(--serif);
+      color: var(--accent);
+    }
     .intro p, .muted {
       color: var(--muted);
       line-height: 1.75;
@@ -91,23 +107,24 @@
       min-height: 28px;
       padding: 4px 10px;
       border-radius: 999px;
-      color: #52606c;
-      background: #e8edf1;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid rgba(143, 29, 29, .16);
       font-size: .86rem;
       font-weight: 700;
     }
     .toc-search-card {
       max-width: 760px;
       padding: 16px 18px 14px;
-      background: linear-gradient(180deg, #ffffff 0%, var(--panel-soft) 100%);
+      background: linear-gradient(180deg, #fffdfa 0%, var(--panel-soft) 100%);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: 0 12px 28px rgba(64, 72, 82, .08);
+      border-radius: 16px;
+      box-shadow: 0 12px 28px rgba(64, 44, 27, .08);
     }
     .toc-search-label {
       font-weight: 800;
       font-size: 1.06rem;
-      color: #52606c;
+      color: var(--accent);
       margin-bottom: 10px;
     }
     .toc-search { position: relative; }
@@ -118,14 +135,14 @@
       color: var(--text);
       background: var(--panel);
       border: 2px solid var(--accent);
-      border-radius: 8px;
-      box-shadow: 0 2px 12px rgba(21, 127, 76, .10);
+      border-radius: 14px;
+      box-shadow: 0 2px 12px rgba(143, 29, 29, .10);
     }
-    .toc-search input::placeholder { color: #8ba49a; }
+    .toc-search input::placeholder { color: #a89282; }
     .toc-search input:focus {
       outline: none;
       border-color: var(--accent-deep);
-      box-shadow: 0 0 0 3px rgba(21, 127, 76, .16);
+      box-shadow: 0 0 0 4px rgba(176, 56, 56, .12);
     }
     .toc-search-results {
       position: absolute;
@@ -137,8 +154,8 @@
       overflow-y: auto;
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: 0 16px 40px rgba(35, 45, 56, .18);
+      border-radius: 14px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, .18);
     }
     .suggest {
       display: flex;
@@ -177,12 +194,14 @@
       align-items: center;
       justify-content: center;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 999px;
       color: var(--accent);
       background: var(--panel);
       text-decoration: none;
       font-weight: 800;
+      transition: background .18s ease, border-color .18s ease;
     }
+    .letters a:hover { background: var(--accent-soft); border-color: var(--accent); }
     .letter-section { overflow: hidden; }
     .letter-head {
       display: flex;
@@ -194,15 +213,18 @@
       border-bottom: 1px solid var(--line);
     }
     .letter-head h2 {
-      color: #52606c;
+      color: var(--accent);
+      font-family: var(--serif);
       font-size: 1.25rem;
       line-height: 1.3;
     }
+    /* 分隔线由每格自身的 1px 描边（box-shadow）拼出，容器底色保持面板色——
+       末行不足一行时，剩余空白不会露出整块分隔线底色。 */
     .entry-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 1px;
-      background: var(--line);
+      background: var(--panel);
     }
     .term {
       display: grid;
@@ -211,18 +233,19 @@
       padding: 12px 14px;
       color: var(--text);
       background: var(--panel);
+      box-shadow: 0 0 0 1px var(--line);
       text-decoration: none;
     }
     .term:hover { background: var(--accent-soft); }
-    .term strong { line-height: 1.55; }
+    .term strong { line-height: 1.55; font-family: var(--serif); }
     .term span { color: var(--muted); font-size: .86rem; }
-    .review { color: #9a621a; }
+    .review { color: var(--warn); background: var(--warn-bg); border-color: rgba(129, 84, 0, .18); }
     .empty {
       padding: 22px;
       color: var(--muted);
       border: 1px dashed var(--line);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, .66);
+      border-radius: 16px;
+      background: rgba(255, 253, 249, .66);
     }
     @media (max-width: 720px) {
       .topbar { display: grid; padding: 12px 16px; }
@@ -379,6 +402,7 @@
       });
     })();
   </script>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
   {% include "_marx_mascot.html" %}
 </body>
 </html>

@@ -339,6 +339,8 @@
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
     }
     .page-image[hidden] { display: none; }
+    /* 翻页加载中：保留当前页图、仅轻微变暗作「加载中」提示（不再整屏白屏）；新图解码完成即复原。 */
+    .page-image-wrap.page-image-loading { opacity: 0.6; transition: opacity 0.12s ease; }
     canvas.page-image {
       height: auto;
     }
@@ -461,6 +463,8 @@
       flex-wrap: wrap;
       margin-bottom: 8px;
     }
+    .page-cite-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    #reportPageBtn.done { color: #2f7a53; border-color: rgba(47,122,83,.4); background: rgba(47,122,83,.08); }
     .page-cite-label {
       font-weight: 800;
       color: var(--accent-deep, #6f1717);
@@ -817,6 +821,39 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    /* 「检索原著原文」的检索范围 chips（与随心问一致：自动 / 全部 / 多选著作群） */
+    .ai-scope-row {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 0 0 8px;
+      font-size: 12px;
+    }
+    /* hidden 属性需压过上面的 display:flex，否则接地开关关闭时行藏不住 */
+    .ai-scope-row[hidden] { display: none; }
+    /* 「检索范围」标签 + 著作群 chips 同一子行（标签在左、chips 右侧自然换行）。 */
+    .ai-scope-sub { display: flex; align-items: flex-start; gap: 8px; }
+    .ai-scope-label { flex: none; padding-top: 3px; color: #8a8a8a; white-space: nowrap; }
+    .ai-scope-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+    .ai-scope-chip {
+      padding: 2px 10px; font-size: 12px; line-height: 1.6; cursor: pointer;
+      border: 1px solid rgba(38, 70, 83, 0.25); border-radius: 999px;
+      background: #fff; color: var(--ai); white-space: nowrap; transition: all .12s;
+    }
+    .ai-scope-chip:hover { border-color: var(--ai); }
+    .ai-scope-chip.active { background: var(--ai); color: #fff; border-color: var(--ai); font-weight: 600; }
+    /* 「指定本部著作」＝只检索正在读的这一卷（默认开）：整行、复选框顶对齐、标题一行+卷名小字一行；
+       勾选时下方「检索范围」子行整体置灰失效。 */
+    .ai-thisvol {
+      display: flex; align-items: flex-start; gap: 7px;
+      font-size: 12px; cursor: pointer; user-select: none;
+    }
+    .ai-thisvol input { width: 14px; height: 14px; margin-top: 1px; flex: none; accent-color: var(--ai); cursor: pointer; }
+    .ai-thisvol-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.45; }
+    .ai-thisvol-text b { color: var(--ai); font-weight: 700; }
+    .ai-thisvol-vol { color: #6b6b6b; font-weight: 400; font-size: 11px; word-break: break-word; }
+    .ai-scope-row.thisvol-on .ai-scope-sub { opacity: .42; }
+    .ai-scope-row.thisvol-on .ai-scope-chips { pointer-events: none; }
     @media (max-width: 1280px) {
       .layout {
         grid-template-columns: 1fr;
@@ -866,6 +903,30 @@
       }
     }
   </style>
+  {# 首屏页图预取：在 <head> 解析时就发起初始页书页图的下载，与其后约 90KB 内联脚本的下载/解析
+     并行——不必等脚本执行到末尾的 loadPage() 才发起（那是整页字节最大、发起最晚的请求，跨境慢链路
+     上的打开瓶颈）。URL 刻意用与下方 buildPageImageUrl 完全相同的 URL/URLSearchParams 构造、且参数
+     顺序一致（file→page→rev→q→h）→ 逐字节一致，正式加载时命中浏览器缓存、零重复请求、零额外服务端渲染。
+     仅图片模式书触发（纯文本书无页图）；rev 必须与 buildPageImageUrl 的 rev 保持同步。 #}
+  {% if (render_mode | default('image')) == 'image' %}
+  <script>
+    (function () {
+      try {
+        var u = new URL('/page-image', window.location.origin);
+        u.searchParams.set('file', {{ source_file | tojson }});
+        u.searchParams.set('page', {{ page | tojson }});
+        u.searchParams.set('rev', '11');   // 必须与下方 buildPageImageUrl 的 rev 同步
+        var q = {{ query_text | tojson }};
+        var h = {{ highlight_text | default(query_text) | tojson }};
+        if (q) u.searchParams.set('q', q);
+        if (h && h !== q) u.searchParams.set('h', h);
+        var im = new Image();
+        try { im.fetchPriority = 'high'; } catch (e) {}
+        im.src = u.toString();   // 立即发起首屏页图下载（命中同 URL 缓存供正式加载复用）
+      } catch (e) { /* 预取失败绝不影响正常加载路径 */ }
+    })();
+  </script>
+  {% endif %}
 </head>
 <body class="mode-{{ render_mode | default('image') }}{% if basic_reader_mode %} reader-basic{% endif %}">
   <div class="layout">
@@ -897,7 +958,10 @@
               </div>
             </details>
             <a class="nav-btn" href="{{ library_back_url }}">返回文库目录</a>
-            <a class="nav-btn" href="/?restore=1">返回检索</a>
+            <a class="nav-btn" href="{{ search_back_url | default('/?restore=1') }}">返回检索</a>
+            {% if notes_access_enabled %}
+            <button type="button" class="tool-btn secondary" id="notesBtn" title="本卷笔记 / 记笔记">笔记</button>
+            {% endif %}
             {% if local_console_available %}
             <a class="nav-btn" href="{{ url_for('control') }}">本地控制台</a>
             {% endif %}
@@ -949,7 +1013,10 @@
           <section class="page-cite" id="pageCite" hidden>
             <div class="page-cite-head">
               <span class="page-cite-label">本页引文定位</span>
-              <button type="button" class="tool-btn secondary" id="copyCiteBtn">复制引文</button>
+              <span class="page-cite-btns">
+                <button type="button" class="tool-btn secondary" id="copyCiteBtn">复制引文</button>
+                <button type="button" class="tool-btn secondary" id="reportPageBtn" title="此处页码有误？一键提醒管理员核对">⚑ 一键报错</button>
+              </span>
             </div>
             <div class="page-cite-text" id="pageCiteText"></div>
             <div class="page-cite-note">含本页印刷页码，可直接复制引用。</div>
@@ -1029,14 +1096,53 @@
 
         <textarea class="ai-input" id="aiPrompt" placeholder="{{ site_text("viewer.prompt_placeholder") }}" {% if not ai_access_enabled %}disabled{% endif %}></textarea>
 
+        {% if search_chat_access_enabled %}
+        {# 「检索原著原文」：自由提问复用随心问接地链路；不影响下方「解释本页/所选」（始终走本页讲解）。 #}
+        <label class="ai-ground-row" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 6px;font-size:12px;cursor:pointer;user-select:none">
+          <input type="checkbox" id="aiGroundToggle" style="width:14px;height:14px;accent-color:var(--ai);cursor:pointer">
+          <span style="font-weight:600;color:var(--ai)">检索原著原文作答</span>
+          <span style="flex-basis:100%;color:#8a8a8a;font-weight:400;font-size:11px;line-height:1.5">开启后「发送提问」将检索马列经典原著、回答附准确出处；「解释本页/所选」不受影响。</span>
+        </label>
+        {# 检索范围；仅接地开启时显示。阅读器专属「指定本部著作」＝只检索正在读的这一卷（默认开）；
+           取消后可退回下方著作群 chips（自动/全部/多选，与随心问偏好共用）做更宽的检索。 #}
+        <div class="ai-scope-row" id="aiScopeRow" hidden>
+          {% if volume %}
+          <label class="ai-thisvol" id="aiThisVolLabel" title="只在你正在阅读的这一卷里检索原文">
+            <input type="checkbox" id="aiThisVol" checked>
+            <span class="ai-thisvol-text">
+              <b>指定本部著作</b>
+              <span class="ai-thisvol-vol">只检索本卷 · {{ volume.display_title }}</span>
+            </span>
+          </label>
+          {% endif %}
+          <div class="ai-scope-sub">
+            <span class="ai-scope-label">检索范围</span>
+            <div class="ai-scope-chips" id="aiScopeChips" role="group" aria-label="检索范围（可多选著作群）">
+              {% for opt in (ai_scope_options or []) %}
+              <button type="button" class="ai-scope-chip" data-scope="{{ opt.id }}" aria-pressed="false">{{ opt.label }}</button>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
         <div class="ai-footer">
           <button type="button" class="ai-btn" id="aiSendBtn">发送提问</button>
-          <button type="button" class="ghost-btn ai-btn" id="aiClearBtn" style="color:var(--ai);background:white;border:1px solid var(--ai)">清空本页会话</button>
+          <button type="button" class="ghost-btn ai-btn" id="aiClearBtn" style="color:var(--ai);background:white;border:1px solid var(--ai)">清空对话</button>
         </div>
       </div>
     </aside>
   </div>
 
+  {# 「指定本部著作」只需当前卷 token（下方 JS 从 volume 直接构造），不再引入「精选到书/卷」多选控件。 #}
+  {# 阅读历史「继续阅读」：把本卷当前页记到本设备 localStorage（按账号隔离），首页/文库一键续读。
+     非 defer，确保下方阅读器脚本执行时 MarxReadingHistory 已就绪。 #}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  {% if notes_access_enabled %}
+  {# 会员专属「笔记」：阅读器内选中/整页记笔记，跨书聚合到「我的知识库」。非 defer 保证下方脚本执行时 MarxNotes 已就绪。 #}
+  <link rel="stylesheet" href="/static/notes/notes.css?v=2">
+  <script src="/static/notes/notes.js?v=2" data-marx-notes data-uid="{{ (current_user.id if current_user else '') }}" data-csrf="{{ csrf_token }}"></script>
+  {% endif %}
   <script>
   const requestToken = {{ request_token | tojson }};
   const csrfToken = {{ csrf_token | tojson }};
@@ -1057,6 +1163,7 @@
   const pageLabels = {{ page_labels | tojson }};
   const renderMode = {{ render_mode | default('image') | tojson }};
   const viewerMode = {{ viewer_mode | tojson }};
+  const readingTitle = {{ (volume.display_title if volume else pdf_name) | tojson }};
   let currentPageNumber = {{ page | tojson }};
   let aiTokenQuotaState = {{ (state.ai_token_quota or {}) | tojson }};
 
@@ -1117,13 +1224,38 @@
   const aiPrompt = document.getElementById('aiPrompt');
   const aiSendBtn = document.getElementById('aiSendBtn');
   const aiClearBtn = document.getElementById('aiClearBtn');
+  const aiGroundToggle = document.getElementById('aiGroundToggle');  // 仅持 search_chat 权限时存在
+  const AI_GROUND_KEY = 'marx-ai-grounding-v1';  // 与随心问共用接地偏好记忆
+  const aiScopeRow = document.getElementById('aiScopeRow');          // 检索范围行（随接地开关显隐）
+  const aiScopeChips = document.getElementById('aiScopeChips');
+  const AI_SCOPE_KEY = 'marx-ai-scope-v2';  // 与随心问共用检索范围偏好
+  // 「指定本部著作」：正在阅读的这一卷的检索范围 token（vol:<书库键>:<卷号>），后端按此把接地检索锁到本卷。
+  const CURRENT_VOL_TOKEN = {{ (('vol:' ~ volume.book ~ ':' ~ volume.volume) if volume else '') | tojson }};
+  const AI_THISVOL_KEY = 'marx-ai-thisvol-v1';
+  const aiThisVol = document.getElementById('aiThisVol');
 
   let pingTimer = null;
   let aiRuntime = embeddedAiRuntime;
   let selectedText = '';
   let currentPageContext = null;
   let aiMessagesState = [];
+  let aiStreaming = false;   // 本处正在生成回答（贯通会话跨标签同步时用于避免打断本处生成）
   let imageSeq = 0;
+
+  // AI 导读引文「展开/收起」：默认折叠，点标题条才展开。事件委托到对话容器（渲染会重建 DOM）。
+  if (aiMessagesEl) {
+    aiMessagesEl.addEventListener('click', (e) => {
+      const btn = (e.target && e.target.closest) ? e.target.closest('.ai-citations-toggle') : null;
+      if (!btn) return;
+      const box = btn.closest('.ai-citations'); if (!box) return;
+      const body = box.querySelector('.ai-citations-body'); if (!body) return;
+      const show = body.style.display === 'none';
+      body.style.display = show ? 'block' : 'none';
+      btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+      const caret = btn.querySelector('.ai-cite-caret');
+      if (caret) caret.textContent = show ? '收起 ▴' : '展开 ▾';
+    });
+  }
 
   function apiFetch(url, options = {}) {
     const headers = Object.assign({}, options.headers || {});
@@ -1426,6 +1558,24 @@
     return label;
   }
 
+  // 记录当前阅读位置到本设备（「继续阅读」）：书名 + 当前页 + 站内续读 URL。
+  // 写入的节流与「离开页面前兜底落盘」都由 reading-history 模块负责，这里只管上报。
+  function recordReadingPosition() {
+    if (!window.MarxReadingHistory || !sourceFile || !readingTitle) return;
+    try {
+      // 有印本页码显示「第 X 页」；仅有 PDF 序号的页显示「PDF 第 N 页」，避免「第 PDF 3 页」这种拗口串。
+      const lbl = getPageLabel(currentPageNumber);
+      const subtitle = /^PDF\s/.test(lbl) ? lbl.replace('PDF ', 'PDF 第 ') + ' 页' : '第 ' + lbl + ' 页';
+      MarxReadingHistory.record({
+        book: sourceFile,
+        kind: 'viewer',
+        title: readingTitle,
+        subtitle: subtitle,
+        url: buildViewerUrl(currentPageNumber),
+      });
+    } catch (e) { /* 记录失败绝不影响阅读 */ }
+  }
+
   function updatePager() {
     const pageLabel = getPageLabel(currentPageNumber);
     pageIndicator.textContent = `书本第 ${pageLabel} 页 · PDF 第 ${currentPageNumber} / ${pageCount} 页`;
@@ -1519,18 +1669,53 @@
       .join('');
   }
 
-  async function loadPageContext(page) {
-    const resp = await fetch(`/api/pdf-page-context?file=${encodeURIComponent(sourceFile)}&page=${page}`);
-    const data = await resp.json();
-    if (!data.ok) {
-      throw new Error(data.error || '页面上下文加载失败');
-    }
-    currentPageContext = data.context || null;
+  // 页面上下文（引文/章节名/本页文字）按 (书,页) 恒定：会话内缓存，回翻或已预取过的页即时出、
+  // 并省掉一次跨境请求。引文是服务端返回的单一字符串、请求不含任何格式参数，故缓存不会与前端的
+  // 引文格式切换等任何操作冲突（页面刷新即清空，管理员改模板后重载即生效）。
+  const pageContextCache = new Map();
+  function applyPageContext(context) {
+    currentPageContext = context || null;
     if (currentPageContext?.section_title) {
       currentSection.textContent = currentPageContext.section_title;
     } else if (!currentSection.textContent && initialSection) {
       currentSection.textContent = initialSection;
     }
+  }
+  // 页面上下文自动重试（护栏版）：仅对「硬网络错误 / 5xx」重试，0.5~1.5s 抖动退避、封顶 retries 次；
+  // 4xx（429 限流 / 403 挑战 / 404 缺页）与业务失败(!data.ok) 一律不重试——重试有害无益、且会撞限流/触反爬。
+  // GET 幂等、安全；成功路径零影响（首次即返回）；prefetch 投机请求传 retries=0（不放大负载）。
+  async function fetchPageContext(page, retries = 2) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const resp = await fetch(`/api/pdf-page-context?file=${encodeURIComponent(sourceFile)}&page=${page}`);
+        if (resp.status >= 400 && resp.status < 500) throw new Error(`页面上下文加载失败（${resp.status}）`);
+        if (resp.status >= 500) throw Object.assign(new Error('服务暂时不可用'), { _retryable: true });
+        const data = await resp.json();
+        if (!data.ok) {
+          throw new Error(data.error || '页面上下文加载失败');
+        }
+        const context = data.context || null;
+        pageContextCache.set(page, context);
+        return context;
+      } catch (e) {
+        // 可重试 = 显式标记的 5xx，或 fetch 本身 reject 的硬网络错误（TypeError）。其余（4xx/业务失败）不重试。
+        const retryable = (e && e._retryable) || (e instanceof TypeError);
+        if (!retryable || attempt >= retries) throw e;
+        await new Promise(r => setTimeout(r, 500 + Math.random() * 1000));  // 0.5~1.5s 抖动退避
+      }
+    }
+  }
+  async function loadPageContext(page) {
+    if (pageContextCache.has(page)) {
+      applyPageContext(pageContextCache.get(page));
+      return;
+    }
+    applyPageContext(await fetchPageContext(page));
+  }
+  // 邻页上下文预取（随预取图一并触发）：失败静默，绝不影响阅读主路径。投机请求不重试（retries=0，不放大负载）。
+  function prefetchPageContext(page) {
+    if (page < 1 || page > pageCount || pageContextCache.has(page)) return;
+    fetchPageContext(page, 0).catch(() => {});
   }
 
   function updateCitation() {
@@ -1553,6 +1738,9 @@
         pageSource.hidden = true;
       }
     }
+    // 翻页后重置「一键报错」按钮（换页即可对新页重新上报）
+    const rpb = document.getElementById('reportPageBtn');
+    if (rpb) { rpb.classList.remove('done'); rpb.disabled = false; rpb.textContent = '⚑ 一键报错'; }
   }
 
   function renderPageText() {
@@ -1684,23 +1872,80 @@
     });
   }
 
+  // 「一键报错」：读者反馈本页页码有误 → 记录并邮件提醒管理员（后台内容运营页可见）。
+  const reportPageBtn = document.getElementById('reportPageBtn');
+  if (reportPageBtn) {
+    reportPageBtn.addEventListener('click', async () => {
+      if (reportPageBtn.disabled || reportPageBtn.classList.contains('done')) return;
+      const citation = (currentPageContext && currentPageContext.citation) || pageCiteText.textContent || '';
+      reportPageBtn.disabled = true;
+      reportPageBtn.textContent = '提交中…';
+      try {
+        const r = await apiFetch('/api/reader/report-page-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reader: 'viewer',
+            book: readingTitle || '',
+            volume: '',
+            page: getPageLabel(currentPageNumber) || String(currentPageNumber),
+            source_ref: sourceFile || '',
+            citation: citation,
+          }),
+        });
+        if (!r.ok) throw new Error('status ' + r.status);
+        reportPageBtn.textContent = '✓ 已上报，感谢';
+        reportPageBtn.classList.add('done');   // 本页保持已上报态，翻页后由 updateCitation 复位
+      } catch (e) {
+        reportPageBtn.textContent = '提交失败，请重试';
+        reportPageBtn.disabled = false;
+        setTimeout(() => { if (!reportPageBtn.classList.contains('done')) reportPageBtn.textContent = '⚑ 一键报错'; }, 1800);
+      }
+    });
+  }
+
+  // 翻页方向感知的预取：顺序阅读时多缓冲行进方向上的页，翻过去即命中浏览器缓存、瞬开无等待。
+  // 预取用与翻页完全一致的 URL（含高亮参数），保证缓存键一致、翻过去必命中。
+  // 带高亮（从检索结果进入阅读）时刻意维持 ±1、不加深：避免带 q/h 的邻页产生额外冷渲染压力。
+  let lastTurnDir = 0;  // -1 后翻 / +1 前翻 / 0 跳转或初始
+  function neighborCandidates(page) {
+    const hasHighlight = !!queryText || (!!highlightQueryText && highlightQueryText !== queryText);
+    if (hasHighlight) return [page + 1, page - 1];
+    if (lastTurnDir < 0) return [page - 1, page - 2, page + 1];
+    return [page + 1, page + 2, page - 1];
+  }
   function preloadPageImages(page) {
-    for (const candidate of [page - 1, page + 1]) {
-      if (candidate >= 1 && candidate <= pageCount) {
+    // 首屏：把邻页预取推迟到 window.load 之后再发起。否则首页图 onload 里同步 new Image() 拉邻页，
+    // 会让这些邻页请求被算进「阻塞 load 的子资源」，把浏览器标签的「转圈」从「首页图就绪」一直拖到
+    // 「邻页也下完」（实测多转 ~4s；且命中浏览器缓存首页图秒开时，标签仍会因邻页照转，故「总在转圈」）。
+    // 翻页时 load 早已触发（readyState==='complete'），本函数照常同步预取——邻页请求发起时机与原先
+    // 几乎一致（原本也是首页图 onload 之后才发），预取「前后翻即时出图」的收益完全保留。
+    if (document.readyState !== 'complete') {
+      window.addEventListener('load', () => preloadPageImages(page), { once: true });
+      return;
+    }
+    for (const candidate of neighborCandidates(page)) {
+      if (candidate >= 1 && candidate <= pageCount && candidate !== page) {
         const img = new Image();
         img.src = buildPageImageUrl(candidate);
+        prefetchPageContext(candidate);  // 邻页上下文一并预取：前翻/回翻的引文与章节即时出
       }
     }
   }
 
+  let imageRetryCount = 0;  // /page-image 连续失败的静默重试计数（成功加载即清零）
   function loadPageImage(page) {
     const seq = ++imageSeq;
     imageError.classList.remove('show');
     imageError.textContent = '';
     pageCanvas.hidden = true;
     pageImage.hidden = false;
-    pageImage.removeAttribute('src');
+    // 不清空 src：浏览器保留当前页图，直到新图解码完成再原地替换，消除翻页时的整屏白屏。
+    // 加载期间给容器一个轻微「变暗」提示（onload / 出错时复原），慢链路下也有明确的加载反馈。
+    if (pageImageWrap) pageImageWrap.classList.add('page-image-loading');
     pageImage.onload = () => {
+      imageRetryCount = 0;  // 成功加载即清零失败重试计数
+      if (pageImageWrap) pageImageWrap.classList.remove('page-image-loading');
       if (seq === imageSeq) {
         preloadPageImages(page);
         syncAiPanelHeight();
@@ -1709,31 +1954,17 @@
     pageImage.src = buildPageImageUrl(page);
   }
 
-  function pageStorageKey(page = currentPageNumber) {
-    return `marx-pdf-ai:${sourceFile}:${page}`;
-  }
-
-  function readPageState(page = currentPageNumber) {
+  // 贯通会话：阅读器 AI 导读与首页「随心问」共用同一条对话历史（localStorage，跨页、跨标签页持续），
+  // 读到哪问到哪都在同一线程，回随心问能接着聊。取代原「按页隔离」的 sessionStorage 存储。
+  const AI_THREAD_KEY = 'marx-ai-thread-v1';
+  function loadThread() {
     try {
-      const raw = sessionStorage.getItem(pageStorageKey(page));
-      if (!raw) return { messages: [], webEnabled: false };
-      const parsed = JSON.parse(raw) || {};
-      return {
-        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
-        webEnabled: typeof parsed.webEnabled === 'boolean' ? parsed.webEnabled : false
-      };
-    } catch (_) {
-      return { messages: [], webEnabled: false };
-    }
+      const raw = localStorage.getItem(AI_THREAD_KEY);
+      return raw ? (JSON.parse(raw) || []).filter(m => m && !m.pending) : [];
+    } catch (_) { return []; }
   }
-
-  function savePageState() {
-    try {
-      sessionStorage.setItem(pageStorageKey(), JSON.stringify({
-        messages: aiMessagesState,
-        webEnabled: webToggle.checked
-      }));
-    } catch (_) {}
+  function saveThread() {
+    try { localStorage.setItem(AI_THREAD_KEY, JSON.stringify(aiMessagesState)); } catch (_) {}
   }
 
   function renderWarnings(warnings) {
@@ -1745,16 +1976,49 @@
     if (!Array.isArray(sources) || !sources.length) return '';
     return `
       <div class="sources">
-        ${sources.map((source, index) => `
+        ${sources.map((source, index) => {
+          // 来源链接来自联网检索结果，可能含 javascript: 等危险 scheme：过 safeMarkdownUrl 白名单，
+          // 非法则退化为纯文本（不可点），杜绝 DOM XSS。
+          const safeUrl = safeMarkdownUrl(source.link || '');
+          const label = `${index + 1}. ${esc(source.title || '未命名来源')}`;
+          const head = safeUrl
+            ? `<a href="${escAttr(safeUrl)}" target="_blank" rel="noopener">${label}</a>`
+            : `<span>${label}</span>`;
+          return `
           <div class="source-item">
-            <a href="${escAttr(source.link || '#')}" target="_blank" rel="noopener">${index + 1}. ${esc(source.title || '未命名来源')}</a>
+            ${head}
             <div class="source-meta">
               ${esc(source.site || '未知站点')}${source.date ? ` · ${esc(source.date)}` : ''}
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     `;
+  }
+
+  // 接地引文（自由提问开「检索原著原文」时返回）：真实原著原文 + 出处 + 打开原文页深链。
+  function renderCitations(citations, scope) {
+    if (!Array.isArray(citations) || !citations.length) return '';
+    const scopeNote = (scope && scope.applied && scope.label)
+      ? `<span style="margin-left:6px;font-weight:400;font-size:11px;color:#8a8a8a">· 范围：${esc(scope.label)}</span>` : '';
+    const items = citations.map(c => {
+      const idx = c.grounding_index || '';
+      const cite = esc(c.citation || '');
+      const ctx = esc(c.context || '').replace(/\[\[H\]\]/g, '<mark>').replace(/\[\[\/H\]\]/g, '</mark>');
+      const link = c.viewer_url ? `<a href="${escAttr(c.viewer_url)}" target="_blank" rel="noopener" style="font-size:11px">打开原文页 →</a>` : '';
+      return `<div class="ai-citation-item" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line,#e5ddd0)">
+          <div style="font-weight:600;font-size:12px">${idx ? '[' + idx + '] ' : ''}${cite}</div>
+          ${ctx ? `<div style="font-size:12px;color:#555;line-height:1.6;margin:2px 0">${ctx}</div>` : ''}${link}
+        </div>`;
+    }).join('');
+    // 引文默认折叠：只显「引用原文·来自引文库（N）」标题条，点开才展开全部引文，避免长答案被大段引文淹没。
+    return `<div class="ai-citations" style="margin-top:8px">
+        <button type="button" class="ai-citations-toggle" aria-expanded="false" style="display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:3px 0;font-size:12px;font-weight:700;color:var(--ai)">
+          <span>引用原文 · 来自引文库（${citations.length}）${scopeNote}</span>
+          <span class="ai-cite-caret" style="margin-left:auto;font-weight:400;color:#8a8a8a">展开 ▾</span>
+        </button>
+        <div class="ai-citations-body" style="display:none">${items}</div>
+      </div>`;
   }
 
   function renderAiMessages() {
@@ -1780,11 +2044,15 @@
       if (message.role === 'user') {
         return `<div class="msg user">${esc(message.content)}</div>`;
       }
+      if (message.pending && !message.content) {
+        return `<div class="msg assistant"><span class="msg-title">AI 讲解</span><div class="msg-body" style="color:#999">正在思考…</div></div>`;
+      }
       return `
         <div class="msg assistant">
           <span class="msg-title">AI 讲解</span>
           <div class="msg-body">${renderBasicMarkdown(message.content)}</div>
           ${renderWarnings(message.warnings)}
+          ${renderCitations(message.citations, message.groundingScope)}
           ${renderSources(message.sources)}
         </div>
       `;
@@ -1843,11 +2111,15 @@
   }
 
   async function loadAiRuntime() {
-    try {
-      const resp = await fetch('/api/ai/runtime');
-      const data = await resp.json();
-      if (data.ok) aiRuntime = data;
-    } catch (_) {}
+    // 未开放 AI 的账号（及游客）无需请求 /api/ai/runtime——其结果仅在开放时才使用；跳过可省一次源站
+    // 往返，让首屏这条细链路少一个并发请求。已开放 AI 的账号行为完全不变。
+    if (aiAccessEnabled) {
+      try {
+        const resp = await fetch('/api/ai/runtime');
+        const data = await resp.json();
+        if (data.ok) aiRuntime = data;
+      } catch (_) {}
+    }
 
     if (!aiAccessEnabled) {
       aiModelBadge.textContent = '未开放';
@@ -1916,7 +2188,7 @@
         const data = JSON.parse(payloadText);
         if (eventName === 'delta') {
           assistantMessage.content += data.text || '';
-          savePageState();
+          saveThread();
           renderAiMessages();
         } else if (eventName === 'done') {
           assistantMessage.sources = data.sources || [];
@@ -1924,7 +2196,7 @@
           assistantMessage.content = assistantMessage.content || data.answer_markdown || '';
           if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
           doneSeen = true;
-          savePageState();
+          saveThread();
           renderAiMessages();
         } else if (eventName === 'error') {
           throw new Error(data.error || 'AI 请求失败');
@@ -1948,17 +2220,59 @@
     return data;
   }
 
+  // 从 SSE 心跳保活流里取最后一个 data: JSON（随心问接地/长答用），忽略以 ':' 开头的心跳注释行。
+  function parseSseResult(raw) {
+    let result = null;
+    for (const block of String(raw || '').split('\n\n')) {
+      const dataParts = [];
+      for (const line of block.split('\n')) {
+        if (line.indexOf('data:') === 0) dataParts.push(line.slice(5).trim());
+      }
+      if (!dataParts.length) continue;
+      try { result = JSON.parse(dataParts.join('')); } catch (_) {}
+    }
+    return result;
+  }
+
+  // 「检索原著原文」开启时的自由提问：复用首页「随心问」接地链路（/api/ai/search-chat, grounding=true），
+  // 跨库检索真实原著原文并附出处。与「解释本页/所选」无关——那两者始终走 pdf-chat（本页上下文）。
+  async function runGroundedQuestion(question, historyMessages, assistantMessage) {
+    const resp = await apiFetch('/api/ai/search-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, messages: historyMessages, provider: currentAiProvider(), grounding: true, scope: currentAiScope() })
+    });
+    let data;
+    const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+    if (ctype.indexOf('text/event-stream') >= 0) {
+      data = parseSseResult(await resp.text());
+      if (!data) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+    } else {
+      data = await resp.json();
+    }
+    if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
+    if (!data.ok) throw new Error(data.error || 'AI 请求失败');
+    assistantMessage.content = data.answer_markdown || '';
+    assistantMessage.sources = data.sources || [];
+    assistantMessage.warnings = data.warnings || [];
+    assistantMessage.citations = data.citations || [];
+    assistantMessage.groundingScope = data.grounding_scope || null;
+  }
+
   async function submitAiQuestion(questionText, options = {}) {
     const question = String(questionText || '').trim();
-    if (!question || !currentPageContext || !aiRuntime.enabled || !aiAccessEnabled) return;
+    if (!question || !aiRuntime.enabled || !aiAccessEnabled) return;
+    // 「解释本页/所选」强制走 pdf-chat（forcePdf）；自由提问按「检索原著原文」开关决定是否接地。
+    const useGrounding = !options.forcePdf && !!(aiGroundToggle && aiGroundToggle.checked);
+    if (!useGrounding && !currentPageContext) return;  // 本页讲解需页面上下文；接地问答不需要
     const quickMode = !!options.quickMode;
     const historyMessages = aiMessagesState.map(item => ({ role: item.role, content: item.content }));
-    const payload = buildPdfAiPayload(question, historyMessages, quickMode);
 
     aiMessagesState.push({ role: 'user', content: question });
-    const assistantMessage = { role: 'assistant', content: '', sources: [], warnings: [] };
+    const assistantMessage = { role: 'assistant', content: '', sources: [], warnings: [], citations: [], pending: true };
     aiMessagesState.push(assistantMessage);
-    savePageState();
+    aiStreaming = true;
+    saveThread();
     renderAiMessages();
     aiPrompt.value = '';
     aiSendBtn.disabled = true;
@@ -1966,27 +2280,35 @@
     explainSelectionBtn.disabled = true;
 
     try {
-      let streamed = false;
-      try {
-        streamed = await streamAiQuestion(payload, assistantMessage);
-      } catch (_) {
-        streamed = false;
+      if (useGrounding) {
+        await runGroundedQuestion(question, historyMessages, assistantMessage);
+      } else {
+        const payload = buildPdfAiPayload(question, historyMessages, quickMode);
+        let streamed = false;
+        try {
+          streamed = await streamAiQuestion(payload, assistantMessage);
+        } catch (_) {
+          streamed = false;
+        }
+        if (!streamed) {
+          const data = await fetchAiQuestion(payload);
+          assistantMessage.content = data.answer_markdown || '';
+          assistantMessage.sources = data.sources || [];
+          assistantMessage.warnings = data.warnings || [];
+        }
       }
-      if (!streamed) {
-        const data = await fetchAiQuestion(payload);
-        assistantMessage.content = data.answer_markdown || '';
-        assistantMessage.sources = data.sources || [];
-        assistantMessage.warnings = data.warnings || [];
-      }
-      savePageState();
+      delete assistantMessage.pending;
+      saveThread();
       renderAiMessages();
     } catch (error) {
       assistantMessage.content = `请求失败：${error.message || '未知错误'}`;
       assistantMessage.sources = [];
       assistantMessage.warnings = [];
-      savePageState();
+      delete assistantMessage.pending;
+      saveThread();
       renderAiMessages();
     } finally {
+      aiStreaming = false;
       aiSendBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
       explainPageBtn.disabled = !aiRuntime.enabled || !aiAccessEnabled;
       explainSelectionBtn.disabled = !selectedText || !aiRuntime.enabled || !aiAccessEnabled;
@@ -1994,18 +2316,19 @@
   }
 
   async function loadPage(page, title = null) {
-    currentPageNumber = Math.min(Math.max(1, Number(page)), pageCount);
+    const target = Math.min(Math.max(1, Number(page)), pageCount);
+    // 记翻页方向，供方向感知预取用（相邻页翻动=顺/逆向；跳转或原地则沿用上次方向）。
+    lastTurnDir = target > currentPageNumber ? 1 : (target < currentPageNumber ? -1 : lastTurnDir);
+    currentPageNumber = target;
     currentPageContext = null;
     if (title) currentSection.textContent = title;
     updatePager();
     syncActiveToc(currentPageNumber);
     history.replaceState(null, '', buildViewerUrl(currentPageNumber));
+    recordReadingPosition();  // 记录到「继续阅读」（模块内节流，不打扰阅读）
     clearSelection();
 
-    const stored = readPageState(currentPageNumber);
-    aiMessagesState = stored.messages;
-    webToggle.checked = stored.webEnabled;
-    renderAiMessages();
+    // 贯通会话：翻页不再重置对话（原按页隔离已取消）——同一条学习线程随阅读持续。
     pageText.textContent = {{ site_text("viewer.page_context_loading") | tojson }};
     if (pageCite) pageCite.hidden = true;
     if (renderMode === 'image') {
@@ -2023,7 +2346,7 @@
         sources: [],
         warnings: []
       });
-      savePageState();
+      saveThread();
       renderAiMessages();
     }
   }
@@ -2111,25 +2434,43 @@
   pageImage.addEventListener('error', () => {
     const seqAtError = imageSeq;
     const pageAtError = currentPageNumber;
-    pageImage.hidden = true;
-    imageError.textContent = {{ site_text("viewer.image_error") | tojson }};
-    imageError.classList.add('show');
-    syncAiPanelHeight();
-    // 仅在加载失败时做一次轻量探测：若为访问过于频繁（429）触发，则弹窗提示并在稍后自动恢复；
-    // 其他原因（如偶发网络错误）维持原有错误提示，不打扰读者。该探测只在出错时发生，不影响正常阅读路径。
+    if (pageImageWrap) pageImageWrap.classList.remove('page-image-loading');
+    // 翻页失败：保留上一页图静默重试（不闪错误）；仅首屏失败（无上一帧）先隐藏，避免破图标。
+    if (!pageImage.naturalWidth) pageImage.hidden = true;
+    const showError = (msg) => {
+      if (imageSeq !== seqAtError) return;  // 已翻走则不打扰
+      pageImage.hidden = true;
+      imageError.textContent = msg || {{ site_text("viewer.image_error") | tojson }};
+      imageError.classList.add('show');
+      syncAiPanelHeight();
+    };
+    // 静默重试（护栏版）：仅硬网络错误 / 5xx / 探测 200（服务端有图、<img> 只是瞬时抖动）才走到这；
+    // 封顶 2 次、0.5~1.5s 抖动退避、用户翻走即取消；重试用尽才显示错误。探测先行天然安全：慢渲染会让
+    // 探测等到服务端渲染完再命中缓存，重试即秒开、绝不翻倍冷渲染负载。
+    const retryOrError = () => {
+      if (imageRetryCount < 2 && imageSeq === seqAtError) {
+        imageRetryCount++;
+        setTimeout(() => { if (imageSeq === seqAtError) loadPageImage(pageAtError); }, 500 + Math.random() * 1000);
+      } else {
+        showError();
+      }
+    };
+    // 出错时做一次轻量状态探测，据 HTTP 状态决定「静默重试 / 限流提示 / 直接报错」。只在出错时发生，不影响正常阅读路径。
     fetch(buildPageImageUrl(pageAtError), { cache: 'no-store' })
       .then(resp => {
-        if (resp.status !== 429) return;
-        let retryAfter = parseInt(resp.headers.get('Retry-After') || '6', 10);
-        if (Number.isNaN(retryAfter) || retryAfter <= 0) retryAfter = 6;
-        retryAfter = Math.min(retryAfter, 20);
-        showReaderRateLimitNotice();
-        imageError.textContent = '系统检测到翻页过于频繁，已临时限流，页面将自动为您恢复阅读…';
-        setTimeout(() => {
-          if (imageSeq === seqAtError) loadPageImage(pageAtError);
-        }, retryAfter * 1000);
+        if (resp.status === 429) {  // 限流：明确告知并按 Retry-After 自动恢复（不计入静默重试封顶）
+          let retryAfter = parseInt(resp.headers.get('Retry-After') || '6', 10);
+          if (Number.isNaN(retryAfter) || retryAfter <= 0) retryAfter = 6;
+          retryAfter = Math.min(retryAfter, 20);
+          showReaderRateLimitNotice();
+          showError('系统检测到翻页过于频繁，已临时限流，页面将自动为您恢复阅读…');
+          setTimeout(() => { if (imageSeq === seqAtError) loadPageImage(pageAtError); }, retryAfter * 1000);
+          return;
+        }
+        if (resp.status >= 400 && resp.status < 500) { showError(); return; }  // 4xx（非 429）：不重试
+        retryOrError();  // 5xx / 探测 200 瞬时抖动：静默重试
       })
-      .catch(() => {});
+      .catch(() => { retryOrError(); });  // 探测本身失败 = 硬网络错误：静默重试
   });
 
   if (window.ResizeObserver && pageImageWrap) {
@@ -2150,8 +2491,6 @@
     renderSelectedText();
   });
 
-  webToggle.addEventListener('change', savePageState);
-
   if (usePageTextBtn) {
     usePageTextBtn.addEventListener('click', () => {
       const text = (currentPageContext?.current_text || '').trim();
@@ -2163,11 +2502,11 @@
 
   explainSelectionBtn.addEventListener('click', () => {
     if (!selectedText) return;
-    submitAiQuestion('请解释我当前选中的这段内容。');
+    submitAiQuestion('请解释我当前选中的这段内容。', { forcePdf: true });
   });
 
   explainPageBtn.addEventListener('click', () => {
-    submitAiQuestion('请概括并解释本页内容，并指出其核心观点。');
+    submitAiQuestion('请概括并解释本页内容，并指出其核心观点。', { forcePdf: true });
   });
 
   clearSelectionBtn.addEventListener('click', clearSelection);
@@ -2183,7 +2522,98 @@
 
   aiClearBtn.addEventListener('click', () => {
     aiMessagesState = [];
-    savePageState();
+    saveThread();
+    renderAiMessages();
+  });
+
+  // 「检索原著原文」开关记忆（与随心问共用 AI_GROUND_KEY，两处偏好一致）。
+  if (aiGroundToggle) {
+    try {
+      const savedG = localStorage.getItem(AI_GROUND_KEY);
+      if (savedG === '1') aiGroundToggle.checked = true;
+      else if (savedG === '0') aiGroundToggle.checked = false;
+    } catch (_) {}
+    aiGroundToggle.addEventListener('change', () => {
+      try { localStorage.setItem(AI_GROUND_KEY, aiGroundToggle.checked ? '1' : '0'); } catch (_) {}
+      syncAiScopeRow();
+    });
+  }
+
+  // 「检索范围」chips（与随心问共用 AI_SCOPE_KEY，偏好一致）：auto=智能判断 / all=全部 /
+  // custom=多选著作群（并集硬限定）。仅接地开启时显示——不接地就不检索语料，范围无意义。
+  let aiScopeState = { mode: 'auto', selected: [] };
+  function saveAiScopeState() { try { localStorage.setItem(AI_SCOPE_KEY, JSON.stringify(aiScopeState)); } catch (_) {} }
+  function restoreAiScopeState() {
+    try {
+      const s = JSON.parse(localStorage.getItem(AI_SCOPE_KEY) || 'null');
+      if (s && (s.mode === 'auto' || s.mode === 'all' || s.mode === 'custom')) {
+        // 剔除本页 chips 里已不存在的著作群 id（如书库下线）
+        const valid = aiScopeChips
+          ? Array.prototype.map.call(aiScopeChips.querySelectorAll('.ai-scope-chip'), btn => btn.getAttribute('data-scope'))
+          : [];
+        const sel = Array.isArray(s.selected)
+          ? s.selected.filter(x => typeof x === 'string' && valid.indexOf(x) >= 0)
+          : [];
+        aiScopeState = { mode: (s.mode === 'custom' && !sel.length) ? 'auto' : s.mode, selected: sel };
+      }
+    } catch (_) {}
+  }
+  function currentAiScope() {
+    if (aiThisVol && aiThisVol.checked && CURRENT_VOL_TOKEN) return [CURRENT_VOL_TOKEN];  // 指定本部著作：只检索本卷（优先）
+    if (aiScopeState.mode === 'all') return 'all';
+    if (aiScopeState.mode === 'custom' && aiScopeState.selected.length) return aiScopeState.selected.slice();
+    return 'auto';
+  }
+  function paintAiScopeChips() {
+    if (!aiScopeChips) return;
+    aiScopeChips.querySelectorAll('.ai-scope-chip').forEach(btn => {
+      const id = btn.getAttribute('data-scope');
+      const on = (id === 'auto' && aiScopeState.mode === 'auto') ||
+                 (id === 'all' && aiScopeState.mode === 'all') ||
+                 (aiScopeState.mode === 'custom' && aiScopeState.selected.indexOf(id) >= 0);
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function syncAiScopeRow() {
+    if (aiScopeRow) aiScopeRow.hidden = !(aiGroundToggle && aiGroundToggle.checked);
+  }
+  if (aiScopeChips) {
+    aiScopeChips.addEventListener('click', e => {
+      const btn = (e.target && e.target.closest) ? e.target.closest('.ai-scope-chip') : null;
+      const id = btn && btn.getAttribute('data-scope');
+      if (!id) return;
+      if (id === 'auto') aiScopeState = { mode: 'auto', selected: [] };
+      else if (id === 'all') aiScopeState = { mode: 'all', selected: [] };
+      else {
+        const sel = aiScopeState.mode === 'custom' ? aiScopeState.selected.slice() : [];
+        const i = sel.indexOf(id);
+        if (i >= 0) sel.splice(i, 1); else sel.push(id);
+        aiScopeState = sel.length ? { mode: 'custom', selected: sel } : { mode: 'auto', selected: [] };
+      }
+      saveAiScopeState();
+      paintAiScopeChips();
+    });
+  }
+  restoreAiScopeState();
+  paintAiScopeChips();
+  syncAiScopeRow();
+  // 「指定本部著作」开关：默认开（只检索本卷）；记忆选择；勾选时把下方著作群 chips 置灰失效。
+  if (aiThisVol) {
+    try { const s = localStorage.getItem(AI_THISVOL_KEY); if (s === '0') aiThisVol.checked = false; else if (s === '1') aiThisVol.checked = true; } catch (_) {}
+    const syncThisVol = () => { if (aiScopeRow) aiScopeRow.classList.toggle('thisvol-on', aiThisVol.checked); };
+    aiThisVol.addEventListener('change', () => {
+      try { localStorage.setItem(AI_THISVOL_KEY, aiThisVol.checked ? '1' : '0'); } catch (_) {}
+      syncThisVol();
+    });
+    syncThisVol();
+  }
+
+  // 贯通会话：进场载入共用线程；另一处（首页随心问或另一标签）更新时同步刷新（本处生成中不打断）。
+  aiMessagesState = loadThread();
+  window.addEventListener('storage', e => {
+    if (e.key !== AI_THREAD_KEY || aiStreaming) return;
+    aiMessagesState = loadThread();
     renderAiMessages();
   });
 
@@ -2197,6 +2627,37 @@
     window.addEventListener('focus', sendPing);
   }
   </script>
+  {% if notes_access_enabled %}
+  <script>
+  // 会员专属「笔记」挂载：工具栏「笔记」按钮开合本卷抽屉；选区「记笔记」把已捕获的 selectedText 存入知识库。
+  (function () {
+    if (!window.MarxNotes) return;
+    var BOOK_KEY = {{ ('viewer:' ~ source_file) | tojson }};
+    var BOOK_TITLE = {{ (volume.book if volume else pdf_name) | tojson }};
+    var VOL_LABEL = {{ (('第 ' ~ volume.volume ~ ' 卷') if volume else '') | tojson }};
+    var panel = window.MarxNotes.mountReaderPanel({
+      reader: 'viewer',
+      selectionBubble: '#pageText',
+      bookMeta: function () { return { book_key: BOOK_KEY, book_title: BOOK_TITLE, volume_label: VOL_LABEL }; },
+      currentLocation: function () {
+        return { page: currentPageNumber, page_label: getPageLabel(currentPageNumber), source_url: buildViewerUrl(currentPageNumber) };
+      },
+      getSelection: function () {
+        var q = (typeof selectedText === 'string' ? selectedText : '').trim();
+        if (!q) return null;
+        return { quote: q, page: currentPageNumber, page_label: getPageLabel(currentPageNumber), source_url: buildViewerUrl(currentPageNumber) };
+      },
+      jumpTo: function (note) {
+        var p = parseInt(note.page, 10);
+        if (p && typeof loadPage === 'function') loadPage(p);
+      }
+    });
+    var nb = document.getElementById('notesBtn');
+    if (nb) nb.addEventListener('click', function (e) { e.preventDefault(); panel.toggle(); });
+    window.__marxNotesPanel = panel;
+  })();
+  </script>
+  {% endif %}
   {% set mascot_default_docked = true %}
   {% include "_marx_mascot.html" %}
 </body>

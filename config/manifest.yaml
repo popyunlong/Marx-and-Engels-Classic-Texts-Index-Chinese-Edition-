@@ -329,6 +329,31 @@
 - file: pdfs/习近平经济文选/《习近平经济文选》第一卷.pdf
   volume: 1
   display_title: 经济文选第一卷
+# 习近平专题文献 6 种（各自单卷独立成库，volume 一律 1）：
+习近平新时代中国特色社会主义思想学习纲要:
+- file: pdfs/习近平专题文献/习近平新时代中国特色社会主义思想学习纲要（2023年版）.pdf
+  volume: 1
+  display_title: 习近平新时代中国特色社会主义思想学习纲要（2023年版）
+习近平经济思想学习纲要:
+- file: pdfs/习近平专题文献/习近平经济思想学习纲要.pdf
+  volume: 1
+  display_title: 习近平经济思想学习纲要
+习近平法治思想学习纲要:
+- file: pdfs/习近平专题文献/习近平法治思想学习纲要.pdf
+  volume: 1
+  display_title: 习近平法治思想学习纲要
+习近平生态文明思想学习纲要:
+- file: pdfs/习近平专题文献/习近平生态文明思想学习纲要.pdf
+  volume: 1
+  display_title: 习近平生态文明思想学习纲要
+习近平文化思想学习纲要:
+- file: pdfs/习近平专题文献/习近平文化思想学习纲要.pdf
+  volume: 1
+  display_title: 习近平文化思想学习纲要
+习近平总书记关于党的建设的重要思想概论:
+- file: pdfs/习近平专题文献/习近平总书记关于党的建设的重要思想概论.pdf
+  volume: 1
+  display_title: 习近平总书记关于党的建设的重要思想概论
 历次党代会报告:
 - file: pdfs/历次党代会报告/中国共产党第一次全国代表大会报告.pdf
   volume: 1
@@ -475,6 +500,205 @@
 - file: pdfs/十九大以来重要文献选编/十九大以来重要文献选编_下_899p.pdf
   volume: 3
   display_title: 十九大以来重要文献选编（下）
+二十大以来重要文献选编:
+- file: pdfs/二十大以来重要文献选编/二十大以来重要文献选编_上.pdf
+  volume: 1
+  display_title: 二十大以来重要文献选编（上）
+周恩来选集:
+- file: pdfs/周恩来选集/周恩来选集_上卷.pdf
+  volume: 1
+  display_title: 周恩来选集（上卷）
+- file: pdfs/周恩来选集/周恩来选集_下卷.pdf
+  volume: 2
+  display_title: 周恩来选集（下卷）
+
+陈云文集:
+- file: pdfs/陈云文集/陈云文集_第1卷.pdf
+  volume: 1
+  display_title: 陈云文集（第一卷）
+- file: pdfs/陈云文集/陈云文集_第2卷.pdf
+  volume: 2
+  display_title: 陈云文集（第二卷）
+- file: pdfs/陈云文集/陈云文集_第3卷.pdf
+  volume: 3
+  display_title: 陈云文集（第三卷）
+
+毛泽东年谱:
+- file: pdfs/毛泽东年谱/毛泽东年谱_第1卷.pdf
+  volume: 1
+  display_title: 毛泽东年谱（第一卷 1893.12—1937.06）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第2卷.pdf
+  volume: 2
+  display_title: 毛泽东年谱（第二卷 1937.07—1945.08）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第3卷.pdf
+  volume: 3
+  display_title: 毛泽东年谱（第三卷 1945.08—1949.09）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第4卷.pdf
+  volume: 4
+  display_title: 毛泽东年谱（第四卷 1949.10—1952.12）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第5卷.pdf
+  volume: 5
+  display_title: 毛泽东年谱（第五卷 1953.01—1956.09）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第6卷.pdf
+  volume: 6
+  display_title: 毛泽东年谱（第六卷 1956.10—1959.03）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第7卷.pdf
+  volume: 7
+  display_title: 毛泽东年谱（第七卷 1959.04—1961.06）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第8卷.pdf
+  volume: 8
+  display_title: 毛泽东年谱（第八卷 1961.07—1966.09）
+- file: pdfs/毛泽东年谱/毛泽东年谱_第9卷.pdf
+  volume: 9
+  display_title: 毛泽东年谱（第九卷 1966.10—1976.09）
+
+周恩来年谱:
+- file: pdfs/周恩来年谱/周恩来年谱_1898-1949.pdf
+  volume: 1
+  display_title: 周恩来年谱（1898—1949）
+- file: pdfs/周恩来年谱/周恩来年谱_1949-1976.pdf
+  volume: 2
+  display_title: 周恩来年谱（1949—1976）
+建党以来重要文献选编:
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第01册.pdf
+  volume: 1
+  display_title: 建党以来重要文献选编（第一册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第02册.pdf
+  volume: 2
+  display_title: 建党以来重要文献选编（第二册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第03册.pdf
+  volume: 3
+  display_title: 建党以来重要文献选编（第三册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第04册.pdf
+  volume: 4
+  display_title: 建党以来重要文献选编（第四册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第05册.pdf
+  volume: 5
+  display_title: 建党以来重要文献选编（第五册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第06册.pdf
+  volume: 6
+  display_title: 建党以来重要文献选编（第六册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第07册.pdf
+  volume: 7
+  display_title: 建党以来重要文献选编（第七册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第08册.pdf
+  volume: 8
+  display_title: 建党以来重要文献选编（第八册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第09册.pdf
+  volume: 9
+  display_title: 建党以来重要文献选编（第九册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第10册.pdf
+  volume: 10
+  display_title: 建党以来重要文献选编（第十册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第11册.pdf
+  volume: 11
+  display_title: 建党以来重要文献选编（第十一册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第12册.pdf
+  volume: 12
+  display_title: 建党以来重要文献选编（第十二册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第13册.pdf
+  volume: 13
+  display_title: 建党以来重要文献选编（第十三册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第14册.pdf
+  volume: 14
+  display_title: 建党以来重要文献选编（第十四册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第15册.pdf
+  volume: 15
+  display_title: 建党以来重要文献选编（第十五册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第16册.pdf
+  volume: 16
+  display_title: 建党以来重要文献选编（第十六册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第17册.pdf
+  volume: 17
+  display_title: 建党以来重要文献选编（第十七册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第18册.pdf
+  volume: 18
+  display_title: 建党以来重要文献选编（第十八册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第19册.pdf
+  volume: 19
+  display_title: 建党以来重要文献选编（第十九册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第20册.pdf
+  volume: 20
+  display_title: 建党以来重要文献选编（第二十册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第21册.pdf
+  volume: 21
+  display_title: 建党以来重要文献选编（第二十一册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第22册.pdf
+  volume: 22
+  display_title: 建党以来重要文献选编（第二十二册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第23册.pdf
+  volume: 23
+  display_title: 建党以来重要文献选编（第二十三册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第24册.pdf
+  volume: 24
+  display_title: 建党以来重要文献选编（第二十四册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第25册.pdf
+  volume: 25
+  display_title: 建党以来重要文献选编（第二十五册）
+- file: pdfs/建党以来重要文献选编/建党以来重要文献选编_第26册.pdf
+  volume: 26
+  display_title: 建党以来重要文献选编（第二十六册）
+建国以来重要文献选编:
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第01册.pdf
+  volume: 1
+  display_title: 建国以来重要文献选编（第一册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第02册.pdf
+  volume: 2
+  display_title: 建国以来重要文献选编（第二册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第03册.pdf
+  volume: 3
+  display_title: 建国以来重要文献选编（第三册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第04册.pdf
+  volume: 4
+  display_title: 建国以来重要文献选编（第四册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第05册.pdf
+  volume: 5
+  display_title: 建国以来重要文献选编（第五册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第06册.pdf
+  volume: 6
+  display_title: 建国以来重要文献选编（第六册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第07册.pdf
+  volume: 7
+  display_title: 建国以来重要文献选编（第七册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第08册.pdf
+  volume: 8
+  display_title: 建国以来重要文献选编（第八册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第09册.pdf
+  volume: 9
+  display_title: 建国以来重要文献选编（第九册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第10册.pdf
+  volume: 10
+  display_title: 建国以来重要文献选编（第十册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第11册.pdf
+  volume: 11
+  display_title: 建国以来重要文献选编（第十一册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第12册.pdf
+  volume: 12
+  display_title: 建国以来重要文献选编（第十二册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第13册.pdf
+  volume: 13
+  display_title: 建国以来重要文献选编（第十三册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第14册.pdf
+  volume: 14
+  display_title: 建国以来重要文献选编（第十四册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第15册.pdf
+  volume: 15
+  display_title: 建国以来重要文献选编（第十五册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第16册.pdf
+  volume: 16
+  display_title: 建国以来重要文献选编（第十六册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第17册.pdf
+  volume: 17
+  display_title: 建国以来重要文献选编（第十七册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第18册.pdf
+  volume: 18
+  display_title: 建国以来重要文献选编（第十八册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第19册.pdf
+  volume: 19
+  display_title: 建国以来重要文献选编（第十九册）
+- file: pdfs/建国以来重要文献选编/建国以来重要文献选编_第20册.pdf
+  volume: 20
+  display_title: 建国以来重要文献选编（第二十册）
 五年规划:
 - file: pdfs/五年规划/发展国民经济的第一个五年计划（1953—1957）.pdf
   volume: 1
@@ -541,12 +765,16 @@
   volume: 19
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第21卷（1864年10月-1868年12月）.pdf
   volume: 21
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第22卷.pdf
+  volume: 22
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第25卷（1875年4月-1883年5月）.pdf
   volume: 25
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第26卷（1873-1882年著作）.pdf
   volume: 26
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集第二版 第二十八卷.pdf
   volume: 28
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第29卷.pdf
+  volume: 29
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第30卷（1857-1858 经济学手稿）.pdf
   volume: 30
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第31卷（1857-1858 经济学手稿 1859-1861 经济学著作和手稿）.pdf
@@ -561,12 +789,18 @@
   volume: 35
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集第二版第三十六卷.pdf
   volume: 36
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第37卷.pdf
+  volume: 37
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第38卷.pdf
+  volume: 38
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第39卷.pdf
   volume: 39
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第40卷上.pdf
   volume: 40
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集第二版第四十二卷.pdf
   volume: 42
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第43卷.pdf
+  volume: 43
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第44卷（资本论第一卷）.pdf
   volume: 44
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第45卷（资本论第二卷）.pdf
@@ -577,3 +811,166 @@
   volume: 47
 - file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第48卷（书信 1848年3月-1851年12月）.pdf
   volume: 48
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第49卷.pdf
+  volume: 49
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第50卷.pdf
+  volume: 50
+- file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第51卷.pdf
+  volume: 51
+马恩选集:
+- file: pdfs/马恩选集/马克思恩格斯选集第一卷.pdf
+  volume: 1
+- file: pdfs/马恩选集/马克思恩格斯选集第二卷.pdf
+  volume: 2
+- file: pdfs/马恩选集/马克思恩格斯选集第三卷.pdf
+  volume: 3
+- file: pdfs/马恩选集/马克思恩格斯选集第四卷.pdf
+  volume: 4
+历史与阶级意识:
+- file: pdfs/西马文库/历史与阶级意识.pdf
+  volume: 1
+  display_title: 历史与阶级意识
+马克思主义和哲学:
+- file: pdfs/西马文库/马克思主义和哲学.pdf
+  volume: 1
+  display_title: 马克思主义和哲学
+狱中札记:
+- file: pdfs/西马文库/狱中札记.pdf
+  volume: 1
+  display_title: 狱中札记
+希望的原理（第一卷）:
+- file: pdfs/西马文库/希望的原理（第一卷）.pdf
+  volume: 1
+  display_title: 希望的原理（第一卷）
+启蒙辩证法:
+- file: pdfs/西马文库/启蒙辩证法.pdf
+  volume: 1
+  display_title: 启蒙辩证法
+保卫马克思:
+- file: pdfs/西马文库/保卫马克思.pdf
+  volume: 1
+  display_title: 保卫马克思
+空间的生产:
+- file: pdfs/西马文库/空间的生产.pdf
+  volume: 1
+  display_title: 空间的生产
+
+斯大林全集:
+- file: pdfs/斯大林全集/斯大林全集_第01卷.pdf
+  volume: 1
+  display_title: 斯大林全集（第一卷）
+- file: pdfs/斯大林全集/斯大林全集_第02卷.pdf
+  volume: 2
+  display_title: 斯大林全集（第二卷）
+- file: pdfs/斯大林全集/斯大林全集_第03卷.pdf
+  volume: 3
+  display_title: 斯大林全集（第三卷）
+- file: pdfs/斯大林全集/斯大林全集_第04卷.pdf
+  volume: 4
+  display_title: 斯大林全集（第四卷）
+- file: pdfs/斯大林全集/斯大林全集_第05卷.pdf
+  volume: 5
+  display_title: 斯大林全集（第五卷）
+- file: pdfs/斯大林全集/斯大林全集_第06卷.pdf
+  volume: 6
+  display_title: 斯大林全集（第六卷）
+- file: pdfs/斯大林全集/斯大林全集_第07卷.pdf
+  volume: 7
+  display_title: 斯大林全集（第七卷）
+- file: pdfs/斯大林全集/斯大林全集_第08卷.pdf
+  volume: 8
+  display_title: 斯大林全集（第八卷）
+- file: pdfs/斯大林全集/斯大林全集_第09卷.pdf
+  volume: 9
+  display_title: 斯大林全集（第九卷）
+- file: pdfs/斯大林全集/斯大林全集_第10卷.pdf
+  volume: 10
+  display_title: 斯大林全集（第十卷）
+- file: pdfs/斯大林全集/斯大林全集_第11卷.pdf
+  volume: 11
+  display_title: 斯大林全集（第十一卷）
+- file: pdfs/斯大林全集/斯大林全集_第12卷.pdf
+  volume: 12
+  display_title: 斯大林全集（第十二卷）
+- file: pdfs/斯大林全集/斯大林全集_第13卷.pdf
+  volume: 13
+  display_title: 斯大林全集（第十三卷）
+李大钊全集:
+- file: pdfs/李大钊全集/李大钊全集_第1卷.pdf
+  volume: 1
+  display_title: 李大钊全集（第一卷）
+- file: pdfs/李大钊全集/李大钊全集_第2卷.pdf
+  volume: 2
+  display_title: 李大钊全集（第二卷）
+- file: pdfs/李大钊全集/李大钊全集_第3卷.pdf
+  volume: 3
+  display_title: 李大钊全集（第三卷）
+- file: pdfs/李大钊全集/李大钊全集_第4卷.pdf
+  volume: 4
+  display_title: 李大钊全集（第四卷）
+- file: pdfs/李大钊全集/李大钊全集_第5卷.pdf
+  volume: 5
+  display_title: 李大钊全集（第五卷）
+陈独秀文集:
+- file: pdfs/陈独秀文集/陈独秀文集_第1卷.pdf
+  volume: 1
+  display_title: 陈独秀文集（第一卷）
+- file: pdfs/陈独秀文集/陈独秀文集_第2卷.pdf
+  volume: 2
+  display_title: 陈独秀文集（第二卷）
+- file: pdfs/陈独秀文集/陈独秀文集_第3卷.pdf
+  volume: 3
+  display_title: 陈独秀文集（第三卷）
+- file: pdfs/陈独秀文集/陈独秀文集_第4卷.pdf
+  volume: 4
+  display_title: 陈独秀文集（第四卷）
+列宁年谱:
+- file: pdfs/列宁年谱/列宁年谱_第1卷.pdf
+  volume: 1
+  display_title: 列宁年谱（第一卷 1870—1905）
+- file: pdfs/列宁年谱/列宁年谱_第2卷.pdf
+  volume: 2
+  display_title: 列宁年谱（第二卷 1905—1912）
+- file: pdfs/列宁年谱/列宁年谱_第3卷.pdf
+  volume: 3
+  display_title: 列宁年谱（第三卷 1912—1917）
+- file: pdfs/列宁年谱/列宁年谱_第4卷.pdf
+  volume: 4
+  display_title: 列宁年谱（第四卷 1917.3—1917.10）
+斯大林年谱:
+- file: pdfs/斯大林年谱/斯大林年谱.pdf
+  volume: 1
+  display_title: 斯大林年谱
+李大钊年谱:
+- file: pdfs/李大钊年谱/李大钊年谱_上册.pdf
+  volume: 1
+  display_title: 李大钊年谱（上册 1889—1920）
+- file: pdfs/李大钊年谱/李大钊年谱_下册.pdf
+  volume: 2
+  display_title: 李大钊年谱（下册 1921—1927）
+邓小平年谱:
+- file: pdfs/邓小平年谱/邓小平年谱_第1卷.pdf
+  volume: 1
+  display_title: 邓小平年谱（第一卷）
+- file: pdfs/邓小平年谱/邓小平年谱_第2卷.pdf
+  volume: 2
+  display_title: 邓小平年谱（第二卷）
+- file: pdfs/邓小平年谱/邓小平年谱_第3卷.pdf
+  volume: 3
+  display_title: 邓小平年谱（第三卷）
+- file: pdfs/邓小平年谱/邓小平年谱_第4卷.pdf
+  volume: 4
+  display_title: 邓小平年谱（第四卷）
+- file: pdfs/邓小平年谱/邓小平年谱_第5卷.pdf
+  volume: 5
+  display_title: 邓小平年谱（第五卷）
+陈云年谱:
+- file: pdfs/陈云年谱/陈云年谱_上卷.pdf
+  volume: 1
+  display_title: 陈云年谱（上卷 1905—1949.9）
+- file: pdfs/陈云年谱/陈云年谱_中卷.pdf
+  volume: 2
+  display_title: 陈云年谱（中卷 1949.10—1958）
+- file: pdfs/陈云年谱/陈云年谱_下卷.pdf
+  volume: 3
+  display_title: 陈云年谱（下卷 1959—1995）

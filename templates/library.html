@@ -77,6 +77,13 @@
       background: var(--panel);
       border-radius: 8px;
     }
+    .reading-history-strip {
+      padding: 14px 18px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+    }
+    .reading-history-strip[hidden] { display: none; }
     h1, h2, p { margin: 0; }
     h1 { font-size: clamp(1.5rem, 3vw, 2.2rem); }
     .intro p, .volume-meta, .empty {
@@ -190,7 +197,21 @@
       padding: 2px 10px;
       border-radius: 999px;
     }
-    .book-section-body { padding: 8px 2px 2px; }
+.book-section-body { padding: 8px 2px 2px; }
+.collection-section { margin: 18px 4px 0; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--accent-soft) 38%, var(--paper)); overflow: hidden; }
+.collection-section > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; padding: 14px 16px; font-weight: 800; color: var(--accent); }
+.collection-section > summary::-webkit-details-marker { display: none; }
+.collection-section > summary::before { content: "▸"; }
+.collection-section[open] > summary::before { content: "▾"; }
+.collection-section .collection-name { flex: 1; }
+.collection-section .collection-count { color: var(--muted); font-size: .84rem; font-weight: 600; }
+.collection-body { padding: 0 10px 12px; }
+    /* 「外文原著」分组：并入著作目录、与中文著作分开陈列；卷次直链网页版阅读器(wenku) */
+    .foreign-head { margin: 22px 4px 0; padding-top: 18px; border-top: 2px solid var(--line); font-size: 1.05rem; font-weight: 700; color: var(--accent); }
+    .foreign-hint { margin: 2px 4px 0; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
+    .fbadge { display: inline-block; font-size: 0.6rem; font-weight: 700; color: #fff; background: var(--accent); border-radius: 5px; padding: 1px 6px; vertical-align: middle; margin-left: 6px; letter-spacing: 0.04em; }
+    .foreign-vol { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 20px; margin-bottom: 8px; }
+    .foreign-vol .volume-title h2 { font-size: 1.05rem; line-height: 1.5; }
     .toc .toc-loading { padding: 12px 16px; color: var(--muted); font-size: .92rem; }
     @media (max-width: 720px) {
       .topbar, .volume summary {
@@ -294,6 +315,7 @@
     .toc-suggest .tag.hu { background: #2b8a5e; }
     .toc-suggest .tag.zgl { background: #8a2b5e; }
     .toc-suggest .tag.jingji { background: #8a6d2b; }
+    .toc-suggest .tag.maxuanji { background: #3b4a6b; }
     .toc-suggest .tag.dangdaihui { background: #a13a2f; }
     .toc-suggest .tag.quanhui { background: #3f5aa0; }
     .toc-suggest .tag.book-other { background: var(--muted); }
@@ -301,6 +323,21 @@
     .toc-suggest .s-page { flex: none; color: var(--muted); font-size: .85rem; }
     .toc-search-empty { padding: 12px 14px; color: var(--muted); }
     .toc-search-hint { color: var(--muted); margin-top: 8px; font-size: .92rem; }
+    /* 底部一行：说明文字在左，「切换书库」下拉在右下角。 */
+    .toc-search-foot { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 12px; margin-top: 8px; }
+    .toc-search-foot .toc-search-hint { margin: 0; flex: 1 1 220px; }
+    .toc-scope-select {
+      flex: none; margin-left: auto; align-self: flex-end;
+      font: inherit; font-size: .9rem; color: var(--ink); background: var(--card);
+      border: 1px solid var(--accent); border-radius: 8px; padding: 6px 28px 6px 10px;
+      max-width: min(60%, 230px); cursor: pointer;
+    }
+    .toc-scope-select:focus { outline: none; border-color: var(--accent-dark, #651313); box-shadow: 0 0 0 3px rgba(143,29,29,.15); }
+    .toc-suggest.book-jump { background: linear-gradient(90deg, rgba(143,29,29,.06), transparent 60%); }
+    .toc-suggest .s-title .s-jump {
+      margin-left: 8px; font-size: .72rem; font-weight: 700; color: var(--accent);
+      border: 1px solid var(--accent); border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -335,26 +372,44 @@
                  aria-label="搜索篇章名称">
           <div id="tocSearchResults" class="toc-search-results" role="listbox" hidden></div>
         </div>
-        <p class="toc-search-hint">{{ site_text("library.chapter_search_hint") }}</p>
+        <div class="toc-search-foot">
+          <p class="toc-search-hint">{{ site_text("library.chapter_search_hint") }}</p>
+          {% if chapter_books %}
+          <select id="tocBookScope" class="toc-scope-select" aria-label="切换检索书库（全部书库 / 指定书库）">
+            <option value="">全部书库</option>
+            {% for b in chapter_books %}<option value="{{ b.key }}">{{ '◆ ' if b.is_collection else '' }}{{ b.label }}</option>{% endfor %}
+          </select>
+          {% endif %}
+        </div>
       </div>
     </section>
 
-    {% if volumes %}
+    {# 阅读历史「继续阅读」：本设备记录、按账号隔离、有记录才显示，一键回到上次阅读处。 #}
+    <section class="reading-history-strip" id="readingHistoryStrip" hidden></section>
+
+    {% if volume_groups or library_sections %}
       <p class="volume-hint">{{ site_text("library.volume_hint") }}</p>
-      {# 按书库（book_sort_order 保持既定顺序）折叠为可展开分组，避免一页堆叠上百卷 #}
-      {% for book_so, book_vols in volumes|groupby('book_sort_order') %}
-      {% set book_vols = book_vols|list %}
+      {% macro render_book(book) %}
       <details class="book-section">
         <summary>
-          <span class="bg-name">{{ book_vols[0].book_title }}</span>
-          <span class="bg-count">{{ book_vols|length }} 卷</span>
+          <span class="bg-name">{{ book.title }}</span>
+          <span class="bg-count">{{ book.volumes|length }} 卷</span>
         </summary>
         <div class="book-section-body">
-          {% for volume in book_vols %}
+          {% for volume in book.volumes %}
           <details class="volume">
             <summary>
               <div class="volume-title">
-                <h2>第 {{ volume.volume }} 卷 · {{ volume.display_title }}</h2>
+                <h2>
+                  {%- if volume.volume_heading -%}
+                    {{ volume.volume_heading }}
+                  {%- elif volume.single_volume -%}
+                    {{ volume.book_title }}
+                  {%- endif -%}
+                  {%- if volume.volume_subtitle -%}
+                    {%- if volume.volume_heading %} · {% endif -%}{{ volume.volume_subtitle }}
+                  {%- endif -%}
+                </h2>
                 <div class="volume-meta">
                   {%- if volume.toc_count -%}
                   {{ volume.page_count }} 页 · {{ volume.toc_count }} 个目录项
@@ -369,7 +424,7 @@
             </summary>
             {% if volume.toc_count %}
             {# 目录条目在展开本卷时由 /api/library/volume-toc 懒加载，避免首屏渲染海量目录致卡顿 #}
-            <nav class="toc" aria-label="第 {{ volume.volume }} 卷目录"
+            <nav class="toc" aria-label="第 {{ volume.volume }} {{ volume.volume_unit or '卷' }}目录"
                  data-toc-src="{{ volume.source_file }}"
                  data-toc-mode="{{ 'reader' if reader_mode else 'ai' }}"
                  data-loaded="0">
@@ -384,9 +439,53 @@
           {% endfor %}
         </div>
       </details>
+      {% endmacro %}
+      {# 普通书库保持一层折叠。 #}
+      {% for group in volume_groups %}
+        {% if group.is_collection %}
+        <details class="collection-section">
+          <summary>
+            <span class="collection-name">{{ group.label }}</span>
+            <span class="collection-count">{{ group.book_count }} 部·{{ group.volume_count }} 卷</span>
+          </summary>
+          <div class="collection-body">
+            {% for book in group.books %}{{ render_book(book) }}{% endfor %}
+          </div>
+        </details>
+        {% else %}
+          {{ render_book(group.books[0]) }}
+        {% endif %}
       {% endfor %}
-    {% else %}
+
+      {# 各专题与西马文库采用同一种平铺式独立栏目，不再套专题折叠框。 #}
+      {% for section in library_sections %}
+      <div class="foreign-head">{{ section.label }}</div>
+      <p class="foreign-hint">{{ section.description }}{% if not reader_mode %} · 支持 AI 导读{% endif %}。</p>
+      {% for book in section.books %}{{ render_book(book) }}{% endfor %}
+      {% endfor %}
+    {% elif not foreign_books %}
       <div class="empty">还没有可用的目录数据。</div>
+    {% endif %}
+
+    {% if foreign_books %}
+      <div class="foreign-head">外文文库</div>
+      <p class="foreign-hint">列宁《全集》俄文第五版、马恩《全集》历史考证版 MEGA²（德文）、MEW（德文）及英文版节选 · 网页直读、文字可复制、内嵌原书页码可一键生成规范引文{% if not reader_mode %} · 支持 AI 导读{% endif %}。</p>
+      {% for fbook in foreign_books %}
+      <details class="book-section foreign">
+        <summary>
+          <span class="bg-name">{{ fbook.title }}{% if fbook.badge %}<span class="fbadge">{{ fbook.badge }}</span>{% endif %}</span>
+          <span class="bg-count">{{ fbook.volumes|length }} 卷</span>
+        </summary>
+        <div class="book-section-body">
+          {% for v in fbook.volumes %}
+          <div class="foreign-vol">
+            <div class="volume-title"><h2>{{ v.label }}</h2></div>
+            <div class="volume-actions"><a class="primary" href="{{ v.url }}">打开阅读器</a></div>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
     {% endif %}
   </main>
   <script>
@@ -396,6 +495,7 @@
       const panel = document.getElementById('tocSearchResults');
       if (!box || !input || !panel) return;
       const mode = box.getAttribute('data-mode') || 'ai';
+      const scopeSel = document.getElementById('tocBookScope');
       let items = [];
       let activeIndex = -1;
       let timer = null;
@@ -414,7 +514,16 @@
         }
         panel.innerHTML = items.map(function (r, i) {
           const tagClass = 'tag ' + (r.tag_class || 'book-other');
-          const tagText = (r.book_short_title || r.book_title || ('《' + r.book + '》')) + '·第' + r.volume + '卷';
+          const label = r.book_short_title || r.book_title || ('《' + r.book + '》');
+          if (r.kind === 'book') {
+            // 书名/卷次直达：徽标只标书库简称（单卷本不缀卷次），主文本给整书全名 + 「整卷直达」标记。
+            const vtag = r.single ? '' : ('·第' + r.volume + '卷');
+            return '<a class="toc-suggest book-jump" data-i="' + i + '" href="' + escapeAttr(r.url || '#') + '">' +
+                   '<span class="' + escapeAttr(tagClass) + '">' + escapeHtml(label + vtag) + '</span>' +
+                   '<span class="s-title">' + escapeHtml(r.title) + '<span class="s-jump">整卷直达</span></span>' +
+                   '<span class="s-page">打开</span></a>';
+          }
+          const tagText = label + '·第' + r.volume + '卷';
           const page = r.printed ? r.printed : ('PDF ' + r.page);
           return '<a class="toc-suggest" data-i="' + i + '" href="' + escapeAttr(r.url || '#') + '">' +
                  '<span class="' + escapeAttr(tagClass) + '">' + escapeHtml(tagText) + '</span>' +
@@ -448,8 +557,9 @@
 
       async function fetchSuggest(q) {
         const mine = ++seq;
+        const bookArg = scopeSel && scopeSel.value ? '&book=' + encodeURIComponent(scopeSel.value) : '';
         try {
-          const url = '/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q);
+          const url = '/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q) + bookArg;
           const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
           if (!resp.ok) { if (mine === seq) hide(); return; }
           const data = await resp.json();
@@ -468,6 +578,13 @@
         timer = setTimeout(function () { fetchSuggest(q); }, 180);
       });
 
+      if (scopeSel) {
+        scopeSel.addEventListener('change', function () {
+          const q = input.value.trim();
+          if (q.length >= 2) { fetchSuggest(q); input.focus(); } else { hide(); }
+        });
+      }
+
       input.addEventListener('keydown', function (e) {
         if (panel.hidden || !items.length) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIndex + 1, items.length - 1)); }
@@ -478,7 +595,7 @@
       });
 
       document.addEventListener('click', function (e) {
-        if (!box.contains(e.target)) hide();
+        if (!box.contains(e.target) && !(scopeSel && scopeSel.contains(e.target))) hide();
       });
       input.addEventListener('focus', function () {
         if (input.value.trim().length >= 2 && items.length) panel.hidden = false;
@@ -536,6 +653,10 @@
       });
     })();
   </script>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
   {% include "_marx_mascot.html" %}
+  {# 阅读历史「继续阅读」：模块自渲染上方 #readingHistoryStrip 容器（空则保持隐藏）。 #}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  <script>window.MarxReadingHistory && MarxReadingHistory.mount('#readingHistoryStrip', { title: '继续阅读' });</script>
 </body>
 </html>

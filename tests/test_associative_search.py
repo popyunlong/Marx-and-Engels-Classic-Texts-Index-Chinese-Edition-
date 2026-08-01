@@ -34,6 +34,7 @@ from membership import (  # noqa: E402
     create_user,
     get_ai_credit_balance,
     get_ai_credit_balances,
+    get_ai_token_usage,
     get_plan,
     grant_ai_credits,
     mark_order_paid,
@@ -73,6 +74,17 @@ def _parse_sse_text(raw):
     return result
 
 
+def _drain(resp):
+    """在调用方的 mock.patch 上下文内立刻读完响应体（含 SSE 心跳保活流）。
+
+    随心问的 SSE 心跳保活（``_sse_run_with_heartbeat``）把慢活（``answer_search_chat``）丢进后台
+    worker 线程，由生成器边吐心跳边等其完成。Werkzeug 测试客户端默认惰性消费响应体——若推迟到
+    测试里 ``with mock.patch(...)`` 退出后才读流（如 ``_read_result`` 写在 with 块外），worker 届时
+    才被驱动，会调到**真实** AI 而非 mock。``_post_chat`` 在返回前（仍在 with 内）即调本函数把流读完，
+    确保 mock 生效。生产环境由 waitress 持续驱动生成器、worker 立即启动，本问题仅存在于测试客户端。"""
+    resp.get_data()
+
+
 def _read_result(resp):
     """读取检索响应：研究综述走 SSE 心跳保活流(text/event-stream)，取最后一个 done 事件的 JSON；
     其余仍是普通 JSON。"""
@@ -80,6 +92,74 @@ def _read_result(resp):
     if "text/event-stream" not in ctype:
         return resp.get_json()
     return _parse_sse_text(resp.get_data(as_text=True))
+
+
+class FuzzyToleranceTests(unittest.TestCase):
+    """近似匹配容错随查询长度分档的纯函数单元测试（不依赖语料，快速确定）。
+
+    背景：整段粘贴的经典语录在各书库扫描件里往往因散布的 OCR 错字漏字（及被误识入正文的
+    脚注残字）而精确零命中，旧策略近似兜底把容错硬封在 2 字，导致「差不多一模一样」的长
+    引文在所有书库全部漏检。此处锁定「短/中查询仍从严、长段落按长度放宽」的契约。
+    """
+
+    def test_short_tolerance_stays_strict(self) -> None:
+        """短查询（<36 字）必须保持从严：常用字偶然重叠即可碰瓷，且逐字校对成本低。"""
+        f = search_module._fuzzy_allowed_errors
+        self.assertEqual(f(0), 0)
+        self.assertEqual(f(9), 0)        # 短于 MIN_FUZZY_QUERY_LEN 不做近似
+        self.assertEqual(f(10), 1)       # 10–19 字容 1 错
+        self.assertEqual(f(19), 1)
+        self.assertEqual(f(20), 2)       # 20–35 字容 2 错（与放宽前一致）
+        self.assertEqual(f(35), 2)
+
+    def test_medium_tolerance_scales_like_long_passages(self) -> None:
+        """中等长度（36–59 字）与长段落同用 ≈8% 比例容错。
+
+        起因（2026-07-30）：读者手里的引文常与扫描原文有个别字出入（OCR 错字、版本差异、
+        凭记忆默写）。旧策略把 20–59 字硬封在 2 错，导致「40 字错 3 字」（7.5%）在全库
+        精确+近似双双零命中，而同样错法的 60 字引文却能命中——同一比例的差异，只因长度
+        跨过 60 字这条线就被区别对待，且在 59/60 处形成 K=2 → K=5 的断崖。
+        线上实测：放宽后「48 字错 3 字」精准召回原书且只出 1 组；语料里不存在的常用词
+        拼装句仍零命中（未引入碰瓷）；编辑距离超过 K 的查询照常被拒；耗时仅 +1%。
+        """
+        f = search_module._fuzzy_allowed_errors
+        step = search_module.FUZZY_LONG_ERROR_STEP
+        self.assertEqual(f(36), 36 // step)          # 3
+        self.assertEqual(f(48), 48 // step)          # 4
+        self.assertEqual(f(59), 59 // step)          # 4
+        # 抹平断崖：59 与 60 之间不再从 2 跳到 5
+        self.assertLessEqual(f(60) - f(59), 1)
+        # 但不得低于放宽前的水平（只放宽、不收紧）
+        for n in (36, 40, 48, 59):
+            self.assertGreaterEqual(f(n), search_module.FUZZY_MAX_ERRORS)
+
+    def test_long_passage_tolerance_scales_with_length(self) -> None:
+        f = search_module._fuzzy_allowed_errors
+        # 跨过 FUZZY_LONG_QUERY_LEN(60) 后容错开始随长度增长，且严格大于旧的 2 字硬顶
+        self.assertEqual(f(60), 60 // search_module.FUZZY_LONG_ERROR_STEP)
+        self.assertGreater(f(120), search_module.FUZZY_MAX_ERRORS)
+        self.assertGreater(f(200), f(120))            # 越长容错越多
+        # 封顶：极长查询不会把近似扫描的 cutoff 压得过低
+        self.assertEqual(f(10_000), search_module.FUZZY_LONG_MAX_ERRORS)
+        # 单调不减：长度递增，容错不应回落
+        vals = [f(n) for n in range(0, 400, 7)]
+        self.assertEqual(vals, sorted(vals))
+
+    def test_reported_long_quote_gets_generous_tolerance(self) -> None:
+        # 用户报告的《德意志意识形态》长文段：归一化后约 140+ 字，
+        # 旧策略只容 2 错（几处 OCR 错字即漏检），新策略应给出足够吸收散布错字的容错。
+        passage = (
+            "进行革命的阶级，仅就它对抗另一个阶级这一点来说，从一开始就不是作为一个阶级，"
+            "而是作为全社会的代表出现的；它俨然以社会全体群众的姿态反对唯一的统治阶级。"
+            "它之所以能这样做，是因为它的利益在开始时的确同其余一切非统治阶级的共同利益还有"
+            "更多的联系，在当时存在的那些关系的压力下还来不及发展为特殊阶级的特殊利益"
+        )
+        q_len = len(search_module.normalize(passage))
+        self.assertGreaterEqual(q_len, 60, "该长文段归一化后应达到长段落阈值")
+        allowed = search_module._fuzzy_allowed_errors(q_len)
+        # 旧策略此处只有 2；新策略应显著放宽（≥8），足以吸收「个别错字漏字」而仍高度逐字。
+        self.assertGreaterEqual(allowed, 8)
+        self.assertLessEqual(allowed, search_module.FUZZY_LONG_MAX_ERRORS)
 
 
 class AssociativeUnitTests(unittest.TestCase):
@@ -137,6 +217,48 @@ class AssociativeUnitTests(unittest.TestCase):
         self.assertEqual(scores, sorted(scores, reverse=True))
         self.assertTrue(all(0 <= s <= 100 for s in scores))
 
+    def test_diversify_by_book_respects_group_key(self) -> None:
+        # 同一「著作群」的多本书应共用一个配额：随心问接地用此把马恩多版本合并，防霸榜。
+        Corpus = search_module.Corpus
+        hits = (
+            [SimpleNamespace(book="文集") for _ in range(4)]
+            + [SimpleNamespace(book="全集") for _ in range(2)]
+            + [SimpleNamespace(book="列宁全集") for _ in range(2)]
+        )
+        group = lambda h: "马恩" if h.book in ("文集", "全集") else h.book
+        # 不分组（按书）：cap=2 → 文集2 + 全集2 仍占满前 4（两版本各占名额）
+        by_book = [h.book for h in Corpus._diversify_by_book(hits, per_book_cap=2)][:4]
+        self.assertEqual(by_book, ["文集", "文集", "全集", "全集"])
+        # 分组（马恩合一）：cap=2 → 马恩群至多 2，列宁得以进入前 4
+        by_group = [h.book for h in Corpus._diversify_by_book(hits, per_book_cap=2, group_key=group)][:4]
+        self.assertEqual(by_group, ["文集", "文集", "列宁全集", "列宁全集"])
+        # 不丢命中，只是把超额者后置
+        self.assertEqual(len(Corpus._diversify_by_book(hits, per_book_cap=2, group_key=group)), len(hits))
+
+    def test_author_group_key_merges_marx_engels_editions(self) -> None:
+        # 数据驱动（citation_title 以「马克思恩格斯」起头）：三套马恩版本归一，其它作者各自独立。
+        corpus = app_module.corpus
+        keyed = {b: corpus._author_group_key(SimpleNamespace(book=b))
+                 for b in ("文集", "全集", "全集二版", "列宁全集", "毛泽东选集")}
+        self.assertEqual(keyed["文集"], "马克思恩格斯")
+        self.assertEqual(keyed["全集"], "马克思恩格斯")
+        self.assertEqual(keyed["全集二版"], "马克思恩格斯")
+        self.assertEqual(keyed["列宁全集"], "列宁全集")
+        self.assertEqual(keyed["毛泽东选集"], "毛泽东选集")
+
+    def test_locate_associative_author_diversify_caps_marx_engels(self) -> None:
+        # 端到端：用一个会命中马恩多版本 + 列宁的概念查询，断言按作者铺开后马恩群在前 4 至多占 2。
+        kws = ["国家", "阶级", "无产阶级专政", "革命"]
+        res = app_module.corpus.locate_associative(
+            quotes=[], keywords=kws, fragments=[], chapter_keywords=[],
+            diversify_per_book=2, diversify_by_author=True,
+        )
+        top_books = [corpus_book for corpus_book in (h.book for h in res)][:4]
+        marx_editions = {"文集", "全集", "全集二版"}
+        self.assertLessEqual(sum(1 for b in top_books if b in marx_editions), 2,
+                             f"马恩群在前 4 不应超过 2 条：{top_books}")
+        self.assertTrue(set(top_books) - marx_editions, f"应有非马恩著作进入前 4：{top_books}")
+
     def test_chapter_keyword_boosts_matching_section(self) -> None:
         # 找一个 section_title 非空的真实命中，用其标题里的词做篇章关键词，断言该段权重被抬升。
         _book, sample = _corpus_sample(min_len=14)
@@ -186,6 +308,25 @@ class AssociativeUnitTests(unittest.TestCase):
 
 
 class JsonAndPlanParsingTests(unittest.TestCase):
+    def test_research_http_pool_is_isolated_from_interactive_pool(self) -> None:
+        interactive = mock.Mock()
+        interactive.acquire.return_value = True
+        research = mock.Mock()
+        research.acquire.return_value = True
+        with mock.patch.object(ai_module, "_AI_HTTP_INTERACTIVE_SEMAPHORE", interactive), \
+             mock.patch.object(ai_module, "_AI_HTTP_RESEARCH_SEMAPHORE", research):
+            with ai_module._ai_http_slot():
+                pass
+            with ai_module.research_ai_http_context():
+                with ai_module._ai_http_slot():
+                    pass
+        interactive.acquire.assert_called_once()
+        interactive.release.assert_called_once()
+        research.acquire.assert_called_once()
+        research.release.assert_called_once()
+        self.assertGreaterEqual(ai_module._AI_HTTP_INTERACTIVE_CONCURRENCY, 10)
+        self.assertLessEqual(ai_module._AI_HTTP_RESEARCH_CONCURRENCY, 2)
+
     def test_expand_query_uses_zero_temperature(self) -> None:
         # 确定性：结构化线索抽取必须以 temperature=0 调用，避免同一输入“有时有有时无”。
         ai_module._ASSOC_EXPAND_CACHE.clear()
@@ -212,7 +353,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
 
     def test_research_review_continues_when_initial_answer_is_incomplete(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        initial = "## 开篇\n" + ("这是一段尚未收束的研究综述。[1]\n" * 80)
+        initial = "## 开篇\n" + ("这是一段尚未收束的研究综述。[1]\n" * 420)
         continuation = "## 小结\n综上，现有材料已经能够支撑这一论题的基本分析。[1]"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", side_effect=[initial, continuation]) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
@@ -226,20 +367,46 @@ class JsonAndPlanParsingTests(unittest.TestCase):
             ai_module.RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
         )
         self.assertFalse(cc.call_args_list[1].kwargs["allow_reasoning_fallback"])
+        self.assertTrue(cc.call_args_list[1].kwargs["disable_thinking"])
 
     def test_research_review_does_not_continue_when_answer_is_complete(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        complete = "## 开篇\n" + ("这是一段完整的研究综述。[1]\n" * 80) + "## 小结\n综上，文章完整收束。[1]"
+        complete = "## 开篇\n" + ("这是一段完整的研究综述。[1]\n" * 420) + "## 小结\n综上，文章完整收束。[1]"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
         self.assertEqual(review, complete)
         self.assertEqual(cc.call_count, 1)
         self.assertFalse(cc.call_args.kwargs["allow_reasoning_fallback"])
 
+    def test_research_review_expands_short_complete_draft_and_replaces_conclusion(self) -> None:
+        passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
+        short = "## 研究综述\n" + ("这是已有但仍显单薄的分析段落。[1]\n" * 180) + "## 小结\n这是应被替换的旧小结。[1]"
+        expansion = (
+            "## 补充分析\n"
+            + ("这里依据原文补充新的分析层次，避免重复已有论述。[1]\n" * 220)
+            + "## 小结\n综上，扩写后的全文已经完整收束。[1]"
+        )
+        with mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete", side_effect=[short, expansion]
+        ) as cc:
+            review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
+        first_prompt = cc.call_args_list[0].args[0][1]["content"]
+        self.assertIn("优先在本轮一次写足全文", first_prompt)
+        self.assertIn("至少 4800 个中文汉字", first_prompt)
+        self.assertEqual(cc.call_count, 2)
+        self.assertNotIn("这是应被替换的旧小结", review)
+        self.assertEqual(review.count("## 小结"), 1)
+        self.assertGreaterEqual(
+            app_module.AI_CLIENT._research_review_cjk_chars(review),
+            ai_module.RESEARCH_REVIEW_MIN_CJK_CHARS,
+        )
+        self.assertIn("低于约 5000 字的目标", cc.call_args_list[1].args[0][1]["content"])
+        self.assertTrue(cc.call_args_list[1].kwargs["disable_thinking"])
+
     def test_research_review_retries_when_reasoning_leaks(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
         leaked = "思考过程：我需要先分析材料，然后再写正文。"
-        repaired = "【综述正文开始】\n## 研究综述\n" + ("这是一段正式综述正文。[1]\n" * 80) + "## 小结\n综上，文章自然完成。[1]\n【综述正文结束】"
+        repaired = "【综述正文开始】\n## 研究综述\n" + ("这是一段正式综述正文。[1]\n" * 500) + "## 小结\n综上，文章自然完成。[1]\n【综述正文结束】"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", side_effect=[leaked, repaired]) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
         self.assertNotIn("思考过程", review)
@@ -250,7 +417,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
 
     def test_research_review_retries_lower_budget_when_high_budget_is_rejected(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 80) + "## 小结\n综上，文章自然完成。[1]"
+        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 420) + "## 小结\n综上，文章自然完成。[1]"
         with mock.patch.object(
             app_module.AI_CLIENT,
             "chat_complete",
@@ -266,7 +433,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         # 每次模型调用都按 min(研究专用超时, 剩余总预算) 压一个 HTTP 超时。生成跑在 SSE 心跳保活线程里、
         # 已与 CF ~100s 解耦，故该超时刻意宽于全局 120s（用 RESEARCH_REVIEW_CALL_TIMEOUT_SECONDS）。
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 60) + "## 小结\n综上，文章自然完成。[1]"
+        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 420) + "## 小结\n综上，文章自然完成。[1]"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
             app_module.AI_CLIENT.generate_research_review("研究论题", passages)
         timeout = cc.call_args.kwargs.get("http_timeout")
@@ -370,7 +537,7 @@ class SseHeartbeatStreamTests(unittest.TestCase):
 
     def test_emits_keepalive_first_then_done_payload(self) -> None:
         chunks = self._collect(
-            lambda: "REVIEW_MD",
+            lambda cancel_event: "REVIEW_MD",
             lambda result, error: {"ok": True, "md": result, "err": error},
         )
         self.assertTrue(chunks[0].startswith(":"))             # 首字节是心跳注释，抢在 CF 计时前
@@ -384,7 +551,7 @@ class SseHeartbeatStreamTests(unittest.TestCase):
         # 生成抛错(如超时)不弄断流：异常转交 finalize 决定兜底，仍吐一个干净的 done 事件。
         seen = {}
 
-        def _boom():
+        def _boom(cancel_event):
             raise app_module.AIServiceError("boom")
 
         def _finalize(result, error):
@@ -399,7 +566,7 @@ class SseHeartbeatStreamTests(unittest.TestCase):
         def _finalize(result, error):
             raise RuntimeError("finalize broke")
 
-        chunks = self._collect(lambda: "x", _finalize)
+        chunks = self._collect(lambda cancel_event: "x", _finalize)
         self.assertTrue(chunks[-1].startswith("event: error"))
         self.assertFalse(_parse_sse_text("".join(chunks))["ok"])
 
@@ -411,6 +578,9 @@ class AssociativeRouteTests(unittest.TestCase):
         app_module.set_setting("access_policy", REGISTERED_FULL)
         # 每个用例前把研究型每周额度重置为默认（空＝默认 30 等），避免设额度的用例污染其他用例。
         app_module.set_setting(app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY, {})
+        # 「研究次数限制」总开关默认关；本类多数用例测的正是「按次数拦截」，故在 setUp 里默认打开，
+        # 让这些用例的前提成立（单独测「关＝不限次数、纯 token 计量」的用例会自行置 False）。
+        app_module.set_setting(app_module.RESEARCH_COUNT_LIMIT_ENABLED_SETTING_KEY, True)
         app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {})
         app_module._rate_buckets.clear()
         with sqlite3.connect(app_module.FEEDBACK_DB_PATH) as conn:
@@ -447,9 +617,11 @@ class AssociativeRouteTests(unittest.TestCase):
         )
 
     def _post_chat(self, payload: dict, token: str):
-        return self.client.post(
+        resp = self.client.post(
             "/api/ai/search-chat", json=payload, headers={"X-CSRF-Token": token}
         )
+        _drain(resp)
+        return resp
 
     def _login_plain(self, email: str) -> int:
         """登录一个无会员订阅的普通用户（注册用户），返回 user_id。"""
@@ -594,15 +766,45 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述正文 [1]") as rev:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：必须在 mock 作用域内读完，否则综述走真实 AI 而非 mock
         data = _read_result(resp)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
         self.assertEqual(data["review_markdown"], "综述正文 [1]")
         self.assertGreaterEqual(len(data["review_citations"]), 1)
-        # 接地：引文条全部来自真实命中（真实出处）
-        self.assertTrue(all(c["citation"].startswith("《") for c in data["review_citations"]))
+        # 接地：引文条全部来自真实命中（真实出处非空即可；部分书库引文全名以作者名开头，
+        # 如「习近平：《…》」，不能要求一律以「《」起头）
+        self.assertTrue(all(str(c["citation"]).strip() for c in data["review_citations"]))
         rev.assert_called_once()
+
+    def test_research_mode_emits_keepalive_before_query_expansion(self) -> None:
+        """Cloudflare must receive a byte before any potentially slow preprocessing call."""
+        self._login_member("assoc-early-heartbeat@example.test")
+        token = self._csrf()
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            first_chunk = next(iter(resp.response))
+            self.assertIn(": keepalive", first_chunk.decode("utf-8"))
+            expand_mock.assert_not_called()
+            resp.close()
+
+    def test_research_pipeline_waits_for_a_worker_instead_of_failing_immediately(self) -> None:
+        gate = mock.Mock()
+        gate.acquire.side_effect = [False, True]
+        cancel_event = app_module.threading.Event()
+        with mock.patch.object(app_module, "_RESEARCH_PIPELINE_SEMAPHORE", gate), \
+             mock.patch.object(app_module, "_RESEARCH_QUEUE_WAIT_SECONDS", 3.0):
+            self.assertTrue(app_module._acquire_research_pipeline_slot(cancel_event))
+        self.assertEqual(gate.acquire.call_count, 2)
+
+    def test_research_pipeline_queue_stops_waiting_after_disconnect(self) -> None:
+        gate = mock.Mock()
+        cancel_event = app_module.threading.Event()
+        cancel_event.set()
+        with mock.patch.object(app_module, "_RESEARCH_PIPELINE_SEMAPHORE", gate):
+            self.assertFalse(app_module._acquire_research_pipeline_slot(cancel_event))
+        gate.acquire.assert_not_called()
 
     def test_research_mode_falls_back_when_review_generation_fails(self) -> None:
         # 长文生成失败时也要返回可显示的接地综述，避免前端只看到空白综述区。
@@ -617,6 +819,7 @@ class AssociativeRouteTests(unittest.TestCase):
                  side_effect=app_module.AIServiceError("token limit"),
              ):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         data = _read_result(resp)
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])
@@ -646,8 +849,9 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock, \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review") as review_mock:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
-        self.assertEqual(resp.status_code, 429)
-        data = resp.get_json()
+            _drain(resp)
+        self.assertEqual(resp.status_code, 200)
+        data = _read_result(resp)
         self.assertFalse(data["ok"])
         self.assertIn("research_quota", data)
         self.assertEqual(data["research_quota"]["limit"], 0)
@@ -673,8 +877,9 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
-        self.assertEqual(resp.status_code, 429)
-        self.assertFalse(resp.get_json()["ok"])
+            _drain(resp)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(_read_result(resp)["ok"])
         expand_mock.assert_not_called()
 
     def test_research_success_returns_decremented_quota(self) -> None:
@@ -691,6 +896,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
         data = _read_result(resp)
         self.assertTrue(data["ok"])
@@ -708,6 +914,30 @@ class AssociativeRouteTests(unittest.TestCase):
         )
         self.assertEqual(count, 1)
 
+    def test_research_count_limit_off_means_unlimited(self) -> None:
+        # 总开关关闭（默认）：即便免费周额=0，研究综述也不按次数拦截，改为纯 token 额度计量。
+        email = "assoc-count-off@example.test"
+        self._login_member(email)
+        app_module.set_setting(app_module.RESEARCH_COUNT_LIMIT_ENABLED_SETTING_KEY, False)
+        app_module.set_setting(
+            app_module.RESEARCH_WEEKLY_QUOTA_SETTING_KEY,
+            {"registered": 0, "monthly": 0, "quarterly": 0, "yearly": 0},
+        )
+        token = self._csrf()
+        _book, sample = _corpus_sample(min_len=18)
+        plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+            resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
+        self.assertEqual(resp.status_code, 200)
+        data = _read_result(resp)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["display_mode"], "research_review")
+        self.assertTrue(data["research_quota"]["allowed"])
+        self.assertTrue(data["research_quota"]["unlimited"])
+        self.assertIsNone(data["research_quota"]["limit"])
+
     def test_research_uses_pack_credit_when_weekly_free_exhausted(self) -> None:
         # 免费周额设为 0，但用户持有研究资源包次数 → 研究型检索仍放行，成功后扣 1 次研究包。
         email = "assoc-pack-research@example.test"
@@ -724,6 +954,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
         data = _read_result(resp)
         self.assertTrue(data["ok"])
@@ -743,7 +974,9 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
-        self.assertEqual(resp.status_code, 429)
+            _drain(resp)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(_read_result(resp)["ok"])
         expand_mock.assert_not_called()
 
     def test_chat_uses_pack_credit_when_daily_token_exhausted(self) -> None:
@@ -760,7 +993,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
             resp = self._post_chat({"question": "什么是剩余价值？"}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertTrue(data["ok"])
         self.assertEqual(get_ai_credit_balance(int(user["id"]), "chat"), 1)
         self.assertEqual(data["ai_credits"]["chat"], 1)
@@ -812,6 +1045,34 @@ class AssociativeRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 429)
         ans_mock.assert_not_called()
 
+    def test_mascot_tokens_do_not_consume_shared_quota(self) -> None:
+        # 马克思形象＝「无限量基础服务」：它自身不过额度闸，其 token 也不该吃掉随心问/研究/导学
+        # 共用的周额度池。这里记满一整周上限的 mascot 用量，随心问仍须照常放行、徽章已用量为 0。
+        email = "tok-mascot-exempt@example.test"
+        uid = self._login_plain(email)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 2000})
+        weekly_cap = 2000 * app_module.AI_TOKEN_WEEKLY_FACTOR
+        record_ai_usage(
+            user_id=uid, day=app_module.china_day_text(), feature="mascot",
+            total_tokens=weekly_cap * 3, success=True,
+        )
+        token = self._csrf()
+        fake = mock.Mock()
+        fake.answer_markdown = "回答"
+        fake.to_dict = mock.Mock(return_value={"ok": True, "answer_markdown": "回答", "sources": []})
+        with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
+            resp = self._post_chat({"question": "什么是剩余价值？"}, token)
+        self.assertEqual(resp.status_code, 200)
+        data = _read_result(resp)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["ai_token_quota"]["limit"], weekly_cap)
+        # 已用量只含本次随心问自身的记账，吉祥物那三周的量不计入。
+        self.assertLess(data["ai_token_quota"]["used"], weekly_cap)
+        # 后台用量总览仍看得到吉祥物的真实消耗（只在额度统计里排除，不是不记）。
+        self.assertGreaterEqual(
+            get_ai_token_usage(day=app_module.china_day_text(), user_id=uid), weekly_cap * 3
+        )
+
     def test_daily_overuse_allowed_within_weekly_cap(self) -> None:
         # 弹性核心：单日用量超过「每日额度」但本周累计仍在周上限内 → 仍放行（不被每日卡死）。
         email = "tok-burst@example.test"
@@ -829,7 +1090,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
             resp = self._post_chat({"question": "什么是剩余价值？"}, token)
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.get_json()["ok"])
+        self.assertTrue(_read_result(resp)["ok"])
 
     def test_registered_user_within_limit_returns_token_quota(self) -> None:
         # 未超额 → 随心问成功并回带 ai_token_quota（limit=本周=每日×7、剩余<上限、未耗尽）。
@@ -844,7 +1105,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
             resp = self._post_chat({"question": "什么是剩余价值？"}, token)
         self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
+        data = _read_result(resp)
         self.assertIn("ai_token_quota", data)
         self.assertFalse(data["ai_token_quota"]["unlimited"])
         self.assertEqual(data["ai_token_quota"]["limit"], weekly_cap)  # 硬上限＝本周
@@ -867,7 +1128,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "answer_search_chat", return_value=fake):
             resp = self._post_chat({"question": "什么是异化劳动？"}, token)
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.get_json()["ai_token_quota"]["unlimited"])
+        self.assertTrue(_read_result(resp)["ai_token_quota"]["unlimited"])
 
     def test_mascot_is_unlimited_and_uses_flash_model(self) -> None:
         # 马克思形象＝无限量基础服务：即便主通道每日额度=0 仍可用，且固定走 deepseek-v4-flash。
@@ -895,7 +1156,7 @@ class AssociativeRouteTests(unittest.TestCase):
         _book, sample = _corpus_sample(min_len=18)
         plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
 
-        def _fake_review(topic, passages):
+        def _fake_review(topic, passages, should_cancel=None):
             text = passages[0]["text"] if passages else ""
             chunks = app_module._sentence_chunks(text)
             sent = chunks[0] if chunks else text[:30]
@@ -904,6 +1165,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
              mock.patch.object(app_module.AI_CLIENT, "generate_research_review", side_effect=_fake_review):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
+            _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
         data = _read_result(resp)
         self.assertTrue(data["ok"])
@@ -1128,6 +1390,931 @@ class ReviewCitationHighlightTests(unittest.TestCase):
         ctx = app_module._review_citation_context("一段真实原文片段。", "")
         self.assertNotIn("[[H]]", ctx)
         self.assertIn("一段真实原文片段", ctx)
+
+    def test_squeeze_cjk_line_joins_only_between_chinese(self) -> None:
+        # PDF 按物理行抽取 → 中文句内多出空格；只合并中文之间的，中英文/数字之间的空格保持原样。
+        squeeze = app_module._squeeze_cjk_line_joins
+        self.assertEqual(
+            squeeze("人的本质不是 单个人所固有的抽象物，在其现实性上，它是 一切社会关系的总和。"),
+            "人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。",
+        )
+        self.assertEqual(squeeze("马克思 1844 年手稿 中 Grundrisse 一词"), "马克思 1844 年手稿中 Grundrisse 一词")
+        self.assertEqual(squeeze(""), "")
+
+    def test_chat_grounding_injects_complete_sentence_passage(self) -> None:
+        # 回归：注入模型的原文段必须是「完整句窗口」，而不是语料 ±CTX_PAD 字的半句窗口——
+        # 模型只能引它看得见的文字，喂半句就只能引出支离破碎的引文。
+        raw = (
+            "前段铺垫，尚未进入正题。" * 40
+            + "异化劳动使人的类本质变成对人来说是异己的本质。"
+            + "工人生产的财富越多，他就越是变成廉价的商品，这一点在原文里说得很完整。"
+            + "后段继续申论，仍属同一段落。" * 40
+        )
+        hit = SimpleNamespace(
+            pages=[SimpleNamespace(raw_text=raw, pdf_page=1)],
+            source_file="",
+            to_dict=lambda: {
+                # 语料给的展示窗口：命中词前后各 CTX_PAD 字，两端都硬切在半句上。
+                "context": "变成对人来说是异己的本质。[[H]]工人生产的财富越多[[/H]]，他就越是变成廉",
+                "citation": "《测试文献》第1卷，第1页。",
+                "book": "文集",
+                "source_file": "",
+                "pdf_pages": [1],
+                "printed_pages": ["1"],
+            },
+        )
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value={}), \
+             mock.patch.object(app_module.corpus, "locate_associative", return_value=[hit]), \
+             app_module.app.test_request_context():
+            passages, citations, _notes, _scope = app_module._build_chat_grounding("异化劳动")
+
+        self.assertEqual(len(passages), 1)
+        text = passages[0]["text"]
+        self.assertIn("工人生产的财富越多，他就越是变成廉价的商品，这一点在原文里说得很完整。", text)
+        self.assertGreater(len(text), 240)          # 远长于旧口径的 ~80 字半句窗口
+        self.assertLessEqual(len(text), app_module.CHAT_GROUNDING_CONTEXT_CHARS)
+        self.assertRegex(text, r"[。！？；;!?]$")     # 止于句末标点，不断在半句
+        self.assertNotIn("[[H]]", text)
+        self.assertEqual(citations[0]["grounding_index"], 1)
+        self.assertIn("[[H]]", citations[0]["context"])  # 卡片仍带高亮
+
+    def test_chat_grounding_completes_sentence_across_page_boundary(self) -> None:
+        # 命中句跨越两页时必须按页序拼接后再切句，不能从第二页页首的半句开始引用。
+        hit = SimpleNamespace(
+            pages=[
+                SimpleNamespace(raw_text="上一句已经结束。这是跨页完整句的前半部分，", pdf_page=10),
+                SimpleNamespace(raw_text="也是包含关键命中的后半部分。下一句提供必要语境。", pdf_page=11),
+            ],
+            source_file="",
+        )
+        payload = {
+            "context": "整句的前半部分，[[H]]也是包含关键命中[[/H]]的后半部分。下一句提供",
+            "source_file": "",
+            "pdf_pages": [11],
+        }
+        passage = app_module._chat_grounding_passage_text(hit, payload, "关键命中")
+        self.assertIn("这是跨页完整句的前半部分，也是包含关键命中的后半部分。", passage)
+        self.assertFalse(passage.startswith("也是包含关键命中"))
+        self.assertRegex(passage, r"[。！？!?]$")
+
+    def test_chat_grounding_deduplicates_same_sentence_and_backfills(self) -> None:
+        def _hit(raw: str, highlight: str, page: int, citation: str):
+            return SimpleNamespace(
+                pages=[SimpleNamespace(raw_text=raw, pdf_page=page)],
+                source_file=f"test-{page}.pdf",
+                to_dict=lambda: {
+                    "context": f"前文。[[H]]{highlight}[[/H]]，句子继续到完整句末。后文。",
+                    "citation": citation,
+                    "book": "文集",
+                    "source_file": "",
+                    "pdf_pages": [page],
+                    "printed_pages": [str(page)],
+                },
+            )
+
+        duplicate_sentence = "共同命中短语，句子继续到完整句末。"
+        hits = [
+            _hit("版本甲前文。" + duplicate_sentence + "版本甲后文。", "共同命中短语", 1, "出处甲"),
+            _hit("版本乙前文。" + duplicate_sentence + "版本乙后文。", "共同命中短语", 2, "出处乙"),
+            _hit("另一个角度。另一条命中短语，形成不同的完整原句。继续分析。", "另一条命中短语", 3, "出处丙"),
+        ]
+        with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value={}), \
+             mock.patch.object(app_module.corpus, "locate_associative", return_value=hits), \
+             app_module.app.test_request_context():
+            passages, citations, _notes, _scope = app_module._build_chat_grounding("共同命中短语")
+
+        self.assertEqual(len(passages), 2)
+        self.assertEqual([item["index"] for item in passages], [1, 2])
+        self.assertEqual([item["grounding_index"] for item in citations], [1, 2])
+        self.assertEqual(sum(duplicate_sentence in item["text"] for item in passages), 1)
+        self.assertTrue(any("另一条命中短语，形成不同的完整原句。" in item["text"] for item in passages))
+
+
+class CitationFormatTests(unittest.TestCase):
+    """多格式引文（国标 / 两刊脚注）与后台自定义模板。"""
+
+    def setUp(self) -> None:
+        self.corpus = app_module.corpus
+        if not self.corpus:
+            self.skipTest("corpus unavailable")
+        self._saved = dict(self.corpus.citation_templates)
+
+    def tearDown(self) -> None:
+        self.corpus.citation_templates = self._saved
+
+    def _std_vol_page(self):
+        vol = next((v for v in self.corpus.books.get("文集", []) if v.volume == 1), None)
+        if not vol:
+            self.skipTest("文集 vol1 unavailable")
+        page = next(
+            (p for p in vol.pages if p.printed_page and not str(p.printed_page).startswith("pre-")),
+            None,
+        )
+        if not page:
+            self.skipTest("no printed page")
+        return vol, page
+
+    def test_to_dict_carries_three_formats(self) -> None:
+        book, sub = _corpus_sample()
+        hits = self.corpus.locate_quote(sub, allow_fuzzy=False)
+        self.assertTrue(hits)
+        d = hits[0].to_dict()
+        self.assertEqual(set(d["citations"]), {"gb2015", "zgshkx", "mkszyj"})
+        self.assertTrue(d["citation"].startswith("《"))  # 向后兼容：默认仍是脚注体例
+
+    def test_default_templates_match_procedural(self) -> None:
+        vol, page = self._std_vol_page()
+        from search import DEFAULT_CITATION_TEMPLATES as D, _CiteSafeDict
+        parts = self.corpus._citation_parts("文集", 1, [page], source_file=vol.source_file)
+        self.assertEqual(
+            D["gb2015"].format_map(_CiteSafeDict(parts)),
+            self.corpus._make_citation_gb("文集", 1, [page], source_file=vol.source_file),
+        )
+        self.assertEqual(
+            D["zgshkx"].format_map(_CiteSafeDict(parts)),
+            self.corpus._make_citation("文集", 1, [page], source_file=vol.source_file),
+        )
+
+    def test_gb_and_journal_shapes(self) -> None:
+        vol, page = self._std_vol_page()
+        d = self.corpus._make_citations("文集", 1, [page], source_file=vol.source_file)
+        self.assertIn("[M]", d["gb2015"])
+        self.assertNotIn("《", d["gb2015"])
+        self.assertTrue(d["zgshkx"].startswith("《"))
+        self.assertEqual(d["zgshkx"], d["mkszyj"])  # 两刊当前同源
+
+    def test_custom_template_overrides_single_format(self) -> None:
+        vol, page = self._std_vol_page()
+        self.corpus.set_citation_templates(
+            {"mkszyj": "{title}（第{volume}卷），{publisher}{year}年版，第{page_range}页。"}
+        )
+        d = self.corpus._make_citations("文集", 1, [page], source_file=vol.source_file)
+        self.assertIn("年版", d["mkszyj"])
+        self.assertNotIn("年版", d["zgshkx"])  # 中国社科未受影响
+        self.assertIn("[M]", d["gb2015"])      # 国标未受影响
+
+    def test_bad_template_falls_back(self) -> None:
+        vol, page = self._std_vol_page()
+        self.corpus.set_citation_templates({"gb2015": "{title}:{"})  # 未闭合大括号→渲染抛错
+        d = self.corpus._make_citations("文集", 1, [page], source_file=vol.source_file)
+        self.assertEqual(
+            d["gb2015"],
+            self.corpus._make_citation_gb("文集", 1, [page], source_file=vol.source_file),
+        )
+
+    def test_special_books_ignore_templates(self) -> None:
+        special = None
+        for key in ("十八大以来重要文献选编", "五年规划", "历次党代会报告"):
+            vols = self.corpus.books.get(key) or []
+            if vols:
+                special = (key, vols[0])
+                break
+        if not special:
+            self.skipTest("no special-citation book available")
+        key, vol = special
+        if not vol.pages:
+            self.skipTest("special vol has no pages")
+        page = vol.pages[len(vol.pages) // 2]
+        self.corpus.set_citation_templates({"gb2015": "X{title}X[M]."})
+        d = self.corpus._make_citations(key, vol.volume, [page], source_file=vol.source_file)
+        self.assertEqual(
+            d["gb2015"],
+            self.corpus._make_citation_gb(key, vol.volume, [page], source_file=vol.source_file),
+        )
+        self.assertFalse(d["gb2015"].startswith("X"))  # 自定义模板未生效
+
+    def test_editor_rows_and_loader_drops_default(self) -> None:
+        rows = app_module._citation_formats_editor()
+        self.assertEqual([r["key"] for r in rows], ["gb2015", "zgshkx", "mkszyj"])
+        app_module.set_setting(
+            "citation_formats", {"zgshkx": app_module.DEFAULT_CITATION_TEMPLATES["zgshkx"]}
+        )
+        try:
+            self.assertEqual(app_module._load_citation_formats(), {})  # 与默认相同→丢弃
+        finally:
+            app_module.set_setting("citation_formats", {})
+
+
+class ScopeRoutingTests(unittest.TestCase):
+    """检索范围（著作群语义路由）：book_scope 定向召回 + 语义检测 + 参数解析。
+
+    解决「问总书记却检索起马恩」：AI 判 corpus + 输入标志词 → 著作群范围 → 定向检索（限定+兜底回填）。
+    """
+
+    def test_book_scope_restricts_locate_associative(self) -> None:
+        # book_scope 限定后，命中只来自范围内书库——从根上避免其它作者的强命中霸榜。
+        corpus = app_module.corpus
+        xi_books = app_module._scope_books("xi")
+        if not xi_books:
+            self.skipTest("本地语料缺习近平著作群")
+        res = corpus.locate_associative(
+            quotes=[], keywords=["中华民族", "伟大复兴", "现代化"], fragments=[], chapter_keywords=[],
+            book_scope=xi_books,
+        )
+        self.assertTrue(res, "习近平著作群内应有相关命中")
+        stray = sorted({h.book for h in res} - xi_books)
+        self.assertFalse(stray, f"限定范围后不应出现范围外书库：{stray}")
+
+    def test_book_scope_none_searches_all(self) -> None:
+        # 不限定（None）时保持全库检索的原有行为（向后兼容）。
+        corpus = app_module.corpus
+        scoped = corpus.keyword_cooccurrence(["国家", "革命"], book_scope={"列宁全集"})
+        allb = corpus.keyword_cooccurrence(["国家", "革命"])
+        self.assertTrue(all(h.book == "列宁全集" for h in scoped))
+        self.assertGreaterEqual(len(allb), len(scoped))
+
+    def test_scope_books_subset_of_corpus(self) -> None:
+        corpus_books = set(app_module.corpus.books)
+        for sid in app_module._CORPUS_SCOPE_BY_ID:
+            self.assertLessEqual(app_module._scope_books(sid), corpus_books, sid)
+
+    def test_detect_scope_xi_from_hints(self) -> None:
+        if not app_module._scope_books("xi"):
+            self.skipTest("本地语料缺习近平著作群")
+        self.assertEqual(app_module._detect_scope("总书记如何理解中华民族伟大复兴", {}), "xi")
+        self.assertEqual(app_module._detect_scope("中国式现代化的本质要求是什么", {}), "xi")
+
+    def test_detect_scope_marx_from_hints(self) -> None:
+        if not app_module._scope_books("marx_engels"):
+            self.skipTest("本地语料缺马恩著作群")
+        self.assertEqual(app_module._detect_scope("剩余价值与劳动异化的关系", {}), "marx_engels")
+
+    def test_detect_scope_ai_corpus_signal(self) -> None:
+        # AI 明确点名 corpus（权重更高）也能把弱信号输入路由过去。
+        if not app_module._scope_books("xi"):
+            self.skipTest("本地语料缺习近平著作群")
+        self.assertEqual(app_module._detect_scope("谈谈发展这个问题", {"corpus": ["习近平"]}), "xi")
+
+    def test_detect_scopes_keeps_both_sides_of_comparison(self) -> None:
+        # 比较研究不能再选中一方、丢掉另一方；“马恩”简称也应被识别。
+        if not (app_module._scope_books("marx_engels") and app_module._scope_books("lenin")):
+            self.skipTest("本地语料缺马恩或列宁著作群")
+        self.assertEqual(
+            app_module._detect_scopes("比较马恩国家观与列宁国家观的异同", {}),
+            ["marx_engels", "lenin"],
+        )
+
+    def test_detect_scopes_respects_multi_corpus_plan(self) -> None:
+        if not (app_module._scope_books("marx_engels") and app_module._scope_books("lenin")):
+            self.skipTest("本地语料缺马恩或列宁著作群")
+        self.assertEqual(
+            app_module._detect_scopes("比较两种国家学说", {"corpus": ["马克思恩格斯", "列宁"]}),
+            ["marx_engels", "lenin"],
+        )
+
+    def test_chinese_modernization_expands_to_china_corpus_bundle(self) -> None:
+        expected = [sid for sid in ("xi", "party_docs", "deng", "mao", "jiang", "hu")
+                    if app_module._scope_books(sid)]
+        if len(expected) < 2:
+            self.skipTest("本地语料缺中国式现代化组合文库")
+        detected = app_module._detect_scopes("研究中国式现代化的理论内涵与历史演进", {})
+        self.assertEqual(detected, expected)
+
+    def test_detect_scope_ambiguous_returns_none(self) -> None:
+        # 无标志词、无 AI 信号 → 不限定（含糊输入不误锁著作群）。
+        self.assertIsNone(app_module._detect_scope("请你谈一谈这个看法", {}))
+
+    def test_resolve_manual_scope_hard_restrict(self) -> None:
+        if not app_module._scope_books("xi"):
+            self.skipTest("本地语料缺习近平著作群")
+        books, sid, manual = app_module._resolve_search_scope("xi", "任意输入", {})
+        self.assertTrue(manual)
+        self.assertEqual(sid, "xi")
+        self.assertEqual(books, app_module._scope_books("xi"))
+
+    def test_resolve_all_scope_no_restriction(self) -> None:
+        books, sid, manual = app_module._resolve_search_scope("all", "总书记中华民族伟大复兴", {})
+        self.assertIsNone(books)
+        self.assertEqual(sid, "all")
+        self.assertFalse(manual)
+
+    def test_resolve_auto_detects_and_restricts(self) -> None:
+        if not app_module._scope_books("xi"):
+            self.skipTest("本地语料缺习近平著作群")
+        books, sid, manual = app_module._resolve_search_scope("auto", "总书记如何理解中华民族伟大复兴", {})
+        self.assertEqual(sid, "xi")
+        self.assertFalse(manual)
+        self.assertEqual(books, app_module._scope_books("xi"))
+
+    def test_resolve_auto_no_signal_no_restriction(self) -> None:
+        books, sid, manual = app_module._resolve_search_scope("auto", "请你谈一谈这个看法", {})
+        self.assertIsNone(books)
+        self.assertEqual(sid, "auto")
+        self.assertFalse(manual)
+
+    def test_resolve_auto_comparison_unions_multiple_corpora(self) -> None:
+        marx = app_module._scope_books("marx_engels")
+        lenin = app_module._scope_books("lenin")
+        if not (marx and lenin):
+            self.skipTest("本地语料缺马恩或列宁著作群")
+        books, sid, manual = app_module._resolve_search_scope(
+            "auto", "比较马恩国家观与列宁国家观的异同", {})
+        self.assertFalse(manual)
+        self.assertEqual(sid, "marx_engels,lenin")
+        self.assertEqual(books, marx | lenin)
+
+    def test_scope_options_payload_shape(self) -> None:
+        opts = app_module._scope_options_payload()
+        ids = [o["id"] for o in opts]
+        self.assertEqual(ids[:2], ["auto", "all"])
+        self.assertTrue(all("label" in o for o in opts))
+        # 至少有一个真实著作群（本地语料非空时）
+        self.assertTrue(len(ids) > 2)
+
+    def test_subject_index_respects_scope(self) -> None:
+        # 名目索引仅《文集》：限定到习近平著作群时应为空（与词面召回的定向一致）。
+        corpus = app_module.corpus
+        xi_books = app_module._scope_books("xi")
+        if not xi_books or not corpus._subject_entries:
+            self.skipTest("本地语料缺习近平著作群或名目索引")
+        self.assertEqual(corpus.locate_subject_index(["异化", "劳动"], book_scope=xi_books), [])
+
+    def test_resolve_multi_select_union(self) -> None:
+        # 多选著作群 → 书库并集、手动硬限定、结果 id 逗号连接、标签顿号连接。
+        xi = app_module._scope_books("xi")
+        party = app_module._scope_books("party_docs")
+        if not xi or not party:
+            self.skipTest("本地语料缺相关著作群")
+        books, sid, manual = app_module._resolve_search_scope(["xi", "party_docs"], "任意输入", {})
+        self.assertTrue(manual)
+        self.assertEqual(books, xi | party)
+        self.assertEqual(sid, "xi,party_docs")
+        self.assertEqual(app_module._scope_label(sid), "习近平、党和国家文献")
+
+    def test_resolve_multi_with_all_is_unrestricted(self) -> None:
+        # 列表里含 all → 明确不限定（不与著作群同时限定，避免歧义）。
+        books, sid, manual = app_module._resolve_search_scope(["xi", "all"], "任意", {})
+        self.assertIsNone(books)
+        self.assertEqual(sid, "all")
+        self.assertFalse(manual)
+
+    def test_resolve_multi_dedup_and_canonical_order(self) -> None:
+        # 乱序 + 重复 → 按 CORPUS_SCOPES 定义顺序去重（marx_engels 在 xi 之前）。
+        if not (app_module._scope_books("marx_engels") and app_module._scope_books("xi")):
+            self.skipTest("本地语料缺相关著作群")
+        _books, sid, _m = app_module._resolve_search_scope(["xi", "marx_engels", "xi"], "x", {})
+        self.assertEqual(sid, "marx_engels,xi")
+
+    def test_resolve_single_id_still_manual(self) -> None:
+        # 单值（字符串）著作群 id 仍按手动硬限定处理（向后兼容旧前端）。
+        if not app_module._scope_books("mao"):
+            self.skipTest("本地语料缺毛泽东著作群")
+        books, sid, manual = app_module._resolve_search_scope("mao", "任意", {})
+        self.assertTrue(manual)
+        self.assertEqual(sid, "mao")
+        self.assertEqual(books, app_module._scope_books("mao"))
+
+    # ---- 指定著作：单本 / 单卷 / 多选并集（D1 卷级 + D-多选 + D2 指定优先）----
+
+    def test_resolve_single_book_hard_restrict(self) -> None:
+        if "文集" not in app_module.corpus.books:
+            self.skipTest("本地语料缺《文集》")
+        books, sid, manual = app_module._resolve_search_scope("book:文集", "任意", {})
+        self.assertTrue(manual)
+        self.assertEqual(books, {"文集": None})
+        self.assertEqual(sid, "book:文集")
+        self.assertTrue(app_module._scope_label(sid).startswith("《"))
+
+    def test_resolve_single_volume(self) -> None:
+        corpus = app_module.corpus
+        if "文集" not in corpus.books or 5 not in {v.volume for v in corpus.get_volumes("文集")}:
+            self.skipTest("本地语料缺《文集》第5卷")
+        books, sid, manual = app_module._resolve_search_scope("vol:文集:5", "任意", {})
+        self.assertTrue(manual)
+        self.assertEqual(books, {"文集": {5}})
+        self.assertEqual(sid, "vol:文集:5")
+        self.assertIn("第 5 卷", app_module._scope_label(sid))
+
+    def test_resolve_whole_book_absorbs_volume(self) -> None:
+        # 同本同时给「整套」与「单卷」→ 整套 None 覆盖卷集。
+        corpus = app_module.corpus
+        vols = {v.volume for v in corpus.get_volumes("文集")}
+        if "文集" not in corpus.books or 5 not in vols:
+            self.skipTest("本地语料缺《文集》第5卷")
+        books, _sid, manual = app_module._resolve_search_scope(
+            ["vol:文集:5", "book:文集"], "任意", {})
+        self.assertTrue(manual)
+        self.assertEqual(books, {"文集": None})
+
+    def test_resolve_cross_book_volume_union(self) -> None:
+        corpus = app_module.corpus
+        if "文集" not in corpus.books or "全集" not in corpus.books:
+            self.skipTest("本地语料缺《文集》或《全集》")
+        if 5 not in {v.volume for v in corpus.get_volumes("全集")}:
+            self.skipTest("本地语料缺《全集》第5卷")
+        books, _sid, manual = app_module._resolve_search_scope(
+            ["book:文集", "vol:全集:5"], "任意", {})
+        self.assertTrue(manual)
+        self.assertEqual(books, {"文集": None, "全集": {5}})
+
+    def test_resolve_specific_book_overrides_group(self) -> None:
+        # D2：同时给著作群 id 与单本 token → 只取单本（忽略群）。
+        if "文集" not in app_module.corpus.books:
+            self.skipTest("本地语料缺《文集》")
+        books, sid, _m = app_module._resolve_search_scope(["xi", "book:文集"], "任意", {})
+        self.assertEqual(books, {"文集": None})
+        self.assertEqual(sid, "book:文集")
+
+    def test_resolve_invalid_volume_dropped(self) -> None:
+        # 不存在的卷号被剔除；该本无有效卷 → 回落不限定（None），不至搜出空。
+        if "文集" not in app_module.corpus.books:
+            self.skipTest("本地语料缺《文集》")
+        books, _sid, _m = app_module._resolve_search_scope("vol:文集:999", "任意", {})
+        self.assertIsNone(books)
+
+    def test_scoped_volumes_filters_to_requested_volume(self) -> None:
+        corpus = app_module.corpus
+        if "文集" not in corpus.books or 5 not in {v.volume for v in corpus.get_volumes("文集")}:
+            self.skipTest("本地语料缺《文集》第5卷")
+        self.assertEqual({v.volume for v in corpus._scoped_volumes("文集", {"文集": {5}})}, {5})
+        # None（整套）→ 返回全部卷（向后兼容）
+        self.assertEqual(
+            {v.volume for v in corpus._scoped_volumes("文集", {"文集": None})},
+            {v.volume for v in corpus.get_volumes("文集")},
+        )
+
+    def test_volume_scope_restricts_locate_associative(self) -> None:
+        # 卷级 book_scope（dict）落到底层扫描：命中只来自被限定的那一卷。
+        corpus = app_module.corpus
+        if "文集" not in corpus.books or 5 not in {v.volume for v in corpus.get_volumes("文集")}:
+            self.skipTest("本地语料缺《文集》第5卷")
+        res = corpus.locate_associative(
+            quotes=[], keywords=["生产", "关系", "社会"], fragments=[], chapter_keywords=[],
+            book_scope={"文集": {5}},
+        )
+        stray = sorted({(h.book, h.volume) for h in res
+                        if not (h.book == "文集" and h.volume == 5)})
+        self.assertFalse(stray, f"限定《文集》第5卷后不应出现范围外命中：{stray}")
+
+
+class _FakeSseResp:
+    """伪装 urllib 流式响应：上下文管理器 + 逐行迭代（SSE data: 行）。"""
+
+    def __init__(self, lines: list[bytes]) -> None:
+        self._lines = lines
+
+    def __enter__(self) -> "_FakeSseResp":
+        return self
+
+    def __exit__(self, *args) -> bool:
+        return False
+
+    def __iter__(self):
+        return iter(self._lines)
+
+
+def _sse_delta_lines(*deltas: dict) -> list[bytes]:
+    """把若干 delta dict 编成上游 /chat/completions 的 SSE data: 行（含结尾 [DONE]）。"""
+    lines = [
+        ("data: " + json.dumps({"choices": [{"delta": d}]}, ensure_ascii=False)).encode("utf-8")
+        for d in deltas
+    ]
+    lines.append(b"data: [DONE]")
+    return lines
+
+
+class ReaderAiStreamAndScopeTests(unittest.TestCase):
+    """阅读器 AI 导学两项修复：①思维链只保活不下发（不进答案/历史/额度）②接地问答检索范围 chips。"""
+
+    def setUp(self) -> None:
+        warnings.filterwarnings("ignore", category=ResourceWarning)
+        app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        app_module.set_setting("access_policy", REGISTERED_FULL)
+        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {})
+        app_module._rate_buckets.clear()
+        self.client = app_module.app.test_client()
+
+    def _csrf(self) -> str:
+        html = self.client.get("/").get_data(as_text=True)
+        m = re.search(r'name="csrf_token" value="([^"]+)"', html) or re.search(
+            r'const csrfToken = "([^"]+)";', html
+        )
+        return m.group(1) if m else ""
+
+    def _login_member(self, email: str) -> None:
+        create_user(
+            email=email,
+            display_name=email.split("@", 1)[0],
+            password_hash=generate_password_hash("correct horse battery staple"),
+            email_verified_at="2026-01-01T00:00:00+00:00",
+        )
+        create_manual_subscription(user_email=email, plan_code="monthly", note="test")
+        token = self._csrf()
+        resp = self.client.post(
+            "/login",
+            data={"csrf_token": token, "email": email, "password": "correct horse battery staple"},
+        )
+        self.assertEqual(resp.status_code, 302)
+
+    @staticmethod
+    def _any_allowed_source_file() -> str:
+        for _book, vols in app_module.corpus.books.items():
+            for vol in vols:
+                if vol.source_file in app_module.ALLOWED_SOURCE_FILES and vol.pages:
+                    return vol.source_file
+        raise RuntimeError("corpus has no allowed source file")
+
+    # ---------- ①流式层：思维链不下发 ----------
+
+    def test_stream_drops_reasoning_keeps_content(self) -> None:
+        # 推理模型先吐 reasoning_content 再给正文：正文原样流出，思维链绝不混入。
+        lines = _sse_delta_lines(
+            {"reasoning_content": "好的，用户要求我讲解本页"},
+            {"reasoning_content": "……大段自我分析……"},
+            {"content": "商品"},
+            {"content": "是财富的元素形式。"},
+        )
+        with mock.patch.object(
+            ai_module.urllib_request, "urlopen", return_value=_FakeSseResp(lines)
+        ):
+            chunks = list(
+                app_module.AI_CLIENT.chat_complete_stream(
+                    [{"role": "user", "content": "讲讲"}], 200
+                )
+            )
+        self.assertEqual("".join(chunks), "商品是财富的元素形式。")
+        self.assertTrue(all("用户要求我" not in c and "自我分析" not in c for c in chunks))
+
+    def test_stream_reasoning_only_retries_with_thinking_disabled(self) -> None:
+        # 上游全程没给正文（思考烧光 max_tokens）→ 一个字都没下发，关掉思考重来一次；
+        # 读者拿到的是重试得到的正文，思维链绝不当答案下发。
+        first = _sse_delta_lines(
+            {"reasoning_content": "只有思考"},
+            {"reasoning_content": "没有正文"},
+        )
+        second = _sse_delta_lines({"content": "商品是"}, {"content": "财富的元素形式。"})
+        payloads: list[dict] = []
+
+        def _fake_urlopen(req, *args, **kwargs):
+            payloads.append(json.loads(req.data.decode("utf-8")))
+            return _FakeSseResp(first if len(payloads) == 1 else second)
+
+        # 深思档（pro）：首次开思考、判空后关思考重来。快档 flash 首次就已关思考，测不出这一步。
+        with mock.patch.object(ai_module.urllib_request, "urlopen", side_effect=_fake_urlopen), \
+                mock.patch.object(app_module.AI_CLIENT, "config",
+                                  replace(app_module.AI_CLIENT.config, model="deepseek-v4-pro")):
+            chunks = list(
+                app_module.AI_CLIENT.chat_complete_stream(
+                    [{"role": "user", "content": "讲讲"}], 200
+                )
+            )
+        self.assertEqual("".join(chunks), "商品是财富的元素形式。")
+        self.assertTrue(all("只有思考" not in c and "没有正文" not in c for c in chunks))
+        self.assertEqual(len(payloads), 2)
+        self.assertNotIn("thinking", payloads[0])  # 深思档首次仍开思考（质量更好）
+        self.assertEqual(payloads[1].get("thinking"), {"type": "disabled"})  # 重试关思考
+
+    def test_stream_fast_tier_disables_thinking_upfront(self) -> None:
+        # 快档 flash 的流式：首包就关思考，读者不必干等模型「先想两分钟」。
+        lines = _sse_delta_lines({"content": "商品"}, {"content": "是财富的元素形式。"})
+        payloads: list[dict] = []
+
+        def _fake_urlopen(req, *args, **kwargs):
+            payloads.append(json.loads(req.data.decode("utf-8")))
+            return _FakeSseResp(lines)
+
+        with mock.patch.object(ai_module.urllib_request, "urlopen", side_effect=_fake_urlopen), \
+                mock.patch.object(app_module.AI_CLIENT, "config",
+                                  replace(app_module.AI_CLIENT.config, model="deepseek-v4-flash")):
+            chunks = list(
+                app_module.AI_CLIENT.chat_complete_stream(
+                    [{"role": "user", "content": "讲讲"}], 200
+                )
+            )
+        self.assertEqual("".join(chunks), "商品是财富的元素形式。")
+        self.assertEqual(len(payloads), 1)
+        self.assertEqual(payloads[0].get("thinking"), {"type": "disabled"})
+
+    def test_stream_reasoning_only_twice_raises_instead_of_leaking(self) -> None:
+        # 关思考重试后仍只有思维链 → 如实报错，绝不把「用户要求我…」当答案吐给读者。
+        lines = _sse_delta_lines({"reasoning_content": "用户要求我讲解本页"})
+        with mock.patch.object(
+            ai_module.urllib_request, "urlopen", side_effect=lambda *a, **k: _FakeSseResp(list(lines))
+        ):
+            with self.assertRaises(app_module.AIServiceError):
+                list(
+                    app_module.AI_CLIENT.chat_complete_stream(
+                        [{"role": "user", "content": "讲讲"}], 200
+                    )
+                )
+
+    def test_stream_reasoning_emits_keepalive_ticks(self) -> None:
+        # 思考阶段超过节流间隔 → yield 空串（保活 tick），空串不算正文。
+        lines = _sse_delta_lines(
+            {"reasoning_content": "思考A"},
+            {"reasoning_content": "思考B"},
+            {"content": "答"},
+        )
+        # monotonic 调用序：起点 0.0 → 思考A 时 9.0（≥8 出 tick）→ 思考B 时 9.5（不足再 tick）
+        with mock.patch.object(
+            ai_module.urllib_request, "urlopen", return_value=_FakeSseResp(lines)
+        ), mock.patch.object(ai_module.time, "monotonic", side_effect=[0.0, 9.0, 9.5]):
+            chunks = list(
+                app_module.AI_CLIENT.chat_complete_stream(
+                    [{"role": "user", "content": "讲讲"}], 200
+                )
+            )
+        self.assertEqual(chunks, ["", "答"])
+
+    def test_pdf_chat_instructions_forbid_reasoning_prose(self) -> None:
+        # 提示词第 5 条：直接输出讲解正文、不复述任务、不展示思考过程（从源头压缩思维链）。
+        text = app_module.AI_CLIENT._pdf_chat_instructions(False, False)
+        self.assertIn("5. 直接输出讲解正文", text)
+        self.assertIn("思考过程", text)
+
+    def test_pdf_chat_stream_route_translates_ticks_to_sse_comments(self) -> None:
+        # 路由层：空串 tick → SSE 注释保活；正文进 delta 与 done，tick 不进答案。
+        self._login_member("pdf-stream@example.test")
+        token = self._csrf()
+        source_file = self._any_allowed_source_file()
+
+        def _fake_stream(messages, max_tokens, provider=None, meta_out=None, web_search_query=None):
+            yield ""
+            yield "你好"
+
+        with mock.patch.object(
+            app_module.AI_CLIENT,
+            "prepare_pdf_chat",
+            return_value=([{"role": "user", "content": "q"}], 100, [], []),
+        ), mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete_stream", side_effect=_fake_stream
+        ):
+            resp = self.client.post(
+                "/api/ai/pdf-chat-stream",
+                json={"question": "讲讲本页", "source_file": source_file, "page": 1},
+                headers={"X-CSRF-Token": token},
+            )
+            raw = resp.get_data(as_text=True)  # 流式响应需在 patch 上下文内读完
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(": keepalive", raw)
+        data = _parse_sse_text(raw)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["answer_markdown"], "你好")
+        self.assertNotIn('data: {"text": ""}', raw)
+
+    # ---------- ②阅读器接地问答：检索范围 chips ----------
+
+    def test_viewer_renders_scope_chips(self) -> None:
+        self._login_member("viewer-scope@example.test")
+        source_file = self._any_allowed_source_file()
+        resp = self.client.get("/viewer", query_string={"file": source_file, "page": 1})
+        self.assertEqual(resp.status_code, 200)
+        html = resp.get_data(as_text=True)
+        self.assertIn('id="aiScopeChips"', html)
+        self.assertIn('data-scope="auto"', html)
+        self.assertIn('data-scope="all"', html)
+        # 与随心问共用同一 localStorage 偏好键；接地请求带用户所选范围
+        self.assertIn("marx-ai-scope-v2", html)
+        self.assertIn("scope: currentAiScope()", html)
+        # 至少渲染出一个真实著作群 chip（本地语料非空时）
+        chip_ids = re.findall(r'data-scope="([^"]+)"', html)
+        self.assertTrue(len(chip_ids) > 2, chip_ids)
+
+
+class GroundedDirectQuoteSanitizerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.grounding = [{
+            "index": 1,
+            "citation": "《测试文献》第1页",
+            "text": "前一句提供语境。人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。后一句继续分析。",
+        }]
+
+    def test_completes_and_deduplicates_quote_blocks_without_dropping_analysis(self) -> None:
+        answer = (
+            "### 第一层\n"
+            "> 人的本质不是单个人所固有的抽象物[1]\n\n"
+            "这里保留第一段解释。\n\n"
+            "### 第二层\n"
+            "> 人的本质不是单个人所固有的抽象物[1]\n\n"
+            "这里保留第二段不同的解释。"
+        )
+        cleaned = app_module.AI_CLIENT._sanitize_grounded_direct_quotes(answer, self.grounding)
+        full = "人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。"
+        self.assertEqual(cleaned.count(full), 1)
+        self.assertIn(f"> {full}[1]", cleaned)
+        self.assertIn("这里保留第一段解释。", cleaned)
+        self.assertIn("这里保留第二段不同的解释。", cleaned)
+        self.assertIn("### 第二层", cleaned)
+
+    def test_completes_inline_quote_and_turns_repeat_into_reference(self) -> None:
+        answer = (
+            "马克思指出：“人的本质不是单个人所固有的抽象物”[1]，这一判断具有方法论意义。"
+            "进一步说，“人的本质不是单个人所固有的抽象物”[1]还要求考察现实关系。"
+        )
+        cleaned = app_module.AI_CLIENT._sanitize_grounded_direct_quotes(answer, self.grounding)
+        full = "人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。"
+        self.assertEqual(cleaned.count(full), 1)
+        self.assertIn(f"“{full}”[1]", cleaned)
+        self.assertIn("进一步说，这一论述[1]还要求考察现实关系。", cleaned)
+        self.assertIn("这一判断具有方法论意义。", cleaned)
+
+    def test_unmatched_or_uncited_text_is_untouched(self) -> None:
+        answer = "普通表述“不是本站原文”。\n\n> 无法核验的引文[9]\n\n分析照常保留。"
+        self.assertEqual(
+            app_module.AI_CLIENT._sanitize_grounded_direct_quotes(answer, self.grounding),
+            answer,
+        )
+
+
+class NonStreamReasoningLeakTests(unittest.TestCase):
+    """非流式对话（随心问 /ai 页快速问答、接地问答等）：思维链绝不当正文返回。
+
+    线上事故形态：推理模型把 max_tokens 全烧在思考上（finish_reason=length、content 为空），
+    旧实现回退 reasoning_content 当答案 → 读者页面出现「we need answer in Chinese…」的自我分析。
+    """
+
+    @staticmethod
+    def _resp(content: str = "", reasoning: str = "") -> dict:
+        message: dict = {"role": "assistant", "content": content}
+        if reasoning:
+            message["reasoning_content"] = reasoning
+        return {"choices": [{"message": message, "finish_reason": "length" if not content else "stop"}]}
+
+    def test_empty_content_retries_with_thinking_disabled(self) -> None:
+        leaked = "we need answer in Chinese, based on provided excerpts, user asks…"
+        payloads: list[dict] = []
+
+        def _fake_post(path, payload, **kwargs):
+            payloads.append(payload)
+            return self._resp("", leaked) if len(payloads) == 1 else self._resp("异化劳动的四重规定……")
+
+        with mock.patch.object(app_module.AI_CLIENT, "_post_json", side_effect=_fake_post):
+            answer = app_module.AI_CLIENT.chat_complete(
+                [{"role": "user", "content": "谈谈异化劳动"}], max_tokens=6000,
+                model="deepseek-v4-pro",  # 深思档：首次开思考，判空后才关思考重试
+            )
+        self.assertEqual(answer, "异化劳动的四重规定……")
+        self.assertNotIn("we need answer", answer)
+        self.assertEqual(len(payloads), 2)
+        self.assertNotIn("thinking", payloads[0])
+        self.assertEqual(payloads[1].get("thinking"), {"type": "disabled"})
+
+    def test_reasoning_leaked_into_content_retries(self) -> None:
+        # 思维链被模型写进 content（另一种形态）：开头即「我们 need answer in Chinese」→ 重试换干净正文。
+        leaked = "我们 need answer in Chinese, based on provided excerpts, user asks 谈谈异化劳动。Need structure: four aspects…"
+        clean = "### 一、与劳动产品相异化\n马克思在《1844年经济学哲学手稿》中指出……"
+        with mock.patch.object(
+            app_module.AI_CLIENT, "_post_json", side_effect=[self._resp(leaked), self._resp(clean)]
+        ) as post:
+            answer = app_module.AI_CLIENT.chat_complete(
+                [{"role": "user", "content": "谈谈异化劳动"}], max_tokens=6000,
+                model="deepseek-v4-pro",
+            )
+        self.assertEqual(answer, clean)
+        self.assertEqual(post.call_count, 2)
+
+    def test_reasoning_only_twice_raises_instead_of_leaking(self) -> None:
+        leaked = "用户要求我用中文回答，需要先梳理四重规定……"
+        with mock.patch.object(
+            app_module.AI_CLIENT, "_post_json", return_value=self._resp("", leaked)
+        ):
+            with self.assertRaises(app_module.AIServiceError) as ctx:
+                app_module.AI_CLIENT.chat_complete(
+                    [{"role": "user", "content": "谈谈异化劳动"}], max_tokens=6000
+                )
+        self.assertNotIn("用户要求我", str(ctx.exception))
+
+    def test_grounded_answer_uses_10k_ceiling_and_falls_back_by_rungs(self) -> None:
+        # 接地作答的上限是「思考+正文」合计，故 2026-07-31 上调到 10000；通道拒绝时逐级 6000→4000。
+        grounding = [{"index": 1, "citation": "《测试文献》第1页", "text": "异化劳动的材料。"}]
+        with mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete", return_value="### 正文\n答。"
+        ) as cc:
+            app_module.AI_CLIENT.answer_search_chat([], "谈谈异化劳动", grounding=grounding)
+        self.assertEqual(cc.call_args.kwargs["max_tokens"], ai_module.GROUNDED_ANSWER_MIN_TOKENS)
+        self.assertEqual(ai_module.GROUNDED_ANSWER_MIN_TOKENS, 10000)
+
+        with mock.patch.object(
+            app_module.AI_CLIENT,
+            "chat_complete",
+            side_effect=[
+                app_module.AIServiceError("max_tokens exceeds limit"),
+                app_module.AIServiceError("max_tokens exceeds limit"),
+                "### 正文\n答。",
+            ],
+        ) as cc2:
+            app_module.AI_CLIENT.answer_search_chat([], "谈谈异化劳动", grounding=grounding)
+        self.assertEqual(
+            [c.kwargs["max_tokens"] for c in cc2.call_args_list],
+            [10000, ai_module.GROUNDED_ANSWER_MID_TOKENS, ai_module.GROUNDED_ANSWER_FALLBACK_TOKENS],
+        )
+
+    def test_fast_tier_disables_thinking_upfront(self) -> None:
+        # 快档 flash：首次就关思考——它的思考对质量无增益却常吃光预算（实测线索抽取 16.2s→5.1s、
+        # 接地作答 33.4s→15.5s 而正文长度与结构不变），故不必先浪费一次再重试。
+        with mock.patch.object(
+            app_module.AI_CLIENT, "_post_json", return_value=self._resp("### 结论\n正文。")
+        ) as post:
+            app_module.AI_CLIENT.chat_complete(
+                [{"role": "user", "content": "谈谈异化劳动"}], max_tokens=6000,
+                model="deepseek-v4-flash",
+            )
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(post.call_args.args[1].get("thinking"), {"type": "disabled"})
+
+    def test_structured_extraction_forces_no_thinking(self) -> None:
+        # 线索抽取/重排是「全有或全无」的 JSON：开思考会把预算烧光、一个字 JSON 都不吐，
+        # 故这两步无论走哪个档位都硬性关思考。
+        plan = '{"quotes": ["劳动的产品"], "keywords": ["异化"], "fragments": [], "chapter_keywords": []}'
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=plan) as cc:
+            app_module.AI_CLIENT.expand_associative_query("异化劳动线索抽取用例")
+        self.assertTrue(cc.call_args.kwargs["disable_thinking"])
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value="[]") as cc2:
+            app_module.AI_CLIENT.rank_associative_candidates(
+                "异化劳动", [{"index": 1, "citation": "《测试》第1页", "context": "材料。"}]
+            )
+        self.assertTrue(cc2.call_args.kwargs["disable_thinking"])
+
+    def test_normal_answer_costs_no_extra_call(self) -> None:
+        # 深思档（pro）正常回答零额外开销：只发一次请求、首次不关思考。
+        with mock.patch.object(
+            app_module.AI_CLIENT, "_post_json", return_value=self._resp("### 结论\n正文。", "思考若干")
+        ) as post:
+            answer = app_module.AI_CLIENT.chat_complete(
+                [{"role": "user", "content": "谈谈异化劳动"}], max_tokens=6000,
+                model="deepseek-v4-pro",
+            )
+        self.assertEqual(answer, "### 结论\n正文。")
+        self.assertEqual(post.call_count, 1)
+        self.assertNotIn("thinking", post.call_args.args[1])
+
+
+class ResearchTierExpandTests(unittest.TestCase):
+    """研究综述档改用 pro 抽线索（deep=True）；其余档位仍走 flash。
+
+    研究综述要铺 20-24 条引用，线索面越广越好；快速问答/精准定位对首字延迟敏感，保持 flash。
+    两条硬约束：①缓存按档位隔离，两档结果绝不串味 ②深档抽不出线索必须回落 flash，
+    研究档的下限永远不低于快档（绝不因换档退回原词兜底）。
+    """
+
+    PLAN = '{"quotes": ["劳动的产品"], "keywords": ["异化"], "fragments": ["异化劳动"], "chapter_keywords": []}'
+
+    def setUp(self) -> None:
+        ai_module._ASSOC_EXPAND_CACHE.clear()
+
+    def tearDown(self) -> None:
+        ai_module._ASSOC_EXPAND_CACHE.clear()
+
+    def test_research_tier_uses_pro_and_others_use_flash(self) -> None:
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=self.PLAN) as cc:
+            app_module.AI_CLIENT.expand_associative_query("研究论题甲", deep=True)
+        self.assertEqual(cc.call_args.kwargs["model"], ai_module.ASSOC_EXPAND_DEEP_MODEL)
+        self.assertIn("pro", ai_module.ASSOC_EXPAND_DEEP_MODEL)
+        self.assertTrue(cc.call_args.kwargs["disable_thinking"])  # 深档同样关思考
+
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=self.PLAN) as cc2:
+            app_module.AI_CLIENT.expand_associative_query("研究论题甲", deep=False)
+        self.assertEqual(cc2.call_args.kwargs["model"], ai_module.ASSOC_EXPAND_MODEL)
+
+    def test_cache_is_separated_by_tier(self) -> None:
+        # 同一句话在两档下必须各问一次模型：混用缓存会让研究档悄悄吃到快档线索。
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=self.PLAN) as cc:
+            app_module.AI_CLIENT.expand_associative_query("研究论题乙", deep=False)
+            app_module.AI_CLIENT.expand_associative_query("研究论题乙", deep=True)
+            app_module.AI_CLIENT.expand_associative_query("研究论题乙", deep=True)  # 深档第二次走缓存
+        self.assertEqual(cc.call_count, 2)
+        self.assertEqual(
+            [c.kwargs["model"] for c in cc.call_args_list],
+            [ai_module.ASSOC_EXPAND_MODEL, ai_module.ASSOC_EXPAND_DEEP_MODEL],
+        )
+
+    def test_deep_falls_back_to_flash_when_pro_yields_nothing(self) -> None:
+        # pro 吐不出可用 JSON → 立刻回落 flash（不再赌第二次 pro，抽取耗时要顶在 CF ~100s 之前）。
+        with mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete", side_effect=["不是 JSON", self.PLAN]
+        ) as cc:
+            plan = app_module.AI_CLIENT.expand_associative_query("研究论题丙", deep=True)
+        self.assertEqual(plan.get("keywords"), ["异化"])
+        self.assertEqual(
+            [c.kwargs["model"] for c in cc.call_args_list],
+            [ai_module.ASSOC_EXPAND_DEEP_MODEL, ai_module.ASSOC_EXPAND_MODEL],
+        )
+
+    def test_deep_model_error_does_not_break_retrieval(self) -> None:
+        # pro 通道报错（限流/超时）也不能让整条研究检索失败：吞掉异常继续走 flash。
+        with mock.patch.object(
+            app_module.AI_CLIENT,
+            "chat_complete",
+            side_effect=[app_module.AIServiceError("上游 500"), self.PLAN],
+        ) as cc:
+            plan = app_module.AI_CLIENT.expand_associative_query("研究论题丁", deep=True)
+        self.assertEqual(plan.get("fragments"), ["异化劳动"])
+        self.assertEqual(cc.call_args.kwargs["model"], ai_module.ASSOC_EXPAND_MODEL)
+
+    def test_all_attempts_failing_returns_empty_not_exception(self) -> None:
+        # 全挂也只返回空 plan（调用方据此回退原词兜底），绝不把异常抛给路由层。
+        with mock.patch.object(
+            app_module.AI_CLIENT, "chat_complete", side_effect=app_module.AIServiceError("全挂")
+        ):
+            plan = app_module.AI_CLIENT.expand_associative_query("研究论题戊", deep=True)
+        self.assertEqual(plan, {})
+
+    def test_route_marks_research_mode_as_deep(self) -> None:
+        # 路由层：只有显式 mode=research 才走深档。
+        import inspect
+
+        src = inspect.getsource(app_module.api_search_associative)
+        self.assertIn('expand_associative_query(gist, deep=(mode == "research"))', src)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,35 @@
+# 「流式阅读」书目登记（自托管 HTML 网页适配版，独立于「原文文库」static_books.yaml）。
+# 内容为纯静态 HTML 文本，置于  stream_library/<folder>/  下，由路由  /liushi/raw/<key>/...
+# 直发（带会员权限硬门禁 stream_reading，见 static_library_web.py）。
+# 每页内嵌印本页码锚点 <a id="sNNN">（构建期由文件名注入，见 scripts/build_stream_wenji.py），
+# 阅读器据此读出「当前页」并生成「页码级引文」。
+# citation.tpl_zh / tpl_alt 为引文模板，占位符 {key} 取自该卷字段(优先)与 citation 字段；{page} 为当前页。
+# 引文年统一取《马克思恩格斯文集》10 卷本初版年 2009（人民出版社）。
+
+books:
+  - key: wenji-zh
+    title_zh: 马克思恩格斯文集
+    short_title: 马恩文集
+    lang: zh
+    badge: 流式
+    desc: 中央编译局译本 · 网页适配版，可重排、可复制、可检索 · 内嵌印本页码，一键生成规范引文，支持 AI 导读
+    folder: wenji-zh
+    serve_prefix: /liushi/raw/wenji-zh
+    citation:
+      author_zh: "马克思, 恩格斯"
+      work_zh: "马克思恩格斯文集"
+      publisher_zh: "北京：人民出版社"
+      alt_label: "页下注式"
+      tpl_zh: "{author_zh}. {work_zh}：第{n}卷[M]. {publisher_zh}，{year}：{page}."
+      tpl_alt: "《{work_zh}》第{n}卷，{publisher_zh}{year}年版，第{page}页。"
+    volumes:
+      - { n: 1, tag: "第一卷", label: "1843—1848 · 《1844年经济学哲学手稿》《德意志意识形态》《哲学的贫困》等", index: "1/index.html", year: 2009 }
+      - { n: 2, tag: "第二卷", label: "1848—1859 · 《共产党宣言》《路易·波拿巴的雾月十八日》《政治经济学批判》序言等", index: "2/index.html", year: 2009 }
+      - { n: 3, tag: "第三卷", label: "1864—1883 · 第一国际文献·《工资、价格和利润》等", index: "3/index.html", year: 2009 }
+      - { n: 4, tag: "第四卷", label: "1848—1895 · 《家庭、私有制和国家的起源》·共产主义者同盟史等", index: "4/index.html", year: 2009 }
+      - { n: 5, tag: "第五卷", label: "《资本论》第一卷", index: "5/index.html", year: 2009 }
+      - { n: 6, tag: "第六卷", label: "《资本论》第二卷", index: "6/index.html", year: 2009 }
+      - { n: 7, tag: "第七卷", label: "《资本论》第三卷", index: "7/index.html", year: 2009 }
+      - { n: 8, tag: "第八卷", label: "1857—1865 年经济学手稿摘选", index: "8/index.html", year: 2009 }
+      - { n: 9, tag: "第九卷", label: "《反杜林论》《自然辩证法》", index: "9/index.html", year: 2009 }
+      - { n: 10, tag: "第十卷", label: "书信选编 1842—1895 年", index: "10/index.html", year: 2009 }

@@ -1,0 +1,62 @@
+collection: western_marxism
+label: 西马文库
+license_policy: 仅接收权利人明确开放的文件，或用户提供并确认有权使用的文件。
+books:
+  - key: 历史与阶级意识
+    file: pdfs/西马文库/历史与阶级意识.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: 40272093e27cd9ef27999fdddb15c39f4fd5d52eb8618d4a0a0726197af09a88
+    metadata_verified: true
+  - key: 马克思主义和哲学
+    file: pdfs/西马文库/马克思主义和哲学.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: d306ba9ff36e150304cd03c16056f9165e1e713598ae902c57e252767737a1c7
+    metadata_verified: true
+  - key: 狱中札记
+    file: pdfs/西马文库/狱中札记.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: 95b995e38f9114c2770143f24e6811e073ba91348c198920b59dea91f66acb19
+    metadata_verified: true
+    reviewed_low_ink_pages: [13]
+  - key: 希望的原理（第一卷）
+    file: pdfs/西马文库/希望的原理（第一卷）.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: e5ecb56d79b95999813383a03aaa51d0e5191fb62eebcd85df85628ab88152c9
+    metadata_verified: true
+  - key: 启蒙辩证法
+    file: pdfs/西马文库/启蒙辩证法.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: 7b950588538fe2ee972c3e8f64ffe20f1b0eb4b23aadfe8d96cf6e1509dc8f48
+    metadata_verified: true
+    reviewed_low_ink_pages: [16]
+  - key: 保卫马克思
+    file: pdfs/西马文库/保卫马克思.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: d8206caf2ab3ea25d4ada93c294d5dc91270a7348c208e291fd7c92b2f43abaa
+    metadata_verified: true
+  - key: 空间的生产
+    file: pdfs/西马文库/空间的生产.pdf
+    status: ready
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-07-12"
+    sha256: 3136ec2f34c71f885875b349972b668c5845c273978fef321843529501a66a96
+    metadata_verified: true

@@ -2,6 +2,7 @@ app.py
 admin_store.py
 ai.py
 book_config.py
+volume_presentation.py
 build_index.py
 zpay.py
 desktop_sync.py
@@ -9,6 +10,7 @@ dictionary_store.py
 feedback.py
 feature_access.py
 journal_alerts.py
+broadcast_email.py
 journal_review.py
 membership.py
 runtime_env.py
@@ -26,6 +28,8 @@ scripts/build_maowenji_vol6.py
 scripts/build_scan_volumes.py
 scripts/build_zgl_toc.py
 scripts/build_xi_econ_toc.py
+scripts/build_xuanbian_toc.py
+scripts/build_xi_thematic_toc.py
 scripts/refine_quanji_text.py
 scripts/reocr_quanji_vision.py
 scripts/inject_quanji_reocr.py
@@ -34,3 +38,6 @@ scripts/check_inline_js.py
 scripts/deployment_smoke.py
 scripts/journal_alert_worker.py
 scripts/build_party_toc.py
+scripts/build_western_marxism.py
+geoip.py
+notes.py

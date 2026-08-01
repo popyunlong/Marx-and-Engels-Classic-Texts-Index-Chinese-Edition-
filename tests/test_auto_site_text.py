@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from jinja2 import Environment
 
@@ -11,6 +14,8 @@ from site_content import (
     discover_auto_literals,
     inject_auto_site_text,
     render_auto_site_text,
+    get_site_text_map,
+    save_site_text_overrides,
     _process_template_source,
     TEMPLATE_DIR,
     _iter_template_paths,
@@ -44,6 +49,22 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         key = auto_key_for("进入全文阅读")
         out = self._render(source, overrides={key: "立即阅读"})
         self.assertEqual(out, "<button>立即阅读</button>")
+
+    def test_empty_override_can_hide_auto_text(self) -> None:
+        source = "<span>辅助说明</span>"
+        key = auto_key_for("辅助说明")
+        out = self._render(source, overrides={key: ""})
+        self.assertEqual(out, "<span></span>")
+
+    def test_saved_auto_override_is_present_in_effective_map(self) -> None:
+        key = next(iter(discover_auto_literals()))
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "site_text_overrides.json"
+            values = get_site_text_map(path)
+            values[key] = "立即阅读"
+            save_site_text_overrides(values, path)
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {key: "立即阅读"})
+            self.assertEqual(get_site_text_map(path)[key], "立即阅读")
 
     def test_skips_attributes_scripts_styles_jinja(self) -> None:
         cases = [

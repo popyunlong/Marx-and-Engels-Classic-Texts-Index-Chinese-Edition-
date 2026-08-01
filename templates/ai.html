@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>AI 研究对话 · {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=11">
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
+  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=24">{% endif %}
+</head>
+<body{% if layout_v2 %} class="v2"{% endif %}>
+  {# 四页面布局：在原页面之上套统一导航外壳。页面自身结构（含 JS 引用的 #aipModelBadge）
+     一律不动，仅用 CSS 隐去与导航重复的「← 返回首页」。 #}
+  {% if layout_v2 %}{% include "_appnav.html" %}{% endif %}
+  {# ===========================================================================
+     「AI 研究对话」全屏页：把「AI 随心问」（快速问答）与「研究型检索」（研究综述）
+     合并为一条可连续追问、带上下文的会话线程。自包含（命名空间 aip*），与全站右侧
+     抽屉共用同一条 localStorage 会话（marx-ai-thread-v1），跨页/跨标签连贯。
+     权限/额度/著作群范围经 /api/ai/assistant-config 惰性拉取后自适应显隐。
+     =========================================================================== #}
+  <div id="aip-root"
+       data-csrf="{{ csrf_token }}"
+       data-uid="{{ current_user.id if current_user else '' }}"
+       data-chat-access="{{ '1' if search_chat_access_enabled else '0' }}"
+       data-research-access="{{ '1' if research_access_enabled else '0' }}">
+
+    <header class="aip-topbar">
+      <a class="aip-back" href="{{ url_for('index') }}">← 返回首页</a>
+      <div class="aip-title">
+        <span class="aip-badge" aria-hidden="true">AI</span>
+        <div class="aip-title-text">
+          <h1>AI 研究对话</h1>
+          <p>连续追问、带上下文的马克思主义经典研究问答</p>
+        </div>
+      </div>
+      <span class="aip-model" id="aipModelBadge">正在载入…</span>
+    </header>
+
+    <main class="aip-main">
+      {# 本地会话记录侧栏：多会话（新建/切换/删除/重命名），localStorage 按账号隔离。
+         宽屏常驻左侧；窄屏收起为抽屉，由 aip-stage 顶部「会话记录」按钮唤出。 #}
+      <aside class="aip-sessions" id="aipSessions" aria-label="会话记录">
+        <div class="aip-sessions-head">
+          <button type="button" class="aip-newchat" id="aipNewChat">＋ 新建会话</button>
+          <button type="button" class="aip-sessions-close" id="aipSessionsClose" aria-label="关闭">×</button>
+        </div>
+        <div class="aip-sessions-list" id="aipSessionsList"></div>
+        <div class="aip-sessions-foot">会话仅存于本设备浏览器</div>
+      </aside>
+      <div class="aip-sessions-scrim" id="aipSessionsScrim" hidden></div>
+
+      <section class="aip-stage">
+
+        <button type="button" class="aip-sessions-toggle" id="aipSessionsToggle" aria-label="会话记录">☰ 会话记录</button>
+
+        {# 锁定态（未登录 / 未开通）：黄框提示，输入区禁用 #}
+        <div class="aip-lock" id="aipLock" hidden></div>
+        <div class="aip-storage-warning" id="aipStorageWarning" role="status" hidden></div>
+
+        <div class="aip-controls" id="aipControls" hidden>
+          {# 回答深度：快速问答（随心问）/ 研究综述（研究型检索）。整条会话连续、共享上下文。 #}
+          <div class="aip-depth" role="tablist" aria-label="回答深度">
+            <button type="button" class="aip-depth-tab active" data-depth="quick" role="tab" aria-selected="true">
+              <strong>快速问答</strong>
+              <span>即时对话 · 可选检索引文库佐证</span>
+            </button>
+            <button type="button" class="aip-depth-tab tab-research" data-depth="research" role="tab" aria-selected="false">
+              <strong>研究综述</strong>
+              <span>深度长文 · 20–24 条来自原著的真实引用</span>
+            </button>
+          </div>
+
+          <div class="aip-opts">
+            <div class="aip-provider-row" id="aipProviderRow" hidden>
+              <label for="aipModel">模型</label>
+              <select id="aipModel">
+                <option value="flash">DeepSeek Flash（默认 · 快）</option>
+                <option value="pro">DeepSeek Pro（更强 · 较慢）</option>
+                <option value="zhipu" id="aipModelZhipuOpt">智谱 GLM-5.1（可联网检索）</option>
+              </select>
+            </div>
+            <label class="aip-grounding" id="aipGroundingRow">
+              <input type="checkbox" id="aipGrounding">
+              <span>检索引文库作答</span>
+              <span class="aip-hint">开启后先检索原著原文，回答附准确出处</span>
+            </label>
+            <div class="aip-scope-row" id="aipScopeRow">
+              <span class="aip-scope-label">检索范围</span>
+              <div class="aip-scope-chips" id="aipScopeChips" role="group" aria-label="检索范围（可多选著作群）"></div>
+              <span class="aip-book-scope" id="aipBookScopeMount"></span>
+            </div>
+          </div>
+
+          {# 研究档说明 + 每周次数额度徽章 #}
+          <div class="aip-research-note" id="aipResearchNote" hidden>
+            <span class="aip-note-dot" aria-hidden="true"></span>
+            <span>
+              <strong>研究综述</strong>：围绕你的命题在真实语料中铺开约 5000 字综述，并给出 20–24 条来自原著的真实引用（引文不可伪造）。生成较慢，请耐心等待。
+              <span class="aip-research-quota" id="aipResearchQuota"></span>
+            </span>
+          </div>
+
+          {# 快速档 token 额度条 #}
+          <div class="aip-quota hidden" id="aipTokenQuota">
+            <div class="aip-quota-bar"><span id="aipTokenQuotaFill"></span></div>
+            <span class="aip-quota-text" id="aipTokenQuotaText"></span>
+          </div>
+        </div>
+
+        <div class="aip-messages chat-box" id="aipMessages"></div>
+
+        <div class="aip-composer" id="aipComposer" hidden>
+          <textarea id="aipPrompt" rows="2" placeholder="输入你的问题，回车发送（Shift+Enter 换行）"></textarea>
+          <div class="aip-actions">
+            <button type="button" class="aip-primary" id="aipSend">发送提问</button>
+            {# 生成中显示「停止回答」，中止当前在飞的这条回答，随即可开启新的提问。 #}
+            <button type="button" class="aip-stop" id="aipStop" hidden>■ 停止回答</button>
+            <button type="button" class="aip-secondary" id="aipClear">清空会话</button>
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+  <script src="/static/book-scope/book-scope.js?v=4" defer></script>
+  <script src="/static/ai-page/ai-page.js?v=25" defer></script>
+</body>
+</html>

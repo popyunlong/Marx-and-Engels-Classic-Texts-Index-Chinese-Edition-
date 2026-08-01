@@ -66,6 +66,16 @@
     #selPop{position:fixed;z-index:60;display:none;max-width:340px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:6px;}
     #selPop .sel-body{padding:8px 10px;font-size:.92em;line-height:1.65;color:var(--text);max-height:40vh;overflow:auto;}
     #selPop .sel-body.err{color:var(--accent);}
+    /* 选中即引用浮窗（中文《文集》流式：页码精确到所选段落所在印本页） */
+    #citePop{position:fixed;z-index:60;display:none;max-width:360px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.22);padding:10px 12px;}
+    #citePop .cp-head{font-size:.82em;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+    #citePop .cp-head .pg{color:var(--accent);font-weight:600;}
+    #citePop .cp-fmt{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+    #citePop .cp-fmt select,.cite-fmt-sel{font:inherit;font-size:.9em;padding:2px 6px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text);cursor:pointer;}
+    .cite-fmt-sel{font-size:.82em;}
+    #citePop .cp-val{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.88em;line-height:1.6;word-break:break-word;max-height:30vh;overflow:auto;}
+    #citePop .cp-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
+    #citePop .cp-hint{font-size:.74em;color:var(--muted);}
     /* 引文弹窗 */
     .modal{display:none;position:fixed;inset:0;background:rgba(20,15,10,.45);z-index:50;align-items:center;justify-content:center;padding:20px;}
     .modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:680px;width:100%;padding:22px 24px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
@@ -80,7 +90,7 @@
 </head>
 <body>
   <div class="topbar">
-    <a class="back" href="{{ url_for('wenku_home') }}">← 文库</a>
+    <a class="back" href="{{ url_for(home_endpoint) }}">← {{ home_title or '文库' }}</a>
     <div class="titlewrap">
       <div class="t">{{ book.title_zh }}</div>
       <div class="v">{{ volume.label }}</div>
@@ -95,6 +105,9 @@
     <button class="btn" id="bilingual" title="整段中文对照翻译（DeepSeek，永久缓存）">对照翻译</button>
     <button class="btn" id="aiBtn" title="AI 导读（基于当前页原文，中文讲解）">AI 导读</button>
     <button class="btn primary" id="cite" title="生成本页引文">引用本页</button>
+    {% if notes_access_enabled %}
+    <button class="btn" id="notesBtn" title="本卷笔记 / 记笔记">笔记</button>
+    {% endif %}
   </div>
 
   <div class="stage">
@@ -122,30 +135,49 @@
   </div>
 
   <div id="selPop"></div>
+  <div id="citePop"></div>
 
   <div class="modal" id="citeModal" role="dialog" aria-modal="true">
     <div class="box">
       <h3>引用本页</h3>
-      <p class="hint">页码取自原书内嵌锚点，对应当前阅读位置所在的印刷页。</p>
+      <p class="hint">页码为当前屏幕顶部所在的印刷页；若要精确引用某一段，可直接在正文中选中该段文字，会就地显示其所在页的引文。</p>
       <div class="warn" id="citeWarn">未能从当前视图识别到页码——请把要引用的页滚动到顶部附近后再点「引用本页」。</div>
       <div class="cite-row">
-        <div class="lab"><span>中文（GB/T 7714）</span><button class="btn" id="copyZh">复制</button></div>
+        <div class="lab"><span id="citeZhLab">中文（GB/T 7714）</span><select id="citeFmtSel" class="cite-fmt-sel" style="display:none" aria-label="选择引用格式"></select><button class="btn" id="copyZh">复制</button></div>
         <div class="val" id="citeZh"></div>
       </div>
       <div class="cite-row">
         <div class="lab"><span id="altLabel">原文版式</span><button class="btn" id="copyRu">复制</button></div>
         <div class="val" id="citeRu"></div>
       </div>
-      <div class="foot"><button class="btn" id="citeClose">关闭</button></div>
+      <div class="foot"><button class="btn" id="citeReport" title="此处页码有误？一键提醒管理员核对">⚑ 一键报错</button><button class="btn" id="citeClose">关闭</button></div>
     </div>
   </div>
 
+  {# 阅读历史「继续阅读」：把当前书/卷/文档记到本设备 localStorage（按账号隔离），首页与文库一键续读。
+     非 defer，确保下方阅读器脚本执行时 MarxReadingHistory 已就绪。 #}
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  {% if notes_access_enabled %}
+  {# 会员专属「笔记」：选中原文/整页记笔记，跨书聚合到「我的知识库」。非 defer 保证下方脚本执行时 MarxNotes 已就绪。 #}
+  <link rel="stylesheet" href="/static/notes/notes.css?v=2">
+  <script src="/static/notes/notes.js?v=2" data-marx-notes data-uid="{{ (current_user.id if current_user else '') }}" data-csrf="{{ csrf_token }}"></script>
+  {% endif %}
   <script>
     const CFG = {{ wenku_config_json | safe }};
     const CSRF = {{ csrf_token | tojson }};
     const AI_WEB = {{ ai_web_allowed | tojson }};
+    const AI_URL = {{ ai_api_url | tojson }};
+    const TRANSLATE_URL = {{ translate_api_url | tojson }};
+    const AI_ENABLED = {{ ai_enabled | tojson }};   // 普通阅读器入口(?ai=0)关闭 AI 导读；会员/直链/流式默认开
+    const NOTES_ON = {{ notes_access_enabled | default(false) | tojson }};   // 会员专属「笔记」是否开放
+
     const VOL_INDEX = {{ (serve_prefix ~ '/' ~ volume['index']) | tojson }};
     const SRC_LANG = CFG.lang || 'ru', TGT_LANG = 'zh';
+    // 中文书（文集流式阅读）：源文即中文，无需对照/划词翻译，仅保留 AI 导读与引文。
+    const TRANSLATE_ON = (CFG.lang !== 'zh') && !!TRANSLATE_URL;
+    // 中文《文集》流式（无划词翻译）：选中文字即就地显示「引用此处」，页码精确到所选段落所在印本页。
+    // 仅页码型书启用（英文文集无原书页码；俄/德文书走划词翻译，不启用）。
+    const CITE_ON_SELECT = !TRANSLATE_ON && CFG.lang !== 'en';
     const iframe = document.getElementById('reader');
     let scale = parseFloat(localStorage.getItem('wenku_scale') || '1') || 1;
 
@@ -178,10 +210,105 @@
       document.getElementById('curPage').textContent = p ? String(p) : '—';
       return p;
     }
+    // 某节点所在的印本页：取它之前最近的页锚点。与 detectPage 用同一套页锚点选择器。
+    function pageAtNode(d, node){
+      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
+      let page = null;
+      for(const el of markers){
+        const num = markerNum(el); if(num === null) continue;
+        // node 在该页锚点之后 → 锚点在它之前，记为候选页；文档序遇到不在之前的即停。
+        if(el.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) page = num;
+        else break;
+      }
+      return page;
+    }
+    // 所选文字所在的印本页区间：起点、终点各自取页——比「顶部取页」精确到「你选的那一段」，
+    // 修复流式引文页码常差 1~2 页 / 随滚动两页跳的问题。
+    // 起止不同 → 说明选区跨页，引文须出区间（第 10—11 页），只报起点页是错的。
+    function pagesOfSelection(sel){
+      try{
+        const d = iframe.contentDocument; if(!d || !sel || !sel.rangeCount) return null;
+        const r = sel.getRangeAt(0);
+        const a = pageAtNode(d, r.startContainer);
+        const b = pageAtNode(d, r.endContainer);
+        if(a === null && b === null) return null;
+        const lo = (a === null) ? b : a, hi = (b === null) ? a : b;
+        // 页锚点按文档序递增，故 lo<=hi；异常顺序（选区反向等）时兜底取小/大。
+        const n1 = Math.min(Number(lo), Number(hi)), n2 = Math.max(Number(lo), Number(hi));
+        return {start: n1, end: n2, text: (n1 === n2) ? String(n1) : (n1 + '—' + n2)};
+      }catch(e){ return null; }
+    }
+
+    // ---------- 阅读历史「继续阅读」（记到本设备，首页/文库一键续读）----------
+    function readerKind(){
+      // 外层页面路径首段：/liushi/... → 流式；否则 → 文库。
+      return (location.pathname.split('/')[1] || '').toLowerCase() === 'liushi' ? 'liushi' : 'wenku';
+    }
+    // 当前 iframe 正在读的文档，相对 serve_prefix 的路径（+锚点）。跨域书读不到则回退起始文档。
+    function currentDocRelpath(){
+      try{
+        const loc = iframe.contentWindow.location;
+        if(loc.origin !== location.origin) return CFG.start_doc || '';
+        const prefix = CFG.serve_prefix || '';
+        let rel = (prefix && loc.pathname.indexOf(prefix + '/') === 0) ? loc.pathname.slice(prefix.length + 1) : '';
+        if(!rel) rel = CFG.start_doc || '';
+        return rel + (loc.hash || '');
+      }catch(e){ return CFG.start_doc || ''; }
+    }
+    // 续读 URL＝外层阅读器页（保留 vol/ai/from 等）：doc 覆盖为当前文档、pg 记当前印本页号。
+    // 路由原生支持 ?doc=；pg 仅前端读取，用于进场滚动到章内该页锚点（s3/S3/<a name=S3>）。
+    // 切勿用 #fragment：服务器会丢弃它，且它指向外层阅读器页而非 iframe 里的文档。
+    function buildResumeUrl(rel, page){
+      const u = new URL(location.href);
+      const bare = String(rel || '').split('#')[0];
+      if(bare) u.searchParams.set('doc', bare); else u.searchParams.delete('doc');
+      if(page != null && page !== '') u.searchParams.set('pg', String(page)); else u.searchParams.delete('pg');
+      return u.pathname + u.search;
+    }
+    function recordReadingPosition(pageHint){
+      if(!window.MarxReadingHistory) return;
+      const vol = CFG.volume || {};
+      // 标题用简短卷号（第一卷/Т.1…），避免整段卷说明塞进标签；去重键仍用长 label 保证每卷一条。
+      const vshort = vol.tag || (vol.n != null ? ('第' + vol.n + '卷') : '');
+      const title = (CFG.title_zh || '') + (vshort ? ' · ' + vshort : '');
+      if(!title.trim()) return;
+      const rel = currentDocRelpath();
+      let page = pageHint; if(page === undefined){ try{ page = detectPage(); }catch(e){} }
+      let subtitle = page ? ('第 ' + page + ' 页') : '';
+      if(!subtitle){ try{ const info = enArticleInfo(); if(info && info.article) subtitle = info.article; }catch(e){} }
+      try{
+        MarxReadingHistory.record({
+          book: 'wenku:' + (CFG.book_key || '') + '|' + (vol.n != null ? vol.n : (vol.label || '')),
+          kind: readerKind(),
+          title: title,
+          subtitle: subtitle,
+          url: buildResumeUrl(rel, page),
+        });
+      }catch(e){ /* 记录失败绝不影响阅读 */ }
+    }
+
+    // 进场续读定位：外层 URL 带 pg（印本页号）时，等 iframe 载入起始文档后滚到该页锚点（只尝试一次）。
+    let pendingResumePage = (function(){ try{ return new URL(location.href).searchParams.get('pg'); }catch(e){ return null; } })();
+    function scrollToPage(num){
+      if(num == null || num === '') return false;
+      try{
+        const d = iframe.contentDocument; if(!d) return false;
+        const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
+        for(const el of markers){
+          if(markerNum(el) === String(num)){ el.scrollIntoView({block:'start'}); return true; }
+        }
+      }catch(e){}
+      return false;
+    }
+    function maybeResumeScroll(){
+      if(pendingResumePage == null) return;
+      const target = pendingResumePage; pendingResumePage = null;   // 只在首个文档上尝试一次，翻页后不再跳
+      scrollToPage(target);
+    }
 
     // ---------- 翻译（DeepSeek，永久缓存；命中缓存零成本） ----------
     async function postTranslate(texts){
-      const r = await fetch("/api/wenku/translate", {
+      const r = await fetch(TRANSLATE_URL, {
         method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
         body: JSON.stringify({texts, src:SRC_LANG, tgt:TGT_LANG})
       });
@@ -196,11 +323,12 @@
     function hideSel(){ selPop.style.display='none'; selPop.dataset.text=''; }
     function showSelBubble(x, y, text){
       selPop.dataset.text = text;
-      selPop.innerHTML = '<button class="btn primary" id="selDo">译 ▸</button>';
+      selPop.innerHTML = '<button class="btn primary" id="selDo">译 ▸</button>' + (NOTES_ON ? '<button class="btn" id="selNote" title="把所选原文记入知识库">✎ 记笔记</button>' : '');
       selPop.style.left = Math.max(8, Math.min(x, window.innerWidth-230)) + 'px';
       selPop.style.top  = Math.min(y, window.innerHeight-60) + 'px';
       selPop.style.display = 'block';
       document.getElementById('selDo').onclick = doSelTranslate;
+      if(NOTES_ON){ const sn = document.getElementById('selNote'); if(sn) sn.onclick = function(){ if(window.__mxnPanel) window.__mxnPanel.noteFromSelection(); }; }
     }
     async function doSelTranslate(){
       const text = selPop.dataset.text; if(!text) return;
@@ -216,12 +344,62 @@
     function onIframeMouseUp(){
       let sel; try{ sel = iframe.contentWindow.getSelection(); }catch(e){ return; }
       const text = (sel && sel.toString() || '').trim();
-      if(text.length < 2){ if(selPop.dataset.text) hideSel(); return; }
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
-      const ib = iframe.getBoundingClientRect();
-      showSelBubble(ib.left + rect.left, ib.top + rect.bottom + 6, text);
+      if(TRANSLATE_ON){   // 非中文书：划词翻译（原有行为）
+        if(text.length < 2){ if(selPop.dataset.text) hideSel(); return; }
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        const ib = iframe.getBoundingClientRect();
+        showSelBubble(ib.left + rect.left, ib.top + rect.bottom + 6, text);
+        return;
+      }
+      if(CITE_ON_SELECT){   // 中文《文集》流式：选中即显示「引用此处」，页码精确到所选段落所在印本页
+        if(text.length < 2){ if(citePop.dataset.on) hideCiteSel(); return; }
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        const ib = iframe.getBoundingClientRect();
+        showCiteBubble(ib.left + rect.left, ib.top + rect.bottom + 6, pagesOfSelection(sel));
+      }
     }
-    document.addEventListener('mousedown', e=>{ if(!selPop.contains(e.target)) hideSel(); });
+    document.addEventListener('mousedown', e=>{ if(!selPop.contains(e.target)) hideSel(); if(!citePop.contains(e.target)) hideCiteSel(); });
+
+    // 选中即引用（中文《文集》流式）：气泡显示所选段落所在印本页的引文 + 提示。
+    const citePop = document.getElementById('citePop');
+    function hideCiteSel(){ citePop.style.display = 'none'; citePop.dataset.on = ''; }
+    function showCiteBubble(x, y, pg){
+      // pg = pagesOfSelection() 的 {start,end,text}；跨页选中时 text 形如「10—11」，
+      // 直接作为引文模板的 {page} 填入即得「…人民出版社，2009：10—11.」。
+      const pageStr = pg ? pg.text : '';
+      const cit = buildCitations(pageStr);
+      const pgTxt = pg ? ('第 ' + pg.text + ' 页') : '未识别页码';
+      const fmts = cit.formats;                 // 三格式可切换；null（外文书等）则回退单一 zh
+      let curFmt = citeFormat();
+      const shown = () => (fmts && fmts[curFmt]) || cit.zh;
+      const fmtSel = fmts
+        ? '<label class="cp-fmt">引用格式 <select id="cpFmt">' +
+            Object.keys(CITE_FORMAT_LABELS).map(k => '<option value="' + k + '"' + (k === curFmt ? ' selected' : '') + '>' + escapeHtml(CITE_FORMAT_LABELS[k]) + '</option>').join('') +
+          '</select></label>'
+        : '';
+      citePop.dataset.on = '1';
+      citePop.innerHTML =
+        '<div class="cp-head"><span class="cp-head-t">引用所选 · <span class="pg">' + escapeHtml(pgTxt) + '</span></span>' + fmtSel + '</div>' +
+        '<div class="cp-val" id="cpVal">' + escapeHtml(shown()) + '</div>' +
+        '<div class="cp-foot"><button class="btn primary" id="cpCopy">复制引文</button>' +
+        (NOTES_ON ? '<button class="btn" id="cpNote" title="把所选原文记入知识库">✎ 记笔记</button>' : '') +
+        '<button class="btn" id="cpReport" title="此处页码有误？提醒管理员核对">⚑ 报错</button>' +
+        '<span class="cp-hint">' + (pg && pg.start !== pg.end ? '所选跨 ' + (pg.end - pg.start + 1) + ' 个印本页' : '页码依据所选文字定位') + '</span></div>';
+      citePop.style.left = Math.max(8, Math.min(x, window.innerWidth - 380)) + 'px';
+      citePop.style.top  = Math.min(y, window.innerHeight - 170) + 'px';
+      citePop.style.display = 'block';
+      const valEl = document.getElementById('cpVal');
+      if(fmts){
+        document.getElementById('cpFmt').onchange = function(){
+          curFmt = this.value;
+          try{ localStorage.setItem(CITE_FORMAT_KEY, curFmt); }catch(e){}  // 共享键，跨页/AI 页同步
+          valEl.textContent = shown();
+        };
+      }
+      document.getElementById('cpCopy').onclick = function(){ copyText(valEl.textContent, this); };
+      document.getElementById('cpReport').onclick = function(){ reportPageError(pageStr, valEl.textContent, this); };
+      if(NOTES_ON){ const cn = document.getElementById('cpNote'); if(cn) cn.onclick = function(){ if(window.__mxnPanel) window.__mxnPanel.noteFromSelection(); }; }
+    }
 
     // 整段对照翻译
     let bilingual = false, trBusy = false;
@@ -246,7 +424,7 @@
         const s = d.createElement('style'); s.id = 'wenku-reading';
         s.textContent = `
 :root{--rbg:#f7f5f0;--rtext:#1c1917;--rt2:#57534e;--rt3:#a8a29e;--rbd:#d8d2c8;--rcard:#fff;--racc:#b45309;
---rserif:Georgia,"Times New Roman","Noto Serif","PT Serif","Liberation Serif",serif;
+--rserif:Georgia,"Times New Roman","Noto Serif","PT Serif","Liberation Serif","Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;
 --rcjk:"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;}
 html{background:var(--rbg)!important;}
 body{max-width:800px!important;margin:0 auto!important;padding:30px 34px 96px!important;background:var(--rbg)!important;
@@ -274,9 +452,93 @@ a[name^="S"] b,a[name^="s"] b,a[id^="S"] b,a[id^="s"] b{color:var(--rt3)!importa
 dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
 .en-src{background:#faf6ef;border-left:3px solid var(--rbd)!important;color:var(--rt2)!important;}
 .wenku-zh,.wenku-zh *{font-family:var(--rcjk)!important;}
+/* 注文块（流式《文集》）：页末脚注 .fn-notes（作者/译者原注，构建期打的 class）与
+   节末编者尾注 .endnotes。此前脚注块与正文同字号同色、无分隔线，读者读到会当成正文
+   ——注文本身不多余（悬浮预览正是从这里取数），缺的是「一眼看出这是注、可跳过」。
+   按 class 限定作用域，/wenku 的俄德书若自带裸 <aside> 不受影响。 */
+aside.fn-notes,aside.endnotes{font-size:.84em!important;line-height:1.8!important;color:var(--rt2)!important;
+margin:1.8em 0 .6em!important;padding:.9em 1.1em!important;background:rgba(180,83,9,.03);
+border-top:1px solid var(--rbd);border-left:2px solid var(--rbd);border-radius:0 8px 8px 0;}
+aside.fn-notes p,aside.endnotes p{margin:.42em 0!important;}
+aside.fn-notes>p>a:first-child,aside.endnotes>p>a:first-child{font-weight:700;margin-right:.45em;}
+aside.endnotes{margin-top:2.6em!important;border-top:2px solid var(--rbd);}
+aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--racc)!important;font-weight:700;}
 `;
         d.head.appendChild(s);
       }catch(e){}
+    }
+    // ---------- 脚注悬浮预览（文集流式阅读） ----------
+    // 构建期已把每页脚注做成页内锚点：正文 <sup><a href="#pg{页}_F{k}">，注文在页末
+    // <aside> 里「一注一 <p>、以回跳锚点开头」。这里在 iframe 文档内做事件委托：悬停注号
+    // 就地取对应 <p> 渲染浮层（无任何网络请求）；点击仍保留原有的跳转到页末注文行为。
+    // 触屏（hover:none）：首次点按先出浮层不跳转，浮层已开时再点按才跳转。
+    // 锚点形如 pgN_Fk（页末脚注）/ pgN_En（卷末编者尾注，注文由 build_wenji_endnotes.py
+    // 从 PDF 语料注释节解析后注入节末 <aside>）仅流式《文集》构建产物存在
+    // ——其他文库书自然不触发，零影响。两者结构同构，故共用这一套浮层。
+    const FN_REF_RE = /^#(pg\d+_[FE]\d+)$/;
+    function setupFootnoteTips(){
+      let d; try{ d = iframe.contentDocument; }catch(e){ return; }
+      if(!d || !d.body || d.getElementById('fnTipStyle')) return;   // 每个文档只装一次
+      const st = d.createElement('style'); st.id = 'fnTipStyle';
+      st.textContent = '.fn-tip{position:absolute;z-index:99;max-width:min(430px,86vw);background:#fffdf6;'
+        + 'border:1px solid #d8d2c8;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);'
+        + 'padding:10px 14px;font-size:.88em;line-height:1.8;color:#241d17;max-height:46vh;overflow:auto;}'
+        + '.fn-tip::before{content:"注";display:inline-block;font-size:.78em;color:#8f1d1d;'
+        + 'border:1px solid #e3cfc7;border-radius:5px;padding:0 5px;margin-right:7px;vertical-align:.1em;}';
+      d.head.appendChild(st);
+      const tip = d.createElement('div'); tip.className = 'fn-tip'; tip.style.display = 'none';
+      d.body.appendChild(tip);
+      let hideTimer = null, tipFor = null;
+      function noteHtmlFor(id){
+        const anchor = d.getElementById(id); if(!anchor) return '';   // 注文被切到相邻节时静默跳过
+        const holder = anchor.closest('p') || anchor.parentElement; if(!holder) return '';
+        const clone = holder.cloneNode(true);
+        const back = clone.querySelector('a[id="' + id + '"]'); if(back) back.remove();  // 去掉行首注号回跳锚点
+        return clone.innerHTML.trim();
+      }
+      function showTip(link, id){
+        const html = noteHtmlFor(id); if(!html) return false;
+        tip.innerHTML = html;
+        tip.style.display = 'block';
+        const w = d.defaultView, r = link.getBoundingClientRect();
+        const scX = w.pageXOffset, scY = w.pageYOffset;
+        const vw = d.documentElement.clientWidth, vh = d.documentElement.clientHeight;
+        let left = Math.max(scX + 8, Math.min(r.left + scX, scX + vw - tip.offsetWidth - 10));
+        let top = r.bottom + scY + 6;
+        if(r.bottom + tip.offsetHeight + 12 > vh && r.top - tip.offsetHeight - 8 > 0){
+          top = r.top + scY - tip.offsetHeight - 8;   // 下方放不下且上方有空间 → 翻到注号上方
+        }
+        tip.style.left = left + 'px'; tip.style.top = top + 'px';
+        tipFor = link;
+        return true;
+      }
+      function hideTipSoon(){
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(()=>{ tip.style.display = 'none'; tipFor = null; }, 180);
+      }
+      d.addEventListener('mouseover', e=>{
+        const a = (e.target && e.target.closest) ? e.target.closest('a[href]') : null;
+        if(a){
+          const m = (a.getAttribute('href') || '').match(FN_REF_RE);
+          if(m){ clearTimeout(hideTimer); if(tipFor !== a) showTip(a, m[1]); return; }
+        }
+        if(tip.contains(e.target)) clearTimeout(hideTimer);   // 移入浮层本体（长注可滚动）保持显示
+      });
+      d.addEventListener('mouseout', e=>{
+        const to = e.relatedTarget;
+        if(to && (tip.contains(to) || ((to.closest ? to.closest('a[href]') : null) === tipFor && tipFor))) return;
+        if(tipFor || tip.style.display === 'block') hideTipSoon();
+      });
+      d.addEventListener('click', e=>{
+        const a = (e.target && e.target.closest) ? e.target.closest('a[href]') : null;
+        if(!a) return;
+        const m = (a.getAttribute('href') || '').match(FN_REF_RE);
+        if(!m) return;
+        let touchOnly = false;
+        try{ touchOnly = d.defaultView.matchMedia('(hover: none)').matches; }catch(err){}
+        // 触屏首次点按：只出浮层不跳转；浮层已对准本注号时再点按 → 正常跳到页末注文。
+        if(touchOnly && tipFor !== a && showTip(a, m[1])) e.preventDefault();
+      });
     }
     function clearBilingual(){ try{ iframe.contentDocument.querySelectorAll('.wenku-zh').forEach(n=>n.remove()); }catch(e){} }
     function paragraphsNeedingTrans(){
@@ -319,18 +581,24 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
     // ---------- iframe 生命周期 ----------
     let scrollTimer = null;
     function onScroll(){
-      updatePageLabel();
+      const p = updatePageLabel();
+      recordReadingPosition(p);  // 复用刚算好的页码，模块内节流，随滚动更新「读到哪一页」
+      hideCiteSel();             // 滚动后气泡会脱离所选文字位置，收起
       if(bilingual){ clearTimeout(scrollTimer); scrollTimer = setTimeout(runBilingualPass, 350); }
     }
     function onFrameLoad(){
       injectReadingStyle();
+      setupFootnoteTips();      // 脚注悬浮预览（仅含 pgN_Fk 锚点的流式《文集》文档会触发）
       applyFont();
+      maybeResumeScroll();      // 进场续读：滚到上次读到的印本页（仅首个文档、仅一次）
       updatePageLabel();
+      recordReadingPosition();  // 翻到新文档即记录「继续阅读」
       try{
         iframe.contentWindow.addEventListener('scroll', onScroll, {passive:true});
         iframe.contentDocument.addEventListener('mouseup', onIframeMouseUp);
       }catch(e){}
       hideSel();
+      hideCiteSel();   // 翻到新文档：收起残留的引用气泡
       if(bilingual){ injectZhStyle(); runBilingualPass(); }   // 翻页后保持对照
     }
     iframe.addEventListener('load', onFrameLoad);
@@ -352,6 +620,28 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
                  source: (m && m.getAttribute('content') || '').trim() };
       }catch(e){ return {}; }
     }
+    // 三种标准中文引文格式（与检索/AI 页共用同一套：国标 GB/T 7714 / 中国社会科学 / 马克思主义研究），
+    // 供「引用所选 / 引用本页」下拉切换；共用同一把 localStorage 键，跨页记忆。仅中文《文集》流式启用。
+    const CITE_FORMAT_KEY = 'marx-citation-format-v1';
+    const CITE_FORMAT_LABELS = { gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+    function citeFormat(){ try{ const val = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[val] ? val : 'gb2015'; }catch(e){ return 'gb2015'; } }
+    // 从卷字段就地拼装三格式，与后端 search.DEFAULT_CITATION_TEMPLATES 对齐（题名领起、无著者前缀）。
+    // 仅中文《文集》(lang=zh) 生成；外文书/缺题名·出版者时返回 null → 不显下拉、回退到 zh 单一格式。
+    function stdCiteFormats(c, v, page){
+      if((CFG.lang || 'zh') !== 'zh') return null;
+      const title = String(c.work_zh || c.title_zh || '').trim();
+      if(!title) return null;
+      let place = '', pub = String(c.publisher_zh || '').trim();
+      const mm = pub.match(/^(.+?)[：:]\s*(.+)$/);   // 「北京：人民出版社」→ place=北京, pub=人民出版社
+      if(mm){ place = mm[1]; pub = mm[2]; }
+      if(!pub) return null;
+      const n = (v.n != null ? v.n : ''), year = (v.year != null ? v.year : ''), pg = page || '';
+      return {
+        gb2015: `${title}:第${n}卷[M].${place}:${pub},${year}:${pg}.`,
+        zgshkx: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
+        mkszyj: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
+      };
+    }
     function buildCitations(page){
       const c = CFG.citation || {}, v = CFG.volume || {};
       const ctx = Object.assign({}, c, v, {page: page || ''});
@@ -360,23 +650,63 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
         ctx.article = info.article || (CFG.title_zh || '');
         ctx.source = info.source || 'Marx-Engels Collected Works';
       }
+      const formats = stdCiteFormats(c, v, page);   // {gb2015,zgshkx,mkszyj} 或 null
       if(c.tpl_zh){
-        return {zh: fillTpl(c.tpl_zh, ctx), alt: fillTpl(c.tpl_alt || '', ctx)};
+        return {zh: fillTpl(c.tpl_zh, ctx), alt: fillTpl(c.tpl_alt || '', ctx), formats};
       }
       // 向后兼容（无模板时的旧列宁内联式）
       const n = v.n, year = (v.year != null ? v.year : ''), pg = page || '';
       return {
         zh: `${c.author_zh||''}. ${c.work_zh||''}：第${n}卷[M]. ${c.edition_zh||''}. ${c.publisher_zh||''}，${year}：${pg}.`,
         alt: `${c.author_ru||''} ${c.work_ru||''}. ${c.edition_ru||''} Т. ${n}. ${c.publisher_ru||''}, ${year}. С. ${pg}.`,
+        formats,
       };
+    }
+    // 「一键报错」：读者反馈引文页码有误 → 记录并邮件提醒管理员（后台内容运营页可见）。
+    async function reportPageError(page, citationText, btn){
+      if(btn){ if(btn.dataset.done) return; btn.disabled = true; btn.dataset.old = btn.textContent; btn.textContent = '提交中…'; }
+      try{
+        const r = await fetch('/api/reader/report-page-error', {
+          method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},
+          body: JSON.stringify({
+            reader: readerKind(),
+            book: (CFG.title_zh || ''),
+            volume: (CFG.volume && CFG.volume.label) || '',
+            page: (page != null ? String(page) : ''),
+            source_ref: currentDocRelpath() || '',
+            citation: citationText || '',
+          }),
+        });
+        if(!r.ok) throw new Error('status ' + r.status);
+        if(btn){ btn.dataset.done = '1'; btn.textContent = '✓ 已上报'; btn.disabled = true; }
+        return true;
+      }catch(e){
+        if(btn){ btn.disabled = false; btn.textContent = '提交失败，重试'; setTimeout(()=>{ if(!btn.dataset.done) btn.textContent = btn.dataset.old || '⚑ 报错'; }, 1800); }
+        return false;
+      }
     }
     function openCite(){
       const p = updatePageLabel();
       const cit = buildCitations(p);
-      document.getElementById('citeZh').textContent = cit.zh;
+      const fmts = cit.formats;                 // 中文《文集》有三格式可切换；外文书为 null
+      const zhEl = document.getElementById('citeZh');
+      const lab = document.getElementById('citeZhLab');
+      const sel = document.getElementById('citeFmtSel');
+      let curFmt = citeFormat();
+      const setZh = () => { zhEl.textContent = (fmts && fmts[curFmt]) || cit.zh; };
+      if(fmts){          // 用下拉替换固定「中文（GB/T 7714）」标签，可切三格式
+        lab.style.display = 'none'; sel.style.display = '';
+        sel.innerHTML = Object.keys(CITE_FORMAT_LABELS).map(k => '<option value="' + k + '"' + (k === curFmt ? ' selected' : '') + '>' + CITE_FORMAT_LABELS[k] + '</option>').join('');
+        sel.onchange = function(){ curFmt = this.value; try{ localStorage.setItem(CITE_FORMAT_KEY, curFmt); }catch(e){} setZh(); };
+      } else { lab.style.display = ''; sel.style.display = 'none'; }
+      setZh();
       document.getElementById('citeRu').textContent = cit.alt;
       // 英文文集无页码概念，不弹「未识别页码」告警。
       document.getElementById('citeWarn').style.display = (!p && CFG.lang !== 'en') ? 'block' : 'none';
+      // 每次打开即把「一键报错」绑定到当前页/引文并复位状态（用当前所选格式的引文文本）。
+      const cr = document.getElementById('citeReport');
+      if(cr){ cr.disabled = false; delete cr.dataset.done; cr.textContent = '⚑ 一键报错';
+        cr.onclick = ()=> reportPageError(p, zhEl.textContent, cr); }
       document.getElementById('citeModal').style.display = 'flex';
     }
     document.getElementById('cite').onclick = openCite;
@@ -403,6 +733,16 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
       const cp = document.querySelector('.curpage'); if(cp) cp.style.display = 'none';
       const hint = document.querySelector('#citeModal .hint');
       if(hint) hint.textContent = '英文文集无原书页码，引文按篇名与 MECW（马恩全集英文版）出处生成。';
+    }
+    // 中文书（《文集》流式阅读）：源文即中文，隐藏「对照翻译」按钮（划词翻译已由 TRANSLATE_ON 关闭），
+    // 仅保留 AI 导读、字号、目录与引用本页。
+    if(!TRANSLATE_ON){
+      const bi = document.getElementById('bilingual'); if(bi) bi.style.display = 'none';
+    }
+    // 普通阅读器入口（?ai=0）：隐藏「AI 导读」按钮与抽屉，仅保留字号/目录/引用（及非中文书的翻译）。
+    if(!AI_ENABLED){
+      const ab = document.getElementById('aiBtn'); if(ab) ab.style.display = 'none';
+      const ap = document.getElementById('aiPanel'); if(ap){ ap.classList.remove('open'); ap.style.display = 'none'; }
     }
 
     // ---------- AI 导读（基于当前页原文，DeepSeek） ----------
@@ -540,7 +880,7 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
       aiBusy = true;
       try{
         const provider = (document.getElementById('aiEngine') || {}).value || 'deepseek';
-        const r = await fetch("/api/wenku/ai", {
+        const r = await fetch(AI_URL, {
           method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
           body: JSON.stringify({mode, question, context, ref: curRef(), lang: SRC_LANG, provider})
         });
@@ -549,7 +889,12 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
         waiting.innerHTML = aiRenderMd(j.answer || '（无回应）');
         if(j.sources && j.sources.length){
           const box = document.createElement('div'); box.className = 'ai-src';
-          box.innerHTML = '联网来源：' + j.sources.map(s=>'<a href="'+escAttr(s.url||'#')+'" target="_blank" rel="noopener">'+esc(s.title||s.url||'来源')+'</a>').join('');
+          // 来源链接来自联网检索，可能含 javascript: 等危险 scheme：过 safeMarkdownUrl 白名单，非法退化为纯文本。
+          box.innerHTML = '联网来源：' + j.sources.map(s=>{
+            const safeUrl = safeMarkdownUrl(s.url||'');
+            const label = esc(s.title||s.url||'来源');
+            return safeUrl ? '<a href="'+escAttr(safeUrl)+'" target="_blank" rel="noopener">'+label+'</a>' : '<span>'+label+'</span>';
+          }).join('');
           waiting.appendChild(box);
         }
       }catch(e){
@@ -568,5 +913,56 @@ dir,ul,ol{margin:.8em 0;padding-left:1.85em;}li{margin:.3em 0;}
 
     iframe.src = CFG.serve_prefix + '/' + CFG.start_doc;
   </script>
+  {% if notes_access_enabled %}
+  <script>
+  // 会员专属「笔记」挂载：topbar「笔记」开合本卷抽屉；选区气泡「记笔记」把所选原文存入知识库。
+  (function () {
+    if (!window.MarxNotes) return;
+    function meta() {
+      var vol = CFG.volume || {};
+      return {
+        book_key: 'wenku:' + (CFG.book_key || '') + '|' + (vol.n != null ? vol.n : (vol.label || '')),
+        book_title: CFG.title_zh || '',
+        volume_label: vol.label || (vol.n != null ? ('第' + vol.n + '卷') : '')
+      };
+    }
+    var panel = window.MarxNotes.mountReaderPanel({
+      reader: (typeof readerKind === 'function' ? readerKind() : 'wenku'),
+      bookMeta: meta,
+      currentLocation: function () {
+        var page = null; try { page = detectPage(); } catch (e) {}
+        var rel = currentDocRelpath();
+        return { page: page, page_label: page ? ('第 ' + page + ' 页') : '', doc_path: rel, source_url: buildResumeUrl(rel, page) };
+      },
+      getSelection: function () {
+        try {
+          var sel = iframe.contentWindow.getSelection();
+          if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+          var text = (sel.toString() || '').replace(/\s+/g, ' ').trim();
+          if (!text) return null;
+          var pg = pagesOfSelection(sel);
+          var page = pg ? pg.start : (function () { try { return detectPage(); } catch (e) { return null; } })();
+          var rel = currentDocRelpath();
+          return {
+            quote: text.slice(0, 2000), page: page,
+            page_label: pg ? ('第 ' + pg.text + ' 页') : (page ? ('第 ' + page + ' 页') : ''),
+            doc_path: rel, anchor_text: text.slice(0, 200), source_url: buildResumeUrl(rel, page)
+          };
+        } catch (e) { return null; }
+      },
+      jumpTo: function (note) {
+        try {
+          var here = currentDocRelpath().split('#')[0];
+          if (note.doc_path && note.doc_path.split('#')[0] === here && note.page && scrollToPage(note.page)) return;
+        } catch (e) {}
+        if (note.source_url) location.href = note.source_url;
+      }
+    });
+    window.__mxnPanel = panel;
+    var nb = document.getElementById('notesBtn');
+    if (nb) nb.addEventListener('click', function () { panel.toggle(); });
+  })();
+  </script>
+  {% endif %}
 </body>
 </html>

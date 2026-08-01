@@ -5,25 +5,30 @@
   <title>{{ entry.title }} - {{ site_text("dictionary.heading") }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
+    /* 配色与全站一致（暖米底 + 品牌红），变量取自首页 index.html */
     :root {
-      --bg: #f3f5f6;
-      --panel: #ffffff;
-      --panel-soft: #f6f8f9;
-      --line: #d8dee3;
-      --text: #20262d;
-      --muted: #65717d;
-      --accent: #157f4c;
-      --accent-deep: #0f6d40;
-      --accent-soft: #e6f3ec;
-      --warn: #9a621a;
-      --warn-bg: #fff7df;
+      --bg: #f4efe8;
+      --panel: #fffdf9;
+      --panel-soft: #f7f1e9;
+      --line: #decfbd;
+      --text: #231d17;
+      --muted: #72675d;
+      --accent: #8f1d1d;
+      --accent-deep: #651313;
+      --accent-soft: #f5e2dc;
+      --warn: #815400;
+      --warn-bg: #fff2cf;
+      --serif: "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       color: var(--text);
       font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at top, rgba(178, 146, 96, 0.18), transparent 30%),
+        linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
+      background-attachment: fixed;
     }
     .topbar {
       position: sticky;
@@ -35,11 +40,11 @@
       align-items: center;
       padding: 14px 24px;
       border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, .94);
+      background: rgba(255, 253, 249, .94);
       backdrop-filter: blur(10px);
     }
     .brand { display: grid; gap: 2px; min-width: 0; }
-    .brand strong { font-size: 1.05rem; }
+    .brand strong { font-size: 1.05rem; font-family: var(--serif); color: var(--accent); }
     .brand span { color: var(--muted); font-size: .9rem; }
     .nav { display: flex; gap: 10px; flex-wrap: wrap; }
     .nav a {
@@ -51,15 +56,18 @@
       padding: 8px 14px;
       text-decoration: none;
       color: var(--accent);
-      border: 1px solid rgba(21, 127, 76, .35);
-      background: white;
+      border: 1px solid rgba(143, 29, 29, .35);
+      background: var(--panel);
       font-weight: 700;
+      transition: background .18s ease, color .18s ease, border-color .18s ease;
     }
+    .nav a:hover { background: var(--accent-soft); }
     .nav a.primary {
       color: white;
       background: var(--accent);
       border-color: var(--accent);
     }
+    .nav a.primary:hover { background: var(--accent-deep); color: white; }
     main {
       width: min(900px, calc(100% - 32px));
       margin: 24px auto 52px;
@@ -69,7 +77,8 @@
     article, .citation {
       border: 1px solid var(--line);
       background: var(--panel);
-      border-radius: 8px;
+      border-radius: 20px;
+      box-shadow: 0 16px 40px rgba(64, 44, 27, 0.08);
     }
     article { padding: 24px; }
     .kicker {
@@ -84,16 +93,19 @@
       min-height: 28px;
       padding: 4px 10px;
       border-radius: 999px;
-      color: #52606c;
-      background: #e8edf1;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid rgba(143, 29, 29, .16);
       font-size: .86rem;
       font-weight: 700;
     }
-    .pill.review { color: var(--warn); background: var(--warn-bg); }
+    .pill.review { color: var(--warn); background: var(--warn-bg); border-color: rgba(129, 84, 0, .18); }
     h1 {
       margin: 0 0 16px;
       font-size: clamp(1.65rem, 4vw, 2.35rem);
       line-height: 1.35;
+      font-family: var(--serif);
+      color: var(--accent);
     }
     .english-name {
       margin: -8px 0 16px;
@@ -115,9 +127,9 @@
       gap: 8px;
       padding: 18px 20px;
       border-left: 4px solid var(--accent);
-      background: linear-gradient(180deg, #ffffff, var(--panel-soft));
+      background: linear-gradient(180deg, #fffdfa, var(--panel-soft));
     }
-    .citation strong { color: #52606c; }
+    .citation strong { color: var(--accent); font-family: var(--serif); }
     .citation p { margin: 0; color: var(--muted); line-height: 1.75; }
     @media (max-width: 720px) {
       .topbar { display: grid; padding: 12px 16px; }
@@ -165,6 +177,7 @@
       <p>{{ entry.citation }}</p>
     </section>
   </main>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
   {% include "_marx_mascot.html" %}
 </body>
 </html>

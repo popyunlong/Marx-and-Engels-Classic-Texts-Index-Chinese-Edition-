@@ -262,6 +262,9 @@
         </div>
         <div class="nav">
           <a class="btn" href="/">返回首页</a>
+          {% if notes_access_enabled %}
+          <a class="btn" href="{{ url_for('knowledge_base_page') }}">我的知识库</a>
+          {% endif %}
           {% if local_console_available %}
           <a class="btn" href="{{ url_for('control') }}">本地控制台</a>
           {% endif %}
@@ -488,6 +491,7 @@
       </div>
     </section>
   </div>
+  {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
   {% include "_marx_mascot.html" %}
 </body>
 </html>

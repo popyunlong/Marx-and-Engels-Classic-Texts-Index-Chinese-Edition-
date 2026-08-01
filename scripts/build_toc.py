@@ -95,7 +95,36 @@ def build_entries_for_volume(corpus: Corpus, volume_obj) -> list[dict[str, Any]]
                 "sort_order": len(rows) + 1,
             }
         )
+    _strip_shared_prefix(rows)
     return rows
+
+
+def _strip_shared_prefix(rows: list[dict[str, Any]]) -> None:
+    """剥掉「每条目录都带的共同前缀」——重复出现在全卷每一条上的前缀不携带信息。
+
+    起因：《周恩来年谱》的 PDF 书签每条都写成「周恩来年谱(1893-1949)_1898年　诞生」，
+    界面目录里每行都重复一遍书名（且那个 1893 还是书签作者的笔误，实际起于 1898）。
+    这里不写死书名，改用数据驱动规则：求全卷标题的最长公共前缀，若它以 _ / ： / : / -
+    这类分隔符收尾且足够长，就整体剥离。只影响本来就完全重复的部分，不会动真标题。
+    """
+    titles = [r["title"] for r in rows]
+    if len(titles) < 3:
+        return
+    prefix = titles[0]
+    for t in titles[1:]:
+        while prefix and not t.startswith(prefix):
+            prefix = prefix[:-1]
+        if not prefix:
+            return
+    # 收尾必须是分隔符，否则可能把真标题的开头几个字误当前缀（如都以「关于」开头）
+    cut = max((prefix.rfind(ch) for ch in "_：:－—-|｜"), default=-1)
+    if cut < 3:
+        return
+    strip_len = cut + 1
+    for r in rows:
+        cleaned = r["title"][strip_len:].strip()
+        if cleaned:                     # 剥完不能变空
+            r["title"] = cleaned
 
 
 def parse_args() -> argparse.Namespace:

@@ -1,0 +1,77 @@
+/* 「精选到书/卷」多选控件样式。默认亮底（首页象牙风）；.bscope[data-dark] 为暗底（AI 抽屉/阅读器）。 */
+.bscope { position: relative; display: inline-block; font-size: .86rem; vertical-align: middle; }
+
+.bscope-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; border: 1px solid #c9a227; border-radius: 8px;
+  background: #fff; color: #5b4a1a; cursor: pointer; font: inherit; line-height: 1.2;
+}
+.bscope-trigger:hover { border-color: #b9902a; }
+.bscope-trigger.bscope-active { background: #f7efd6; border-color: #b9902a; font-weight: 600; }
+.bscope-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #c9a227; color: #fff; font-size: .72rem; font-weight: 700;
+}
+.bscope-caret { font-size: .7rem; opacity: .65; }
+
+/* left 由 book-scope.js 展开时按视口宽度夹一次：触发器靠右时面板改为贴右展开，不再溢出到屏幕外。 */
+.bscope-panel {
+  position: absolute; z-index: 60; top: calc(100% + 6px); left: 0;
+  width: min(440px, 88vw); max-width: calc(100vw - 16px);
+  max-height: min(60vh, 440px); overflow: auto;
+  background: #fff; border: 1px solid #d9c689; border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 10px;
+}
+.bscope-panel-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.bscope-panel-hint { flex: 1; color: #8a7a4a; font-size: .76rem; line-height: 1.4; }
+.bscope-clear {
+  flex: none; border: 1px solid #d9c689; background: #faf6e8; color: #7a6a30;
+  border-radius: 6px; padding: 3px 8px; cursor: pointer; font: inherit; font-size: .78rem;
+}
+.bscope-clear:hover { background: #f2e9cf; }
+
+.bscope-group { border-top: 1px dashed #ece0bd; padding-top: 6px; margin-top: 6px; }
+.bscope-group:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
+.bscope-group-label {
+  color: #a08a3e; font-size: .74rem; font-weight: 700; letter-spacing: .03em; margin: 2px 0 4px;
+}
+
+.bscope-book {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  padding: 3px 4px; border-radius: 6px;
+}
+.bscope-book.bscope-book-on { background: #fbf6e5; }
+.bscope-book-main { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex: 1 1 auto; }
+.bscope-book-main input { cursor: pointer; }
+.bscope-book-label { color: #3a3320; }
+.bscope-vol-toggle {
+  flex: none; border: 0; background: transparent; color: #9a7d2a; cursor: pointer;
+  font: inherit; font-size: .76rem; padding: 2px 4px; white-space: nowrap;
+}
+.bscope-vol-toggle:hover { color: #7a5f14; text-decoration: underline; }
+.bscope-vols {
+  flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 12px;
+  padding: 4px 4px 6px 22px;
+}
+/* display:flex 会盖过 [hidden] 的 display:none，须显式收起——否则各卷复选框一律展开、「选卷」形同失效。 */
+.bscope-vols[hidden] { display: none; }
+.bscope-vol { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: #5a4f30; font-size: .78rem; }
+.bscope-vol input { cursor: pointer; }
+.bscope-vol-all { font-weight: 600; color: #7a6a30; }
+
+/* —— 暗底上下文（AI 随心问抽屉 / 两阅读器）—— */
+.bscope[data-dark] .bscope-trigger { background: rgba(255, 255, 255, .08); color: #e8dcbf; border-color: rgba(201, 162, 39, .5); }
+.bscope[data-dark] .bscope-trigger:hover { border-color: rgba(201, 162, 39, .8); }
+.bscope[data-dark] .bscope-trigger.bscope-active { background: rgba(201, 162, 39, .22); }
+.bscope[data-dark] .bscope-panel { background: #20242c; border-color: rgba(201, 162, 39, .4); color: #e8e2d2; box-shadow: 0 12px 34px rgba(0, 0, 0, .5); }
+.bscope[data-dark] .bscope-panel-hint { color: #b6ad93; }
+.bscope[data-dark] .bscope-clear { background: rgba(255, 255, 255, .06); border-color: rgba(201, 162, 39, .4); color: #d8ceb0; }
+.bscope[data-dark] .bscope-clear:hover { background: rgba(255, 255, 255, .12); }
+.bscope[data-dark] .bscope-group { border-color: rgba(201, 162, 39, .22); }
+.bscope[data-dark] .bscope-group-label { color: #d3bd72; }
+.bscope[data-dark] .bscope-book.bscope-book-on { background: rgba(201, 162, 39, .14); }
+.bscope[data-dark] .bscope-book-label { color: #e6e0d0; }
+.bscope[data-dark] .bscope-vol { color: #c9c1a8; }
+.bscope[data-dark] .bscope-vol-all { color: #e0d4a8; }
+.bscope[data-dark] .bscope-vol-toggle { color: #d3bd72; }

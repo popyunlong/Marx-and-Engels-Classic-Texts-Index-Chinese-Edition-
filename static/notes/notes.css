@@ -1,0 +1,178 @@
+/* 会员专属「笔记 / 我的知识库」共享样式。命名空间 mxn-*，与站内其它组件零冲突。
+   配色跟随品牌红 #8f1d1d + 暖纸色；两个阅读器与知识库页共用。 */
+
+:root {
+  --mxn-accent: #8f1d1d;
+  --mxn-accent-soft: #b34a3f;
+  --mxn-paper: #fffdf8;
+  --mxn-ink: #2c2622;
+  --mxn-ink-soft: #6b6058;
+  --mxn-line: #e7ddce;
+  --mxn-line-strong: #d8cbb6;
+  --mxn-quote-bg: #fbf3e6;
+  --mxn-shadow: 0 18px 48px rgba(40, 28, 20, .28);
+}
+
+/* ---------- 抽屉 + 遮罩（阅读器内笔记面板） ---------- */
+.mxn-backdrop {
+  position: fixed; inset: 0; z-index: 9993;
+  background: rgba(30, 22, 16, .34);
+  opacity: 0; visibility: hidden; transition: opacity .22s ease;
+}
+.mxn-backdrop.mxn-open { opacity: 1; visibility: visible; }
+
+.mxn-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 9994;
+  width: min(430px, 94vw);
+  display: flex; flex-direction: column;
+  background: var(--mxn-paper); color: var(--mxn-ink);
+  box-shadow: var(--mxn-shadow);
+  transform: translateX(102%); transition: transform .26s cubic-bezier(.22, .61, .36, 1);
+  font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.mxn-drawer.mxn-open { transform: translateX(0); }
+
+.mxn-drawer-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 15px 16px 13px; border-bottom: 1px solid var(--mxn-line);
+  background: linear-gradient(180deg, #fffefb, #fbf5ec);
+}
+.mxn-drawer-title { font-size: 16px; font-weight: 800; letter-spacing: .02em; flex: 1; min-width: 0; }
+.mxn-drawer-title small { display: block; font-weight: 500; font-size: 12px; color: var(--mxn-ink-soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mxn-close {
+  border: none; background: transparent; cursor: pointer;
+  width: 34px; height: 34px; border-radius: 9px; font-size: 20px; line-height: 1;
+  color: var(--mxn-ink-soft); flex: 0 0 auto;
+}
+.mxn-close:hover { background: rgba(143, 29, 29, .08); color: var(--mxn-accent); }
+
+.mxn-toolbar { display: flex; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--mxn-line); align-items: center; }
+.mxn-search {
+  flex: 1; min-width: 0; height: 36px; padding: 0 12px;
+  border: 1px solid var(--mxn-line-strong); border-radius: 9px;
+  background: #fff; color: var(--mxn-ink); font-size: 14px;
+}
+.mxn-search:focus { outline: none; border-color: var(--mxn-accent-soft); box-shadow: 0 0 0 3px rgba(143, 29, 29, .1); }
+
+.mxn-btn {
+  border: 1px solid var(--mxn-line-strong); background: #fff; color: var(--mxn-ink);
+  border-radius: 9px; padding: 0 13px; height: 36px; font-size: 14px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s;
+}
+.mxn-btn:hover { background: #f6efe3; }
+.mxn-btn-primary { background: var(--mxn-accent); border-color: var(--mxn-accent); color: #fff8f0; }
+.mxn-btn-primary:hover { background: #7d1919; }
+.mxn-btn-ghost { border-color: transparent; background: transparent; color: var(--mxn-ink-soft); padding: 0 8px; }
+.mxn-btn-ghost:hover { background: rgba(143, 29, 29, .08); color: var(--mxn-accent); }
+.mxn-btn-danger:hover { background: #fdecea; color: #b3261e; border-color: #f2c9c4; }
+.mxn-btn:disabled { opacity: .5; cursor: default; }
+
+.mxn-list { flex: 1; overflow-y: auto; padding: 12px 14px 24px; -webkit-overflow-scrolling: touch; }
+.mxn-empty { text-align: center; color: var(--mxn-ink-soft); font-size: 14px; padding: 42px 20px; line-height: 1.9; }
+.mxn-empty b { color: var(--mxn-accent); font-weight: 700; }
+
+/* ---------- 笔记卡片 ---------- */
+.mxn-card {
+  border: 1px solid var(--mxn-line); border-radius: 12px; background: #fff;
+  padding: 12px 13px; margin-bottom: 11px; box-shadow: 0 2px 8px rgba(60, 45, 30, .05);
+}
+.mxn-card-quote {
+  font-size: 13.5px; color: #5a4a3c; background: var(--mxn-quote-bg);
+  border-left: 3px solid var(--mxn-accent-soft); border-radius: 0 6px 6px 0;
+  padding: 7px 10px; margin: 0 0 8px; line-height: 1.7;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.mxn-card-body { font-size: 14.5px; color: var(--mxn-ink); white-space: pre-wrap; word-break: break-word; margin: 0 0 9px; }
+.mxn-card-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mxn-ink-soft); flex-wrap: wrap; }
+.mxn-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: #f3ece0; color: #7a5c3a; border-radius: 6px; padding: 2px 7px; font-size: 11.5px; font-weight: 600;
+}
+.mxn-card-actions { display: flex; gap: 4px; margin-left: auto; }
+.mxn-card-actions .mxn-btn { height: 28px; padding: 0 9px; font-size: 12.5px; font-weight: 600; }
+
+/* ---------- 编辑/新建弹层 ---------- */
+.mxn-editor-mask {
+  position: fixed; inset: 0; z-index: 9996;
+  background: rgba(28, 20, 14, .42); display: flex; align-items: center; justify-content: center;
+  padding: 18px; opacity: 0; visibility: hidden; transition: opacity .18s ease;
+}
+.mxn-editor-mask.mxn-open { opacity: 1; visibility: visible; }
+.mxn-editor {
+  width: min(520px, 96vw); max-height: 88vh; overflow-y: auto;
+  background: var(--mxn-paper); border-radius: 16px; box-shadow: var(--mxn-shadow);
+  padding: 20px; font: 15px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--mxn-ink);
+  transform: translateY(8px) scale(.98); transition: transform .18s ease;
+}
+.mxn-editor-mask.mxn-open .mxn-editor { transform: none; }
+.mxn-editor-title { font-size: 17px; font-weight: 800; margin: 0 0 4px; }
+.mxn-editor-sub { font-size: 12.5px; color: var(--mxn-ink-soft); margin: 0 0 14px; }
+.mxn-editor-quote {
+  font-size: 13.5px; color: #5a4a3c; background: var(--mxn-quote-bg);
+  border-left: 3px solid var(--mxn-accent-soft); border-radius: 0 6px 6px 0;
+  padding: 9px 12px; margin: 0 0 14px; line-height: 1.7; max-height: 150px; overflow-y: auto; white-space: pre-wrap;
+}
+.mxn-editor-textarea {
+  width: 100%; min-height: 128px; resize: vertical; box-sizing: border-box;
+  border: 1px solid var(--mxn-line-strong); border-radius: 11px; padding: 12px 13px;
+  font: 15px/1.7 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: var(--mxn-ink); background: #fff;
+}
+.mxn-editor-textarea:focus { outline: none; border-color: var(--mxn-accent-soft); box-shadow: 0 0 0 3px rgba(143, 29, 29, .1); }
+.mxn-editor-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; align-items: center; }
+.mxn-editor-actions .mxn-btn { height: 40px; padding: 0 20px; }
+.mxn-editor-err { color: #b3261e; font-size: 13px; margin-right: auto; align-self: center; }
+
+/* ---------- 轻提示 ---------- */
+.mxn-toast {
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(12px);
+  z-index: 9998; background: #2c2019; color: #f3e9dc; border-radius: 11px;
+  padding: 11px 20px; font-size: 14px; box-shadow: 0 12px 34px rgba(0, 0, 0, .3);
+  opacity: 0; visibility: hidden; transition: opacity .2s, transform .2s;
+  max-width: 88vw; text-align: center;
+}
+.mxn-toast.mxn-open { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+.mxn-toast.mxn-err { background: #7a2018; }
+
+/* ---------- 选区「记笔记」浮动按钮（阅读器可选用） ---------- */
+.mxn-sel-pop { position: fixed; z-index: 9995; }
+.mxn-sel-btn {
+  border: 1px solid var(--mxn-accent); background: var(--mxn-accent); color: #fff8f0;
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.mxn-sel-btn:hover { background: #7d1919; }
+
+/* ---------- 「我的知识库」页 ---------- */
+.mxn-kb { max-width: 1000px; margin: 0 auto; padding: 26px 20px 80px; color: var(--mxn-ink);
+  font: 16px/1.75 -apple-system, "PingFang SC", "Microsoft YaHei", "Songti SC", serif; }
+.mxn-kb-head { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.mxn-kb-title { font-size: 26px; font-weight: 800; letter-spacing: .02em; margin: 0; color: #2a211b; }
+.mxn-kb-sub { color: var(--mxn-ink-soft); font-size: 14px; margin: 4px 0 0; }
+.mxn-kb-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.mxn-kb-toolbar { display: flex; gap: 10px; align-items: center; margin: 18px 0 20px; flex-wrap: wrap; }
+.mxn-kb-toolbar .mxn-search { max-width: 360px; height: 40px; }
+.mxn-kb-stat { color: var(--mxn-ink-soft); font-size: 13.5px; }
+
+.mxn-kb-group { border: 1px solid var(--mxn-line); border-radius: 14px; background: #fff; margin-bottom: 16px; overflow: hidden; }
+.mxn-kb-group-head {
+  display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none;
+  padding: 14px 16px; background: linear-gradient(180deg, #fffefb, #fbf5ec); border-bottom: 1px solid transparent;
+}
+.mxn-kb-group.mxn-open .mxn-kb-group-head { border-bottom-color: var(--mxn-line); }
+.mxn-kb-group-title { font-size: 16.5px; font-weight: 700; color: #2a211b; }
+.mxn-kb-group-title small { color: var(--mxn-ink-soft); font-weight: 500; font-size: 13px; margin-left: 8px; }
+.mxn-kb-count { margin-left: auto; background: #f3ece0; color: #7a5c3a; border-radius: 20px; padding: 2px 11px; font-size: 12.5px; font-weight: 700; }
+.mxn-kb-caret { color: var(--mxn-ink-soft); transition: transform .18s; font-size: 13px; }
+.mxn-kb-group.mxn-open .mxn-kb-caret { transform: rotate(90deg); }
+.mxn-kb-group-body { padding: 14px 16px 6px; display: none; }
+.mxn-kb-group.mxn-open .mxn-kb-group-body { display: block; }
+.mxn-kb-group-body .mxn-card:hover { border-color: var(--mxn-line-strong); }
+.mxn-kb-jump { color: var(--mxn-accent); text-decoration: none; font-weight: 600; }
+.mxn-kb-jump:hover { text-decoration: underline; }
+.mxn-kb-loading, .mxn-kb-empty { text-align: center; color: var(--mxn-ink-soft); padding: 60px 20px; font-size: 15px; line-height: 1.9; }
+.mxn-kb-empty b { color: var(--mxn-accent); }
+
+@media (max-width: 560px) {
+  .mxn-kb { padding: 18px 14px 70px; }
+  .mxn-kb-title { font-size: 22px; }
+}

@@ -135,7 +135,7 @@
       <h1>{{ title }}</h1>
       <div class="status {% if order.status == 'paid' %}paid{% endif %}">
         {% if order.status == "paid" %}
-        {{ site_text("payment_result.status_paid") }}
+        {% if is_donation %}打赏成功{% else %}{{ site_text("payment_result.status_paid") }}{% endif %}
         {% else %}
         {{ site_text("payment_result.status_pending") }}
         {% endif %}
@@ -143,7 +143,7 @@
 
       <p class="muted">
         {% if order.status == "paid" %}
-        {{ site_text("payment_result.intro_paid") }}
+        {% if is_donation %}衷心感谢您对本站的支持！您的这笔打赏将用于文献整理维护与服务器运营。{% else %}{{ site_text("payment_result.intro_paid") }}{% endif %}
         {% else %}
         {{ site_text("payment_result.intro_pending") }}
         {% endif %}
@@ -151,16 +151,20 @@
 
       <div class="kv">
         <div>订单号：{{ order.order_no }}</div>
-        <div>套餐：{{ order.plan_name }}</div>
+        <div>{% if is_donation %}项目：打赏 / 捐赠{% else %}套餐：{{ order.plan_name }}{% endif %}</div>
         <div>金额：{{ format_price(order.amount_cents, order.currency) }}</div>
         <div>订单状态：{{ format_order_status(order.status) }}</div>
         <div>支付方式：{{ format_payment_provider(order.payment_provider) }}</div>
+        {% if not is_donation %}
         <div>当前会员：{{ membership_snapshot.plan_name or format_membership_status(membership_snapshot.status) }}</div>
         <div>会员到期时间：{{ format_datetime(membership_snapshot.expires_at) if membership_snapshot.expires_at else "暂无" }}</div>
+        {% endif %}
       </div>
 
       <div class="actions">
+        {% if current_user %}
         <a class="btn secondary" href="{{ url_for('account') }}">返回{{ account_center_label }}</a>
+        {% endif %}
         <a class="btn secondary" href="{{ url_for('pricing') }}">查看套餐</a>
         {% if local_console_available %}
         <a class="btn secondary" href="{{ url_for('control') }}">本地控制台</a>

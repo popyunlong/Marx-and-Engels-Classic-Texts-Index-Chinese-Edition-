@@ -74,6 +74,7 @@ $items = @(
     "membership.py",
     "search.py",
     "build_index.py",
+    "volume_presentation.py",
     "site_content.py",
     "requirements.txt",
     "README.md",
