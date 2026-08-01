@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>四页面布局预览 v2 · 马恩经典检索</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+/* ==========================================================================
+   四页面布局 · 精细预览 v2
+   依据 PLAN_layout_four_pages_2026-07-20.md 打磨。
+   视觉：保留品牌暗红 + 宣纸暖色，走更简约现代（轻卡片 / 清层级 / 8pt 留白）。
+   本预览刻意锁定单一暖色学术世界（镜像真实站点），故不做深色主题。
+   ========================================================================== */
+:root{
+  color-scheme:light;
+  /* 底色与层 */
+  --bg:#f7f4ef; --surface:#ffffff; --surface-2:#fbf8f3; --surface-3:#f4efe7;
+  --line:#eae2d6; --line-strong:#dbcdb9;
+  /* 文字 */
+  --text:#221c16; --muted:#756a5f; --faint:#9c9186;
+  /* 品牌红 */
+  --accent:#8f1d1d; --accent-deep:#6f1717; --accent-soft:#f7eae7; --accent-tint:rgba(143,29,29,.07);
+  /* AI 冷调 */
+  --ai:#264653; --ai-deep:#1a333d; --ai-soft:#e8eff1;
+  /* 联想检索·油画蓝金 */
+  --oil:#1f4e79; --oil-deep:#12385c; --oil-soft:#eaf1f7; --oil-gold:#b8912b;
+  /* 语义色 */
+  --ok:#3f7d4e; --ok-soft:#e6f1e8; --warn:#8a6d2b; --warn-soft:#fbeecb;
+  /* 8pt 间距 */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px; --s7:48px;
+  /* 圆角 / 阴影 */
+  --r-sm:9px; --r:13px; --r-lg:17px;
+  --sh-1:0 1px 2px rgba(60,40,20,.06);
+  --sh-2:0 1px 2px rgba(60,40,20,.05), 0 10px 26px rgba(80,50,30,.07);
+  --sh-pop:0 12px 34px rgba(60,40,20,.16);
+  /* 字体 */
+  --sans:-apple-system,"Segoe UI","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","STSong",serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{font-family:var(--sans); color:var(--text); background:var(--bg); font-size:15px; line-height:1.7; -webkit-font-smoothing:antialiased;}
+h1,h2,h3,h4{font-family:var(--serif); font-weight:700; margin:0; text-wrap:balance;}
+p{margin:0;}
+a{color:inherit; text-decoration:none;}
+button{font-family:inherit; cursor:pointer; color:inherit;}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
+[hidden]{display:none !important;}
+@media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important;}}
+
+/* ===================== 预览控制条（非设计的一部分） ===================== */
+.pv-bar{
+  position:sticky; top:0; z-index:200;
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--s3) var(--s5);
+  background:#241f1a; color:#efe4d6; padding:9px var(--s5); font-size:12.5px;
+}
+.pv-bar .pv-tag{font-weight:700; color:#f0c674; letter-spacing:.04em;}
+.pv-group{display:flex; align-items:center; gap:var(--s2);}
+.pv-group > span{opacity:.66;}
+.pv-seg{display:inline-flex; background:rgba(255,255,255,.09); border-radius:8px; padding:2px;}
+.pv-seg button{border:0; background:transparent; color:#d9cbbb; font-size:12px; font-weight:600; padding:4px 11px; border-radius:6px; transition:.15s;}
+.pv-seg button.on{background:#f2e6d6; color:#241f1a;}
+.pv-route{margin-left:auto; opacity:.62; font-family:ui-monospace,Consolas,monospace; font-size:11.5px;}
+.embed .pv-bar, .embed .pv-phonewrap{display:none;}
+
+/* 手机真机框 */
+.pv-stage{display:flex; gap:var(--s6); align-items:flex-start; justify-content:center; padding:0;}
+.pv-desktop{flex:1; min-width:0;}
+.pv-phonewrap{display:none; padding:var(--s6) var(--s5) var(--s6) 0; position:sticky; top:52px;}
+.pv-stage.show-phone .pv-phonewrap{display:block;}
+.pv-phone{width:390px; height:800px; border:11px solid #241f1a; border-radius:38px; overflow:hidden; box-shadow:var(--sh-pop); background:#000; position:relative;}
+.pv-phone iframe{width:100%; height:100%; border:0; display:block; background:var(--bg);}
+.pv-phone-lab{text-align:center; color:var(--muted); font-size:12px; margin-top:var(--s2);}
+
+/* ===================== 顶部导航 App Shell ===================== */
+.nav{
+  position:sticky; top:0; z-index:90;
+  display:flex; align-items:center; gap:var(--s5);
+  height:62px; padding:0 var(--s5);
+  background:rgba(252,249,244,.88); backdrop-filter:saturate(1.4) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.embed .nav{top:0;}
+.brand{display:flex; align-items:center; gap:var(--s2); flex:none;}
+.brand-mark{
+  width:30px; height:30px; border-radius:8px; flex:none;
+  background:linear-gradient(140deg,var(--accent),var(--accent-deep));
+  display:grid; place-items:center; color:#fff; font-family:var(--serif);
+  font-weight:700; font-size:17px; box-shadow:0 2px 8px rgba(143,29,29,.3);
+}
+.brand-word{font-family:var(--serif); font-weight:700; font-size:16.5px; white-space:nowrap;}
+.brand-word i{color:var(--accent); font-style:normal;}
+
+.nav-tabs{display:flex; align-items:center; gap:2px;}
+.nav-tab{
+  position:relative; border:0; background:transparent; color:var(--muted);
+  font-size:14.5px; font-weight:600; padding:8px 14px; border-radius:var(--r-sm);
+  display:flex; align-items:center; gap:6px; transition:.15s; white-space:nowrap;
+}
+.nav-tab svg{width:17px; height:17px; opacity:.85;}
+.nav-tab:hover{color:var(--text); background:var(--accent-tint);}
+.nav-tab.active{color:var(--accent);}
+.nav-tab.active::after{content:""; position:absolute; left:14px; right:14px; bottom:-11px; height:2.5px; background:var(--accent); border-radius:3px;}
+.nav-spacer{flex:1;}
+.nav-account{display:flex; align-items:center; gap:var(--s2); flex:none; position:relative;}
+
+.btn-link{color:var(--muted); font-weight:600; font-size:13.5px; padding:8px 10px; border-radius:var(--r-sm); background:none; border:0;}
+.btn-link:hover{color:var(--text); background:rgba(0,0,0,.035);}
+.btn-outline{border:1px solid var(--line-strong); background:var(--surface); color:var(--text); font-weight:600; font-size:13.5px; padding:8px 14px; border-radius:var(--r-sm); transition:.15s;}
+.btn-outline:hover{border-color:var(--accent); color:var(--accent);}
+.btn-solid{border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:600; font-size:13.5px; padding:8px 15px; border-radius:var(--r-sm); transition:.15s;}
+.btn-solid:hover{background:var(--accent-deep);}
+
+/* 头像菜单 */
+.avatar{display:flex; align-items:center; gap:var(--s2); border:1px solid var(--line-strong); background:var(--surface); border-radius:999px; padding:4px 11px 4px 4px; font-size:13.5px; font-weight:600; transition:.15s;}
+.avatar:hover{border-color:var(--accent);}
+.avatar .ini{width:26px; height:26px; border-radius:50%; background:linear-gradient(140deg,var(--accent),var(--accent-deep)); color:#fff; display:grid; place-items:center; font-size:12.5px; font-weight:700;}
+.avatar .caret{color:var(--faint); font-size:10px;}
+.menu{
+  position:absolute; right:0; top:calc(100% + 9px); min-width:214px; z-index:120;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--sh-pop); padding:var(--s2);
+}
+.menu .mhead{padding:9px var(--s3) var(--s2); border-bottom:1px solid var(--line); margin-bottom:var(--s1);}
+.menu .mhead b{display:block; font-size:13.5px;}
+.menu .mhead span{font-size:12px; color:var(--muted);}
+.menu .mtier{display:inline-block; margin-top:5px; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:var(--ok-soft); color:var(--ok);}
+.menu a{display:flex; align-items:center; gap:var(--s2); padding:8px var(--s3); border-radius:8px; font-size:13.5px; color:var(--text);}
+.menu a:hover{background:var(--surface-2); color:var(--accent);}
+.menu a.danger{color:var(--muted);}
+.menu hr{border:0; border-top:1px solid var(--line); margin:var(--s1) 0;}
+
+/* ===================== 页容器 ===================== */
+.wrap{max-width:1180px; margin:0 auto; padding:var(--s6) var(--s5) 88px;}
+.page{display:none;}
+.page.active{display:block; animation:rise .26s ease;}
+@keyframes rise{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+
+.page-head{margin-bottom:var(--s5);}
+.kicker{color:var(--accent); font-weight:700; font-size:12px; letter-spacing:.1em; text-transform:uppercase;}
+.page-head h1{font-size:27px; margin:var(--s1) 0 6px;}
+.page-head .lede{color:var(--muted); max-width:62ch;}
+.corpus-toggle{display:inline-flex; align-items:center; gap:6px; margin-top:var(--s3); font-size:12.5px; color:var(--muted); background:var(--surface-2); border:1px solid var(--line); border-radius:999px; padding:5px 13px;}
+.corpus-toggle b{color:var(--accent);}
+.corpus-toggle .cv{transition:.2s; display:inline-block;}
+.corpus-toggle[aria-expanded="true"] .cv{transform:rotate(90deg);}
+.corpus-list{display:flex; flex-wrap:wrap; gap:6px; margin-top:var(--s3);}
+.corpus-list span{font-size:12px; color:var(--muted); background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:4px 10px;}
+
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--sh-1);}
+
+/* ===================== ① 检索页 ===================== */
+.search-layout{display:grid; grid-template-columns:minmax(0,1fr) 306px; gap:var(--s5); align-items:start;}
+
+.mode-row{display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s4); flex-wrap:wrap;}
+.subtabs{display:inline-flex; background:var(--surface-2); border:1px solid var(--line); border-radius:11px; padding:4px; gap:4px;}
+.subtab{border:0; background:transparent; color:var(--muted); font-weight:600; font-size:14px; padding:8px 17px; border-radius:8px; transition:.15s;}
+.subtab.active{background:var(--surface); color:var(--accent); box-shadow:var(--sh-1);}
+.subtab.assoc.active{color:var(--oil);}
+.help-btn{width:24px; height:24px; border-radius:50%; border:1px solid var(--line-strong); background:var(--surface); color:var(--muted); font-size:12.5px; font-weight:700; line-height:1;}
+.help-btn:hover{border-color:var(--accent); color:var(--accent);}
+.help-pop{position:relative; margin-bottom:var(--s4); padding:var(--s4); background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r); font-size:13.5px; color:var(--muted); line-height:1.75;}
+.help-pop b{color:var(--text);}
+.help-pop .x{position:absolute; right:10px; top:8px; border:0; background:none; color:var(--faint); font-size:16px;}
+
+.search-box{padding:var(--s5);}
+.search-box textarea{
+  width:100%; min-height:118px; resize:vertical; border:1.5px solid var(--line-strong);
+  border-radius:12px; padding:13px var(--s4); font:inherit; font-size:15.5px; line-height:1.75;
+  color:var(--text); background:var(--surface-2); transition:.15s;
+}
+.search-box textarea:focus{outline:none; border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px rgba(143,29,29,.1);}
+.search-box.assoc textarea:focus{border-color:var(--oil); box-shadow:0 0 0 3px rgba(31,78,121,.12);}
+.opt-row{display:flex; flex-wrap:wrap; align-items:center; gap:var(--s3) var(--s4); margin-top:var(--s3);}
+.check{display:inline-flex; align-items:center; gap:var(--s2); color:var(--muted); font-size:13.5px;}
+.check input{width:16px; height:16px; accent-color:var(--accent); margin:0;}
+.scope-wrap{display:flex; align-items:center; gap:var(--s2); flex-wrap:wrap;}
+.scope-lab{font-size:12.5px; color:var(--faint); font-weight:600;}
+.chip{border:1px solid var(--line-strong); background:var(--surface); color:var(--muted); font-size:12.5px; font-weight:600; padding:5px 12px; border-radius:999px; transition:.15s;}
+.chip:hover{border-color:var(--accent); color:var(--accent);}
+.chip.on{background:var(--accent-soft); border-color:var(--accent); color:var(--accent);}
+.chip.on.oil{background:var(--oil-soft); border-color:var(--oil); color:var(--oil);}
+.action-row{display:flex; align-items:center; gap:var(--s3); margin-top:var(--s4); flex-wrap:wrap;}
+.btn-primary{border:1px solid var(--accent); background:var(--accent); color:#fff; font-weight:700; font-size:15px; padding:11px var(--s5); border-radius:11px; transition:.15s;}
+.btn-primary:hover{background:var(--accent-deep);}
+.btn-primary.oil{background:var(--oil); border-color:var(--oil);}
+.btn-primary.oil:hover{background:var(--oil-deep);}
+.btn-ghost{border:1px solid var(--line-strong); background:var(--surface); color:var(--muted); font-weight:600; font-size:13.5px; padding:11px var(--s4); border-radius:11px; position:relative;}
+.btn-ghost:hover{color:var(--text);}
+.btn-ghost .cnt{color:var(--accent); font-weight:700; margin-left:5px;}
+.kbd-hint{color:var(--faint); font-size:12.5px; margin-left:auto;}
+
+/* 历史记录弹层 */
+.history-pop{margin-top:var(--s3); padding:var(--s4); background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);}
+.history-pop .hh{display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s2);}
+.history-pop .hh h4{font-size:14px;}
+.history-pop .hh .note{margin-left:auto; font-size:11.5px; color:var(--faint);}
+.history-item{display:flex; align-items:center; gap:var(--s3); padding:8px 0; border-bottom:1px dashed var(--line); font-size:13.5px;}
+.history-item:last-child{border-bottom:0;}
+.history-item .txt{flex:1; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.history-item .when{color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums;}
+.history-item .md{font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; background:var(--surface-3); color:var(--muted);}
+
+/* 结果框 */
+.results{margin-top:var(--s5); overflow:hidden;}
+.results-tools{display:flex; align-items:center; gap:var(--s2); padding:8px var(--s4); background:var(--surface-3); border-bottom:1px solid var(--line); font-size:12px; color:var(--muted);}
+.results-tools .rt-hits b{color:var(--accent); font-variant-numeric:tabular-nums;}
+.results-tools .spacer{flex:1;}
+.results-tools button{border:1px solid var(--line-strong); background:var(--surface); color:var(--muted); font-size:11.5px; font-weight:600; padding:3px 10px; border-radius:7px;}
+.results-tools button:hover{color:var(--accent); border-color:var(--accent);}
+.results-head{display:flex; flex-wrap:wrap; align-items:center; gap:var(--s2); padding:var(--s3) var(--s4); border-bottom:1px solid var(--line); background:var(--surface-2);}
+.book-tabs{display:flex; flex-wrap:wrap; gap:6px;}
+.book-tab{border:1px solid var(--line); background:var(--surface); color:var(--muted); font-size:12px; font-weight:600; padding:4px 11px; border-radius:999px; transition:.15s;}
+.book-tab .cnt{color:var(--faint); margin-left:4px; font-variant-numeric:tabular-nums;}
+.book-tab:hover{border-color:var(--accent); color:var(--accent);}
+.book-tab.on{background:var(--accent); border-color:var(--accent); color:#fff;}
+.book-tab.on .cnt{color:rgba(255,255,255,.82);}
+.cite-bar{margin-left:auto; display:flex; align-items:center; gap:var(--s2); font-size:12px; color:var(--muted);}
+.cite-bar select{font:inherit; font-size:12px; border:1px solid var(--line-strong); border-radius:7px; padding:4px 8px; background:#fff; color:var(--text);}
+
+.hit{padding:var(--s4) var(--s5); border-bottom:1px solid var(--line);}
+.hit:last-child{border-bottom:0;}
+.hit .q{font-size:15.5px; line-height:1.9;}
+.hit .q mark{background:#fbe6b6; color:inherit; padding:0 2px; border-radius:3px;}
+.hit .src{display:flex; flex-wrap:wrap; align-items:center; gap:6px var(--s3); margin-top:var(--s2); font-size:12.5px; color:var(--muted);}
+.hit .src .book{color:var(--accent); font-weight:700;}
+.hit .src .pin{font-variant-numeric:tabular-nums;}
+.hit .src .fz{font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; background:var(--warn-soft); color:var(--warn);}
+.hit .src .acts{margin-left:auto; display:flex; gap:6px;}
+.hit .src .acts button{border:1px solid var(--line-strong); background:#fff; color:var(--muted); font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:7px;}
+.hit .src .acts button:hover{color:var(--accent); border-color:var(--accent);}
+.results-foot{padding:var(--s3) var(--s4); text-align:center; font-size:12.5px; color:var(--faint); background:var(--surface-2);}
+.results-handle{display:flex; align-items:center; justify-content:center; gap:var(--s2); padding:7px; background:var(--surface-2); border-top:1px solid var(--line); color:var(--faint); font-size:11.5px; cursor:ns-resize;}
+.results-handle .grip{width:34px; height:3px; border-radius:99px; background:var(--line-strong);}
+
+/* 联想检索结果（油画蓝金） */
+.assoc-panel{margin-top:var(--s5); border:1px solid #cddbe8; border-radius:var(--r); overflow:hidden; background:var(--oil-soft);}
+.assoc-head{padding:var(--s4) var(--s5); background:linear-gradient(135deg,var(--oil-deep),var(--oil)); color:#eaf1f7;}
+.assoc-head h3{font-size:16px; color:#fff; display:flex; align-items:center; gap:var(--s2);}
+.assoc-head h3 .sp{font-size:11px; font-weight:700; letter-spacing:.06em; background:rgba(255,255,255,.16); border-radius:999px; padding:3px 9px; font-family:var(--sans);}
+.assoc-head p{font-size:12.5px; color:rgba(234,241,247,.82); margin-top:5px;}
+.assoc-kw{display:flex; flex-wrap:wrap; gap:6px; margin-top:var(--s3);}
+.assoc-kw span{font-size:12px; font-weight:600; color:#f3e6c4; border:1px solid rgba(184,145,43,.6); background:rgba(184,145,43,.16); border-radius:999px; padding:3px 11px;}
+.assoc-item{padding:var(--s4) var(--s5); border-bottom:1px solid #d9e4ee; background:var(--surface);}
+.assoc-item:last-of-type{border-bottom:0;}
+.assoc-item .rel{display:flex; align-items:center; gap:var(--s2); font-size:11.5px; color:var(--oil); font-weight:700; margin-bottom:6px;}
+.assoc-item .rel .bar{width:52px; height:4px; background:#dde7f0; border-radius:99px; overflow:hidden;}
+.assoc-item .rel .bar i{display:block; height:100%; background:linear-gradient(90deg,var(--oil),var(--oil-gold));}
+.assoc-item .q{font-size:15px; line-height:1.9;}
+.assoc-item .src{display:flex; flex-wrap:wrap; align-items:center; gap:6px var(--s3); margin-top:var(--s2); font-size:12.5px; color:var(--muted);}
+.assoc-item .src .book{color:var(--oil); font-weight:700;}
+.assoc-foot{padding:var(--s3) var(--s5); font-size:12px; color:var(--oil-deep); background:var(--oil-soft); border-top:1px solid #d9e4ee;}
+
+/* 右辅栏 */
+.aside{display:flex; flex-direction:column; gap:var(--s4);}
+.aside .card{padding:var(--s4);}
+.aside h3{font-size:14.5px; margin-bottom:var(--s3); display:flex; align-items:center; gap:var(--s2);}
+.aside h3 .dot{width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none;}
+.aside h3 .more{margin-left:auto; font-size:11.5px; color:var(--faint); font-family:var(--sans); font-weight:400;}
+.notice-item{font-size:13px; color:var(--muted); padding:7px 0; border-bottom:1px dashed var(--line); line-height:1.65;}
+.notice-item:last-child{border-bottom:0;}
+.notice-item b{color:var(--text); font-weight:600;}
+.notice-item .dt{display:block; font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums;}
+.geo-stat{display:flex; align-items:baseline; gap:var(--s2); margin-bottom:var(--s3);}
+.geo-stat .num{font-family:var(--serif); font-size:29px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; line-height:1;}
+.geo-stat .lab{font-size:12.5px; color:var(--muted);}
+.geo-bars{display:flex; flex-direction:column; gap:7px;}
+.geo-bar{display:flex; align-items:center; gap:var(--s2); font-size:12px; color:var(--muted);}
+.geo-bar .name{width:34px; flex:none;}
+.geo-bar .track{flex:1; height:6px; background:var(--surface-3); border-radius:99px; overflow:hidden;}
+.geo-bar .fill{display:block; height:100%; background:linear-gradient(90deg,var(--accent),#c4714a); border-radius:99px;}
+.geo-bar .v{width:34px; text-align:right; font-variant-numeric:tabular-nums; color:var(--faint);}
+.geo-foot{margin-top:var(--s3); font-size:11.5px; color:var(--faint);}
+.community-run span{display:block; font-size:12.5px; color:var(--muted); padding:6px 0; border-bottom:1px dashed var(--line); line-height:1.6;}
+.community-run span:last-child{border-bottom:0;}
+
+/* ===================== ② 阅读页 ===================== */
+.read-search{padding:var(--s5); position:relative;}
+.rs-row{display:flex; flex-wrap:wrap; gap:var(--s3); align-items:center;}
+.rs-row input{flex:1; min-width:230px; border:1.5px solid var(--accent); border-radius:11px; padding:13px var(--s4); font:inherit; font-size:15.5px; background:#fff;}
+.rs-row input:focus{outline:none; box-shadow:0 0 0 3px rgba(143,29,29,.12);}
+.rs-row select{border:1px solid var(--line-strong); border-radius:10px; padding:12px var(--s3); font:inherit; font-size:13.5px; background:#fff; color:var(--text);}
+.rs-hint{margin-top:var(--s3); font-size:12.5px; color:var(--faint);}
+/* 篇章直达下拉建议 */
+.suggest{position:absolute; left:var(--s5); right:var(--s5); top:calc(100% - 46px); z-index:60; background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--sh-pop); overflow:hidden; max-height:340px; overflow-y:auto;}
+.sg{display:flex; align-items:center; gap:var(--s3); padding:10px var(--s4); border-bottom:1px solid var(--line); cursor:pointer;}
+.sg:last-child{border-bottom:0;}
+.sg:hover{background:var(--surface-2);}
+.sg .tag{flex:none; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; color:#fff; white-space:nowrap;}
+.tag-wenji{background:var(--accent);} .tag-quanji{background:#2b5a6b;} .tag-xuanji{background:#3b4a6b;}
+.tag-lenin{background:#5b5f2a;} .tag-mao{background:#8a2b2b;}
+.sg .t{flex:1; font-size:14px; line-height:1.5;}
+.sg .p{flex:none; color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums;}
+.sg.jump{background:linear-gradient(90deg,var(--accent-tint),transparent 62%);}
+.sg .jt{margin-left:7px; font-size:10.5px; font-weight:700; color:var(--accent); border:1px solid var(--accent); border-radius:999px; padding:1px 7px;}
+
+.continue{display:flex; flex-wrap:wrap; align-items:center; gap:var(--s2); margin:var(--s5) 0 0;}
+.continue .lbl{font-size:12.5px; color:var(--muted); font-weight:600; margin-right:var(--s1);}
+.continue .pill{display:inline-flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:6px 13px; font-size:12.5px; box-shadow:var(--sh-1); transition:.15s;}
+.continue .pill:hover{border-color:var(--accent);}
+.continue .pill .pg{color:var(--accent); font-weight:700; font-variant-numeric:tabular-nums;}
+
+.sec-label{display:flex; align-items:baseline; gap:var(--s3); margin:var(--s6) 0 var(--s4);}
+.sec-label h2{font-size:18px;}
+.sec-label .n{font-size:12.5px; color:var(--faint);}
+.book-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(232px,1fr)); gap:var(--s4);}
+.book-card{padding:var(--s4); display:flex; flex-direction:column; gap:7px; transition:.16s;}
+.book-card:hover{border-color:var(--accent); box-shadow:var(--sh-2); transform:translateY(-2px);}
+.bk-top{display:flex; align-items:flex-start; justify-content:space-between; gap:var(--s3);}
+.book-card h3{font-size:16px; line-height:1.4;}
+.spine{width:32px; height:42px; border-radius:3px 5px 5px 3px; flex:none; background:linear-gradient(160deg,var(--accent),var(--accent-deep)); box-shadow:inset -6px 0 9px rgba(0,0,0,.2);}
+.spine.b2{background:linear-gradient(160deg,#2b5a6b,#1c3b47);}
+.spine.b3{background:linear-gradient(160deg,#5b5f2a,#3d411c);}
+.spine.b4{background:linear-gradient(160deg,#8a5b2b,#5e3d1c);}
+.spine.b5{background:linear-gradient(160deg,#3b4a6b,#252f45);}
+.book-card .meta{font-size:12px; color:var(--muted); line-height:1.6;}
+.book-card .tags{display:flex; flex-wrap:wrap; gap:5px; margin-top:2px;}
+.t-ai{font-size:11px; font-weight:700; color:var(--ai); background:var(--ai-soft); border-radius:999px; padding:3px 9px;}
+.t-scan{font-size:11px; font-weight:700; color:var(--muted); background:var(--surface-3); border-radius:999px; padding:3px 9px;}
+.book-card .enter{margin-top:var(--s2); align-self:flex-start; border:1px solid var(--line-strong); background:#fff; color:var(--accent); font-weight:600; font-size:12.5px; padding:7px 14px; border-radius:var(--r-sm); transition:.15s;}
+.book-card .enter:hover{background:var(--accent); color:#fff; border-color:var(--accent);}
+
+/* ===================== ③ AI 研究对话页 ===================== */
+.ai-stage{max-width:840px; margin:0 auto;}
+.depth-tabs{display:grid; grid-template-columns:1fr 1fr; gap:var(--s3); margin-bottom:var(--s4);}
+.depth-tab{text-align:left; border:1.5px solid var(--line); background:var(--surface); border-radius:var(--r); padding:var(--s3) var(--s4); transition:.15s;}
+.depth-tab:hover{border-color:var(--line-strong);}
+.depth-tab strong{display:block; font-size:14.5px;}
+.depth-tab span{font-size:12px; color:var(--muted);}
+.depth-tab.active{border-color:var(--ai); background:var(--ai-soft);}
+.depth-tab.active.research{border-color:var(--accent); background:var(--accent-soft);}
+.ai-opts{display:flex; flex-wrap:wrap; align-items:center; gap:var(--s3) var(--s4); padding:var(--s3) var(--s4); background:var(--surface-2); border:1px solid var(--line); border-radius:12px; margin-bottom:var(--s3); font-size:13px; color:var(--muted);}
+.ai-opts select{font:inherit; font-size:12.5px; border:1px solid var(--line-strong); border-radius:8px; padding:5px 9px; background:#fff; color:var(--text);}
+.ai-note{display:flex; gap:var(--s3); padding:var(--s3) var(--s4); border-radius:12px; font-size:12.5px; line-height:1.7; margin-bottom:var(--s3);}
+.ai-note.research{background:var(--accent-soft); border:1px solid #ecd6d1; color:#6b3a35;}
+.ai-note b{color:var(--accent);}
+.ai-note .quota{display:inline-block; margin-left:6px; font-weight:700; background:#fff; border:1px solid #e2c9c3; border-radius:999px; padding:1px 9px; font-variant-numeric:tabular-nums;}
+.tok{display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s3); font-size:12px; color:var(--muted);}
+.tok .track{flex:1; height:6px; background:var(--surface-3); border-radius:99px; overflow:hidden;}
+.tok .track i{display:block; height:100%; width:62%; background:linear-gradient(90deg,var(--ai),#4a7f8c);}
+.tok .v{font-variant-numeric:tabular-nums;}
+
+.chat{display:flex; flex-direction:column; gap:var(--s4); margin-bottom:var(--s4);}
+.msg{max-width:86%; padding:var(--s3) var(--s4); border-radius:var(--r); font-size:14.5px; line-height:1.85;}
+.msg.user{align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:5px;}
+.msg.ai{align-self:flex-start; background:var(--surface); border:1px solid var(--line); border-bottom-left-radius:5px; box-shadow:var(--sh-1);}
+.msg.ai sup{color:var(--accent); font-weight:700; font-size:11px; padding:0 1px;}
+.msg.ai .refs{margin-top:var(--s3); padding-top:var(--s3); border-top:1px dashed var(--line);}
+.msg.ai .refs .rh{font-size:11.5px; font-weight:700; color:var(--faint); letter-spacing:.06em; margin-bottom:6px;}
+.msg.ai .refs li{font-size:12.5px; color:var(--muted); line-height:1.7; margin-bottom:3px;}
+.msg.ai .refs li b{color:var(--accent);}
+.msg.ai .refs ol{margin:0; padding-left:var(--s5);}
+.msg.ai .refs .rest{font-size:12px; color:var(--faint); margin-top:6px;}
+.composer{display:flex; gap:var(--s3); align-items:flex-end; padding:var(--s3); background:var(--surface); border:1px solid var(--line); border-radius:var(--r); box-shadow:var(--sh-1);}
+.composer textarea{flex:1; border:0; resize:none; font:inherit; font-size:15px; min-height:44px; background:transparent; color:var(--text); line-height:1.7;}
+.composer textarea:focus{outline:none;}
+.composer .cbtns{display:flex; gap:var(--s2);}
+
+/* 锁定态 */
+.lock{display:flex; gap:var(--s3); padding:var(--s4) var(--s5); background:var(--warn-soft); border:1px solid #edd9a8; border-radius:var(--r); font-size:13.5px; color:#6d5518; line-height:1.75; margin-bottom:var(--s4);}
+.lock b{color:#5a4512;}
+.lock .go{margin-left:auto; flex:none; align-self:center;}
+
+/* ===================== ④ 更多功能页 ===================== */
+.more-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(272px,1fr)); gap:var(--s4);}
+.more-card{padding:var(--s5); display:flex; flex-direction:column; gap:var(--s2); transition:.16s;}
+.more-card:hover{border-color:var(--accent); box-shadow:var(--sh-2); transform:translateY(-2px);}
+.more-ic{width:44px; height:44px; border-radius:12px; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent);}
+.more-ic svg{width:23px; height:23px;}
+.more-title{display:flex; align-items:center; gap:var(--s2); margin-top:var(--s1);}
+.more-card h3{font-size:17px;}
+.more-card p{font-size:13px; color:var(--muted); line-height:1.7; flex:1;}
+.badge{font-size:10.5px; font-weight:700; border-radius:999px; padding:3px 9px; white-space:nowrap;}
+.badge.open{color:var(--ok); background:var(--ok-soft);}
+.badge.lock{color:var(--warn); background:var(--warn-soft);}
+.more-card .go{align-self:flex-start; margin-top:var(--s1);}
+.info-row{margin-top:var(--s6); padding-top:var(--s4); border-top:1px solid var(--line); display:flex; flex-wrap:wrap; gap:var(--s2) var(--s5); font-size:12.5px; color:var(--muted);}
+.info-row a{color:var(--accent); font-weight:600;}
+
+/* ===================== 反馈浮标 / 底部标签栏 ===================== */
+.fab{position:fixed; right:22px; bottom:22px; z-index:80; display:flex; align-items:center; gap:var(--s2); background:var(--surface); border:1px solid var(--line-strong); border-radius:999px; padding:10px var(--s4); box-shadow:var(--sh-2); font-size:13.5px; font-weight:600;}
+.fab:hover{border-color:var(--accent); color:var(--accent);}
+.fab svg{width:17px; height:17px; color:var(--accent);}
+.tabbar{display:none;}
+
+/* ===================== 响应式 ===================== */
+@media (max-width:1000px){
+  .search-layout{grid-template-columns:1fr;}
+  .aside{flex-direction:row; flex-wrap:wrap;}
+  .aside .card{flex:1 1 250px;}
+}
+@media (max-width:720px){
+  .nav-tabs{display:none;}
+  .nav{gap:var(--s3); padding:0 var(--s4); height:56px;}
+  .brand-word{font-size:15px;}
+  .wrap{padding:var(--s5) var(--s4) 96px;}
+  .nav-account .btn-link{display:none;}
+  .aside{flex-direction:column;}
+  .fab{bottom:80px; right:14px; padding:9px 14px; font-size:12.5px;}
+  .depth-tabs{grid-template-columns:1fr;}
+  .page-head h1{font-size:23px;}
+  .search-box,.read-search,.more-card{padding:var(--s4);}
+  .hit{padding:var(--s4);}
+  .tabbar{
+    display:flex; position:fixed; left:0; right:0; bottom:0; z-index:95;
+    background:rgba(252,249,244,.96); backdrop-filter:blur(12px);
+    border-top:1px solid var(--line); padding:6px 4px calc(6px + env(safe-area-inset-bottom,0));
+  }
+  .tabbar button{flex:1; border:0; background:transparent; display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--muted); font-size:10.5px; font-weight:600; padding:5px 0; border-radius:var(--r-sm);}
+  .tabbar button svg{width:21px; height:21px;}
+  .tabbar button.active{color:var(--accent);}
+}
+</style>
+</head>
+<body>
+<script>if(location.search.indexOf('embed=1')>-1){document.documentElement.classList.add('embed');}</script>
+
+<!-- ===================== 预览控制条 ===================== -->
+<div class="pv-bar">
+  <span class="pv-tag">静态预览 v2</span>
+  <div class="pv-group"><span>身份</span>
+    <div class="pv-seg" id="segRole">
+      <button data-role="guest" class="on">游客</button>
+      <button data-role="member">会员</button>
+      <button data-role="admin">管理员</button>
+    </div>
+  </div>
+  <div class="pv-group"><span>视图</span>
+    <div class="pv-seg" id="segView">
+      <button data-view="desktop" class="on">桌面</button>
+      <button data-view="both">桌面+手机</button>
+    </div>
+  </div>
+  <span class="pv-route" id="pvRoute">路由 /</span>
+</div>
+
+<div class="pv-stage" id="pvStage">
+<div class="pv-desktop">
+
+<!-- ===================== 顶部导航 App Shell ===================== -->
+<header class="nav">
+  <a class="brand" href="#" data-goto="search" aria-label="返回检索页">
+    <span class="brand-mark">马</span>
+    <span class="brand-word">马恩经典<i>·</i>检索</span>
+  </a>
+  <nav class="nav-tabs" aria-label="主导航">
+    <button class="nav-tab active" data-goto="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>检索</button>
+    <button class="nav-tab" data-goto="read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 7.5 4.5 4 5v13c3.5-.5 6.5 0 8 1.5 1.5-1.5 4.5-2 8-1.5V5c-3.5-.5-6.5 0-8 1.5z"/><path d="M12 6.5v13"/></svg>阅读</button>
+    <button class="nav-tab" data-goto="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"/></svg>AI研究对话</button>
+    <button class="nav-tab" data-goto="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>更多功能</button>
+  </nav>
+  <div class="nav-spacer"></div>
+  <div class="nav-account">
+    <a class="btn-link" href="#">会员套餐</a>
+    <span id="acctGuest"><button class="btn-outline">登录</button> <button class="btn-solid">注册</button></span>
+    <button class="avatar" id="acctBtn" hidden aria-haspopup="true" aria-expanded="false">
+      <span class="ini" id="acctIni">李</span><span id="acctName">李研究员</span><span class="caret">▾</span>
+    </button>
+    <div class="menu" id="acctMenu" hidden>
+      <div class="mhead"><b id="mName">李研究员</b><span id="mMail">liyj@univ.edu.cn</span><span class="mtier" id="mTier">年度会员 · 至 2027-03</span></div>
+      <a href="#">账户中心</a>
+      <a href="#">我的会员与订单</a>
+      <a href="#">期刊订阅设置</a>
+      <span id="adminLinks" hidden><hr><a href="#">本地控制台</a><a href="#">管理后台</a></span>
+      <hr><a href="#" class="danger">退出登录</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============================ ① 检索页 ============================ -->
+  <section class="page active" data-page="search">
+    <div class="page-head">
+      <div class="kicker">Citation Search</div>
+      <h1>引文检索</h1>
+      <p class="lede">把需要核查的原文粘贴进来，精确 / 模糊定位它在马克思主义经典原著中的准确出处；或用「联想检索」按意思找相关论述。</p>
+      <button class="corpus-toggle" id="corpusToggle" aria-expanded="false"><span class="cv">▸</span>收录文献 · 共 <b>21</b> 种</button>
+      <div class="corpus-list" id="corpusList" hidden>
+        <span>马恩文集 10 卷</span><span>马恩全集 50 卷</span><span>马恩全集·二版 37 卷</span><span>马恩选集 4 卷</span>
+        <span>列宁全集 60 卷</span><span>毛泽东选集 4 卷</span><span>毛泽东文集 8 卷</span><span>邓小平文选 3 卷</span>
+        <span>江泽民文选 3 卷</span><span>胡锦涛文选 3 卷</span><span>治国理政 5 卷</span><span>习近平经济文选 1 卷</span>
+        <span>习近平专题文献 6 种</span><span>党代会报告</span><span>全会公报</span><span>十九大以来文献选编</span>
+        <span>二十大以来文献选编</span><span>马克思主义大辞典</span><span>列宁全集（俄）</span><span>MEGA²/MEW（德）</span><span>marxists.org（英）</span>
+      </div>
+    </div>
+
+    <div class="search-layout">
+      <div class="main">
+        <div class="mode-row">
+          <div class="subtabs" role="tablist" aria-label="检索模式">
+            <button class="subtab active" data-mode="standard">标准检索</button>
+            <button class="subtab assoc" data-mode="assoc">联想检索</button>
+          </div>
+          <button class="help-btn" id="helpBtn" aria-expanded="false" title="这两种检索怎么选？">?</button>
+        </div>
+
+        <div class="help-pop" id="helpPop" hidden>
+          <button class="x" id="helpX" aria-label="关闭">×</button>
+          <b>标准检索</b>：你已经有原文，要核准出处。逐字匹配，并带 OCR 模糊容错（长引文约 8% 容错），命中处高亮，直接给卷次页码与可复制的规范引文。<br>
+          <b>联想检索</b>：你只记得意思、记不清原话。AI 先提炼关键词，再在真实语料里检索并重排，给出相关论述——<b>引文一律来自原著，不可伪造</b>。
+        </div>
+
+        <!-- 标准检索 -->
+        <div id="paneStandard">
+          <div class="card search-box">
+            <textarea>在资产阶级社会里，活的劳动只是增殖已经积累起来的劳动的一种手段。</textarea>
+            <div class="opt-row">
+              <label class="check"><input type="checkbox"> 同段多词共现（空格分隔，约 200 字邻近）</label>
+              <div class="scope-wrap"><span class="scope-lab">范围</span>
+                <button class="chip on">全部书库</button><button class="chip">马恩</button><button class="chip">列宁</button><button class="chip">毛泽东</button><button class="chip">习近平</button>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="btn-primary">开始检索</button>
+              <button class="btn-ghost" id="histBtn">历史检索记录<span class="cnt">12</span></button>
+              <span class="kbd-hint">Ctrl / ⌘ + Enter 提交</span>
+            </div>
+            <div class="history-pop" id="histPop" hidden>
+              <div class="hh"><h4>历史检索记录</h4><span class="note">仅存本设备 · 保留最近 60 天 / 40 条</span></div>
+              <div class="history-item"><span class="md">标准</span><span class="txt">在资产阶级社会里，活的劳动只是增殖已经积累起来的劳动的一种手段。</span><span class="when">今天 14:02</span></div>
+              <div class="history-item"><span class="md">联想</span><span class="txt">马克思关于机器排挤工人的论述</span><span class="when">今天 11:37</span></div>
+              <div class="history-item"><span class="md">标准</span><span class="txt">一切坚固的东西都烟消云散了</span><span class="when">昨天 20:15</span></div>
+            </div>
+          </div>
+
+          <div class="card results">
+            <div class="results-tools">
+              <span class="rt-hits">命中 <b>37</b> 处 · across 3 书库 · 用时 0.42s</span>
+              <span class="spacer"></span>
+              <button>收起</button><button>退出</button>
+            </div>
+            <div class="results-head">
+              <div class="book-tabs">
+                <button class="book-tab on">全部<span class="cnt">37</span></button>
+                <button class="book-tab">文集<span class="cnt">12</span></button>
+                <button class="book-tab">全集<span class="cnt">21</span></button>
+                <button class="book-tab">选集<span class="cnt">4</span></button>
+              </div>
+              <div class="cite-bar">引用格式
+                <select><option>国标 GB/T 7714—2015</option><option>《中国社会科学》</option><option>《马克思主义研究》</option></select>
+              </div>
+            </div>
+            <div class="hit">
+              <div class="q">在资产阶级社会里，<mark>活的劳动只是增殖已经积累起来的劳动的一种手段</mark>。在共产主义社会里，积累起来的劳动只是扩大、丰富和提高工人的生活的一种手段。</div>
+              <div class="src"><span class="book">《马克思恩格斯文集》</span><span class="pin">第 2 卷 · 第 46 页</span><span>《共产党宣言》</span><span class="acts"><button>复制引文</button><button>打开阅读器</button></span></div>
+            </div>
+            <div class="hit">
+              <div class="q">因此，在资产阶级社会里，过去支配现在；在共产主义社会里，现在支配过去。<mark>活的劳动</mark>只是增殖已经积累起来的劳动的手段……</div>
+              <div class="src"><span class="book">《马克思恩格斯全集》</span><span class="pin">第 4 卷 · 第 481 页</span><span>第一版</span><span class="fz">模糊命中 · 容错 3 字</span><span class="acts"><button>复制引文</button><button>打开阅读器</button></span></div>
+            </div>
+            <div class="hit">
+              <div class="q">……雇佣劳动完全是建立在工人的自相竞争之上的。<mark>活的劳动只是增殖已经积累起来的劳动</mark>的手段。</div>
+              <div class="src"><span class="book">《马克思恩格斯选集》</span><span class="pin">第 1 卷 · 第 415 页</span><span>第三版</span><span class="acts"><button>复制引文</button><button>打开阅读器</button></span></div>
+            </div>
+            <div class="results-foot">已显示 3 / 37 处 · 滚动查看更多</div>
+            <div class="results-handle"><span class="grip"></span>拖动调整结果框高度 · 双击复位</div>
+          </div>
+        </div>
+
+        <!-- 联想检索 -->
+        <div id="paneAssoc" hidden>
+          <div class="card search-box assoc">
+            <textarea>马克思讲机器把工人从生产过程里排挤出去、造成过剩人口的那些论述</textarea>
+            <div class="opt-row">
+              <div class="scope-wrap"><span class="scope-lab">范围</span>
+                <button class="chip on oil">自动（AI 判断）</button><button class="chip">马恩</button><button class="chip">列宁</button><button class="chip">毛泽东</button>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="btn-primary oil">联想检索</button>
+              <span class="kbd-hint">AI 提炼关键词 → 真实语料检索 → 重排</span>
+            </div>
+          </div>
+
+          <div class="assoc-panel">
+            <div class="assoc-head">
+              <h3>AI 已提炼检索线索<span class="sp">接地于真实语料</span></h3>
+              <p>下列论述均从原著全文中检索得到并按相关度重排，出处可逐条核验。</p>
+              <div class="assoc-kw"><span>机器</span><span>排挤工人</span><span>相对过剩人口</span><span>产业后备军</span><span>资本有机构成</span></div>
+            </div>
+            <div class="assoc-item">
+              <div class="rel">相关度 <span class="bar"><i style="width:94%"></i></span> 94%</div>
+              <div class="q">工人人口本身在生产出资本积累的同时，也以日益扩大的规模生产出使他们自身成为相对过剩人口的手段。这就是资本主义生产方式所特有的人口规律。</div>
+              <div class="src"><span class="book">《马克思恩格斯文集》</span><span class="pin">第 5 卷 · 第 728 页</span><span>《资本论》第一卷</span></div>
+            </div>
+            <div class="assoc-item">
+              <div class="rel">相关度 <span class="bar"><i style="width:88%"></i></span> 88%</div>
+              <div class="q">机器不仅是排挤工人的最有力的手段，而且被资本宣布为并且被资本有意识地加以运用的、与工人相敌对的力量。</div>
+              <div class="src"><span class="book">《马克思恩格斯全集》</span><span class="pin">第 23 卷 · 第 476 页</span><span>第一版</span></div>
+            </div>
+            <div class="assoc-item">
+              <div class="rel">相关度 <span class="bar"><i style="width:81%"></i></span> 81%</div>
+              <div class="q">被机器排挤的工人从工场被抛到劳动市场上，增加了那里已经存在的可供资本任意剥削的劳动力的数量。</div>
+              <div class="src"><span class="book">《马克思恩格斯文集》</span><span class="pin">第 5 卷 · 第 501 页</span><span>《资本论》第一卷</span></div>
+            </div>
+            <div class="assoc-foot">共找到 14 条相关论述 · 分布于《文集》《全集》两个书库</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右辅栏 -->
+      <aside class="aside">
+        <div class="card">
+          <h3><span class="dot"></span>公告<span class="more">v2.14</span></h3>
+          <div class="notice-item"><b>《全集》二版</b>新增 8 卷，OCR 精修上线。<span class="dt">2026-07-15</span></div>
+          <div class="notice-item">阅读器引文可<b>一键报错</b>，站长逐条核查。<span class="dt">2026-07-16</span></div>
+          <div class="notice-item">长引文<b>模糊容错</b>升级，散布错字也能命中。<span class="dt">2026-07-19</span></div>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>注册用户分布</h3>
+          <div class="geo-stat"><span class="num">6,240</span><span class="lab">累计注册</span></div>
+          <div class="geo-bars">
+            <div class="geo-bar"><span class="name">北京</span><span class="track"><i class="fill" style="width:92%"></i></span><span class="v">912</span></div>
+            <div class="geo-bar"><span class="name">广东</span><span class="track"><i class="fill" style="width:74%"></i></span><span class="v">733</span></div>
+            <div class="geo-bar"><span class="name">上海</span><span class="track"><i class="fill" style="width:61%"></i></span><span class="v">604</span></div>
+            <div class="geo-bar"><span class="name">江苏</span><span class="track"><i class="fill" style="width:48%"></i></span><span class="v">476</span></div>
+          </div>
+          <div class="geo-foot">仅按省份聚合展示，不记录任何明细地址。</div>
+        </div>
+        <div class="card">
+          <h3><span class="dot"></span>社区</h3>
+          <div class="community-run">
+            <span>「引文核查太准了，写论文离不开。」</span>
+            <span>「联想检索帮我找到了忘了出处的那句话。」</span>
+            <span>「希望增加书信卷的检索。」</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================ ② 阅读页 ============================ -->
+  <section class="page" data-page="read">
+    <div class="page-head">
+      <div class="kicker">Reading</div>
+      <h1>阅读</h1>
+      <p class="lede">输入书名或篇名直达，或从下方书库进入原版影印阅读器——阅读器内置 AI 导读、本书查找与引文报错。</p>
+    </div>
+
+    <div class="card read-search">
+      <div class="rs-row">
+        <input type="search" id="rsInput" value="共产党宣言" placeholder="输入书名 / 篇名，如「共产党宣言」「德意志意识形态」「实践论」" autocomplete="off">
+        <select><option>全部书库</option><option>◆ 马克思恩格斯文集</option><option>◆ 马克思恩格斯全集</option><option>◆ 马克思恩格斯选集</option><option>列宁全集</option><option>毛泽东选集</option></select>
+      </div>
+      <p class="rs-hint">支持模糊匹配与卷次识别：直接输入「马恩全集二版」可整卷直达；输入篇名可跳到该篇起始页。</p>
+      <div class="suggest" id="suggest" hidden>
+        <div class="sg jump"><span class="tag tag-wenji">文集</span><span class="t">马克思恩格斯文集 · 第 2 卷<span class="jt">整卷直达</span></span><span class="p">共 726 页</span></div>
+        <div class="sg"><span class="tag tag-wenji">文集</span><span class="t">共产党宣言</span><span class="p">第 2 卷 · P.30</span></div>
+        <div class="sg"><span class="tag tag-quanji">全集</span><span class="t">共产党宣言</span><span class="p">第 4 卷 · P.465</span></div>
+        <div class="sg"><span class="tag tag-xuanji">选集</span><span class="t">共产党宣言</span><span class="p">第 1 卷 · P.400</span></div>
+        <div class="sg"><span class="tag tag-wenji">文集</span><span class="t">《共产党宣言》1872 年德文版序言</span><span class="p">第 2 卷 · P.5</span></div>
+        <div class="sg"><span class="tag tag-lenin">列宁</span><span class="t">评《共产党宣言》</span><span class="p">第 2 卷 · P.11</span></div>
+      </div>
+    </div>
+
+    <div class="continue">
+      <span class="lbl">继续阅读</span>
+      <a class="pill" href="#">《马克思恩格斯文集》第 3 卷 <span class="pg">P.212</span></a>
+      <a class="pill" href="#">《列宁全集》第 55 卷 <span class="pg">P.34</span></a>
+      <a class="pill" href="#">《毛泽东选集》第 1 卷 <span class="pg">P.287</span></a>
+    </div>
+
+    <div class="sec-label"><h2>书库</h2><span class="n">共 21 种 · 250 余卷</span></div>
+    <div class="book-grid">
+      <div class="card book-card"><div class="bk-top"><h3>马克思恩格斯文集</h3><span class="spine"></span></div><div class="meta">10 卷 · 人民出版社 2009</div><div class="tags"><span class="t-ai">AI 导读</span><span class="t-scan">影印</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>马克思恩格斯全集</h3><span class="spine b2"></span></div><div class="meta">第一版 50 卷 · 1956–1985</div><div class="tags"><span class="t-ai">AI 导读</span><span class="t-scan">影印</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>马克思恩格斯全集·二版</h3><span class="spine b2"></span></div><div class="meta">第二版 37 卷</div><div class="tags"><span class="t-ai">AI 导读</span><span class="t-scan">影印</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>马克思恩格斯选集</h3><span class="spine b5"></span></div><div class="meta">第三版 4 卷 · 2012</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>列宁全集</h3><span class="spine b3"></span></div><div class="meta">60 卷 · 中文第二版</div><div class="tags"><span class="t-ai">AI 导读</span><span class="t-scan">影印</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>毛泽东选集 / 文集</h3><span class="spine"></span></div><div class="meta">选集 4 卷 · 文集 8 卷</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>邓小平 / 江泽民 / 胡锦涛文选</h3><span class="spine b4"></span></div><div class="meta">共 9 卷</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>习近平系列著作</h3><span class="spine"></span></div><div class="meta">治国理政 5 卷 · 经济文选 · 专题 6 种</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>党代会报告 / 全会公报</h3><span class="spine b5"></span></div><div class="meta">历次大会 · 改革开放以来全会</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+      <div class="card book-card"><div class="bk-top"><h3>重要文献选编</h3><span class="spine b4"></span></div><div class="meta">十九大以来 · 二十大以来</div><div class="tags"><span class="t-ai">AI 导读</span></div><button class="enter">进入阅读</button></div>
+    </div>
+  </section>
+
+  <!-- ============================ ③ AI 研究对话页 ============================ -->
+  <section class="page" data-page="ai">
+    <div class="ai-stage">
+      <div class="page-head">
+        <div class="kicker">AI Research Chat</div>
+        <h1>AI 研究对话</h1>
+        <p class="lede">把「随心问」与「研究综述」合为一页：可连续追问、承接上下文，答案附原著准确出处（引文不可伪造）。</p>
+      </div>
+
+      <div class="lock" id="aiLock" hidden>
+        <span>🔒</span>
+        <span><b>AI 研究对话需登录后使用。</b>开通会员可获得每日 AI 额度、研究综述次数与联网检索。</span>
+        <button class="btn-solid go">查看会员套餐</button>
+      </div>
+
+      <div id="aiBody">
+        <div class="depth-tabs" role="tablist" aria-label="回答深度">
+          <button class="depth-tab active" data-depth="quick"><strong>快速问答</strong><span>即时对话 · 可选检索引文库佐证</span></button>
+          <button class="depth-tab research" data-depth="research"><strong>研究综述</strong><span>约 5000 字 · 20–24 条原著真实引用</span></button>
+        </div>
+
+        <div class="ai-opts">
+          <span>模型 <select><option>DeepSeek Flash（默认 · 快）</option><option>DeepSeek Pro（更强 · 较慢）</option><option>智谱 GLM-5.1（可联网检索）</option></select></span>
+          <label class="check"><input type="checkbox" checked> 检索引文库作答</label>
+          <span class="scope-wrap"><span class="scope-lab">范围</span><button class="chip on">自动</button><button class="chip">马恩</button></span>
+        </div>
+
+        <div class="tok" id="tokBar">
+          <span>今日 AI 额度</span><span class="track"><i></i></span><span class="v">已用 62% · 剩余 38,000 token</span>
+        </div>
+
+        <div class="ai-note research" id="researchNote" hidden>
+          <span>●</span>
+          <span><b>研究综述</b>：围绕你的命题在真实语料中铺开约 5000 字综述，并给出 20–24 条来自原著的真实引用。生成较慢，请耐心等待。<span class="quota">本周剩余 3 / 5 次</span></span>
+        </div>
+
+        <div class="chat">
+          <div class="msg user">如何理解马克思「异化劳动」的四重规定？</div>
+          <div class="msg ai">
+            马克思在《1844 年经济学哲学手稿》中，从四个递进层面界定异化劳动。<br><br>
+            <b>其一，劳动者与劳动产品的异化。</b>工人生产的财富越多，他自身就越贫穷；他创造的对象作为一种异己的力量同他相对立<sup>[1]</sup>。<br>
+            <b>其二，劳动者与劳动过程的异化。</b>劳动对工人来说是外在的东西，不属于他的本质，因此他在劳动中不是肯定自己，而是否定自己<sup>[2]</sup>。<br>
+            <b>其三，与类本质的异化。</b>有意识的生命活动本应是人区别于动物的类特性，异化劳动却把它变成仅仅维持individual生存的手段<sup>[3]</sup>。<br>
+            <b>其四，人与人相异化。</b>前三重规定的直接结果，是人同他人相异化——工人与占有其劳动的他者对立起来。
+            <div class="refs">
+              <div class="rh">引用出处</div>
+              <ol>
+                <li><b>《马克思恩格斯文集》</b>第 1 卷 · 第 156–158 页《1844 年经济学哲学手稿》</li>
+                <li><b>《马克思恩格斯文集》</b>第 1 卷 · 第 159 页</li>
+                <li><b>《马克思恩格斯全集》</b>第 42 卷 · 第 96 页</li>
+              </ol>
+              <div class="rest" id="refRest" hidden>…另有 19 条引用，共 22 条（研究综述档）</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer">
+          <textarea placeholder="继续追问，回车发送（Shift+Enter 换行）"></textarea>
+          <div class="cbtns"><button class="btn-primary">发送</button><button class="btn-ghost">清空</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ ④ 更多功能页 ============================ -->
+  <section class="page" data-page="more">
+    <div class="page-head">
+      <div class="kicker">More</div>
+      <h1>更多功能</h1>
+      <p class="lede">大辞典、流式阅读、期刊订阅与外文原文文库——按需开通，随时进入。</p>
+    </div>
+
+    <div class="more-grid">
+      <div class="card more-card" data-feat="dict">
+        <div class="more-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M8 4v16M11 8h5M11 11h5"/></svg></div>
+        <div class="more-title"><h3>大辞典</h3><span class="badge open">可用</span></div>
+        <p>马克思主义大辞典词条检索：概念、人物、著作释义，支持全名匹配与中英对照。</p>
+        <button class="btn-outline go">进入大辞典</button>
+      </div>
+      <div class="card more-card" data-feat="liushi">
+        <div class="more-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 10h16M4 15h11M4 20h16"/></svg></div>
+        <div class="more-title"><h3>流式阅读</h3><span class="badge lock">会员</span></div>
+        <p>《马克思恩格斯文集》网页适配版：文字可重排、可复制、脚注悬浮预览，适合长时间研读。</p>
+        <button class="btn-outline go">进入流式阅读</button>
+      </div>
+      <div class="card more-card" data-feat="journal">
+        <div class="more-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+        <div class="more-title"><h3>期刊订阅</h3><span class="badge lock">会员</span></div>
+        <p>马克思主义与政治经济学核心期刊新文提醒，AI 分学科综述，附标题、作者、摘要与引文。</p>
+        <button class="btn-outline go">查看本周新文</button>
+      </div>
+      <div class="card more-card" data-feat="wenku">
+        <div class="more-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/></svg></div>
+        <div class="more-title"><h3>外文文库</h3><span class="badge lock">会员</span></div>
+        <p>俄文列宁全集、德文 MEGA²/MEW、英文 marxists.org 原文，页码级中外引文对照与划词翻译。</p>
+        <button class="btn-outline go">进入外文文库</button>
+      </div>
+    </div>
+
+    <div class="info-row">
+      <span>关于本站</span><span>联系站长</span><span>数据版本 2026-07</span><span>程序版本 v2.14</span><a href="#">收录文献全清单 →</a>
+    </div>
+  </section>
+
+</div>
+
+<div class="fab" id="fab">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.9-.9L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5z"/></svg>
+  意见反馈
+</div>
+
+<nav class="tabbar" aria-label="移动端主导航">
+  <button class="active" data-goto="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>检索</button>
+  <button data-goto="read"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.5C10.5 5 7.5 4.5 4 5v13c3.5-.5 6.5 0 8 1.5 1.5-1.5 4.5-2 8-1.5V5c-3.5-.5-6.5 0-8 1.5z"/><path d="M12 6.5v13"/></svg>阅读</button>
+  <button data-goto="ai"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"/></svg>AI对话</button>
+  <button data-goto="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>更多</button>
+</nav>
+
+</div><!-- /pv-desktop -->
+
+<div class="pv-phonewrap">
+  <div class="pv-phone"><iframe id="pvFrame" src="?embed=1" title="移动端预览"></iframe></div>
+  <div class="pv-phone-lab">移动端 390×800 · 底部四标签栏</div>
+</div>
+</div><!-- /pv-stage -->
+
+<script>
+(function(){
+  var qs=function(s,r){return (r||document).querySelector(s);};
+  var qsa=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));};
+  var ROUTES={search:'/',read:'/read',ai:'/ai',more:'/more'};
+
+  /* ---------- 页面切换 ---------- */
+  function goto(name){
+    qsa('.page').forEach(function(p){p.classList.toggle('active',p.dataset.page===name);});
+    qsa('[data-goto]').forEach(function(el){
+      if(el.classList.contains('nav-tab')||(el.parentElement&&el.parentElement.classList.contains('tabbar'))){
+        el.classList.toggle('active',el.dataset.goto===name);
+      }
+    });
+    var fab=qs('#fab'); if(fab) fab.hidden=(name!=='search');
+    var r=qs('#pvRoute'); if(r) r.textContent='路由 '+(ROUTES[name]||'/');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  qsa('[data-goto]').forEach(function(el){el.addEventListener('click',function(e){e.preventDefault();goto(el.dataset.goto);});});
+
+  /* ---------- 检索：标准 / 联想 ---------- */
+  qsa('.subtab').forEach(function(b){
+    b.addEventListener('click',function(){
+      qsa('.subtab').forEach(function(x){x.classList.remove('active');});
+      b.classList.add('active');
+      var assoc=b.dataset.mode==='assoc';
+      qs('#paneStandard').hidden=assoc; qs('#paneAssoc').hidden=!assoc;
+    });
+  });
+  /* 收录文献折叠 */
+  var ct=qs('#corpusToggle');
+  ct.addEventListener('click',function(){
+    var open=ct.getAttribute('aria-expanded')==='true';
+    ct.setAttribute('aria-expanded',String(!open)); qs('#corpusList').hidden=open;
+  });
+  /* 帮助 / 历史 */
+  qs('#helpBtn').addEventListener('click',function(){var p=qs('#helpPop');p.hidden=!p.hidden;qs('#helpBtn').setAttribute('aria-expanded',String(!p.hidden));});
+  qs('#helpX').addEventListener('click',function(){qs('#helpPop').hidden=true;});
+  qs('#histBtn').addEventListener('click',function(){var p=qs('#histPop');p.hidden=!p.hidden;});
+
+  /* ---------- 阅读：篇章直达下拉 ---------- */
+  var rsIn=qs('#rsInput'), sug=qs('#suggest');
+  function showSug(v){sug.hidden=!v;}
+  rsIn.addEventListener('focus',function(){showSug(true);});
+  rsIn.addEventListener('input',function(){showSug(rsIn.value.trim().length>0);});
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('.read-search')) showSug(false);
+    if(!e.target.closest('.nav-account')) closeMenu();
+  });
+
+  /* ---------- AI：快速 / 研究 ---------- */
+  qsa('.depth-tab').forEach(function(b){
+    b.addEventListener('click',function(){
+      qsa('.depth-tab').forEach(function(x){x.classList.remove('active');});
+      b.classList.add('active');
+      var research=b.dataset.depth==='research';
+      qs('#researchNote').hidden=!research;
+      qs('#tokBar').hidden=research;
+      qs('#refRest').hidden=!research;
+    });
+  });
+
+  /* ---------- 身份态 ---------- */
+  var acctBtn=qs('#acctBtn'), acctMenu=qs('#acctMenu');
+  function closeMenu(){if(acctMenu){acctMenu.hidden=true;acctBtn.setAttribute('aria-expanded','false');}}
+  acctBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    acctMenu.hidden=!acctMenu.hidden;
+    acctBtn.setAttribute('aria-expanded',String(!acctMenu.hidden));
+  });
+
+  var PEOPLE={
+    member:{ini:'李',name:'李研究员',mail:'liyj@univ.edu.cn',tier:'年度会员 · 至 2027-03'},
+    admin:{ini:'站',name:'站长',mail:'admin@marx.site',tier:'管理员'}
+  };
+  function setRole(role){
+    var guest=(role==='guest');
+    qs('#acctGuest').hidden=!guest;
+    acctBtn.hidden=guest;
+    closeMenu();
+    if(!guest){
+      var p=PEOPLE[role];
+      qs('#acctIni').textContent=p.ini; qs('#acctName').textContent=p.name;
+      qs('#mName').textContent=p.name; qs('#mMail').textContent=p.mail; qs('#mTier').textContent=p.tier;
+      qs('#adminLinks').hidden=(role!=='admin');
+    }
+    /* AI 页锁定态 */
+    qs('#aiLock').hidden=!guest;
+    qs('#aiBody').hidden=guest;
+    /* 更多功能页权限 */
+    qsa('.more-card').forEach(function(c){
+      var feat=c.dataset.feat, badge=qs('.badge',c), btn=qs('.go',c);
+      var unlocked = (feat==='dict') ? true : !guest;
+      badge.className='badge '+(unlocked?'open':'lock');
+      badge.textContent=unlocked?'可用':'会员';
+      if(unlocked){
+        btn.className='btn-outline go';
+        btn.textContent={dict:'进入大辞典',liushi:'进入流式阅读',journal:'查看本周新文',wenku:'进入外文文库'}[feat];
+      }else{
+        btn.className='btn-solid go';
+        btn.textContent='查看会员套餐';
+      }
+    });
+  }
+  qsa('#segRole button').forEach(function(b){
+    b.addEventListener('click',function(){
+      qsa('#segRole button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); setRole(b.dataset.role);
+      var f=qs('#pvFrame'); if(f) f.src='?embed=1&role='+b.dataset.role;
+    });
+  });
+
+  /* ---------- 视图切换 ---------- */
+  qsa('#segView button').forEach(function(b){
+    b.addEventListener('click',function(){
+      qsa('#segView button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on');
+      qs('#pvStage').classList.toggle('show-phone',b.dataset.view==='both');
+    });
+  });
+
+  /* ---------- 初始化（含 embed 参数） ---------- */
+  var params=new URLSearchParams(location.search);
+  var initRole=params.get('role')||'guest';
+  setRole(initRole);
+  qsa('#segRole button').forEach(function(x){x.classList.toggle('on',x.dataset.role===initRole);});
+  goto(params.get('page')||'search');
+})();
+</script>
+</body>
+</html>
