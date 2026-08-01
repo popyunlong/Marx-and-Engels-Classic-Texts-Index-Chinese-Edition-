@@ -18,11 +18,23 @@ from runtime_env import APPDATA_DIR, secure_db_file
 
 DB_PATH = APPDATA_DIR / "wenku_translations.sqlite3"
 
+_WAL_ENABLED = False
+
 
 def _conn() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     secure_db_file(DB_PATH)
+    # 8 线程 waitress 下并发写者（两次缓存未命中 put / 并发翻译请求）须等锁而非立即 'database is locked'：
+    # busy_timeout 让写者最多等 5s；WAL 允许「1 写 + N 读」并发。WAL 是持久库属性，设一次即可、失败静默回退。
+    conn.execute("PRAGMA busy_timeout = 5000")
+    global _WAL_ENABLED
+    if not _WAL_ENABLED:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            _WAL_ENABLED = True
+        except sqlite3.Error:
+            pass
     return conn
 
 

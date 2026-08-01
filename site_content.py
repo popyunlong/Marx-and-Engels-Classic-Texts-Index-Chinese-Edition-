@@ -81,14 +81,14 @@ SITE_TEXT_DEFINITIONS = (
         "index.chapter_search_placeholder",
         "首页",
         "篇章直达输入框提示",
-        "搜索篇目，如 共产党宣言、资本论、反杜林论…",
+        "搜索篇名或书名，如 共产党宣言、《文集》第5卷、法治思想纲要…",
         multiline=False,
     ),
     SiteTextDefinition(
         "index.chapter_search_hint",
         "首页",
         "篇章直达说明",
-        "选中后将直接进入「{label}」对应篇目阅读；不同书库会分别标注以便区分。",
+        "可直接输入书名（如《文集》第5卷、法治思想纲要）跳转整卷，或用下拉切换书库；选中后进入「{label}」阅读，不同书库分别标注。",
     ),
     SiteTextDefinition(
         "index.chapter_search_disabled_placeholder",
@@ -229,6 +229,20 @@ SITE_TEXT_DEFINITIONS = (
     SiteTextDefinition("index.wenku_login_required", "首页", "原文文库登录提示", "登录即可使用", multiline=False),
     SiteTextDefinition("index.wenku_subscribe_required", "首页", "原文文库开通提示", "开通会员后使用", multiline=False),
     SiteTextDefinition("index.wenku_unavailable", "首页", "原文文库未开放提示", "暂未开放", multiline=False),
+    SiteTextDefinition("index.liushi_kicker", "首页", "流式阅读功能栏小标题", "流式阅读 · 会员专享", multiline=False),
+    SiteTextDefinition("index.liushi_title", "首页", "流式阅读功能栏标题", "《马克思恩格斯文集》· 网页适配阅读", multiline=False),
+    SiteTextDefinition(
+        "index.liushi_description",
+        "首页",
+        "流式阅读功能栏说明",
+        "《马克思恩格斯文集》网页适配版：文字可重排、可复制、可检索；内嵌印本页码，一键生成规范引文，并支持逐段 AI 导读。含《资本论》三卷、《反杜林论》《自然辩证法》等。",
+    ),
+    SiteTextDefinition("index.liushi_action", "首页", "流式阅读功能栏按钮", "进入阅读", multiline=False),
+    SiteTextDefinition("index.liushi_locked", "首页", "流式阅读功能栏未开放按钮", "开通会员后使用", multiline=False),
+    SiteTextDefinition("index.liushi_available", "首页", "流式阅读可用提示", "已可用", multiline=False),
+    SiteTextDefinition("index.liushi_login_required", "首页", "流式阅读登录提示", "登录即可使用", multiline=False),
+    SiteTextDefinition("index.liushi_subscribe_required", "首页", "流式阅读开通提示", "开通会员后使用", multiline=False),
+    SiteTextDefinition("index.liushi_unavailable", "首页", "流式阅读未开放提示", "暂未开放", multiline=False),
     SiteTextDefinition("index.notice_title", "首页", "首页公告栏标题", "网站公告", multiline=False),
     SiteTextDefinition(
         "index.notice_body",
@@ -293,6 +307,12 @@ SITE_TEXT_DEFINITIONS = (
         "首页 AI 维护提示",
         "AI 导学暂时维护中，请稍后再试。",
     ),
+    # 全站「AI 随心问」右侧抽屉的标题 / 副标题（折叠竖标签与展开面板同源；控制台可改）。
+    SiteTextDefinition("index.ai_drawer_title", "首页 · AI 随心问抽屉", "抽屉主标题（前面会自动加金色 AI 徽标，故此处只写「随心问」）", "随心问", multiline=False),
+    SiteTextDefinition("index.ai_drawer_subtitle", "首页 · AI 随心问抽屉", "抽屉副标题（凸出「可检索原著原文」）", "可检索原著原文", multiline=False),
+    # 无权限提示：自动跟随 search_chat 权限——「注册用户」审众已放开则用登录版，否则用会员版。
+    SiteTextDefinition("index.ai_drawer_locked_login", "首页 · AI 随心问抽屉", "未登录提示（当 AI 随心问仅需登录时显示）", "「AI 随心问」登录后即可使用，每位登录用户每日均有免费额度。", multiline=False),
+    SiteTextDefinition("index.ai_drawer_locked_member", "首页 · AI 随心问抽屉", "无权限提示（当 AI 随心问需开通会员时显示）", "「AI 随心问」为会员功能，请登录并开通会员后使用。", multiline=False),
     SiteTextDefinition("pricing.hero_intro", "会员套餐", "套餐页顶部说明", "开通会员后，可使用全文阅读、原始 PDF 访问、页内文本与 AI 辅助讲解等功能。请选择适合你的会员方案。"),
     SiteTextDefinition(
         "pricing.payment_enabled",
@@ -310,6 +330,20 @@ SITE_TEXT_DEFINITIONS = (
     SiteTextDefinition("pricing.feature_pdf", "会员套餐", "套餐权益 2", "查看原始 PDF 页面与页内文字", multiline=False),
     SiteTextDefinition("pricing.feature_ai", "会员套餐", "套餐权益 3", "使用 AI 辅助理解当前页内容", multiline=False),
     SiteTextDefinition("pricing.feature_account", "会员套餐", "套餐权益 4", "在会员中心查看订单与有效期", multiline=False),
+    SiteTextDefinition("pricing.donate_title", "会员套餐", "打赏 / 捐赠·标题", "打赏 / 捐赠", multiline=False),
+    SiteTextDefinition(
+        "pricing.donate_intro",
+        "会员套餐",
+        "打赏 / 捐赠·说明",
+        "本站是公益性质的马克思主义经典文献检索平台，长期运营与文献整理都离不开大家的支持。如果它对您有所帮助，欢迎随手打赏，让我们把它做得更好。",
+    ),
+    SiteTextDefinition(
+        "pricing.donate_hint",
+        "会员套餐",
+        "打赏 / 捐赠·金额下方提示",
+        "金额由您决定，可用支付宝 / 微信在线支付。衷心感谢每一位支持者！",
+        multiline=False,
+    ),
     SiteTextDefinition(
         "account.badge_active",
         "会员中心",
@@ -395,14 +429,14 @@ SITE_TEXT_DEFINITIONS = (
         "library.chapter_search_placeholder",
         "阅读页",
         "阅读器篇章直达输入框提示",
-        "输入篇名，如 共产党宣言、资本论、反杜林论…",
+        "输入篇名或书名，如 共产党宣言、《文集》第5卷、法治思想纲要…",
         multiline=False,
     ),
     SiteTextDefinition(
         "library.chapter_search_hint",
         "阅读页",
         "阅读器篇章直达说明",
-        "输入篇名关键词，从下拉结果中选择即可直接进入对应卷的阅读位置；不同书库会分别标注以便区分。",
+        "输入篇名关键词从下拉选择即可进入对应卷；也可直接输入书名（如《文集》第5卷）跳转整卷，或用上方下拉切换书库。不同书库会分别标注以便区分。",
     ),
     SiteTextDefinition(
         "library.volume_hint",
@@ -626,6 +660,21 @@ SITE_TEXT_DEFINITIONS = (
     ),
     SiteTextDefinition("error.back_home", "错误页", "错误页返回首页按钮", "返回首页", multiline=False),
     SiteTextDefinition("error.back_search", "错误页", "错误页返回检索按钮", "返回检索", multiline=False),
+    # —— 首页·注册用户分布卡片（文案 + 配色都在此分组，便于站长在控制台·内容运营里自助修改）——
+    SiteTextDefinition("index.registry_geo_title", "首页 · 注册用户分布", "卡片标题", "注册用户分布", multiline=False),
+    SiteTextDefinition("index.registry_geo_live", "首页 · 注册用户分布", "实时徽标文字", "实时", multiline=False),
+    SiteTextDefinition("index.registry_geo_total_label", "首页 · 注册用户分布", "总数后缀（大数字后面那行）", "位注册用户", multiline=False),
+    SiteTextDefinition("index.registry_geo_legend_low", "首页 · 注册用户分布", "图例·少", "少", multiline=False),
+    SiteTextDefinition("index.registry_geo_legend_high", "首页 · 注册用户分布", "图例·多", "多", multiline=False),
+    SiteTextDefinition("index.registry_geo_overseas_tpl", "首页 · 注册用户分布", "海外一行（{n} 会替换成海外人数）", "🌏 海外 {n} 位", multiline=False),
+    SiteTextDefinition("index.registry_geo_unknown_tpl", "首页 · 注册用户分布", "未知归属地一行（{n} 会替换成人数）", "另有 {n} 位归属地待识别", multiline=False),
+    SiteTextDefinition("index.registry_geo_foot", "首页 · 注册用户分布", "卡片底部小字说明", "依注册 / 登录地区聚合 · 每分钟更新", multiline=False),
+    SiteTextDefinition("index.registry_geo_rank_empty", "首页 · 注册用户分布", "暂无地区数据时的提示", "暂无可定位的地区数据", multiline=False),
+    SiteTextDefinition("index.registry_geo_loading", "首页 · 注册用户分布", "地图加载中提示", "分布加载中…", multiline=False),
+    SiteTextDefinition("index.registry_geo_map_unavailable", "首页 · 注册用户分布", "地图不可用提示", "地图暂不可用", multiline=False),
+    SiteTextDefinition("index.registry_geo_color_zero", "首页 · 注册用户分布", "配色·无人省份底色（#十六进制）", "#ece2d2", multiline=False),
+    SiteTextDefinition("index.registry_geo_color_low", "首页 · 注册用户分布", "配色·人数最少的省份色（#十六进制）", "#f3ddc2", multiline=False),
+    SiteTextDefinition("index.registry_geo_color_high", "首页 · 注册用户分布", "配色·人数最多的省份色（#十六进制）", "#7d1616", multiline=False),
 )
 
 _SITE_TEXT_INDEX = {item.key: item for item in SITE_TEXT_DEFINITIONS}
@@ -669,6 +718,15 @@ def _load_overrides(path: Path | None = None) -> dict[str, str]:
         if isinstance(key, str) and isinstance(value, str):
             values[key] = value
     return values
+
+
+def load_site_text_overrides(path: Path | None = None) -> dict[str, str]:
+    """读取人工保存的原始文案覆盖（包括 ``auto.*`` 自动接入项）。
+
+    ``get_site_text_map`` 返回的是可直接渲染的完整映射；桌面端还需要把网站同步值与
+    本机控制台覆盖分层合并，因此提供这个只读入口，避免调用方依赖私有实现。
+    """
+    return _load_overrides(path)
 
 
 def _iter_template_paths(template_dir: Path | None = None) -> list[Path]:
@@ -766,11 +824,13 @@ def _dynamic_definitions_from_templates(
 
 def get_site_text_map(path: Path | None = None) -> dict[str, str]:
     overrides = _load_overrides(path)
-    values = {
-        definition.key: overrides.get(definition.key, definition.default)
-        for definition in _all_static_definitions()
-    }
-    for definition in _dynamic_definitions_from_templates(overrides):
+    definitions = (
+        _all_static_definitions()
+        + _dynamic_definitions_from_templates(overrides)
+        + auto_literal_definitions()
+    )
+    values: dict[str, str] = {}
+    for definition in definitions:
         values[definition.key] = overrides.get(definition.key, definition.default)
     return values
 
@@ -1152,9 +1212,10 @@ class AutoSiteTextExtension(Extension):
 
 def render_auto_site_text(key: str, b64default: str = "", overrides: dict[str, str] | None = None) -> str:
     """模板里 site_text_auto 的后端实现：有覆盖值用覆盖值，否则还原内联默认文字。"""
-    if isinstance(overrides, dict):
+    if isinstance(overrides, dict) and key in overrides:
         val = overrides.get(key)
-        if isinstance(val, str) and val != "":
+        if isinstance(val, str):
+            # 空字符串也是有效覆盖：运营人员可以有意隐藏某段按钮辅助文字。
             return val
     try:
         return base64.b64decode(b64default.encode("ascii")).decode("utf-8")

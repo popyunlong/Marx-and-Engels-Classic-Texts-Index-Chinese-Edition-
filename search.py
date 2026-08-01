@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import bisect
+import os
 import re
 import sqlite3
 import threading
 import unicodedata
 from collections import OrderedDict
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from itertools import groupby
 from pathlib import Path
@@ -32,8 +34,19 @@ MIN_QUERY_LEN = 2         # 归一化后少于此长度不检索，避免海量�
 # 查询的真实编辑距离必须 ≤ 容错字数 K，K 按查询长度计算。短查询的偶然碰撞率高且手动
 # 校正成本低，故直接不做近似。
 MIN_FUZZY_QUERY_LEN = 10  # 归一化后短于此长度不做近似匹配
-FUZZY_MAX_ERRORS = 2      # 容错字数上限（编辑距离）
-FUZZY_ERROR_STEP = 10     # 每满 10 个归一化字符容 1 个错字（10-19 字容 1 错，≥20 字容 2 错）
+# 短/中查询（10–59 归一化字符）：维持从严容错——常用字偶然重叠即可碰瓷，且逐字校对成本低。
+FUZZY_MAX_ERRORS = 2      # 短/中查询容错字数上限（编辑距离）
+FUZZY_ERROR_STEP = 10     # 短/中查询每满 10 个归一化字符容 1 个错字（10-19 字容 1 错，≥20 字容 2 错）
+# 长段落引文（≥60 归一化字符，如整段粘贴的经典语录）单独放宽容错。归一化已剥离绝大多数脚注
+# 符号（①②③/¹²³/*†‡※/[1]/（1）/〔1〕/裸数字 → 空），故脚注本身通常不破坏精确匹配；真正的
+# 破坏源是整段文本里散布的 OCR 错字漏字（含被误识入正文的脚注残字），它们逐处累积成多字编辑
+# 差异。2 字硬上限会让「差不多一模一样」的整段引文在每个书库都精确零命中、又被近似兜底以 K=2
+# 拒之门外（各书库扫描件的错字位置还各不相同）。故长段落容错随长度线性增长、封顶约 8% 字符差：
+# 仍是「高度逐字」的精确指向（无关段落不可能与某条 140+ 字语录 92% 逐字重合，假阳性可忽略），
+# 而分散的 OCR 噪声被吸收。真实编辑距离复核（≤K）与 partial_ratio 候选定位的机制均不变。
+FUZZY_LONG_QUERY_LEN = 60   # 归一化长度 ≥ 此值按长段落放宽容错
+FUZZY_LONG_ERROR_STEP = 12  # 长段落每约 12 个归一化字符容 1 个错字（≈8% 字符差）
+FUZZY_LONG_MAX_ERRORS = 24  # 长段落容错字数上限（编辑距离）：防极长查询把近似扫描 cutoff 压得过低
 CTX_PAD = 40              # 上下文前后字符数
 MAX_TOC_SCAN_PAGES = 40
 DEFAULT_GROUP_LIMIT = 30
@@ -45,6 +58,13 @@ SHORT_QUERY_CHAPTER_MAX_LEN = 4
 # 精确匹配阶段每个书库最多取的命中数。必须逐个书库累计（不能命中第一个书库就返回），
 # 否则常见词只要在《文集》里出现，《全集》和《列宁全集》的正文就永远检索不到。
 EXACT_HITS_PER_BOOK = 200
+
+# 近似兜底并发闸：零精确命中的查询会逐卷跑 partial_ratio（全语料 CPU 密集扫描），多个并发即可能
+# 占满 waitress 线程池（历史「线程饥饿」事故面）。限制同时进行的近似扫描数；短超时拿不到名额就降级
+# 为「无结果」而非阻塞等待——只在真有大量并发近似扫描时才降级，正常负载下零影响。可经环境变量调整。
+_FUZZY_SCAN_CONCURRENCY = max(1, int(os.environ.get("MARX_FUZZY_CONCURRENCY", "2") or "2"))
+_FUZZY_SCAN_ACQUIRE_TIMEOUT = max(0.0, float(os.environ.get("MARX_FUZZY_ACQUIRE_TIMEOUT_SECONDS", "3") or "3"))
+_FUZZY_SCAN_SEMAPHORE = threading.BoundedSemaphore(_FUZZY_SCAN_CONCURRENCY)
 
 # 联想检索（AI 提取线索 → 在真实语料中接地定位）相关上限。本模块只做纯 Python 定位，
 # 不含任何 AI 调用；这些常量用于把候选规模与扫描成本约束在在线请求可接受的范围内。
@@ -66,6 +86,44 @@ ASSOC_FRAG_TOTAL_CAP = 24      # 单次联想检索最多实际检索的片段�
 ASSOC_SHINGLE_CAP = 8          # 单条候选原文最多生成的自动切片数
 ASSOC_CHAPTER_MAX = 16         # 篇章定向检索最多命中的篇章数（防泛标题词匹配过多）
 
+# ── 领域同义/译名词库（关键词共现召回专用）──────────────────────────────────────
+# 马列经典术语的近义词与不同译法。仅用于「关键词共现」把同一概念的多种表述并成一个「概念组」
+# （组内 OR：命中任一即算命中该概念），从而让某段只用其中一种表述（如只写「外化」不写「异化」）
+# 也能被共现召回。**不参与逐字片段/整句定位**（那两路要求逐字，扩同义会破坏精度）。
+# 受控可编辑：每组务求「真同义 / 同一概念的不同译名或写法」，勿把「相关但不同」的概念并进来
+# （宁缺毋滥——过度归并会把跑题段落召进候选、拉低精度）。作为种子，域内专家可按需增补。
+TERM_THESAURUS: tuple[tuple[str, ...], ...] = (
+    ("异化", "外化", "自我异化"),
+    ("无产阶级", "工人阶级"),
+    ("资产阶级", "有产阶级"),
+    ("类本质", "类特性"),
+    ("私有财产", "私有制"),
+    ("拜物教", "商品拜物教"),
+    ("生产资料", "生产手段"),
+    ("辩证法", "辩证方法"),
+    ("上层建筑", "观念上层建筑"),
+)
+# 归一化后的概念组 + 反查表（变体 → 组号），模块加载期算一次；单元素组无意义（等同不扩）故跳过。
+_THESAURUS_GROUPS: list[list[str]] = []
+_TERM_TO_GROUP: dict[str, int] = {}
+for _grp in TERM_THESAURUS:
+    _variants: list[str] = []
+    for _v in _grp:
+        _n = normalize(_v)
+        if _n and _n not in _variants and _n not in _TERM_TO_GROUP:
+            _variants.append(_n)
+    if len(_variants) >= 2:
+        _gid = len(_THESAURUS_GROUPS)
+        _THESAURUS_GROUPS.append(_variants)
+        for _n in _variants:
+            _TERM_TO_GROUP[_n] = _gid
+
+# ── 伪相关反馈（两趟检索）参数 ──────────────────────────────────────────────────
+ASSOC_PRF_TOP_HITS = 6           # 从首轮前几条命中里取扩展源
+ASSOC_PRF_SHINGLE_LENS = (6, 8)  # 反馈短语切片长度（偏长更具区分度）
+ASSOC_PRF_SHINGLE_CAP = 8        # 单条命中最多切出的反馈短语
+ASSOC_PRF_FRAG_CAP = 16          # 第二趟片段召回最多实检的反馈短语（控成本）
+
 # 同段多词检索（标准检索的「同段多词」开关）：要求若干关键词全部出现在邻近段落窗口内。
 # 纯 Python，复用共现滑窗；三重封顶约束在线请求成本。
 COOC_PER_VOL = 30              # 单卷最多取的非重叠共现窗口数
@@ -73,10 +131,40 @@ COOC_TOTAL_CAP = 600          # 全语料最多取的共现命中数（超出标
 COOC_CTX_MAXLEN = 220         # 同段多词上下文片段最大字符数（以最密集关键词簇为中心）
 
 def _fuzzy_allowed_errors(q_len: int) -> int:
-    """按查询长度计算近似匹配允许的错字数（0 表示不做近似）。"""
+    """按查询长度计算近似匹配允许的错字数（0 表示不做近似）。
+
+    分两档：短/中查询从严（≤2 错，防常用字偶然重叠碰瓷、且短查询人工校对成本低）；
+    长段落引文（≥FUZZY_LONG_QUERY_LEN）放宽——容错随长度线性增长、封顶
+    FUZZY_LONG_MAX_ERRORS，以吸收整段文本里散布的 OCR 错字漏字与被误识的脚注残字，
+    使「差不多一模一样」的长引文不再因几处错字而在所有书库全部漏检。
+    """
     if q_len < MIN_FUZZY_QUERY_LEN:
         return 0
-    return min(FUZZY_MAX_ERRORS, q_len // FUZZY_ERROR_STEP)
+    if q_len < FUZZY_LONG_QUERY_LEN:
+        # 取「短查询规则」与「长段落比例规则」的较大者：短查询保持原有从严值不变
+        # （10 字仍 K=1、20–30 字仍 K=2），但 36 字以上按同一条 ≈8% 比例放宽。
+        # 起因：40 字引文错 3 字（7.5%）在硬顶 K=2 下全库零命中，而同样错法的 60 字引文
+        # 却能命中——2026-07-30 实测把 K 提到 3 即精准召回正确出处且只出 1 组、无误召。
+        # 这也顺带抹平了 59 字 K=2 / 60 字 K=5 的断崖。
+        return max(min(FUZZY_MAX_ERRORS, q_len // FUZZY_ERROR_STEP),
+                   min(FUZZY_LONG_MAX_ERRORS, q_len // FUZZY_LONG_ERROR_STEP))
+    return min(FUZZY_LONG_MAX_ERRORS, q_len // FUZZY_LONG_ERROR_STEP)
+
+
+def _count_overlapping(haystack: str, needle: str, start: int, end: int) -> int:
+    """统计 [start,end) 内 needle 的【重叠】出现次数（find 步进 +1，与 chapter_hits 同语义）。
+    与 str.count 的【非重叠】计数不同：对周期串（如「一一」在「一一一」中）二者会不一致——
+    聚合计数若用 str.count 会比钻取列出的命中数少，违反「聚合数=钻取数」不变量。"""
+    if not needle:
+        return 0
+    n = 0
+    while True:
+        i = haystack.find(needle, start, end)
+        if i < 0:
+            break
+        n += 1
+        start = i + 1
+    return n
 
 
 def _substring_edit_distance(needle: str, haystack: str, max_errors: int) -> int | None:
@@ -241,6 +329,7 @@ class Hit:
     section_title: str | None
     fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
     subject_label: str | None = None  # 命中来自名目索引时，记录索引词条（如「经济领域中的异化·劳动的异化」）
+    citations: dict | None = None  # 多格式引文 {"gb2015","zgshkx","mkszyj"}；缺省时回退为 citation 单一格式
 
     def to_dict(self) -> dict:
         return {
@@ -259,6 +348,9 @@ class Hit:
             "fuzzy_errors": self.fuzzy_errors,
             "context": self.context,
             "citation": self.citation,
+            "citations": self.citations or {
+                "gb2015": self.citation, "zgshkx": self.citation, "mkszyj": self.citation,
+            },
             "section_title": self.section_title,
             "subject_label": self.subject_label,
         }
@@ -305,6 +397,35 @@ class HitGroup:
 
 
 # ---------------------------------------------------------------------------
+# 引用格式模板（可后台自定义）
+# ---------------------------------------------------------------------------
+# 多格式引文的默认模板：键与前端「引用格式」下拉一致。后台可对任一格式给出自定义模板覆盖
+# 默认值（仅作用于「卷·页」型标准著作；公文/选编/显式 cite 覆盖等特殊体例不套模板）。
+# 可用占位符（缺失/拼错会被替换为空串，绝不抛错）：
+#   {title}      引文题名（如 马克思恩格斯文集 / 马克思恩格斯全集（第二版））
+#   {volume}     卷次数字（如 1）
+#   {place}      出版地（如 北京）
+#   {publisher}  出版者（如 人民出版社）
+#   {year}       出版年（如 2009；未知时为 xxxx）
+#   {page}       脚注式页码串（如 第781页 / 第781-784页；印刷页缺失时含「（此为PDF页码，非原书印刷页码）」）
+#   {page_range} 纯页码（如 781 / 781-784，不含「第…页」与脚注）
+#   {page_note}  页码脚注（印刷页缺失时为「（此为PDF页码，非原书印刷页码）」，否则空串）
+# 默认模板务必与 _make_citation / _make_citation_gb 的程序化输出逐字一致（后台「恢复默认」据此）。
+DEFAULT_CITATION_TEMPLATES: dict[str, str] = {
+    "gb2015": "{title}:第{volume}卷[M].{place}:{publisher},{year}:{page_range}{page_note}.",
+    "zgshkx": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
+    "mkszyj": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
+}
+
+
+class _CiteSafeDict(dict):
+    """format_map 用：未知占位符返回空串而非抛 KeyError，避免后台手滑写错占位符就崩引文。"""
+
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # 主体
 # ---------------------------------------------------------------------------
 class Corpus:
@@ -319,6 +440,9 @@ class Corpus:
             ) or {}
         except Exception:
             self.party_meta = {}
+        # 引用格式自定义模板覆盖：{format_key: template_str}，仅存后台改过的格式；空＝全用默认。
+        # 由 app 层在启动时与保存后注入（set_citation_templates），单进程多线程共享、即时生效。
+        self.citation_templates: dict[str, str] = {}
         self.book_configs: list[BookConfig] = load_book_configs()
         self.book_config_by_key: dict[str, BookConfig] = {book.key: book for book in self.book_configs}
         self.books: dict[str, list[Volume]] = {book.key: [] for book in self.book_configs}
@@ -327,6 +451,7 @@ class Corpus:
         self._volumes_by_source_file: dict[str, Volume] = {}
         self._toc_cache: dict[str, list[TocEntry]] = {}
         self._toc_db_entries: dict[str, list[TocEntry]] = {}
+        self._date_span_cache: dict[tuple[str, int], str] = {}
         self._chapter_level_cache: dict[str, int] = {}
         self._segment_cache: dict[str, list[dict]] = {}
         self._segment_lock = threading.Lock()
@@ -468,6 +593,44 @@ class Corpus:
     def book_sort_key(self, book: str, volume: int = 0, pdf_page: int = 0) -> tuple[int, int, int, str]:
         return (self.book_sort_order(book), int(volume or 0), int(pdf_page or 0), book)
 
+    def _scoped_book_keys(self, book_scope: "Collection[str] | None") -> list[str]:
+        """按「检索范围」过滤要扫描的书库键（保持 self.books 的原有顺序）。
+
+        ``book_scope is None`` → 全部书库（默认，向后兼容）；给定集合、或 ``{书库键: 允许卷号集合|None}``
+        映射时，只保留其中真实存在的书库键（映射按其键判定；卷级过滤另见 _scoped_volumes）。供联想/研究/
+        单本检索按范围定向召回时把整个检索预算花在范围内、避免其它作者的强命中霸榜。
+        """
+        if book_scope is None:
+            return list(self.books.keys())
+        scope = {str(b) for b in book_scope}  # dict 迭代得键、集合/列表得元素——两者皆归到书库键集合
+        return [b for b in self.books if b in scope]
+
+    def _scoped_volumes(self, book: str, book_scope: "Collection[str] | None" = None) -> list["Volume"]:
+        """某书库在「检索范围」内的卷列表（供各扫描函数把逐卷循环限定到范围内的卷）。
+
+        ``book_scope`` 为 ``{书库键: 允许卷号集合 或 None}`` 映射时按卷号过滤（None=该书全部卷）；为 None 或
+        纯书库键集合时返回该书全部卷（无卷级约束，向后兼容）。仅对已在范围内的书库调用。
+        """
+        vols = self.books.get(book, [])
+        if isinstance(book_scope, dict):
+            allowed = book_scope.get(book)
+            if allowed is not None:
+                allowed_set = {int(v) for v in allowed}
+                return [v for v in vols if v.volume in allowed_set]
+        return list(vols)
+
+    def _volume_in_scope(self, vol: "Volume", book_scope: "Collection[str] | None" = None) -> bool:
+        """判定单个卷是否落在「检索范围」内（书库 + 可选卷级）。用于按 source_file 拿到卷后的过滤。"""
+        if book_scope is None:
+            return True
+        if vol.book not in {str(b) for b in book_scope}:
+            return False
+        if isinstance(book_scope, dict):
+            allowed = book_scope.get(vol.book)
+            if allowed is not None and vol.volume not in {int(v) for v in allowed}:
+                return False
+        return True
+
     def get_toc_entries(self, source_file: str) -> list[TocEntry]:
         source_file = self._normalize_source_file(source_file)
         if not source_file:
@@ -477,6 +640,85 @@ class Corpus:
             from_db = self._toc_db_entries.get(source_file) or []
             self._toc_cache[source_file] = from_db or (self._build_toc_entries(volume) if volume else [])
         return self._toc_cache[source_file]
+
+    # 「本册收录文献的时间跨度」：从目录篇名的日期括注（如「（一九六五年一月一日）」）取
+    # 最早/最晚，供卷列表卡片显示（如「1965.1—1965.12」）。零的写法有 〇/○/零 三种混用，
+    # 全部认；「附编/附件/附录/附:」是补充材料，其日期不代表该册收录时段，故排除——否则
+    # 建国第4册会因一条 1951 年附件显示成「1951.1—1953.12」，实际该册是 1953 年。
+    _SPAN_ZERO = "零〇○０0"
+    _SPAN_DIGITS = "一二三四五六七八九十" + _SPAN_ZERO
+    _SPAN_DATE_RE = re.compile(
+        r"[（(]\s*([" + _SPAN_DIGITS + r"]{4})\s*年(?:\s*([" + _SPAN_DIGITS + r"]{1,3})\s*月)?")
+    # 年谱类书库的目录条目是「1898年　诞生」「1966年（10月—12月）」这种阿拉伯数字纪年，
+    # 没有中文日期括注，上面那条认不出 → 年谱卷列表的时间跨度会全空，而年谱恰恰最需要
+    # 显示「这一卷管哪几年」。故补一条阿拉伯数字年（可带月）的模式。
+    # 第3组捕获月份区间的末月（「1937年(7月—12月)」→ 7 与 12），供跨度上界使用。
+    _SPAN_DATE_ARABIC_RE = re.compile(
+        r"\b(1[89]\d{2}|20\d{2})\s*年"
+        r"(?:\s*[（(]?\s*(\d{1,2})\s*月(?:\s*[-—–~－至]\s*(\d{1,2})\s*月)?)?")
+    _SPAN_APPENDIX_RE = re.compile(r"^(附编|附件|附录|附[:：])")
+    _SPAN_CN_NUM = {"零": 0, "〇": 0, "○": 0, "０": 0, "0": 0, "一": 1, "二": 2, "三": 3,
+                    "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+    @classmethod
+    def _span_cn_to_int(cls, text: str) -> int | None:
+        s = (text or "").strip()
+        if not s:
+            return None
+        if s.isdigit():
+            return int(s)
+        if "十" in s:                     # 十/十一/十二
+            head, _, tail = s.partition("十")
+            return (cls._SPAN_CN_NUM.get(head, 1) if head else 1) * 10 + \
+                   (cls._SPAN_CN_NUM.get(tail, 0) if tail else 0)
+        value = 0
+        for ch in s:
+            if ch not in cls._SPAN_CN_NUM:
+                return None
+            value = value * 10 + cls._SPAN_CN_NUM[ch]
+        return value or None
+
+    def volume_date_span(self, book: str, volume: int) -> str:
+        """该卷/册收录文献的时间跨度，形如「1965.1—1965.12」；无法判定时返回空串。"""
+        key = (book, int(volume))
+        if key in self._date_span_cache:
+            return self._date_span_cache[key]
+        vol = next((v for v in self.get_volumes(book) if v.volume == volume), None)
+        dates: list[tuple[int, int]] = []
+        if vol is not None:
+            for entry in self.get_toc_entries(vol.source_file):
+                title = str(getattr(entry, "title", "") or "").lstrip()
+                if not title or self._SPAN_APPENDIX_RE.match(title):
+                    continue
+                m = self._SPAN_DATE_RE.search(title)
+                arabic = m is None
+                if arabic:
+                    m = self._SPAN_DATE_ARABIC_RE.search(title)
+                if not m:
+                    continue
+                year = int(m.group(1)) if arabic else self._span_cn_to_int(m.group(1))
+                # 年谱起于 1893（毛泽东诞生），故下限放到 1800 而非 1900
+                if not year or not (1800 <= year <= 2100):
+                    continue
+                month = (int(m.group(2)) if m.group(2) else None) if arabic \
+                    else (self._span_cn_to_int(m.group(2)) if m.group(2) else None)
+                # 年谱目录条目常是「1937年(7月—12月)」这种**月份区间**。跨度的下界该取区间首月、
+                # 上界该取区间末月；若只取首月，卷末那条「1945年(1月—8月)」会被记成 1945.1，
+                # 于是毛年谱第2卷显示成「1937.7—1945.1」——比不显示更糟（日期是错的）。
+                end_month = int(m.group(3)) if (arabic and m.lastindex and m.lastindex >= 3
+                                                and m.group(3)) else None
+                sm = month if month and 1 <= month <= 12 else 0
+                em = end_month if end_month and 1 <= end_month <= 12 else sm
+                dates.append((year, sm, em))
+        span = ""
+        if dates:
+            fmt = lambda y, mo: f"{y}.{mo}" if mo else str(y)
+            lo_y, lo_m, _ = min(dates, key=lambda d: (d[0], d[1]))
+            hi_y, _, hi_m = max(dates, key=lambda d: (d[0], d[2]))
+            lo, hi = fmt(lo_y, lo_m), fmt(hi_y, hi_m)
+            span = lo if lo == hi else f"{lo}—{hi}"
+        self._date_span_cache[key] = span
+        return span
 
     def _load_toc_entries_from_db(self, conn: sqlite3.Connection) -> dict[str, list[TocEntry]]:
         table = conn.execute(
@@ -705,7 +947,8 @@ class Corpus:
                 chapter_map: "OrderedDict[int, dict]" = OrderedDict()
                 vol_count = 0
                 for seg in self._chapter_segments(vol):
-                    cnt = nf.count(q_norm, seg["norm_start"], seg["norm_end"])
+                    # 用重叠计数（与 chapter_hits 的 find 步进 +1 一致），保证聚合数=钻取数。
+                    cnt = _count_overlapping(nf, q_norm, seg["norm_start"], seg["norm_end"])
                     if not cnt:
                         continue
                     vol_count += cnt
@@ -922,19 +1165,32 @@ class Corpus:
                 "groups": [],
             }
 
-        fuzzy: list[Hit] = []
-        fuzzy_limit = max_hits or (group_limit * page_size * 5)
-        for book in self.books:
-            partial, partial_truncated = self._fuzzy_in_book(
-                book,
-                q_norm,
-                q,
-                limit=max(0, fuzzy_limit - len(fuzzy)),
-            )
-            fuzzy.extend(partial)
-            truncated = truncated or partial_truncated or len(fuzzy) >= fuzzy_limit
-            if len(fuzzy) >= fuzzy_limit:
-                break
+        # CPU 密集的全语料近似扫描：经并发闸限制同时进行的扫描数，护住线程池；短超时拿不到名额则
+        # 降级为「无结果」（正常负载几乎不触发）。仅包住扫描循环本身，分组/分页等轻活不占名额。
+        if not _FUZZY_SCAN_SEMAPHORE.acquire(timeout=_FUZZY_SCAN_ACQUIRE_TIMEOUT):
+            return {
+                "query": q,
+                "total_hits": 0,
+                "group_count": 0,
+                "truncated": False,
+                "groups": [],
+            }
+        try:
+            fuzzy: list[Hit] = []
+            fuzzy_limit = max_hits or (group_limit * page_size * 5)
+            for book in self.books:
+                partial, partial_truncated = self._fuzzy_in_book(
+                    book,
+                    q_norm,
+                    q,
+                    limit=max(0, fuzzy_limit - len(fuzzy)),
+                )
+                fuzzy.extend(partial)
+                truncated = truncated or partial_truncated or len(fuzzy) >= fuzzy_limit
+                if len(fuzzy) >= fuzzy_limit:
+                    break
+        finally:
+            _FUZZY_SCAN_SEMAPHORE.release()
         fuzzy.sort(key=lambda h: (-h.score, self.book_sort_order(h.book)))
         return self._group_hits(
             q,
@@ -1089,10 +1345,11 @@ class Corpus:
     # ------------------------------------------------------------------
     # 精确匹配
     # ------------------------------------------------------------------
-    def _exact_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = 20) -> tuple[list[Hit], bool]:
+    def _exact_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = 20,
+                       book_scope: "Collection[str] | None" = None) -> tuple[list[Hit], bool]:
         hits: list[Hit] = []
         truncated = False
-        for vol in self.books.get(book, []):
+        for vol in self._scoped_volumes(book, book_scope):
             start = 0
             while True:
                 i = vol.norm_full.find(q_norm, start)
@@ -1110,7 +1367,8 @@ class Corpus:
     # ------------------------------------------------------------------
     # 模糊匹配
     # ------------------------------------------------------------------
-    def _fuzzy_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = None) -> tuple[list[Hit], bool]:
+    def _fuzzy_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = None,
+                       book_scope: "Collection[str] | None" = None) -> tuple[list[Hit], bool]:
         """近似匹配兜底（仅在精确零命中时调用）：容错 OCR 错字，但保持「精确」的指向性。
 
         partial_ratio 是字符重叠率，常用字偶然重叠就能让无关段落拿到高分（碰瓷命中），
@@ -1127,7 +1385,7 @@ class Corpus:
         # 多放进来的候选由编辑距离复核拦截。
         cutoff = max(0.0, 100.0 * (1.0 - (max_errors + 0.5) / len(q_norm)))
         pad = max_errors + 2
-        for vol in self.books.get(book, []):
+        for vol in self._scoped_volumes(book, book_scope):
             if limit is not None and len(hits) >= limit:
                 truncated = True
                 break
@@ -1154,11 +1412,19 @@ class Corpus:
     # ------------------------------------------------------------------
     # 联想检索的接地定位（纯 Python，无 AI；AI 只在上层提供 quotes/keywords）
     # ------------------------------------------------------------------
-    def locate_quote(self, quote: str, *, per_book_exact: int = 5, allow_fuzzy: bool = True) -> list[Hit]:
+    def locate_quote(
+        self,
+        quote: str,
+        *,
+        per_book_exact: int = 5,
+        allow_fuzzy: bool = True,
+        book_scope: "Collection[str] | None" = None,
+    ) -> list[Hit]:
         """在真实语料中定位单条候选原文：先精确（每书库取前若干处），无精确再模糊（每卷最佳 span）。
 
         返回真实 Hit（含 context/citation/section），绝不构造不存在的出处。
         ``allow_fuzzy=False`` 时跳过整句模糊兜底（联想检索用片段召回替代，避免逐卷 partial_ratio 的高开销）。
+        ``book_scope`` 限定要扫描的书库（见 _scoped_book_keys）；缺省全部。
         """
         q_raw = (quote or "").strip()
         if len(q_raw) > ASSOC_QUOTE_MAXLEN:
@@ -1166,20 +1432,49 @@ class Corpus:
         q_norm = normalize(q_raw)
         if len(q_norm) < MIN_QUERY_LEN:
             return []
+        scoped_books = self._scoped_book_keys(book_scope)
         hits: list[Hit] = []
-        for book in self.books:
-            book_hits, _ = self._exact_in_book(book, q_norm, q_raw, limit=per_book_exact)
+        for book in scoped_books:
+            book_hits, _ = self._exact_in_book(book, q_norm, q_raw, limit=per_book_exact, book_scope=book_scope)
             hits.extend(book_hits)
         if hits:
             return hits
         if not allow_fuzzy or len(q_norm) < MIN_FUZZY_QUERY_LEN:
             return []
         fuzzy: list[Hit] = []
-        for book in self.books:
-            partial, _ = self._fuzzy_in_book(book, q_norm, q_raw)
+        for book in scoped_books:
+            partial, _ = self._fuzzy_in_book(book, q_norm, q_raw, book_scope=book_scope)
             fuzzy.extend(partial)
         fuzzy.sort(key=lambda h: (-h.score, self.book_sort_order(h.book)))
         return fuzzy
+
+    @staticmethod
+    def _cooccurrence_groups(keywords: list[str], expand_synonyms: bool) -> list[list[str]]:
+        """把关键词归一化、去重、（可选）按 ``TERM_THESAURUS`` 并成「概念组」；每组为一个概念的归一化
+        变体列表（组内 OR）。expand_synonyms=False 时每词自成一组，与旧行为逐字一致。至多
+        ``ASSOC_MAX_KEYWORDS`` 组；同一概念的多个同义词只占一组、不重复开组。"""
+        groups: list[list[str]] = []
+        seen_terms: set[str] = set()
+        concept_to_group: dict[int, int] = {}
+        for k in keywords or []:
+            kn = normalize(str(k or ""))
+            if len(kn) < MIN_QUERY_LEN or kn in seen_terms:
+                continue
+            cid = _TERM_TO_GROUP.get(kn) if expand_synonyms else None
+            if cid is not None:
+                if cid in concept_to_group:
+                    seen_terms.add(kn)
+                    continue  # 该概念已由另一同义词开组，本词并入、不新开
+                concept_to_group[cid] = len(groups)
+                variants = list(_THESAURUS_GROUPS[cid])
+                groups.append(variants)
+                seen_terms.update(variants)  # 组内全部变体标记已用，避免后续同义词重复开组
+            else:
+                groups.append([kn])
+                seen_terms.add(kn)
+            if len(groups) >= ASSOC_MAX_KEYWORDS:
+                break
+        return groups
 
     def keyword_cooccurrence(
         self,
@@ -1188,104 +1483,108 @@ class Corpus:
         window: int = ASSOC_KEYWORD_WINDOW,
         min_distinct: int | None = None,
         occ_cap: int = ASSOC_KW_OCC_CAP,
+        book_scope: "Collection[str] | None" = None,
+        expand_synonyms: bool = False,
     ) -> list[Hit]:
         """定位“多关键词在近邻窗口内共现”的真实段落。
 
         先用 M-of-N 子串成员（C 层 ``in``）过滤掉绝大多数卷，仅对存活卷做位置扫描与滑窗，
         从而在数百 MB 内存文本上仍可在线运行（沿用 search_chaptered 的“先成员判断再扫描”模式）。
-        每卷取一个最佳窗口（不同关键词数最多、跨度最紧），生成真实 Hit。
+        每卷取一个最佳窗口（不同概念数最多、跨度最紧），生成真实 Hit。
+
+        ``expand_synonyms=True``：按 ``TERM_THESAURUS`` 把同义/译名并成「概念组」，组内任一表述命中
+        即算命中该概念，distinct 与封顶均按**概念数**计——使某段只用一种译法（如「外化」而非「异化」）
+        也能被共现召回；缺省 False 时每词自成一组，与旧行为逐字一致。
         """
-        seen: set[str] = set()
-        kws: list[str] = []
-        for k in keywords or []:
-            kn = normalize(str(k or ""))
-            if len(kn) < MIN_QUERY_LEN or kn in seen:
-                continue
-            seen.add(kn)
-            kws.append(kn)
-            if len(kws) >= ASSOC_MAX_KEYWORDS:
-                break
-        if len(kws) < 2:
+        groups = self._cooccurrence_groups(keywords, expand_synonyms)
+        n_groups = len(groups)
+        if n_groups < 2:
             return []
         if min_distinct is None:
-            min_distinct = max(2, (len(kws) + 1) // 2)  # ceil(0.5 * n)
-        min_distinct = min(min_distinct, len(kws))
+            min_distinct = max(2, (n_groups + 1) // 2)  # ceil(0.5 * n)
+        min_distinct = min(min_distinct, n_groups)
 
         hits: list[Hit] = []
-        for book in self.books:
-            for vol in self.books.get(book, []):
+        for book in self._scoped_book_keys(book_scope):
+            for vol in self._scoped_volumes(book, book_scope):
                 nf = vol.norm_full
-                present = [kn for kn in kws if kn in nf]
+                # 概念存在性：概念组内任一变体在卷内出现，即算该概念存在
+                present = [gi for gi in range(n_groups) if any(v in nf for v in groups[gi])]
                 if len(present) < min_distinct:
                     continue
-                # 收集各关键词前 occ_cap 个出现位置（非重叠）
-                occ: list[tuple[int, int, int]] = []  # (pos, kw_id, kw_len)
-                for kid, kn in enumerate(present):
-                    start = 0
+                # 收集各概念前 occ_cap 个出现位置（组内各变体命中统一归到该概念 id）
+                occ: list[tuple[int, int, str]] = []  # (pos, concept_id, term)
+                for gi in present:
                     cnt = 0
-                    klen = len(kn)
-                    while cnt < occ_cap:
-                        i = nf.find(kn, start)
-                        if i < 0:
+                    for v in groups[gi]:
+                        start = 0
+                        vlen = len(v)
+                        while cnt < occ_cap:
+                            i = nf.find(v, start)
+                            if i < 0:
+                                break
+                            occ.append((i, gi, v))
+                            start = i + vlen
+                            cnt += 1
+                        if cnt >= occ_cap:
                             break
-                        occ.append((i, kid, klen))
-                        start = i + klen
-                        cnt += 1
                 if not occ:
                     continue
                 occ.sort()
-                # 双指针滑窗：求“不同关键词数最多、跨度最紧”的窗口
+                # 双指针滑窗：求“不同概念数最多、跨度最紧”的窗口
                 counts: dict[int, int] = {}
                 distinct = 0
                 left = 0
                 best: tuple[int, int, int, int] | None = None  # (distinct, -span, start, end)
                 for right in range(len(occ)):
-                    pos_r, kid_r, len_r = occ[right]
-                    counts[kid_r] = counts.get(kid_r, 0) + 1
-                    if counts[kid_r] == 1:
+                    pos_r, cid_r, term_r = occ[right]
+                    counts[cid_r] = counts.get(cid_r, 0) + 1
+                    if counts[cid_r] == 1:
                         distinct += 1
                     lo = pos_r - window + 1
                     while occ[left][0] < lo:
-                        kid_l = occ[left][1]
-                        counts[kid_l] -= 1
-                        if counts[kid_l] == 0:
+                        cid_l = occ[left][1]
+                        counts[cid_l] -= 1
+                        if counts[cid_l] == 0:
                             distinct -= 1
                         left += 1
                     if distinct >= min_distinct:
                         win_start = occ[left][0]
-                        win_end = pos_r + len_r
+                        win_end = pos_r + len(term_r)
                         cand = (distinct, -(win_end - win_start), win_start, win_end)
                         if best is None or cand > best:
                             best = cand
                 if best is None:
                     continue
                 win_distinct, _neg_span, win_start, win_end = best
-                # 高亮锚点：选窗口内出现的最长关键词，确保 context 高亮落在真实命中上
-                in_window = {
-                    kid for (pos, kid, klen) in occ if win_start <= pos < win_end
-                }
-                anchor = max(
-                    (present[kid] for kid in in_window),
-                    key=len,
-                    default=present[0],
-                )
+                # 高亮锚点：窗口内命中的最长变体，确保 context 高亮落在真实命中上
+                anchor = ""
+                for (pos, cid, term) in occ:
+                    if win_start <= pos < win_end and len(term) > len(anchor):
+                        anchor = term
+                if not anchor:
+                    anchor = groups[present[0]][0]
                 # 关键词共现是最弱信号（可能巧合），分值封顶低于片段/整句/篇章定向，避免淹没精确命中
-                coverage_score = min(88, int(round(92 * win_distinct / len(kws))))
+                coverage_score = min(88, int(round(92 * win_distinct / n_groups)))
                 hits.append(
                     self._make_hit(vol, win_start, win_end, "fuzzy", coverage_score, anchor)
                 )
         return hits
 
-    def _fragment_exact_hits(self, fn: str, *, max_freq: int, per_fragment: int) -> list[Hit] | None:
+    def _fragment_exact_hits(
+        self, fn: str, *, max_freq: int, per_fragment: int,
+        book_scope: "Collection[str] | None" = None,
+    ) -> list[Hit] | None:
         """单趟扫描：统计片段全语料出现数、收集前若干处真实命中；超过 max_freq 视为太常见，弃用。
 
         把“频次判定”和“取命中”合并为一次扫描，避免重复全语料遍历（联想检索性能关键）。
+        ``book_scope`` 限定扫描范围后，频次也只在范围内计——某片段全库高频但范围内稀有时仍具区分度、予以保留。
         """
         hits: list[Hit] = []
         total = 0
         flen = len(fn)
-        for book in self.books:
-            for vol in self.books.get(book, []):
+        for book in self._scoped_book_keys(book_scope):
+            for vol in self._scoped_volumes(book, book_scope):
                 nf = vol.norm_full
                 start = 0
                 while True:
@@ -1307,11 +1606,12 @@ class Corpus:
         max_freq: int = ASSOC_FRAG_MAX_FREQ,
         per_fragment: int = ASSOC_FRAG_PER,
         total_cap: int = ASSOC_FRAG_TOTAL_CAP,
+        book_scope: "Collection[str] | None" = None,
     ) -> list[tuple[Hit, str]]:
         """对“逐字短语片段”做精确检索：保留长度合适且具区分度（出现数 ≤ max_freq）的片段。
 
         返回 (真实 Hit, 命中片段) 列表；分值按片段长度给出（越长越可信）。按传入顺序处理并
-        受 total_cap 限制，故应把可信度更高的模型片段排在前面。
+        受 total_cap 限制，故应把可信度更高的模型片段排在前面。``book_scope`` 限定扫描范围。
         """
         seen: set[str] = set()
         results: list[tuple[Hit, str]] = []
@@ -1324,7 +1624,9 @@ class Corpus:
             if used >= total_cap:
                 break
             used += 1
-            hits = self._fragment_exact_hits(fn, max_freq=max_freq, per_fragment=per_fragment)
+            hits = self._fragment_exact_hits(
+                fn, max_freq=max_freq, per_fragment=per_fragment, book_scope=book_scope
+            )
             if not hits:
                 continue
             score = min(97, 56 + 6 * len(fn))  # 4字→80，7字→98→封顶97
@@ -1363,6 +1665,38 @@ class Corpus:
             if len(kept) >= cap:
                 break
         return kept
+
+    @staticmethod
+    def _prf_phrases(
+        text: str,
+        *,
+        lengths: tuple[int, ...] = ASSOC_PRF_SHINGLE_LENS,
+        cap: int = ASSOC_PRF_SHINGLE_CAP,
+    ) -> list[str]:
+        """伪相关反馈取词：从一段命中正文里跨全段半重叠采样若干「候选短语」（纯字符串操作，不扫描语料）。
+        是否真具区分度／是否存在，统一交给 fragment_search 的频次闸判定（太常见弃用；只在源处出现则无害）。"""
+        s = normalize(text)
+        out: list[str] = []
+        seen: set[str] = set()
+        per_len = max(1, cap // max(1, len(lengths)))
+        for length in lengths:
+            if len(s) < length:
+                continue
+            n_pos = len(s) - length + 1
+            step = max(length, n_pos // per_len)  # 铺开覆盖整段（而非只取开头）
+            got = 0
+            for i in range(0, n_pos, step):
+                frag = s[i:i + length]
+                if frag in seen:
+                    continue
+                seen.add(frag)
+                out.append(frag)
+                got += 1
+                if got >= per_len or len(out) >= cap:
+                    break
+            if len(out) >= cap:
+                break
+        return out
 
     def _content_window_in_range(
         self,
@@ -1451,6 +1785,7 @@ class Corpus:
         *,
         max_chapters: int = ASSOC_CHAPTER_MAX,
         window: int = ASSOC_KEYWORD_WINDOW,
+        book_scope: "Collection[str] | None" = None,
     ) -> list[tuple[Hit, str]]:
         """篇章定向检索：先按“著作/篇章名”命中篇章标题，再在该篇（含其子节的整段范围）内定位内容关键词。
 
@@ -1473,8 +1808,8 @@ class Corpus:
         cw = _norm_unique(content_keywords)
         results: list[tuple[Hit, str]] = []
         matched = 0
-        for book in self.books:
-            for vol in self.books.get(book, []):
+        for book in self._scoped_book_keys(book_scope):
+            for vol in self._scoped_volumes(book, book_scope):
                 segs = self._chapter_segments(vol)
                 covered_end = -1
                 for i, seg in enumerate(segs):
@@ -1514,20 +1849,40 @@ class Corpus:
         return results
 
     @staticmethod
-    def _diversify_by_book(hits: list[Hit], per_book_cap: int = 4) -> list[Hit]:
-        """研究模式多样性排序：保持分数序，但把同一著作超过 per_book_cap 条的命中后置到末尾，
-        使首屏在不同著作间铺开。global best 仍在首位，弱命中不会越过强命中——只是同书第 5+ 条后移。"""
+    def _diversify_by_book(
+        hits: list[Hit],
+        per_book_cap: int = 4,
+        group_key: "Callable[[Hit], str] | None" = None,
+    ) -> list[Hit]:
+        """多样性排序：保持分数序，但把同一著作（或著作群）超过 per_book_cap 条的命中后置到末尾，
+        使首屏在不同著作间铺开。global best 仍在首位，弱命中不会越过强命中——只是同组第 cap+1 条后移。
+
+        ``group_key`` 缺省按 ``h.book`` 计数；传入后按其返回的分组键计数，可把「同一著作的不同版本」
+        （如《文集》/《全集》/《全集·二版》同属马恩著作）合并到一个配额里，避免两个版本各占名额、
+        把其它作者（列宁/毛泽东等）整体挤出首屏。"""
         counts: dict[str, int] = {}
         primary: list[Hit] = []
         overflow: list[Hit] = []
         for h in hits:
-            c = counts.get(h.book, 0)
+            k = group_key(h) if group_key is not None else h.book
+            c = counts.get(k, 0)
             if c < per_book_cap:
                 primary.append(h)
-                counts[h.book] = c + 1
+                counts[k] = c + 1
             else:
                 overflow.append(h)
         return primary + overflow
+
+    def _author_group_key(self, hit: Hit) -> str:
+        """著作群分组键：把同一作者的多版本/多书合并为一个多样性配额。
+
+        数据驱动（取自 books.yaml 的 citation_title）：马恩三套版本（《文集》/《全集》/《全集·二版》，
+        citation_title 均以「马克思恩格斯」起头）归一到同一群；其它书库各自独立。用于随心问接地的
+        按作者铺开，确保两套马恩版本不会同时霸占注入名额。"""
+        ct = (self.get_book_config(hit.book).citation_title or "").strip()
+        if ct.startswith("马克思恩格斯"):
+            return "马克思恩格斯"
+        return hit.book
 
     def locate_associative(
         self,
@@ -1539,6 +1894,11 @@ class Corpus:
         candidate_cap: int = ASSOC_CANDIDATE_CAP,
         intent: str | None = None,
         facets: list[list[str]] | None = None,
+        diversify_per_book: int | None = None,
+        diversify_by_author: bool = False,
+        book_scope: "Collection[str] | None" = None,
+        expand_synonyms: bool = True,
+        pseudo_feedback: bool = False,
     ) -> list[Hit]:
         """编排：整句定位 + 逐字片段召回 + 关键词共现 + 篇章关键词加权，章节折叠并按权重综合打分。
 
@@ -1548,6 +1908,19 @@ class Corpus:
 
         ``intent=="research"``：额外按 ``facets``（论题各侧面的关键词组）分面共现召回，扩大跨著作
         覆盖面，并在最终结果上做按著作的多样性铺开（_diversify_by_book）；其它意图保持原行为。
+
+        ``diversify_per_book``：任意调用方均可显式限制单一著作在结果里的占比（如随心问接地传 2）。
+        分数并列时排序兜底键是 ``book_sort_order`` 升序，而《文集》的 sort_order 全库最小（10），
+        会在大量并列分上霸榜；本参数把同一著作超额命中后置，让其它原著在首屏铺开。缺省 None 时
+        保持原行为（仅 research 默认铺开），完全向后兼容。
+        ``diversify_by_author=True``：配额按「著作群」计（马恩《文集》/《全集》/《全集·二版》三套版本
+        合并为一个名额），避免同一文本的两套版本各占名额、把列宁/毛泽东等其它作者整体挤出首屏。
+        ``book_scope``：限定本次召回只在给定书库内进行（按著作群定向检索用），使整个检索预算都花在
+        范围内，从根上避免「问总书记却检索起马恩」——而非事后过滤丢弃已被别的作者挤掉的范围内命中。
+        ``expand_synonyms``（默认 True）：关键词共现按 ``TERM_THESAURUS`` 做同义/译名概念组扩展，提升
+        同义召回；``pseudo_feedback``（默认 False，research 意图自动开）：两趟检索，从首轮 top 命中正文
+        回灌具区分度短语再做一趟片段召回，让语料自补查询未想到的措辞。二者都只影响「找到哪些真实命中」，
+        不改「引文不可伪造」——最终引文仍是真实 Hit。
         """
         def _chapter_key(h: Hit) -> tuple:
             first_page = h.pages[0].pdf_page if h.pages else -1
@@ -1569,31 +1942,51 @@ class Corpus:
 
         # 1) 整句定位（命中规范译文时最可信）；整句模糊兜底交给片段召回，避免逐卷 partial_ratio 高开销
         for quote in (quotes or [])[:ASSOC_MAX_QUOTES]:
-            for h in self.locate_quote(quote, allow_fuzzy=False):
+            for h in self.locate_quote(quote, allow_fuzzy=False, book_scope=book_scope):
                 _add(h, h.score, ("quote", (quote or "")[:24]))
 
         # 2) 逐字片段召回：模型片段在前（更可信、优先占用检索预算）+ 候选原文自动切片在后
         frag_pool: list[str] = list(fragments or [])
         for quote in (quotes or [])[:ASSOC_MAX_QUOTES]:
             frag_pool.extend(self._shingle_fragments(quote))
-        for h, frag in self.fragment_search(frag_pool):
+        for h, frag in self.fragment_search(frag_pool, book_scope=book_scope):
             _add(h, h.score, ("frag", frag))
 
         # 3) 篇章定向：著作/篇章名命中标题 → 在该篇内定位主题词（“[著作] [主题]”型输入的强力路径）
-        for h, ck in self.chapter_focused_search(chapter_keywords or [], keywords or []):
+        for h, ck in self.chapter_focused_search(chapter_keywords or [], keywords or [], book_scope=book_scope):
             _add(h, h.score, ("chapter", ck))
 
         # 4) 关键词共现兜底（研究意图放宽：任意 2 词共现 + 更宽窗口，扩大跨段/跨著作召回；
-        #    覆盖度低的命中分值本就低、排在后面，不会顶掉强命中，只是把召回面铺得更广）
+        #    覆盖度低的命中分值本就低、排在后面，不会顶掉强命中，只是把召回面铺得更广）。
+        #    expand_synonyms 时按概念组召回同义/译名（如「异化」也召回只写「外化」的段落）。
         kw_window = ASSOC_RESEARCH_KEYWORD_WINDOW if intent == "research" else ASSOC_KEYWORD_WINDOW
         kw_min = 2 if intent == "research" else None
-        for h in self.keyword_cooccurrence(keywords or [], window=kw_window, min_distinct=kw_min):
+        for h in self.keyword_cooccurrence(keywords or [], window=kw_window, min_distinct=kw_min, book_scope=book_scope, expand_synonyms=expand_synonyms):
             _add(h, h.score, ("kw", None))
 
         # 5) 研究分面召回：每个侧面分别共现（同样放宽），扩大跨著作覆盖面（仅 research 传入 facets）
         for fi, fac_kws in enumerate(facets or []):
-            for h in self.keyword_cooccurrence(fac_kws, window=kw_window, min_distinct=2):
+            for h in self.keyword_cooccurrence(fac_kws, window=kw_window, min_distinct=2, book_scope=book_scope, expand_synonyms=expand_synonyms):
                 _add(h, h.score, ("facet", fi))
+
+        # 6) 伪相关反馈（两趟检索，默认仅研究意图开）：从首轮 top 命中正文切「具区分度短语」回灌片段召回，
+        #    让语料自己补出查询里没想到的措辞；第二趟经 fragment_search 频次闸自动去噪（太常见弃用）。
+        if (pseudo_feedback or intent == "research") and hit_by_ch:
+            top_keys = sorted(base_by_ch, key=lambda k: base_by_ch[k], reverse=True)[:ASSOC_PRF_TOP_HITS]
+            fb_seen: set[str] = {normalize(f) for f in frag_pool}
+            fb_frags: list[str] = []
+            for _k in top_keys:
+                _h = hit_by_ch.get(_k)
+                if _h is None:
+                    continue
+                _ctx = str(getattr(_h, "context", "") or "").replace("[[H]]", "").replace("[[/H]]", "")
+                for _frag in self._prf_phrases(_ctx):
+                    if _frag not in fb_seen:
+                        fb_seen.add(_frag)
+                        fb_frags.append(_frag)
+            if fb_frags:
+                for h, frag in self.fragment_search(fb_frags, total_cap=ASSOC_PRF_FRAG_CAP, book_scope=book_scope):
+                    _add(h, h.score, ("prf", frag))
 
         if not hit_by_ch:
             return []
@@ -1622,16 +2015,25 @@ class Corpus:
 
         results.sort(key=lambda h: (-h.score, self.book_sort_order(h.book), h.volume))
         results = results[:candidate_cap]
-        if intent == "research":
+        if diversify_per_book is not None:
+            gk = self._author_group_key if diversify_by_author else None
+            results = self._diversify_by_book(
+                results, per_book_cap=diversify_per_book, group_key=gk
+            )
+        elif intent == "research":
             results = self._diversify_by_book(results)
         return results
 
-    def locate_subject_index(self, keywords: list[str], *, cap: int = 24) -> list[Hit]:
+    def locate_subject_index(
+        self, keywords: list[str], *, cap: int = 24,
+        book_scope: "Collection[str] | None" = None,
+    ) -> list[Hit]:
         """名目索引主题层（P2a）：把查询词与编辑手工建的索引词条匹配 → 取该词条的权威页 → 造真实段落 Hit。
 
         权威、零幻觉、可解释（Hit.subject_label 记录命中的索引词条，如「经济领域中的异化·劳动的异化」）。
         在编辑受控词表上做归一子串匹配；按「主词命中>子侧面命中、长词优先」排序，按页去重，
         建 Hit 时在该页内定位查询词以给出上下文与高亮。索引库缺失时返回空（研究检索退回纯词面召回）。
+        ``book_scope`` 限定书库：范围外的词条整体跳过（名目索引目前仅《文集》，故范围排除《文集》时自然为空）。
         """
         if not self._subject_entries:
             return []
@@ -1676,6 +2078,8 @@ class Corpus:
             vol = self._volumes_by_source_file.get(e["source_file"])
             if vol is None:
                 continue
+            if not self._volume_in_scope(vol, book_scope):
+                continue  # 名目索引词条落在检索范围（书库/卷）之外 → 跳过
             hit = self._subject_hit(vol, int(e["pdf_page"]), kw, lab)
             if hit is not None:
                 hits.append(hit)
@@ -1829,6 +2233,7 @@ class Corpus:
                 highlight_src = vol.norm_full[norm_start:norm_end]
             context = self._extract_context(pages, highlight_src, occurrence_index)
         citation = self._make_citation(vol.book, vol.volume, pages, source_file=vol.source_file)
+        citations = self._make_citations(vol.book, vol.volume, pages, source_file=vol.source_file)
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
         book_cfg = self.get_book_config(vol.book)
 
@@ -1846,6 +2251,7 @@ class Corpus:
             score=score,
             context=context,
             citation=citation,
+            citations=citations,
             section_title=section_title,
             fuzzy_errors=fuzzy_errors,
         )
@@ -1936,7 +2342,7 @@ class Corpus:
     # 引文按「篇名（年份）」出，而非「《书名》第N卷…第N页」。
     _DOC_CITATION_BOOKS = {"历次党代会报告", "历届全会公报", "五年规划"}
     # 《重要文献选编》：分册用 上/中/下，而非「第N卷」
-    _XUANBIAN_BOOKS = {"十八大以来重要文献选编", "十九大以来重要文献选编"}
+    _XUANBIAN_BOOKS = {"十八大以来重要文献选编", "十九大以来重要文献选编", "二十大以来重要文献选编"}
     _XUANBIAN_VOL_CN = {1: "上", 2: "中", 3: "下"}
 
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
@@ -1985,18 +2391,169 @@ class Corpus:
             pdf_nums = [p.pdf_page for p in pages]
             first, last = pdf_nums[0], pdf_nums[-1]
             if first == last:
-                page_str = f"第{first}页（按PDF页码）"
+                page_str = f"第{first}页（此为PDF页码，非原书印刷页码）"
             else:
-                page_str = f"第{first}-{last}页（按PDF页码）"
+                page_str = f"第{first}-{last}页（此为PDF页码，非原书印刷页码）"
+
+        responsibility = ""
+        if book_cfg.authors:
+            responsibility = "、".join(book_cfg.authors) + "："
+        translated = ""
+        if book_cfg.translators:
+            translated = "，" + "、".join(book_cfg.translators) + "译"
 
         if book in self._XUANBIAN_BOOKS:
             editor = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("editor")
             prefix = f"{editor}编：" if editor else ""
             title = f"{prefix}《{book_cfg.citation_title}》（{self._XUANBIAN_VOL_CN.get(volume, str(volume))}）"
+        elif book_cfg.single_volume or volume in book_cfg.unnumbered_volumes:
+            # 单卷本独立著作（各《学习纲要》《概论》），或多卷本中该卷本身无卷次
+            # （如《治国理政》卷1 我们用的 2014 无卷次初版）：不冠「第N卷」
+            title = f"{responsibility}《{book_cfg.citation_title}》{translated}"
         else:
-            title = f"《{book_cfg.citation_title}》第{volume}卷"
+            title = f"{responsibility}《{book_cfg.citation_title}》第{volume}{book_cfg.volume_unit}{translated}"
         year_str = f"{year}年" if year else "xxxx年"
         return f"{title}，{place}：{publisher}，{year_str}，{page_str}。"
+
+    # 引文格式标识：与前端「引用格式」下拉一致。
+    #   gb2015 = 国标 GB/T 7714—2015（专著 [M]，半角标点）
+    #   zgshkx = 《中国社会科学》脚注体例
+    #   mkszyj = 《马克思主义研究》脚注体例
+    # 两刊脚注当前为同一写法（均带出版地、不加「版」字，与既有 _make_citation 一致），
+    # 故 zgshkx/mkszyj 暂同源；保留两个独立键，以便日后任一刊微调而互不影响。
+    CITATION_FORMATS = ("gb2015", "zgshkx", "mkszyj")
+
+    def set_citation_templates(self, templates: dict | None) -> None:
+        """注入后台自定义的引用格式模板（仅 CITATION_FORMATS 内的键、非空字符串生效）。
+
+        由 app 层在启动时与后台保存后调用；单进程多线程 waitress 下，更新本对象即对所有
+        请求线程即时生效（持久化在 app 层的设置项里，重启后再注入）。
+        """
+        clean: dict[str, str] = {}
+        if isinstance(templates, dict):
+            for key in self.CITATION_FORMATS:
+                tpl = templates.get(key)
+                if isinstance(tpl, dict):  # 容忍 {"template": "..."} 形态
+                    tpl = tpl.get("template")
+                tpl = str(tpl or "").strip()
+                if tpl:
+                    clean[key] = tpl
+        self.citation_templates = clean
+
+    def _citation_parts(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
+        """标准「卷·页」型著作的引文字段，供自定义模板替换（公文/选编等特殊体例不经此处）。"""
+        file_years = self.volumes_cfg.get("file_years") or {}
+        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
+        book_cfg = self.get_book_config(book)
+        publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
+        place = book_cfg.place or self.volumes_cfg.get("place", "北京")
+        printed_nums = [
+            p.printed_page for p in pages
+            if p.printed_page and not p.printed_page.startswith("pre-")
+        ]
+        if printed_nums:
+            first, last = printed_nums[0], printed_nums[-1]
+            page_note = ""
+        else:
+            pdf_nums = [p.pdf_page for p in pages]
+            first, last = pdf_nums[0], pdf_nums[-1]
+            page_note = "（此为PDF页码，非原书印刷页码）"
+        page_range = f"{first}" if first == last else f"{first}-{last}"
+        page = (f"第{first}页" if first == last else f"第{first}-{last}页") + page_note
+        return {
+            "title": book_cfg.citation_title,
+            "authors": "、".join(book_cfg.authors),
+            "translators": "、".join(book_cfg.translators),
+            "volume": str(volume),
+            "place": place,
+            "publisher": publisher,
+            "year": f"{year}" if year else "xxxx",
+            "page": page,
+            "page_range": page_range,
+            "page_note": page_note,
+        }
+
+    def _make_citations(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
+        """产出多格式引文 {gb2015, zgshkx, mkszyj}，供前端「引用格式」下拉即时切换。
+
+        默认走 _make_citation（脚注体例）/_make_citation_gb（国标）；后台若对某格式配了自定义
+        模板，则该格式按模板渲染——仅限标准「卷·页」型著作（公文/选编/显式 cite 覆盖等特殊体例
+        无规范卷页结构，一律沿用默认权威串、不套模板）。模板渲染异常时回退默认，绝不崩引文。
+        """
+        journal = self._make_citation(book, volume, pages, source_file=source_file)
+        gb = self._make_citation_gb(book, volume, pages, source_file=source_file)
+        tpls = self.citation_templates or {}
+        has_override = bool(((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("cite"))
+        # 单卷本 / 无卷次的个别卷也走默认程序化串：自定义模板固定含「第{volume}卷」，套上会错标卷次。
+        _bc = self.get_book_config(book)
+        # volume_unit != 卷（如两套《重要文献选编》按「册」分册）也走默认串：模板写死了
+        # 「第{volume}卷」，套上会把「第17册」错标成「第17卷」。
+        special = (book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS
+                   or has_override or _bc.single_volume or volume in _bc.unnumbered_volumes
+                   or _bc.volume_unit != "卷")
+        if special or not tpls:
+            return {"gb2015": gb, "zgshkx": journal, "mkszyj": journal}
+        parts = self._citation_parts(book, volume, pages, source_file=source_file)
+
+        def _render(key: str, default: str) -> str:
+            tpl = tpls.get(key)
+            if not tpl:
+                return default
+            try:
+                return tpl.format_map(_CiteSafeDict(parts))
+            except Exception:
+                return default
+
+        return {
+            "gb2015": _render("gb2015", gb),
+            "zgshkx": _render("zgshkx", journal),
+            "mkszyj": _render("mkszyj", journal),
+        }
+
+    def _make_citation_gb(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
+        """国标 GB/T 7714—2015 专著著录（[M]，半角标点）。
+
+        经用户确认：马列经典多卷本不冠主要责任者，径以题名起首——
+        ``题名:第N卷[M].出版地:出版者,出版年:引文页码.``，例：
+        ``马克思恩格斯文集:第1卷[M].北京:人民出版社,2009:123.``
+        公文/选编/显式 cite 覆盖等无规范「卷·页」结构的特殊体例，沿用权威注释串（与脚注体例同形）。
+        """
+        _cite = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("cite")
+        if _cite:
+            return _cite
+        if book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS:
+            return self._make_citation(book, volume, pages, source_file=source_file)
+        file_years = self.volumes_cfg.get("file_years") or {}
+        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
+        book_cfg = self.get_book_config(book)
+        publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
+        place = book_cfg.place or self.volumes_cfg.get("place", "北京")
+        printed_nums = [
+            p.printed_page
+            for p in pages
+            if p.printed_page and not p.printed_page.startswith("pre-")
+        ]
+        if printed_nums:
+            first, last = printed_nums[0], printed_nums[-1]
+            page_str = f"{first}" if first == last else f"{first}-{last}"
+            page_note = ""
+        else:
+            # 没识别出印刷页码：用 PDF 物理页号降级并标明（与脚注体例口径一致）
+            pdf_nums = [p.pdf_page for p in pages]
+            first, last = pdf_nums[0], pdf_nums[-1]
+            page_str = f"{first}" if first == last else f"{first}-{last}"
+            page_note = "（此为PDF页码，非原书印刷页码）"
+        year_str = f"{year}" if year else "xxxx"
+        vol_seg = "" if (book_cfg.single_volume or volume in book_cfg.unnumbered_volumes) else f":第{volume}{book_cfg.volume_unit}"
+        author_seg = ",".join(book_cfg.authors)
+        author_prefix = f"{author_seg}." if author_seg else ""
+        translator_seg = ""
+        if book_cfg.translators:
+            translator_seg = f".{','.join(book_cfg.translators)},译"
+        return (
+            f"{author_prefix}{book_cfg.citation_title}{vol_seg}[M]{translator_seg}."
+            f"{place}:{publisher},{year_str}:{page_str}{page_note}."
+        )
 
     # ------------------------------------------------------------------
     # 目录 / 章节

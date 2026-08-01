@@ -26,6 +26,23 @@ class BookConfig:
     # 是否对终端用户开放。False 时该书库仍可被索引/调试，但不在「篇章直达」等
     # 面向用户的入口中露出。新书库默认开放，方便逐步上线后再打开。
     available: bool = True
+    # 单卷本（无卷次划分的独立著作，如各《学习纲要》《概论》）：引文不冠「第N卷」。
+    # 默认 False（多卷本或分卷著作如《文集》《经济文选》第一卷仍照常出「第N卷」）。
+    single_volume: bool = False
+    # 多卷本中「个别卷不冠卷次」的卷号集合（如《治国理政》卷1 我们服务的是 2014 无卷次初版，
+    # 引文应作《习近平谈治国理政》而非「第一卷」——「第一卷」是 2018 第2版才回溯标注的）。
+    unnumbered_volumes: tuple[int, ...] = ()
+    # 单行本的主要责任者，用于生成完整的国标/脚注引文。旧书库留空时
+    # 仍保持「题名起首」的既有格式，不会改动已有引文。
+    authors: tuple[str, ...] = ()
+    translators: tuple[str, ...] = ()
+    # 阅读器与 AI 检索使用的专题键；空表示仍作为普通独立书库。
+    collection: str = ""
+    # 分卷单位。绝大多数著作以「卷」分卷，故默认「卷」；但《建党以来重要文献选编》
+    # 《建国以来重要文献选编》原书封面标的是「第十七册」，引文须作「第17册」才与原书相符。
+    # 注意：后台自定义引文模板里写死了「第{volume}卷」，故非「卷」的书库会绕过模板走
+    # 程序化权威串（同 single_volume 的处理），避免模板把「册」错标成「卷」。
+    volume_unit: str = "卷"
 
 
 DEFAULT_BOOK_CONFIGS: tuple[BookConfig, ...] = (
@@ -112,6 +129,19 @@ def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
                 place=str(item.get("place") or payload.get("place") or "北京").strip(),
                 tag_class=str(item.get("tag_class") or f"book-{index}").strip(),
                 available=_coerce_bool(item.get("available"), True),
+                single_volume=_coerce_bool(item.get("single_volume"), False),
+                unnumbered_volumes=tuple(
+                    int(v) for v in (item.get("unnumbered_volumes") or [])
+                    if str(v).strip().lstrip("-").isdigit()
+                ),
+                authors=tuple(
+                    str(v).strip() for v in (item.get("authors") or []) if str(v).strip()
+                ),
+                translators=tuple(
+                    str(v).strip() for v in (item.get("translators") or []) if str(v).strip()
+                ),
+                collection=str(item.get("collection") or "").strip(),
+                volume_unit=str(item.get("volume_unit") or "卷").strip() or "卷",
             )
         )
     return configs or list(DEFAULT_BOOK_CONFIGS)

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import logging
 import os
 import re
+import threading
 import time
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,11 +28,27 @@ DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4"
 
-# 联想检索「重排」步骤刻意走更轻量的 flash 档：该步只在已由 Python 接地定位的真实候选段落中
-# 判断匹配度并排序，对模型的知识/措辞召回依赖低、对弱模型容忍度高；而「扩展」步（生成检索线索、
-# 召回质量的关键，最吃模型对译本措辞的记忆）仍走主通道强模型。缺省＝flash，可经环境变量覆盖。
+# 联想检索「重排」与「扩展」两步都固定走更轻量的 flash 档。
+# - 重排：只在已由 Python 接地定位的真实候选段落中判断匹配度并排序，对模型知识依赖低。
+# - 扩展：生成检索线索（quotes/fragments/keywords）。原设计让它走主通道「强模型」以更好还原
+#   译本措辞；但 2026-06-26 实测：主通道一旦是 deepseek-v4-pro（推理模型），扩展会①狂吐推理
+#   token→单次~26s、叠加 3 次重试达~78s，超 Cloudflare ~100s 触发 "Failed to fetch"；②输出混入
+#   推理致 JSON 解析失败→返回空线索（journal 长期 "expand yielded no usable clues"）。改走 flash
+#   后实测 ~8-12s 且稳定解析出完整线索，故扩展也固定 flash（强模型在该结构化抽取任务上的措辞
+#   优势并未兑现）。两者均缺省＝flash，可分别经环境变量覆盖回主模型。
 ASSOC_RERANK_MODEL = (
     os.environ.get("APP_ASSOC_RERANK_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+)
+ASSOC_EXPAND_MODEL = (
+    os.environ.get("APP_ASSOC_EXPAND_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+)
+# 「研究综述」档的抽取模型：2026-07-31 起该档改走 pro。上面那段 2026-06-26 的教训（pro 抽取又慢
+# 又解析不出 JSON）已被「关思考」根治——真正的病因是推理 token 吃光 1500 预算，不是模型太强：
+# 同一提示词重复 6 次实测，pro 开思考 5/6 可用/18.5s，pro 关思考 6/6 可用/6-9s。研究档要的是线索
+# 广度（综述要铺 20-24 条引用），pro 抽出的 fragments/chapter_keywords 更全、候选更多，值这几秒。
+# 快速问答仍走 flash（ASSOC_EXPAND_MODEL）保响应。可经环境变量单独覆盖。
+ASSOC_EXPAND_DEEP_MODEL = (
+    os.environ.get("APP_ASSOC_EXPAND_DEEP_MODEL", "deepseek-v4-pro").strip() or "deepseek-v4-pro"
 )
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
@@ -77,6 +97,81 @@ LOGGER = logging.getLogger("marx.ai")
 
 class AIServiceError(RuntimeError):
     pass
+
+
+class _ReasoningOnlyResponse(Exception):
+    """流式响应全程只有思维链、没有正文（推理模型把 max_tokens 烧在思考上）。
+
+    仅在 ai.py 内部流转：由 _stream_chat_once 抛出、chat_complete_stream 捕获后「关思考」重试一次。
+    绝不外泄给路由层——思维链任何情况下都不作为答案下发给读者。
+    """
+
+
+# ---------------------------------------------------------------------------
+# AI 出网调用「并发闸」——护住 waitress 线程池
+#
+# 背景（2026-06-26 宕机根因）：上游（DeepSeek/智谱）变慢时，每个 AI 请求会把一个线程
+# 死等在下面的 urlopen 上（最长 request_timeout_seconds，默认 120s）。8 线程的 waitress
+# 很快被 AI 占满 → 首页/页面图/健康检查全部拿不到线程 → 整站冻结约 50 分钟。
+#
+# 对策：交互式 AI 与研究长任务**分池**。旧版把全站所有 AI 调用塞进同一个 5 名额闸门；
+# 两篇研究综述的前置检索与长文生成就可能把快速问答一并挤成“访问量较大”。现在研究链路
+# 固定使用独立小池，绝不占用交互池；快速问答等交互调用有自己的较大并发池。
+#
+# 刻意**不压缩任何超时**：研究型检索本就耗时长，闸门只限「同时并发数」、不限「单次时长」。
+# 正常负载下短请求可在闸门前小幅等待，而不是 3 秒即失败。旋钮均可由环境变量覆盖。
+_AI_HTTP_INTERACTIVE_CONCURRENCY = max(
+    1,
+    int(
+        os.environ.get("MARX_AI_INTERACTIVE_CONCURRENCY")
+        or os.environ.get("MARX_AI_CONCURRENCY")
+        or "10"
+    ),
+)
+_AI_HTTP_RESEARCH_CONCURRENCY = max(
+    1, int(os.environ.get("MARX_RESEARCH_HTTP_CONCURRENCY", "2") or "2")
+)
+_AI_HTTP_ACQUIRE_TIMEOUT = max(
+    0.0, float(os.environ.get("MARX_AI_ACQUIRE_TIMEOUT_SECONDS", "12") or "12")
+)
+_AI_HTTP_INTERACTIVE_SEMAPHORE = threading.BoundedSemaphore(_AI_HTTP_INTERACTIVE_CONCURRENCY)
+_AI_HTTP_RESEARCH_SEMAPHORE = threading.BoundedSemaphore(_AI_HTTP_RESEARCH_CONCURRENCY)
+_AI_HTTP_WORKLOAD = contextvars.ContextVar("marx_ai_http_workload", default="interactive")
+
+
+@contextlib.contextmanager
+def research_ai_http_context() -> Iterator[None]:
+    """Route every nested outbound AI call to the research-only pool."""
+    token = _AI_HTTP_WORKLOAD.set("research")
+    try:
+        yield
+    finally:
+        _AI_HTTP_WORKLOAD.reset(token)
+
+
+@contextlib.contextmanager
+def _ai_http_slot() -> Iterator[None]:
+    """占用一个 AI 出网并发名额；满闸则在超时后抛 AIServiceError 判忙。
+
+    用 ``with _ai_http_slot(): ...`` 包住 urlopen。名额在退出 with 时释放，对流式调用
+    意味着「整段流期间」占用一个名额（一次活跃 AI 会话 = 一个名额），符合预期。
+    """
+    research = _AI_HTTP_WORKLOAD.get() == "research"
+    semaphore = _AI_HTTP_RESEARCH_SEMAPHORE if research else _AI_HTTP_INTERACTIVE_SEMAPHORE
+    acquired = semaphore.acquire(timeout=_AI_HTTP_ACQUIRE_TIMEOUT)
+    if not acquired:
+        raise AIServiceError("AI 当前访问量较大，请稍后重试。")
+    try:
+        yield
+    finally:
+        semaphore.release()
+
+
+# 研究综述（后台长任务）的独立并发闸：一篇综述要顺序跑多次子调用、整篇可达数分钟。若与上面的交互式
+# 5 名额共用，几篇并发综述就能把吉祥物/问答全部判忙。这里单限「同时进行的综述篇数」（默认 2）：整篇
+# 综述入口处占一个名额，故研究综述至多同时占用 2 个交互名额，其余恒为交互式 AI 保留。可经环境变量调整。
+_RESEARCH_REVIEW_CONCURRENCY = max(1, int(os.environ.get("MARX_RESEARCH_CONCURRENCY", "2") or "2"))
+_RESEARCH_REVIEW_SEMAPHORE = threading.BoundedSemaphore(_RESEARCH_REVIEW_CONCURRENCY)
 
 
 # ---------------------------------------------------------------------------
@@ -602,8 +697,23 @@ def _as_bool(raw: Any, default: bool) -> bool:
 
 # 接地作答（随心问开启引文检索）天然更长：含逐字引文 + 准确出处 + 区分性分析。通用对话的
 # search_answer_max_tokens 可能被管理员/override 压低以控成本，会把这类较长回答截在半句。
-# 故接地路径用一个独立下限：既保证完整收尾，又（配合「择要引证 2-4 条 + 简明」提示）不至于失控。
-GROUNDED_ANSWER_MIN_TOKENS = 1300
+# 故接地路径用一个独立下限：既保证完整收尾，又不至于失控。
+# 注入原文已从 4 条增至 10 条，下限从 1300 一路上调：2400 仍有较长的接地回答撞顶被截在半句，
+# 2026-07-03 上调到 4000；2026-07-07 提示词从「择 3-6 条、简明扼要」改为「充分运用引文、逐条
+# 展开阐释（800～1500 字基准）」，回答随之变长，下限同步上调到 6000。
+# **2026-07-31 再上调到 10000**：关键新认识——deepseek-v4-flash/pro 都是推理模型，max_tokens 是
+# 「思考 + 正文」的合计上限（usage.completion_tokens_details.reasoning_tokens 计在内）。语料涨到
+# 19.6 万页后，10 条接地原文能让 flash 的思考独吞 5000+ token（实测 mt=6000 → finish_reason=length、
+# reasoning_tokens=5260），正文被挤成空——正是「思维链上屏」事故的直接诱因。10000 给思考留出余量
+# 后仍能写完整篇正文。上游已实测接受 mt=10000（flash/pro 均 finish_reason=stop）。
+# 万一某通道拒绝，answer_search_chat 内有 token 阶梯逐级回退（10000 → 6000 → 4000，均为历史
+# 验证过的生产值），绝不因上调而让接地问答整体失败。注意这是「单次回答输出上限的下限」，
+# 与「各档用户每日/每周 token 额度」是两套机制：本下限对所有用户一致，放宽它不会改动
+# _require_ai_quota_or_raise 的分档额度——每次回答的 token 仍照常计入该用户的周池，额度限制原样保留。
+# 也不等于每次都花 10000：它只是天花板，实际用量由模型自己收笔决定（正常接地回答 1000～1600）。
+GROUNDED_ANSWER_MIN_TOKENS = 10000
+GROUNDED_ANSWER_MID_TOKENS = 6000
+GROUNDED_ANSWER_FALLBACK_TOKENS = 4000
 
 # 研究型检索的「综述」是长文：需独立的高输出上限(不受被压低的 search_answer_max_tokens 限制)。
 # 第一要务是让模型自然写完完整文章；续写和重写也给足余量，而不是后端硬凑小结。
@@ -611,6 +721,11 @@ RESEARCH_REVIEW_MAX_TOKENS = 16000
 RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS = 6000
 RESEARCH_REVIEW_REWRITE_MAX_TOKENS = 16000
 RESEARCH_REVIEW_CONTINUATION_ATTEMPTS = 3
+# 「约 5000 字」不能只停留在提示词里：模型常在约 4000 字时主动写出小结，而旧完成判定只看
+# “有小结 + 句末标点”，会把这种偏短稿直接当成完成。按中文汉字计数设置温和下限；低于下限时
+# 继续实质性扩写，目标仍是 5000 字左右而非机械凑字。
+RESEARCH_REVIEW_TARGET_CJK_CHARS = 5000
+RESEARCH_REVIEW_MIN_CJK_CHARS = 4600
 
 # —— 研究综述「整篇挂钟预算」(兜底防呆，非 CF 超时约束) ——
 # 研究综述用**非流式**生成(逐 token 流式版曾翻车回退，见记忆)，单篇可达上万 token、最多 ~5 次顺序调用。
@@ -679,6 +794,71 @@ _RESEARCH_REVIEW_LEAK_MARKERS = (
     "题目要求",
     "提示词要求",
 )
+# 反伪造出处（接地问答与研究综述共用）：真实出处只走 [N] 编号（前端据结构化 citations 渲染真实命中）。
+# 模型偶发在正文里自造脚注/尾注——「① 参见《马克思恩格斯文集》第1卷，第163页」，甚至自证
+# 「（此段为学理补充，非本次检索原文）」。这类自拟书名＋卷次＋页码的出处一律不可信、须剔除。
+# 合法的行内引证「（[1]《…》第X页）」以方括号编号起头、不受影响。
+_FABRICATED_CITE_LINE_RES = (
+    # 脚注/尾注定义行：以圈码 ①-⑳ 或「注N」起头，随后（可带「参见」）给出《书名》＋第N页/卷。
+    re.compile(
+        r"^\s*(?:[①-⑳]|[（(]?\s*注\s*\d*\s*[）)]?)\s*"
+        r"(?:参见|参阅|详见|另见|见)?\s*《[^》]+》.{0,40}?第?\s*\d+\s*[页卷]"
+    ),
+    # 把「书名号出处」与「脱离本次检索」的自证并置的行（自认非检索来源却仍给出处）。
+    re.compile(
+        r"(?:非本次检索|非检索原文|未检索到|检索之外|学理补充|超出本次检索|检索原文之外)[^\n]*《[^》]+》"
+        r"|《[^》]+》[^\n]*(?:非本次检索|非检索原文|未检索到|检索之外|学理补充|超出本次检索|检索原文之外)"
+    ),
+)
+
+# 快速回答的直接引文兜底校验。只处理“带本站 [N] 编号、且能在对应接地原文中逐字归一匹配”的内容：
+# 无法可靠匹配的一律原样保留，避免为了修格式而误伤模型的分析、联网资料或普通引号用法。
+_GROUNDED_INLINE_QUOTE_RE = re.compile(
+    r'(?P<open>[“「『"])(?P<quote>[^“”「」『』"\n]{8,}?)(?P<close>[”」』"])'
+    r'(?P<refs>\s*(?:\[\d+\]\s*)+)'
+)
+_GROUNDING_REF_RE = re.compile(r"\[(\d+)\]")
+_GROUNDING_REF_ONLY_RE = re.compile(r"^\s*(?:\[\d+\]\s*)+$")
+_DIRECT_QUOTE_ENDERS = "。！？!?"
+_DIRECT_QUOTE_CLOSERS = "”’」』）》】）)]"
+
+# 「关思考」开关：推理模型（deepseek-v4-flash/pro、智谱 GLM）都接受该字段，服务端据此不产 reasoning。
+# 用途有二：智谱通道一贯强制关闭；DeepSeek 通道仅在「首答只剩思维链」时作为一次性重试参数（见
+# chat_complete / _stream_chat_once 的 disable_thinking）。日常仍开思考——它显著提升回答质量。
+_THINKING_DISABLED = {"type": "disabled"}
+
+# 正文里混进思维链的识别（所有对话链路共用，不只研究综述）。命中只触发一次「关思考重试」，
+# 代价可控；重试后的正文即便再次疑似，也照常返回（宁可给内容也不给空错误）。
+# 英文标记不可或缺：推理模型的思维链常是英文（线上事故现场即「we need answer in Chinese…」）。
+_REASONING_LEAK_HEAD_MARKERS = (
+    "用户要求我",
+    "用户问的是",
+    "用户希望我",
+    "我需要先",
+    "我们需要先",
+    "我需要回答",
+    "我们需要回答",
+    "首先，用户",
+    "首先我需要",
+    "首先，我需要",
+    "让我先",
+    "我应该先",
+    "需要用中文回答",
+    "需要结构",
+    "we need",
+    "we should",
+    "we must",
+    "we can quote",
+    "the user asks",
+    "the user wants",
+    "i need to",
+    "let me",
+    "need answer",
+    "need to answer",
+    "need structure",
+    "first, the user",
+    "okay, the user",
+)
 
 
 class ZAIClient:
@@ -706,11 +886,196 @@ class ZAIClient:
         return "\n\n".join(lines)
 
     @staticmethod
+    def _is_fast_tier(model_name: str) -> bool:
+        """是不是「快档」模型（deepseek-v4-flash）？快档默认关思考。
+
+        依据（2026-07-31 实测，均为 flash）：
+        - 线索抽取（JSON，mt=1500/temp=0）：开思考 16.2s、reasoning 吃满 1500、finish=length、
+          **JSON 完全解析不出**（这正是日志里长期刷屏的 "expand yielded no usable clues" 病根）；
+          关思考 5.1s、finish=stop、JSON 干净可用。
+        - 接地作答（mt=10000）：开思考 33.4s / 正文 1946 字；关思考 15.5s / 正文 1953 字，
+          小标题与编号引用同样齐备——**速度翻倍而质量不降**。
+        - 吉祥物（mt=500）：思考直接吃光预算，线上长期每天数次 "模型返回了空内容"。
+        弱模型在难任务上反而反复权衡（比 pro 想得更久），思考对它是净负担；深思交给 pro 档。
+        """
+        return "flash" in str(model_name or "").lower()
+
+    @staticmethod
+    def _looks_like_reasoning_leak(text: str) -> bool:
+        """开头像「思考过程」而非答案？（个别推理模型会把思维链直接写进 content。）
+
+        只看开头 240 字：正式答复的开篇是论述或小标题，不会是「用户要求我…」「we need answer in
+        Chinese…」这类自我分析。命中仅用于触发一次「关思考重试」，不会据此丢弃内容。
+        """
+        head = " ".join(str(text or "")[:240].split()).lower()
+        if not head:
+            return False
+        return any(marker in head for marker in _REASONING_LEAK_HEAD_MARKERS)
+
+    @staticmethod
     def _research_review_has_reasoning_leak(text: str) -> bool:
         sample = str(text or "")[:1500]
         return bool(_RESEARCH_REVIEW_LEAK_PREFIX_RE.search(sample)) or any(
             marker in sample for marker in _RESEARCH_REVIEW_LEAK_MARKERS
         )
+
+    @staticmethod
+    def _strip_fabricated_citation_lines(text: str) -> str:
+        """整行剔除模型自造的伪出处脚注/尾注（接地问答与研究综述共用）。真实出处只走 [N] 编号；
+        任何以圈码/「注N」起头且带「书名＋卷次/页码」的自拟脚注行、或把书名出处与「非检索/学理补充」
+        自证并置的行，一律删除。合法的行内引证「（[1]《…》第X页）」以方括号编号起头，不受影响。"""
+        s = str(text or "")
+        if not s:
+            return ""
+        kept = [
+            ln for ln in s.split("\n")
+            if not any(rx.search(ln) for rx in _FABRICATED_CITE_LINE_RES)
+        ]
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+    @staticmethod
+    def _direct_quote_normalized_map(text: str) -> tuple[str, list[int]]:
+        """引文比对用的 NFKC 字符串及原文位置映射：忽略标点/空白，但不容忍改字或换字。"""
+        chars: list[str] = []
+        positions: list[int] = []
+        for pos, raw_ch in enumerate(str(text or "")):
+            for ch in unicodedata.normalize("NFKC", raw_ch).lower():
+                if not ch.isalnum():
+                    continue
+                chars.append(ch)
+                positions.append(pos)
+        return "".join(chars), positions
+
+    @classmethod
+    def _complete_direct_quote_from_source(cls, quote: str, source: str) -> str:
+        """若 quote 是 source 的逐字片段，返回覆盖它的完整原句；不能确定则返回空串。
+
+        匹配只忽略标点、空白与全半角差异，不做模糊改字。这样既能补回模型漏掉的句首/句末，
+        又不会把转述或模型自写内容误判为原文。
+        """
+        visible = re.sub(r"\[\d+\]", "", str(quote or ""))
+        visible = re.sub(r"[*_~`]", "", visible).strip().strip("“”「」『』\"")
+        needle, _ = cls._direct_quote_normalized_map(visible)
+        haystack, positions = cls._direct_quote_normalized_map(source)
+        if len(needle) < 8 or not haystack or not positions:
+            return ""
+        found = haystack.find(needle)
+        if found < 0:
+            return ""
+        start = positions[found]
+        stop = positions[found + len(needle) - 1] + 1
+
+        left = 0
+        for mark in _DIRECT_QUOTE_ENDERS:
+            left = max(left, str(source).rfind(mark, 0, start) + 1)
+        right_candidates = [str(source).find(mark, stop) for mark in _DIRECT_QUOTE_ENDERS]
+        right_candidates = [pos for pos in right_candidates if pos >= 0]
+        if not right_candidates:
+            # 对应接地段本身若没有后续句号，就不能证明这是一句完整原文；保持模型原样最安全。
+            return ""
+        right = min(right_candidates) + 1
+        while right < len(source) and source[right] in _DIRECT_QUOTE_CLOSERS:
+            right += 1
+        completed = str(source)[left:right].strip()
+        return completed if completed and completed.rstrip(_DIRECT_QUOTE_CLOSERS)[-1:] in _DIRECT_QUOTE_ENDERS else ""
+
+    @classmethod
+    def _sanitize_grounded_direct_quotes(
+        cls, text: str, grounding: list[dict[str, Any]] | None
+    ) -> str:
+        """补齐快速回答中的可核验直接引文，并去掉重复逐字引文，保留全部分析正文。
+
+        - Markdown 引用块：补成对应 [N] 原文中的完整句；同一句再次出现时只移除重复引用块。
+        - 行内引号：同样补齐；若同一句已引过，改成“这一论述 [N]”作回指。
+        - 代码块、无 [N] 内容、无法在原文精确匹配的内容完全不动。
+        """
+        answer = str(text or "")
+        if not answer or not grounding:
+            return answer
+        source_by_index: dict[int, str] = {}
+        for item in grounding:
+            try:
+                idx = int((item or {}).get("index"))
+            except (TypeError, ValueError):
+                continue
+            source = " ".join(str((item or {}).get("text") or "").split())
+            if source:
+                source_by_index[idx] = source
+        if not source_by_index:
+            return answer
+
+        seen_quotes: set[str] = set()
+        lines = answer.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        output: list[str] = []
+        in_fence = False
+        i = 0
+
+        def _match_completed(raw_quote: str, refs_text: str) -> str:
+            for raw_idx in _GROUNDING_REF_RE.findall(refs_text):
+                source = source_by_index.get(int(raw_idx))
+                if not source:
+                    continue
+                completed = cls._complete_direct_quote_from_source(raw_quote, source)
+                if completed:
+                    return completed
+            return ""
+
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if re.match(r"^(?:`{3,}|~{3,})", stripped):
+                in_fence = not in_fence
+                output.append(line)
+                i += 1
+                continue
+            if in_fence:
+                output.append(line)
+                i += 1
+                continue
+
+            if line.lstrip().startswith(">"):
+                block_lines: list[str] = []
+                while i < len(lines) and lines[i].lstrip().startswith(">"):
+                    block_lines.append(lines[i])
+                    i += 1
+                body = " ".join(part.lstrip()[1:].strip() for part in block_lines).strip()
+                refs_text = "".join(f"[{idx}]" for idx in _GROUNDING_REF_RE.findall(body))
+                consume_ref_line = False
+                if not refs_text and i < len(lines) and _GROUNDING_REF_ONLY_RE.fullmatch(lines[i] or ""):
+                    refs_text = "".join(f"[{idx}]" for idx in _GROUNDING_REF_RE.findall(lines[i]))
+                    consume_ref_line = True
+                raw_quote = _GROUNDING_REF_RE.sub("", body).strip()
+                completed = _match_completed(raw_quote, refs_text)
+                if completed:
+                    key, _ = cls._direct_quote_normalized_map(completed)
+                    if key in seen_quotes:
+                        # 只删重复逐字引文本身；前后的解释段落均保留，回答的信息量不缩水。
+                        if consume_ref_line:
+                            i += 1
+                        continue
+                    seen_quotes.add(key)
+                    output.append(f"> {completed}{refs_text}")
+                    if consume_ref_line:
+                        i += 1
+                    continue
+                output.extend(block_lines)
+                continue
+
+            def _replace_inline(match: re.Match) -> str:
+                completed = _match_completed(match.group("quote"), match.group("refs"))
+                if not completed:
+                    return match.group(0)
+                key, _ = cls._direct_quote_normalized_map(completed)
+                refs = "".join(f"[{idx}]" for idx in _GROUNDING_REF_RE.findall(match.group("refs")))
+                if key in seen_quotes:
+                    return f"这一论述{refs}"
+                seen_quotes.add(key)
+                return f'{match.group("open")}{completed}{match.group("close")}{refs}'
+
+            output.append(_GROUNDED_INLINE_QUOTE_RE.sub(_replace_inline, line))
+            i += 1
+
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
 
     @classmethod
     def _sanitize_research_review_output(cls, text: str, *, allow_fragment: bool = False) -> str:
@@ -756,6 +1121,10 @@ class ZAIClient:
         for marker in (*_RESEARCH_REVIEW_START_MARKERS, *_RESEARCH_REVIEW_END_MARKERS):
             s = s.replace(marker, "")
         s = s.strip()
+
+        # 剔除模型自造的伪出处脚注/尾注行（与接地问答共用同一套规则）。
+        s = cls._strip_fabricated_citation_lines(s)
+
         if not s:
             return ""
         if cls._research_review_has_reasoning_leak(s[:700]):
@@ -785,6 +1154,30 @@ class ZAIClient:
         return has_closing_section and has_final_punctuation and not looks_cut
 
     @staticmethod
+    def _research_review_cjk_chars(text: str) -> int:
+        """Count Chinese ideographs, excluding Markdown, citation numbers and punctuation."""
+        return len(re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]", str(text or "")))
+
+    @staticmethod
+    def _research_review_without_final_closing(text: str) -> tuple[str, bool]:
+        """Remove the last conclusion section before appending substantive expansion.
+
+        A short but formally complete first draft already ends in ``## 小结``.  Keeping that
+        conclusion and appending more sections after it produces a malformed article with two
+        conclusions, so continuation replaces the final conclusion instead.
+        """
+        source = str(text or "").rstrip()
+        matches = list(
+            re.finditer(
+                r"(?im)^[ \t]{0,3}#{1,4}[ \t]*(?:小结|总结|结语|结束语|结论|余论)\b[^\n]*",
+                source,
+            )
+        )
+        if not matches:
+            return source, False
+        return source[:matches[-1].start()].rstrip(), True
+
+    @staticmethod
     def _looks_like_token_limit_error(exc: Exception) -> bool:
         text = str(exc).lower()
         return any(
@@ -810,6 +1203,9 @@ class ZAIClient:
         *,
         max_tokens: int,
         deadline: float | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        disable_thinking: bool | None = None,
     ) -> str:
         token_ladder = [max_tokens]
         for fallback in (12000, 8192, 6000):
@@ -832,6 +1228,9 @@ class ZAIClient:
                     max_tokens=budget,
                     allow_reasoning_fallback=False,
                     http_timeout=http_timeout,
+                    model=model,
+                    provider=provider,
+                    disable_thinking=disable_thinking,
                 )
             except AIServiceError as exc:
                 if not self._looks_like_token_limit_error(exc):
@@ -846,6 +1245,7 @@ class ZAIClient:
         question: str,
         provider: str | None = None,
         grounding: list[dict[str, Any]] | None = None,
+        model: str | None = None,
     ) -> AIAnswer:
         use_zhipu = provider == "zhipu"
         self._ensure_enabled(provider)
@@ -870,25 +1270,49 @@ class ZAIClient:
             else:
                 web_line = "2. 不要声称已经联网检索，也不要编造网络来源链接。\n"
             prompt = (
-                "请回答用户的问题。本次已为你检索本站「马克思主义经典文献引文库」，"
-                "下面是检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
+                "请回答用户的问题。下面是本站「马克思主义经典文献引文库」中与该问题相关的真实原文段落"
+                "与准确出处（逐字摘自本站收录的中文版本，出处准确可信）：\n\n"
                 f"{grounding_block}\n\n"
                 "作答要求：\n"
-                "1. 以上述检索到的真实原文为主要依据；从中**择取最相关的 2-4 条**加以引证即可，"
-                "不必逐条罗列或复述全部检索结果，与问题无关的略去不用。\n"
+                "1. 先据你自身的学理知识判断该问题是否有公认的分析框架或结构（例如异化劳动通常讲"
+                "「与劳动产品、与劳动活动、与类本质、与他人」相异化这四重规定；再如某范畴的若干方面、"
+                "某理论的发展阶段等），若有，就**先立起这一完整框架作为论述骨架、逐点展开**，"
+                "避免因原文偏重某几点而把框架讲缺、遗漏公认的其他方面。"
+                "在此骨架之上，以上述真实原文为各点的**主要依据并尽量充分地加以运用**："
+                "凡与问题相关的引文都应引证并展开阐释（通常可用到 5-8 条乃至更多），"
+                "只略去确与问题无关的条目，不要只引一两条就收笔；"
+                "框架中某一点若没有可引的原文，就**径直用你自己的学理论述把它讲清楚、像正常行文那样自然带过**，"
+                "不必特意声明这是补充，也绝不为此伪造引文、出处、卷次或页码。\n"
                 f"{web_line}"
-                "3. 引用上述原文时必须逐字照引，并在该引文紧随其后用括号标注对应编号与准确出处，"
-                "例如：「人的本质……是一切社会关系的总和」（[1]《马克思恩格斯文集》第1卷，第501页）。"
-                "绝不可改写原文、张冠李戴或编造出处、卷次、页码。\n"
-                "4. 若检索到的原文不足以完整回答，可结合你自身的知识补充，但必须明确区分："
-                "哪些是引文库中的原文引证，哪些是你的补充说明。\n"
-                "5. 使用中文回答，紧扣问题、简明扼要、结构清晰；务必把话说完整、在句末标点收尾，"
-                "避免冗长铺陈与无谓堆砌。\n\n"
+                "3. 引用上述原文时必须逐字照引完整句子：每处直接引文须**起自句首，并把句末的 。！？ 一并放在"
+                "引号或引用块内**，不得只摘逗号前后的一截、不得从句中起或断在句中；上面给出的原文段已按完整"
+                "句子截取，直接选取一个或数个连续整句即可。确需省略中间内容时用「……」标明。"
+                "**同一个原文句子在整篇回答中最多逐字引用一次**，即使它同时对应不同版本或不同编号也不要重复；"
+                "后文需要再讨论时用「这一论述」「上述观点」回指并继续展开分析，不要再次照录。"
+                "引文后**只用方括号标注对应编号**，"
+                "如「人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。」[1]，"
+                "或在引用块中写成 `> 完整原文句。[3]`；**不要在正文里写出书名、卷次、页码**"
+                "（那会占用正文篇幅；准确出处统一由回答下方的「引用原文」卡片给出）。逐字引用务必与原文完全一致，"
+                "绝不改写、张冠李戴或编造。\n"
+                "4. 每处引证不要一引了之：要结合该引文所在著作的语境阐明其含义，说明它如何回应用户的"
+                "问题；多条引文之间注意梳理相互关系（如思想发展的脉络、不同著作间的互证或侧重差异），"
+                "使回答形成有层次的论述而非引文罗列。\n"
+                "5. **不要在回答里讨论检索本身**：有对应原文就引用并按第 3 点标注 [编号]，没有就正常论述，"
+                "无需说明某处「检索到／未检索到／属于补充」，也不要出现「检索到的原文」「本次检索」这类字眼，"
+                "更不要给没有原文的内容补脚注或页码；让回答读起来是一篇自然、连贯的论述，而非检索报告。\n"
+                "6. 使用中文回答，紧扣问题、结构清晰，并**充分展开论述**：一般写到 800～1500 字"
+                "（确属简单的事实性问题可酌情从简）；务必把话说完整、在句末标点收尾，"
+                "不堆砌与问题无关的内容。\n"
+                "7. 排版用 Markdown、清晰易读：每个分论点用 `### 小标题` 起头；较长的逐字引文用 "
+                "`> 引用块` 单独、完整呈现（引用块之后仍按第 3 点只标注 [编号]，不写书名卷次页码）；"
+                "关键术语、核心论断用 `**加粗**` 突出。**引用块内照录原文、不要加粗**；正文中的 "
+                "`**加粗**` 务必成对闭合，不要残留单个 `**`。不要用一级/二级大标题。\n\n"
                 f"用户问题：{question}"
             )
             system_content = (
                 "你是一位严谨、重视原始文献与准确出处的中文研究助手；"
                 "引用原文时务必逐字照引并注明准确出处，绝不编造引文、卷次或页码。"
+                "有对应原文就引用并标注编号，没有就自然论述，不在文中谈论检索过程、也不声明哪些属于补充。"
             )
         elif use_zhipu:
             prompt = (
@@ -896,7 +1320,9 @@ class ZAIClient:
                 "要求：\n"
                 "1. 使用中文回答，尽量准确、完整、结构清晰。\n"
                 "2. 已为你启用联网检索：涉及实时信息或外部资料时，优先依据检索结果作答，"
-                "并在正文中注明所依据来源的标题；检索结果不足时如实说明，绝不编造来源或链接。\n\n"
+                "并在正文中注明所依据来源的标题；检索结果不足时如实说明，绝不编造来源或链接。\n"
+                "3. 排版用 Markdown、清晰易读：分论点用 `### 小标题` 起头，关键术语与核心论断用 "
+                "`**加粗**` 突出，较长引文用 `> 引用块` 呈现；不要用一级/二级大标题。\n\n"
                 f"用户问题：{question}"
             )
             system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
@@ -906,26 +1332,55 @@ class ZAIClient:
                 "要求：\n"
                 "1. 使用中文回答，尽量准确、完整、结构清晰。\n"
                 "2. 不要声称已经联网检索，也不要编造具体来源链接。\n"
-                "3. 如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n\n"
+                "3. 如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n"
+                "4. 排版用 Markdown、清晰易读：分论点用 `### 小标题` 起头，关键术语与核心论断用 "
+                "`**加粗**` 突出，较长引文用 `> 引用块` 呈现；不要用一级/二级大标题。\n\n"
                 f"用户问题：{question}"
             )
             system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
 
         # 接地作答更长：给独立下限避免被压低的通用上限截断；普通对话仍沿用配置值。
+        # 若个别通道拒绝放宽后的上限（报 token 上限类错误），按阶梯回退到历史验证值重试，
+        # 与研究综述 _chat_research_review 的阶梯同构——绝不让「放宽上限」本身弄垮接地问答。
         answer_max_tokens = self.config.search_answer_max_tokens
         if grounding_block:
             answer_max_tokens = max(answer_max_tokens, GROUNDED_ANSWER_MIN_TOKENS)
-        answer = self.chat_complete(
-            [
-                {"role": "system", "content": system_content},
-                *history,
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=answer_max_tokens,
-            provider=provider,
-            sources_out=sources,
-            web_search_query=self.zhipu_search_query(question) if use_zhipu else None,
-        )
+        chat_messages = [
+            {"role": "system", "content": system_content},
+            *history,
+            {"role": "user", "content": prompt},
+        ]
+        web_query = self.zhipu_search_query(question) if use_zhipu else None
+        token_ladder = [answer_max_tokens]
+        if grounding_block:
+            # 逐级回退（10000 → 6000 → 4000）：中间挡是上一版生产值，避免一被拒就摔回最低挡。
+            for rung in (GROUNDED_ANSWER_MID_TOKENS, GROUNDED_ANSWER_FALLBACK_TOKENS):
+                if rung < answer_max_tokens and rung not in token_ladder:
+                    token_ladder.append(rung)
+        answer = ""
+        for step, budget in enumerate(token_ladder):
+            try:
+                answer = self.chat_complete(
+                    chat_messages,
+                    max_tokens=budget,
+                    provider=provider,
+                    sources_out=sources,
+                    web_search_query=web_query,
+                    model=model,
+                )
+                break
+            except AIServiceError as exc:
+                if step == len(token_ladder) - 1 or not self._looks_like_token_limit_error(exc):
+                    raise
+                LOGGER.warning(
+                    "Search-chat token budget %s rejected, retrying lower budget: %s", budget, exc
+                )
+        # 反伪造出处兜底：剔除模型万一自造的伪脚注/尾注行（真实出处只走 [编号]，前端另渲染 citations）。
+        if grounding_block and answer:
+            answer = self._strip_fabricated_citation_lines(answer)
+            # 提示词只能引导，不能保证模型每次都守住句界。这里只对“带 [N] 且能在该编号原文中逐字
+            # 归一匹配”的直接引文做确定性补齐/去重；分析、转述、不同引文及无法可靠匹配的内容均不动。
+            answer = self._sanitize_grounded_direct_quotes(answer, grounding)
         if use_zhipu and not sources:
             # 联网失效必须对用户可见：否则模型可能按提示词“演”出参考来源说明，造成已联网的假象。
             warnings.append("本次未获取到联网检索来源（检索服务暂不可用或已降级），回答基于模型自身知识。")
@@ -936,7 +1391,41 @@ class ZAIClient:
             warnings=warnings,
         )
 
-    def generate_research_review(self, topic: str, passages: list[dict[str, Any]]) -> str:
+    def generate_research_review(self, topic: str, passages: list[dict[str, Any]], *, should_cancel=None, model: str | None = None, context_messages: list[dict[str, Any]] | None = None, provider: str | None = None) -> str:
+        """研究综述对外入口：先占用独立的「研究并发闸」（与交互式 AI 名额隔离，避免几篇并发综述把
+        吉祥物/问答判忙），再委托实现。``should_cancel`` 为可选取消回调（客户端断开时由 SSE 层置位），
+        在每个模型调用边界检查，命中则带着已成文提前收尾、尽快释放名额。``model`` 为可选模型档位覆盖
+        （前端「模型选择」flash/pro，白名单已在调用方校验；None 则用服务端默认模型）。``context_messages``
+        为可选的此前对话（[{role,content}]），仅作背景让综述承接对话语境，不改变接地检索。"""
+        if not _RESEARCH_REVIEW_SEMAPHORE.acquire(timeout=_AI_HTTP_ACQUIRE_TIMEOUT):
+            raise AIServiceError("AI 当前访问量较大，请稍后重试。")
+        try:
+            with research_ai_http_context():
+                return self._generate_research_review_impl(topic, passages, should_cancel=should_cancel, model=model, context_messages=context_messages, provider=provider)
+        finally:
+            _RESEARCH_REVIEW_SEMAPHORE.release()
+
+    @staticmethod
+    def _format_review_context(context_messages: list[dict[str, Any]] | None) -> str:
+        """把此前对话压成一小段背景（供综述承接语境）。限最近 6 条、每条限长；空则返回空串。"""
+        if not context_messages:
+            return ""
+        lines: list[str] = []
+        for m in context_messages[-6:]:
+            if not isinstance(m, dict):
+                continue
+            txt = " ".join(str(m.get("content") or "").split())[:800]
+            if txt:
+                role = "助手" if m.get("role") == "assistant" else "用户"
+                lines.append(f"{role}：{txt}")
+        if not lines:
+            return ""
+        return (
+            "【此前对话背景（仅供理解语境、承接上文；综述的论断与引文仍只依据下方检索到的真实原文，"
+            "不得据此背景杜撰原文或出处）】：\n" + "\n".join(lines) + "\n\n"
+        )
+
+    def _generate_research_review_impl(self, topic: str, passages: list[dict[str, Any]], should_cancel=None, model: str | None = None, context_messages: list[dict[str, Any]] | None = None, provider: str | None = None) -> str:
         """研究型检索综述：依据检索到的**真实原文**写一篇接地综述，文中用 [N] 标注来源。
 
         ``passages`` 为已编号的真实命中 ``{"index","citation","text"}``（全部来自 corpus 真实命中）。
@@ -947,22 +1436,41 @@ class ZAIClient:
         if not block:
             raise AIServiceError("没有可用于综述的检索原文。")
         topic = " ".join(str(topic or "").split())[:600]
+        context_block = self._format_review_context(context_messages)
         prompt = (
-            "请围绕用户的研究论题，写一篇较充分的学术综述。下面是从本站「马克思主义经典文献库」"
-            "检索到的真实原文段落与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
+            "请围绕用户的研究论题"
+            + ("（如附有此前对话背景，请自然承接其语境、可在开篇点明承接关系）" if context_block else "")
+            + "，写一篇较充分的学术综述。下面是本站「马克思主义经典文献库」中与该论题相关的真实原文段落"
+            "与准确出处（逐字摘自人民出版社中译本，出处准确可信）：\n\n"
             f"{block}\n\n"
+            f"{context_block}"
             "写作要求：\n"
-            "1. 紧扣研究论题，按问题内在层次分 4-6 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
-            "形成一篇连贯、详实、自然写完的综述（正文约 5000 字；如材料较少也要保证结构完整，"
-            "不要为了凑字数重复铺陈）。\n"
+            "1. 紧扣研究论题：先据你自身的学理知识判断该论题有无公认的分析框架/结构（如异化劳动的四重规定、"
+            "某理论的几个方面或发展阶段等），若有则据以搭起完整的小节骨架、不遗漏公认方面，"
+            "无则按问题内在层次自行分节；全篇分 4-6 个有标题的小节，有逻辑地综合上述原文所反映的思想，"
+            "形成一篇连贯、详实、自然写完的综述（正文按中文汉字计约 5000 字，宜在 4800-5500 字；"
+            "这是实质性篇幅要求，不要把 Markdown 标记、标点或来源编号计入字数；如材料较少也要保证结构完整，"
+            "不要为了凑字数重复铺陈）。动笔前先在内部为 4-6 个小节规划充足篇幅（不要输出规划过程），"
+            "**优先在本轮一次写足全文；正文未充分展开到至少 4800 个中文汉字时，不得提前进入“小结”或结束。**\n"
+            "**框架仅为骨架，一切论断与展开须以上述真实原文为准加以修正、充实**："
+            "原文有所侧重、差异或深化处，一律以原文为准，不生搬硬套教科书式框架。\n"
             "2. 围绕每个小节的论证需要择要使用材料，优先覆盖不同资料库、不同篇章和不同论证侧面；"
             "原则上使用 20-24 条来源编号，但不要为了凑满编号而堆砌弱相关材料。\n"
             "3. 文中每一处依据原文的论断，须在句末用方括号标注来源编号，如 [1]、[2][4]；一处可引多条。\n"
-            "4. 直接引用原文时逐字照引并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
+            "4. 直接引用原文时逐字照引、**尽可能完整**（能引全句/全段就不引片段，便于研究者直接把这段"
+            "论述采用到自己的论文里）并加引号；引号里的文字必须能在同一编号的「原文」字段中逐字找到。"
             "如果某个经典表述没有出现在上述原文段落中，只能转述，不得加引号、不得伪装为该编号的逐字引文。"
             "转述、概括也要标注来源编号。\n"
-            "5. **只依据上述检索到的真实原文**，不得编造原文、观点或出处；某侧面原文不足时可如实点明"
-            "「现有检索未充分覆盖」，但绝不杜撰内容或来源。\n"
+            "5. 综述的**框架结构**可参酌公认学理，但**具体论断、引文与出处只依据上述检索到的真实原文**，"
+            "不得编造原文、观点或出处；给定原文段落的出处以所附卷次、页码为准、直接采信，"
+            "不要臆测或考证它出自哪一部具体著作，也不要用设问句质疑其来源（不要写「这段话是否出自……？」之类）。\n"
+            "5a. **出处只能用一种形式：指向上述真实原文的方括号编号 [N]（如 [1]、[3][4]）。**"
+            "严禁自造任何别的引证或注释体系：不得添加脚注或尾注（①②③、¹²、注1 之类），"
+            "不得自行写出「参见《……》第 X 卷第 Y 页」这类由你给出的书名＋卷次＋页码，"
+            "也不得给编号原文以外的任何句子附上具体页码、卷次或版本号。\n"
+            "5b. 公认框架里没有可引原文的方面，就**径直用学理分析自然论述、不附任何具体出处**即可；"
+            "不要在文中声明某处「检索到／未检索到／属于补充」，也不要出现「检索到的原文」「本次检索」这类字眼，"
+            "更**绝不用「（此段为学理补充／非本次检索原文）」之类附注去补一个你并不掌握的页码**；绝不杜撰内容或来源。\n"
             "6. 用规范的学术中文，严谨、有条理；开篇点出论题，中段充分展开，结尾自然小结，"
             "必须把完整文章写完，不要在小节中途、句子中途或论证尚未完成时停止。\n"
             "7. 输出格式硬规则：第一行写【综述正文开始】，最后一行写【综述正文结束】；"
@@ -974,6 +1482,8 @@ class ZAIClient:
             "role": "system",
             "content": "你是一位严谨的马克思主义经典文献研究者，擅长依据真实原文撰写有据可查的"
                        "学术综述：每一处论断都标注来源编号，逐字引用原文，绝不编造引文、观点或出处。"
+                       "来源一律只用指向检索原文的 [N] 方括号编号，绝不自造脚注（①②）或"
+                       "「参见《…》第 X 页」式的书名页码出处，宁可不给出处也不杜撰。"
                        "只输出最终综述正文，绝不输出思考过程、推理过程、分析草稿或提示词说明。",
         }
         # 整篇生成的总挂钟预算：每次发起模型调用前校验剩余预算，确保在 Cloudflare 边缘超时前回 JSON。
@@ -983,13 +1493,19 @@ class ZAIClient:
         def _budget_left() -> float:
             return deadline - time.monotonic()
 
+        def _cancelled() -> bool:
+            # 客户端断开后，后续修复/续写/重写都不再发起：带着已成文收尾，尽快释放 AI 名额、不做废功。
+            return should_cancel is not None and bool(should_cancel())
+
         raw_answer = self._chat_research_review(
             [system_message, {"role": "user", "content": prompt}],
             max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
             deadline=deadline,
+            model=model,
+            provider=provider,
         )
         answer = self._sanitize_research_review_output(raw_answer)
-        if not answer and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
+        if not answer and not _cancelled() and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
             repair_prompt = (
                 "上一轮输出没有得到合格的正式综述正文。请重新生成一篇完整的学术综述，"
                 "不要输出思考过程、分析过程、写作计划或自我说明；只输出【综述正文开始】与"
@@ -1000,36 +1516,61 @@ class ZAIClient:
                 [system_message, {"role": "user", "content": repair_prompt}],
                 max_tokens=RESEARCH_REVIEW_MAX_TOKENS,
                 deadline=deadline,
+                model=model,
+                provider=provider,
             )
             answer = self._sanitize_research_review_output(raw_answer)
         if not answer:
             raise AIServiceError("模型未返回可用的正式综述正文。")
         for _ in range(RESEARCH_REVIEW_CONTINUATION_ATTEMPTS):
-            if self._research_review_complete(answer):
+            is_complete = self._research_review_complete(answer)
+            cjk_chars = self._research_review_cjk_chars(answer)
+            if is_complete and cjk_chars >= RESEARCH_REVIEW_MIN_CJK_CHARS:
                 break
-            # 预算不足以再安全跑一轮续写，就带着当前已成文返回，绝不冒险把整篇顶过 CF 边缘超时。
-            if _budget_left() < RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
+            # 预算不足以再安全跑一轮续写、或客户端已断开，就带着当前已成文返回，绝不冒险顶过 CF 边缘超时/做废功。
+            if _cancelled() or _budget_left() < RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
                 break
+            continuation_base = answer
+            closing_removed = False
+            if is_complete and cjk_chars < RESEARCH_REVIEW_MIN_CJK_CHARS:
+                continuation_base, closing_removed = self._research_review_without_final_closing(answer)
+            length_instruction = (
+                f"当前正文约有 {cjk_chars} 个中文汉字，低于约 {RESEARCH_REVIEW_TARGET_CJK_CHARS} 字的目标。"
+                f"请在已有论证基础上新增有材料支撑的分析层次，使合并后的全文至少达到 "
+                f"{RESEARCH_REVIEW_MIN_CJK_CHARS} 个中文汉字；不要靠重复观点、拉长引文或空话凑字数。"
+                if cjk_chars < RESEARCH_REVIEW_MIN_CJK_CHARS
+                else ""
+            )
+            closing_instruction = (
+                "原稿末尾的小结已移除；请先补写一至两个实质性小节或充分扩展尚薄弱的小节，最后重新写出唯一的“## 小结”。"
+                if closing_removed
+                else "请完成尚未展开充分的部分，并在全文最后写出唯一的“## 小结”。"
+            )
             continuation_prompt = (
                 "下面这篇研究综述还没有自然完成。请从已有正文的末尾继续写下去，不要重写全文，不要重复已经写过的段落；"
                 "仍然只能依据同一批真实原文，并继续使用已有的 [N] 来源编号。请继续完成尚未展开充分的部分、"
                 "补足必要的小节，并在论证自然完成后写出完整小结。不要为了尽快收束而只写几句模板结尾，"
                 "也不要仓促结束；应把文章剩余部分自然写完。只输出续写正文，不要输出任何思考过程、分析过程、"
-                "写作计划或自我说明。\n\n"
+                f"写作计划或自我说明。\n{length_instruction}\n{closing_instruction}\n\n"
                 f"研究论题：{topic}\n\n"
                 f"真实原文与出处：\n{block}\n\n"
-                f"已生成正文：\n{answer[-5000:]}"
+                f"已生成正文：\n{continuation_base[-5000:]}"
             )
             raw_continuation = self._chat_research_review(
                 [system_message, {"role": "user", "content": continuation_prompt}],
                 max_tokens=RESEARCH_REVIEW_CONTINUATION_MAX_TOKENS,
                 deadline=deadline,
+                model=model,
+                provider=provider,
+                # 首轮已用 Pro 完成整体推理；补写只沿既有结构填足薄弱部分。关闭补写轮思考可把
+                # token 和时间集中给正文，又不牺牲首轮的研究判断与材料组织质量。
+                disable_thinking=True,
             )
             continuation = self._sanitize_research_review_output(raw_continuation, allow_fragment=True).strip()
             if not continuation:
                 break
-            answer = f"{answer.rstrip()}\n\n{continuation}"
-        if not self._research_review_complete(answer) and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
+            answer = f"{continuation_base.rstrip()}\n\n{continuation}"
+        if not self._research_review_complete(answer) and not _cancelled() and _budget_left() >= RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS:
             rewrite_prompt = (
                 "前面的版本仍未自然写完。请重新写一篇完整的学术综述，保持严谨但不要输出思考过程。"
                 "这次请控制整体结构，确保文章一次性完整收束：有开篇、有 3-5 个自然展开的小节、有充分论证、"
@@ -1040,64 +1581,113 @@ class ZAIClient:
                 [system_message, {"role": "user", "content": rewrite_prompt}],
                 max_tokens=RESEARCH_REVIEW_REWRITE_MAX_TOKENS,
                 deadline=deadline,
+                model=model,
+                provider=provider,
             )
             rewrite = self._sanitize_research_review_output(raw_rewrite)
             if rewrite:
                 answer = rewrite
+        LOGGER.info(
+            "Research review completed (cjk_chars=%s, structurally_complete=%s)",
+            self._research_review_cjk_chars(answer),
+            self._research_review_complete(answer),
+        )
         return answer
 
-    def expand_associative_query(self, gist: str) -> dict:
+    def expand_associative_query(self, gist: str, *, deep: bool = False) -> dict:
         """联想检索第一步：把用户的“大意/关键词”扩展为可在语料中检索的线索。
 
         返回 ``{"quotes": [...1-3...], "keywords": [...4-10...]}``。这些只作为检索输入，
         其内容绝不直接作为结果展示——最终引文一律由真实命中生成。
+
+        ``deep=True``＝「研究综述」档：改用 ASSOC_EXPAND_DEEP_MODEL（pro）抽线索，换更广的线索面；
+        其余场景（快速问答/精准定位）仍走 flash 保响应。深档若抽不出可用线索，会自动回落到 flash
+        再试一次——**研究档的下限永远不低于现状**，绝不因换档而让整条检索退回原词兜底。
         """
         self._ensure_enabled()
         gist = " ".join(str(gist or "").split())[:600]
         if not gist:
             return {}
-        cached = _ASSOC_EXPAND_CACHE.get(gist)
+        # 缓存键必须带档位：两档抽出的线索不同，混用会让研究档悄悄吃到快档的结果（反之亦然）。
+        cache_key = ("deep|" if deep else "fast|") + gist
+        cached = _ASSOC_EXPAND_CACHE.get(cache_key)
         if cached is not None:
-            _ASSOC_EXPAND_CACHE.move_to_end(gist)
+            _ASSOC_EXPAND_CACHE.move_to_end(cache_key)
             return dict(cached)
         prompt = (
-            "用户想在马克思、恩格斯、列宁的著作中找到与下面这段输入最匹配的原文。输入可能是"
-            "“大意描述”，也可能是“记得的只言片语/残句”。请先在心里推理它最可能出自哪段论述、"
-            "属于哪一主题与篇章，再输出便于在中文原著中逐字定位的检索线索。\n"
+            "本检索库收录了以下经典作家与党和国家重要文献的中文著作："
+            "马克思、恩格斯（《文集》《全集》《选集》）、列宁、斯大林，李大钊、陈独秀，"
+            "毛泽东、周恩来、陈云，邓小平、江泽民、胡锦涛的文集、选集、全集或年谱，"
+            "习近平（《谈治国理政》《经济文选》，及新时代中国特色社会主义思想、经济思想、法治思想、"
+            "生态文明思想、文化思想、党的建设等专题《学习纲要》《概论》）、"
+            "西方马克思主义专题（卢卡奇、科尔施、葛兰西、布洛赫、霍克海默尔与阿多诺、阿尔都塞、列斐伏尔），"
+            "以及党代会报告、历届全会公报、十八大/十九大以来重要文献选编、五年规划纲要等。\n"
+            "用户想在其中找到与下面这段输入最匹配的原文。输入可能是“大意描述”，也可能是“记得的只言片语/残句”。"
+            "请先在心里推理：它与**哪些作者/文献群**直接相关、其中谁是主文库，以及最可能涉及哪段论述、哪一主题与篇章，"
+            "再据此输出便于在中文原著中逐字定位的检索线索。**切勿**把当代中国政治话语（如“中华民族伟大复兴”“中国式现代化”）"
+            "硬套成 19 世纪马恩术语——该用谁的话就用谁的话。\n"
             "只输出一个 JSON 对象，不要解释、不要 Markdown 代码块，格式：\n"
-            '{"intent": "locate 或 research", "quotes": ["最可能的原文整句"], "fragments": ["逐字短语1", "逐字短语2"],'
-            ' "keywords": ["正文实词1", "正文实词2"], "chapter_keywords": ["篇章/标题词1", "篇章/标题词2"],'
+            '{"corpus": ["最相关的作者或文献群"], "intent": "locate 或 research", "quotes": ["最可能的原文整句"],'
+            ' "fragments": ["逐字短语1", "逐字短语2"], "keywords": ["正文实词1", "正文实词2"],'
+            ' "chapter_keywords": ["篇章/标题词1", "篇章/标题词2"],'
             ' "facets": [{"aspect": "侧面名", "keywords": ["该侧面实词1", "该侧面实词2"]}]}\n'
             "要求：\n"
-            "1. quotes 给 1-3 句，尽量逐字还原人民出版社中文译本的书面语措辞（19 世纪译文风格、"
-            "政治经济学/哲学术语），而不是口语转述；记不准就给最可能的措辞。\n"
-            "2. fragments 最重要：给 5-12 个你认为会**一字不差**出现在该译本正文中的特征短语（4-12 字），"
-            "如“社会关系的总和”“全世界无产者，联合起来”“资本主义的最高阶段”。这是定位成败的关键，"
-            "宁可多给几个不同位置、不同表述的短语。\n"
-            "3. keywords 给 6-12 个正文里区分度高的实词：既要从大意**推理**出原著可能用到的术语，"
+            "1. corpus 最先判断：按主次给 1-6 个与输入直接相关的作者或文献群，取值从这些里选——"
+            "“马克思恩格斯 / 列宁 / 斯大林 / 西方马克思主义 / 李大钊 / 陈独秀 / 毛泽东 / 周恩来 / 陈云 / "
+            "邓小平 / 江泽民 / 胡锦涛 / 习近平 / 党和国家文献”。不要为了凑数扩到无关文库。"
+            "比较或思想史问题必须同时列出涉及的各方，例如“马恩国家观与列宁国家观的异同”→"
+            "[“马克思恩格斯”,“列宁”]；“中国式现代化”→以“习近平”为首，同时列“党和国家文献”，"
+            "研究其历史脉络时再列“邓小平/毛泽东/江泽民/胡锦涛”。"
+            "单一出处问题仍只列最可能的一群，例如“剩余价值/异化/资本论”→“马克思恩格斯”，"
+            "“帝国主义是资本主义最高阶段”→“列宁”，“改革开放/一国两制”→“邓小平”。"
+            "**真的拿不准且没有明确作者/时代信号时才留空数组**。\n"
+            "2. quotes 给 1-3 句，尽量逐字还原**对应著作**的书面语措辞（马恩列用人民出版社 19 世纪译文风格的政治经济学/"
+            "哲学术语；毛及以后中国领导人、党和国家文献用其时代的现代汉语政治表述），而非口语转述；记不准就给最可能的措辞。\n"
+            "3. fragments 最重要：给 5-12 个你认为会**一字不差**出现在**对应著作**正文中的特征短语（4-12 字）——"
+            "马恩如“社会关系的总和”“全世界无产者，联合起来”；习近平如“中华民族伟大复兴”“中国式现代化”“人类命运共同体”。"
+            "这是定位成败的关键，宁可多给几个不同位置、不同表述的短语。\n"
+            "4. keywords 给 6-12 个正文里区分度高的实词：既要从大意**推理**出原著可能用到的术语，"
             "也要从用户给的只言片语里**直接截取**关键实词；涵盖近义/不同译法（如“异化/外化”），"
             "避免“的/是/社会/发展”这类高频泛词。\n"
-            "4. chapter_keywords 给 3-8 个可能出现在**篇章或标题**中的词（著作名、章节主题、概念名），"
-            "如“费尔巴哈”“资本的生产过程”“帝国主义”“家庭、私有制和国家”，用于定位所属篇章；"
+            "5. chapter_keywords 给 3-8 个可能出现在**篇章或标题**中的词（著作名、章节主题、概念名），"
+            "如“费尔巴哈”“帝国主义”“家庭、私有制和国家”“新发展理念”“全面从严治党”，用于定位所属篇章；"
             "著作名可给简称/全称两种写法（如“共宣”与“共产党宣言”）。\n"
-            "5. intent 判断用户意图：若是【找一段他大概记得、想定位出处的特定原文】（给了残句，或明确著作+主题），"
+            "6. intent 判断用户意图：若是【找一段他大概记得、想定位出处的特定原文】（给了残句，或明确著作+主题），"
             '填 "locate"；若给的是【一个研究性的想法、论题或大意，想找一批相关引文来佐证或展开研究】，'
             '填 "research"。拿不准填 "research"。\n'
-            "6. facets 总是给（无论 intent 取何值）：把输入拆成 2-4 个不同侧面/角度，每个侧面给 aspect（侧面名）"
+            "7. facets 总是给（无论 intent 取何值）：把输入拆成 2-4 个不同侧面/角度，每个侧面给 aspect（侧面名）"
             "和 3-6 个该侧面的检索实词（可含近义/不同译法），用于按侧面广召回——便于用户切到「研究辅助」时铺开线索。\n"
             f"\n用户输入：{gist}"
         )
         # DeepSeek 即便 temperature=0 也偶尔返回空/截断的 JSON，导致“同一输入有时搜不到”。
         # 故重试至多 3 次，命中可用线索即止；成功结果入缓存，使同一输入后续稳定可复现。
         messages = [
-            {"role": "system", "content": "你是精通马克思、恩格斯、列宁文献、熟知人民出版社中译本措辞与篇目结构的中文检索专家。"},
+            {"role": "system", "content": "你是精通马克思主义经典作家著作、中国化马克思主义重要文献、西方马克思主义专题著作及党和国家重要文献措辞与篇目结构的中文检索专家。"},
             {"role": "user", "content": prompt},
         ]
         plan: dict = {}
-        for _attempt in range(3):
+        # 深档：pro 抽一次，不成立刻回落 flash（而非再赌一次 pro）。抽取跑在 SSE 心跳「之前」，
+        # 其耗时直接计入首字节、要顶在 Cloudflare ~100s 之前，故最坏路径必须短：
+        # pro(~7s)+flash+flash ≈ 16s，与快档三次(~13.5s)基本持平。快档照旧三次。
+        attempts = (
+            [ASSOC_EXPAND_DEEP_MODEL, ASSOC_EXPAND_MODEL, ASSOC_EXPAND_MODEL]
+            if deep else [ASSOC_EXPAND_MODEL] * 3
+        )
+        for model_name in attempts:
             # 1500（原 900）：JSON 现含 intent + facets 多侧面，900 会把 keywords/chapter_keywords
             # 截断在数组中途，导致整段解析失败、plan 退空，拖累整条联想检索。给足余量避免截断。
-            answer = self.chat_complete(messages, max_tokens=1500, temperature=0.0)
+            # disable_thinking=True 是**结构化抽取任务的硬要求**：开思考时 flash 会把 1500 全烧在
+            # 思考上（finish=length，实测 6/6 全废）、一个字 JSON 都不吐；关掉后稳定产出干净 JSON。
+            # 这里不靠 _is_fast_tier 自动判定，是因为该步换成 pro（研究档）同样必须关。
+            try:
+                answer = self.chat_complete(
+                    messages, max_tokens=1500, temperature=0.0, model=model_name,
+                    disable_thinking=True,
+                )
+            except AIServiceError as exc:
+                # 深档模型抽风不该拖垮整条检索：记一笔继续走下一次尝试（末次仍是 flash）。
+                LOGGER.warning("Associative expand attempt failed (model=%s): %s", model_name, exc)
+                continue
             parsed = _extract_json_object(self._coerce_message_content(answer))
             if isinstance(parsed, dict) and any(
                 parsed.get(k) for k in ("quotes", "fragments", "keywords", "chapter_keywords")
@@ -1105,8 +1695,8 @@ class ZAIClient:
                 plan = parsed
                 break
         if plan:
-            _ASSOC_EXPAND_CACHE[gist] = plan
-            _ASSOC_EXPAND_CACHE.move_to_end(gist)
+            _ASSOC_EXPAND_CACHE[cache_key] = plan
+            _ASSOC_EXPAND_CACHE.move_to_end(cache_key)
             while len(_ASSOC_EXPAND_CACHE) > _ASSOC_EXPAND_CACHE_MAX:
                 _ASSOC_EXPAND_CACHE.popitem(last=False)
         return plan
@@ -1165,6 +1755,8 @@ class ZAIClient:
             # 重排只在已定位的真实候选中判断匹配度，刻意走更轻量的 flash 档省成本；
             # 召回线索的「扩展」步不传 model，仍走主通道强模型保质量。
             model=ASSOC_RERANK_MODEL,
+            # 同「扩展」步：结构化 JSON 全有或全无，思考只会吃掉预算把数组截断，一律关掉。
+            disable_thinking=True,
         )
         parsed = _extract_json_object(self._coerce_message_content(answer))
         if isinstance(parsed, dict):
@@ -1196,6 +1788,10 @@ class ZAIClient:
             "2. 回答必须先基于本地 PDF 上下文，不要脱离页面内容空谈。\n"
             f"{web_instruction}"
             "4. 使用中文回答，避免编造，必要时指出依据来自本页或相邻页。\n"
+            # 第 5 条针对推理模型：思维链既费 token 又挤占回答篇幅（服务端已不下发思考过程，
+            # 这里再从源头要求模型把思考压到最短、直接产出讲解正文）。
+            "5. 直接输出讲解正文：不要复述任务要求，不要输出「用户要求我…」之类的自我分析或思考过程；"
+            "如需思考请尽量简短，把篇幅留给讲解本身。\n"
             f"6. {style_instructions}\n\n"
         )
 
@@ -1403,9 +1999,13 @@ class ZAIClient:
     @staticmethod
     def _zhipu_source_from_item(item: dict[str, Any]) -> dict[str, str]:
         """智谱检索结果单条 → 站内统一来源结构（对话内 web_search 与独立端点 search_result 同构）。"""
+        link = str(item.get("link") or item.get("url") or "").strip()
+        # 纵深防御：来源链接仅保留 http(s)，丢弃 javascript:/data: 等危险 scheme（前端 safeMarkdownUrl 亦兜底）。
+        if link and not link.lower().startswith(("http://", "https://")):
+            link = ""
         return {
             "title": str(item.get("title") or "").strip(),
-            "link": str(item.get("link") or item.get("url") or "").strip(),
+            "link": link,
             "site": str(item.get("media") or "").strip(),
             "date": str(item.get("publish_date") or "").strip(),
             "snippet": str(item.get("content") or "").strip(),
@@ -1662,64 +2262,101 @@ class ZAIClient:
         provider: str | None = None,
         sources_out: list[dict[str, str]] | None = None,
         web_search_query: str | None = None,
-        allow_reasoning_fallback: bool = True,
+        allow_reasoning_fallback: bool = False,
         model: str | None = None,
         http_timeout: float | None = None,
+        disable_thinking: bool | None = None,
     ) -> str:
+        """一次非流式对话。
+
+        ``allow_reasoning_fallback`` 已废弃（保留仅为兼容既有调用）：思维链在任何情况下都不再当作
+        正文返回。历史上「正文为空就回退 reasoning_content」是为了「宁可给思考过程也不给空错误」，
+        但推理模型把 max_tokens 全烧在思考上时（finish_reason=length、reasoning_tokens≈全额），
+        正文恰恰是空的——于是读者页面上直接出现「we need answer in Chinese…」的自我分析。
+        现改为：正文为空（或开头明显是思维链）时，用 thinking=disabled 原样重试一次，把整份
+        token 预算让给正文；仍拿不到正文才如实报错。
+
+        ``disable_thinking`` 默认 None＝按模型档位自动（快档 flash 关思考，见 _is_fast_tier）；
+        传 True/False 可强制。
+        """
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
         # 允许按调用方指定模型覆盖该通道默认模型（如马克思形象固定走更轻量的 deepseek-v4-flash）。
         model_name = (model or "").strip() or route["model"]
+        if disable_thinking is None:
+            disable_thinking = self._is_fast_tier(model_name)
         grounded_sources: list[dict[str, str]] = []
         if use_zhipu:
             messages, grounded_sources, tool_stages = self._zhipu_grounding_or_stages(messages, web_search_query)
         else:
             tool_stages = [None]
-        data: dict[str, Any] = {}
-        for stage_index, tools in enumerate(tool_stages):
-            payload: dict[str, Any] = {
-                "model": model_name,
-                "messages": messages,
-                "stream": False,
-                "temperature": self.config.temperature if temperature is None else temperature,
-                "max_tokens": max_tokens,
-            }
-            if tools:
-                payload["tools"] = tools
-            if use_zhipu:
-                # 关闭深度思考保证响应速度与输出干净（不混入 reasoning）。
-                payload["thinking"] = {"type": "disabled"}
+
+        def _request(disable_thinking: bool) -> dict[str, Any]:
+            data: dict[str, Any] = {}
+            for stage_index, tools in enumerate(tool_stages):
+                payload: dict[str, Any] = {
+                    "model": model_name,
+                    "messages": messages,
+                    "stream": False,
+                    "temperature": self.config.temperature if temperature is None else temperature,
+                    "max_tokens": max_tokens,
+                }
+                if tools:
+                    payload["tools"] = tools
+                if use_zhipu or disable_thinking:
+                    # 关闭深度思考保证响应速度与输出干净（不混入 reasoning）。
+                    payload["thinking"] = dict(_THINKING_DISABLED)
+                try:
+                    return self._post_json(
+                        "/chat/completions",
+                        payload,
+                        base_url=route["base_url"],
+                        api_key=route["api_key"],
+                        service_label=route["label"],
+                        http_timeout=http_timeout,
+                    )
+                except AIServiceError as exc:
+                    if stage_index == len(tool_stages) - 1:
+                        raise
+                    # 降级必须可观测：否则“联网悄悄失效”无从排查（journalctl 可查到这行）。
+                    LOGGER.warning("zhipu chat stage %d failed, degrading: %s", stage_index, exc)
+            return data
+
+        def _answer_text(data: dict[str, Any]) -> str:
+            """只取正文：content → choices[].text。**绝不取 reasoning_content**。"""
+            choices = data.get("choices") or []
+            if not choices:
+                raise AIServiceError("模型未返回任何内容。")
+            message = choices[0].get("message") or {}
+            text = self._coerce_message_content(message.get("content")).strip()
+            if not text:
+                text = self._coerce_message_content(choices[0].get("text")).strip()
+            return text
+
+        data = _request(disable_thinking)
+        text = _answer_text(data)
+        if not text or (not disable_thinking and self._looks_like_reasoning_leak(text)):
+            # 思维链吃光了输出预算（或被模型写进了正文）→ 关掉思考重来一次，把预算全留给正文。
+            # 重试只发生在这种异常形态上，正常回答零额外开销。（已关思考仍判空才重试一次，
+            # 此时重试参数与首次相同，等价于一次纯重试；疑似泄漏的判定则跳过——关思考时不可能是思维链。）
+            LOGGER.warning(
+                "chat_complete got no usable answer (model=%s, empty=%s), retrying with thinking disabled",
+                model_name,
+                not text,
+            )
             try:
-                data = self._post_json(
-                    "/chat/completions",
-                    payload,
-                    base_url=route["base_url"],
-                    api_key=route["api_key"],
-                    service_label=route["label"],
-                    http_timeout=http_timeout,
-                )
-                break
+                retry_data = _request(True)
+                retry_text = _answer_text(retry_data)
             except AIServiceError as exc:
-                if stage_index == len(tool_stages) - 1:
-                    raise
-                # 降级必须可观测：否则“联网悄悄失效”无从排查（journalctl 可查到这行）。
-                LOGGER.warning("zhipu chat stage %d failed, degrading: %s", stage_index, exc)
+                LOGGER.warning("chat_complete no-thinking retry failed: %s", exc)
+                retry_text = ""
+                retry_data = {}
+            if retry_text:
+                data, text = retry_data, retry_text
         if use_zhipu and sources_out is not None:
             sources_out.extend(grounded_sources or self._zhipu_sources_from_payload(data))
-        choices = data.get("choices") or []
-        if not choices:
-            raise AIServiceError("模型未返回任何内容。")
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        text = self._coerce_message_content(content).strip()
-        if not text and allow_reasoning_fallback:
-            # 仅在调用方允许时才回退到 reasoning_content；否则宁可判空，
-            # 避免把模型的「思考过程」当成正式答复输出（如吉祥物气泡）。
-            text = self._coerce_message_content(message.get("reasoning_content")).strip()
         if not text:
-            text = self._coerce_message_content(choices[0].get("text")).strip()
-        if not text:
-            raise AIServiceError("模型返回了空内容。")
+            raise AIServiceError("模型本次只产生了思考过程、未给出答案，请重试。")
         return text
 
     def chat_complete_stream(
@@ -1744,6 +2381,18 @@ class ZAIClient:
                     messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded
                 )
                 return
+            except _ReasoningOnlyResponse:
+                # 全程只有思维链、没有正文（思考烧光了 max_tokens）。此时一个字都还没下发，
+                # 重来一次是安全的：关掉思考，把整份预算让给正文——绝不把自我分析当答案吐给读者。
+                LOGGER.warning("stream produced reasoning only, retrying with thinking disabled")
+                try:
+                    yield from self._stream_chat_once(
+                        messages, max_tokens, provider=provider, tools=tools,
+                        meta_out=meta_out, yielded=yielded, disable_thinking=True,
+                    )
+                except _ReasoningOnlyResponse:
+                    raise AIServiceError("模型本次只产生了思考过程、未给出答案，请重试。") from None
+                return
             except AIServiceError as exc:
                 # 首包即失败（强制参数/联网工具不被支持等）且未输出任何内容时，逐级降级重试；
                 # 已经吐过增量就不能换档重来（会输出重复内容），原样抛出由路由层兜底。
@@ -1760,6 +2409,7 @@ class ZAIClient:
         tools: list[dict[str, Any]] | None,
         meta_out: dict[str, Any] | None,
         yielded: list[bool],
+        disable_thinking: bool = False,
     ) -> Iterator[str]:
         use_zhipu = provider == "zhipu"
         route = self._route(provider)
@@ -1772,8 +2422,10 @@ class ZAIClient:
         }
         if tools:
             payload["tools"] = tools
-        if use_zhipu:
-            payload["thinking"] = {"type": "disabled"}
+        # 快档（flash）默认关思考：它的思考对质量无增益、却常把 max_tokens 吃光（见 _is_fast_tier
+        # 的实测），流式场景还会让读者干等首字。深思仍留给 pro 档。
+        if use_zhipu or disable_thinking or self._is_fast_tier(route["model"]):
+            payload["thinking"] = dict(_THINKING_DISABLED)
         url = f"{route['base_url']}/chat/completions"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib_request.Request(
@@ -1786,8 +2438,18 @@ class ZAIClient:
             },
             method="POST",
         )
+        # 思维链只保活、不下发：推理模型（如线上主通道 deepseek-v4-pro）会先流出大段
+        # reasoning_content 再给正文。旧实现把它当正文吐给前端 → 阅读器满屏「用户要求我…」的
+        # 自我分析，还被存进会话历史、按 completion 计入用户 token 额度，下一轮又作为历史重发。
+        # 现改为：思考阶段每隔几秒 yield 一个空串（调用方译成 SSE 注释，喂住 Cloudflare 的空闲
+        # 计时器），正文增量照常下发；全程没有正文时抛 _ReasoningOnlyResponse，由 chat_complete_stream
+        # 关掉思考重来一遍（此时一个字都未下发，重来安全）——思维链任何情况下都不当答案下发。
+        reasoning_seen = False
+        last_tick = time.monotonic()
         try:
-            with urllib_request.urlopen(req, timeout=self.config.request_timeout_seconds) as resp:
+            with _ai_http_slot(), urllib_request.urlopen(
+                req, timeout=self.config.request_timeout_seconds
+            ) as resp:
                 for raw_line in resp:
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line or not line.startswith("data:"):
@@ -1805,12 +2467,21 @@ class ZAIClient:
                         delta = choice.get("delta") or choice.get("message") or {}
                         text = (
                             self._coerce_message_content(delta.get("content"))
-                            or self._coerce_message_content(delta.get("reasoning_content"))
                             or self._coerce_message_content(choice.get("text"))
                         )
                         if text:
                             yielded[0] = True
                             yield text
+                            continue
+                        reasoning = self._coerce_message_content(delta.get("reasoning_content"))
+                        if reasoning:
+                            reasoning_seen = True
+                            now = time.monotonic()
+                            if now - last_tick >= 8.0:
+                                last_tick = now
+                                yield ""
+            if not yielded[0] and reasoning_seen:
+                raise _ReasoningOnlyResponse()
         except urllib_error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             try:
@@ -1862,7 +2533,7 @@ class ZAIClient:
             method="POST",
         )
         try:
-            with urllib_request.urlopen(req, timeout=timeout) as resp:
+            with _ai_http_slot(), urllib_request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib_error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")

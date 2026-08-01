@@ -5,6 +5,7 @@ import hashlib
 import os
 import secrets
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -258,6 +259,8 @@ def init_membership_db() -> Path:
                 day TEXT NOT NULL,
                 feature TEXT NOT NULL DEFAULT 'site',
                 path TEXT NOT NULL DEFAULT '',
+                client_ip TEXT NOT NULL DEFAULT '',
+                user_agent TEXT NOT NULL DEFAULT '',
                 request_count INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 last_seen_at TEXT NOT NULL,
@@ -335,6 +338,21 @@ def init_membership_db() -> Path:
             conn.execute("ALTER TABLE users ADD COLUMN deactivated_at TEXT NOT NULL DEFAULT ''")
         if "daily_ai_token_limit_override" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN daily_ai_token_limit_override INTEGER")
+        # 注册/最近登录 IP：仅用于聚合「注册用户省际分布」（离线 ip2region 归类后只对外暴露省级计数，
+        # 单个 IP 绝不出现在任何对外响应里）。register_ip=注册当时，last_ip=最近一次登录/活动；
+        # 分布取 COALESCE(NULLIF(last_ip,''), register_ip)。旧用户的 last_ip 由回填脚本从阅读日志补。
+        if "register_ip" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN register_ip TEXT NOT NULL DEFAULT ''")
+        if "last_ip" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''")
+        site_activity_columns = _table_columns(conn, "site_activity")
+        if "client_ip" not in site_activity_columns:
+            conn.execute("ALTER TABLE site_activity ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''")
+        if "user_agent" not in site_activity_columns:
+            conn.execute("ALTER TABLE site_activity ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_site_activity_day_ip ON site_activity(day, client_ip, last_seen_at DESC)"
+        )
         plan_columns = _table_columns(conn, "plans")
         if "daily_ai_token_limit" not in plan_columns:
             conn.execute("ALTER TABLE plans ADD COLUMN daily_ai_token_limit INTEGER")
@@ -444,6 +462,16 @@ def init_membership_db() -> Path:
             ON CONFLICT(code) DO NOTHING
             """
         )
+        # 打赏 / 捐赠通道：一条特殊套餐（kind='donation'），金额由用户自定（每笔订单单独写 amount_cents），
+        # 支付成功仅入账、不开会员、不记次数。单独 INSERT（不并入 DEFAULT_PLANS，那批默认 kind='membership'），
+        # sort_order 置大值且被 list_plans/list_active_plans 过滤掉，因此不出现在定价页套餐列表与后台套餐管理里。
+        conn.execute(
+            """
+            INSERT INTO plans(code, name, price_cents, currency, interval_months, description, kind, is_active, sort_order)
+            VALUES('donation', '打赏 / 捐赠', 0, 'CNY', 0, '自愿支持本站运营，金额由您决定，不含会员权益。', 'donation', 1, 9000)
+            ON CONFLICT(code) DO NOTHING
+            """
+        )
         conn.commit()
     return DB_PATH
 
@@ -466,7 +494,7 @@ def list_active_plans() -> list[dict]:
                    daily_ai_token_limit, daily_zhipu_token_limit, features, badge,
                    kind, research_credits, chat_credits, reader_credits
             FROM plans
-            WHERE is_active = 1
+            WHERE is_active = 1 AND kind != 'donation'
             ORDER BY sort_order ASC, code ASC
             """
         ).fetchall()
@@ -474,7 +502,8 @@ def list_active_plans() -> list[dict]:
 
 
 def list_plans(include_inactive: bool = False) -> list[dict]:
-    where = "" if include_inactive else "WHERE is_active = 1"
+    # 打赏/捐赠是特殊入口而非可售套餐，一律不进套餐列表（定价页、后台套餐管理都据此渲染）。
+    where = "WHERE kind != 'donation'" if include_inactive else "WHERE is_active = 1 AND kind != 'donation'"
     with _connect() as conn:
         rows = conn.execute(
             f"""
@@ -601,16 +630,25 @@ def upsert_plan(
     return row_to_dict(row) or {}
 
 
-def create_user(*, email: str, display_name: str, password_hash: str, email_verified_at: str = "") -> dict:
+def create_user(
+    *,
+    email: str,
+    display_name: str,
+    password_hash: str,
+    email_verified_at: str = "",
+    register_ip: str = "",
+) -> dict:
     now = utc_now_text()
     normalized_email = normalize_email(email)
+    ip = (register_ip or "").strip()
     with _connect() as conn:
         cur = conn.execute(
             """
-            INSERT INTO users(email, display_name, password_hash, email_verified_at, created_at, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?)
+            INSERT INTO users(email, display_name, password_hash, email_verified_at, created_at, updated_at,
+                              register_ip, last_ip)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (normalized_email, display_name.strip(), password_hash, email_verified_at or "", now, now),
+            (normalized_email, display_name.strip(), password_hash, email_verified_at or "", now, now, ip, ip),
         )
         user_id = cur.lastrowid
         row = conn.execute(
@@ -657,20 +695,122 @@ def get_user_by_id(user_id: int | None) -> dict | None:
     return row_to_dict(row)
 
 
-def update_last_login(user_id: int) -> None:
+def update_last_login(user_id: int, client_ip: str = "") -> None:
     now = utc_now_text()
+    ip = (client_ip or "").strip()
     with _connect() as conn:
         conn.execute(
             """
             UPDATE users
             SET last_login_at = ?,
                 email_verified_at = CASE WHEN email_verified_at = '' THEN ? ELSE email_verified_at END,
+                last_ip = CASE WHEN ? <> '' THEN ? ELSE last_ip END,
+                register_ip = CASE WHEN register_ip = '' AND ? <> '' THEN ? ELSE register_ip END,
                 updated_at = ?
             WHERE id = ?
             """,
-            (now, now, now, user_id),
+            (now, now, ip, ip, ip, ip, now, user_id),
         )
         conn.commit()
+
+
+def count_registered_users() -> int:
+    """注册用户总数（全部账号，含已停用；与后台「注册用户」口径一致）。排除 system 占位账号（匿名打赏）。"""
+    with _connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM users WHERE role != 'system'").fetchone()
+    return int(row["n"]) if row else 0
+
+
+def capture_user_ip_if_missing(*, user_id: int, ip: str) -> None:
+    """「登录态活跃即补 IP」：仅当用户 register_ip 与 last_ip 都为空时，把 last_ip 补成传入 IP。
+
+    幂等——已有任一 IP 则 WHERE 不命中、为 no-op，绝不覆盖已记录的归属地。给「记 IP」功能上线前
+    活跃、又用持久会话不重登的老用户，下次来访即补上归属地。由 app 层去重后经后台单写线程调用。
+    """
+    ip = (ip or "").strip()
+    if not ip:
+        return
+    now = utc_now_text()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE users SET last_ip = ?, updated_at = ?
+            WHERE id = ?
+              AND TRIM(COALESCE(last_ip, '')) = ''
+              AND TRIM(COALESCE(register_ip, '')) = ''
+            """,
+            (ip, now, user_id),
+        )
+        conn.commit()
+
+
+def get_user_ip_counts() -> list[tuple[str, int]]:
+    """按「每个注册用户的代表 IP」分组计数：代表 IP = 最近登录/活动 IP，回退注册 IP。
+
+    仅返回非空 IP 的分组，供离线 ip2region 聚合成省级分布。明细绝不对外暴露。
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT ip, COUNT(*) AS n FROM (
+                SELECT COALESCE(NULLIF(TRIM(last_ip), ''), TRIM(register_ip)) AS ip
+                FROM users
+            )
+            WHERE ip IS NOT NULL AND ip <> ''
+            GROUP BY ip
+            """
+        ).fetchall()
+    return [(str(r["ip"]), int(r["n"])) for r in rows]
+
+
+def backfill_user_ips_from_events() -> dict:
+    """一次性回填历史用户 last_ip：取该用户最近一条非空 client_ip（先阅读日志、再 AI 用量）。
+
+    幂等：只填补 register_ip 与 last_ip 都为空的用户。返回各来源补齐数量。
+    """
+    now = utc_now_text()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE users
+            SET last_ip = (
+                    SELECT r.client_ip FROM reader_access_events r
+                    WHERE r.user_id = users.id AND TRIM(r.client_ip) <> ''
+                    ORDER BY r.created_at DESC LIMIT 1
+                ),
+                updated_at = ?
+            WHERE TRIM(COALESCE(last_ip, '')) = '' AND TRIM(COALESCE(register_ip, '')) = ''
+              AND EXISTS (
+                    SELECT 1 FROM reader_access_events r
+                    WHERE r.user_id = users.id AND TRIM(r.client_ip) <> ''
+              )
+            """,
+            (now,),
+        )
+        filled_reader = cur.rowcount or 0
+        ai_has_ip = "client_ip" in _table_columns(conn, "ai_usage")
+        filled_ai = 0
+        if ai_has_ip:
+            cur2 = conn.execute(
+                """
+                UPDATE users
+                SET last_ip = (
+                        SELECT a.client_ip FROM ai_usage a
+                        WHERE a.user_id = users.id AND TRIM(a.client_ip) <> ''
+                        ORDER BY a.created_at DESC LIMIT 1
+                    ),
+                    updated_at = ?
+                WHERE TRIM(COALESCE(last_ip, '')) = '' AND TRIM(COALESCE(register_ip, '')) = ''
+                  AND EXISTS (
+                        SELECT 1 FROM ai_usage a
+                        WHERE a.user_id = users.id AND TRIM(a.client_ip) <> ''
+                  )
+                """,
+                (now,),
+            )
+            filled_ai = cur2.rowcount or 0
+        conn.commit()
+    return {"reader": filled_reader, "ai_usage": filled_ai, "ai_ip_column": ai_has_ip}
 
 
 def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
@@ -694,7 +834,12 @@ def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
                 s.expires_at AS membership_expires_at,
                 s.plan_code AS membership_plan_code,
                 p.daily_ai_token_limit AS membership_plan_daily_ai_token_limit,
-                p.name AS membership_plan_name
+                p.name AS membership_plan_name,
+                (
+                    SELECT MAX(sb.created_at)
+                    FROM subscriptions sb
+                    WHERE sb.user_id = u.id AND sb.source = 'manual-bulk'
+                ) AS last_bulk_grant_at
             FROM users u
             LEFT JOIN subscriptions s
                 ON s.id = (
@@ -706,9 +851,12 @@ def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
                 )
             LEFT JOIN plans p ON p.code = s.plan_code
             WHERE
-                ? = '%%'
-                OR lower(u.email) LIKE ?
-                OR lower(u.display_name) LIKE ?
+                u.role != 'system'
+                AND (
+                    ? = '%%'
+                    OR lower(u.email) LIKE ?
+                    OR lower(u.display_name) LIKE ?
+                )
             ORDER BY u.created_at DESC, u.id DESC
             LIMIT ?
             """,
@@ -743,6 +891,24 @@ def list_active_user_emails() -> list[dict]:
             SELECT id AS user_id, email, display_name
             FROM users
             WHERE is_active = 1 AND TRIM(email) != ''
+            ORDER BY created_at ASC, id ASC
+            """
+        ).fetchall()
+    return [row_to_dict(row) for row in rows]
+
+
+def list_dormant_noip_user_emails() -> list[dict]:
+    """「久未回访」用户名单：启用中、注册于记 IP 功能上线（2026-06-24）之前、且至今无任何
+    登录态回访——判据＝register_ip/last_ip 都为空（回访过的用户会被「活跃即补 IP」自动补上
+    并离开该集合，故这是个随回访自然缩小的召回名单）。供后台群发做召回邮件。"""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id AS user_id, email, display_name
+            FROM users
+            WHERE is_active = 1 AND TRIM(email) != '' AND role != 'system'
+              AND TRIM(COALESCE(last_ip, '')) = ''
+              AND TRIM(COALESCE(register_ip, '')) = ''
             ORDER BY created_at ASC, id ASC
             """
         ).fetchall()
@@ -1010,7 +1176,8 @@ def create_pending_order(*, user_id: int, plan_code: str) -> dict:
     plan = get_plan(plan_code)
     if not plan or not plan.get("is_active"):
         raise ValueError("套餐不存在或未启用")
-    expire_pending_orders()
+    # 不在此再跑全表 expire：下方「复用待支付单」查询已用 expires_at > now 过滤，过期单本就不会被复用；
+    # 全局过期统一交后台小时级 sweep（app._sweep_expired_orders_if_due），不在下单写路径多挂一把全表写。
     created_at = utc_now_text()
     with _connect() as conn:
         existing = conn.execute(
@@ -1079,6 +1246,85 @@ def create_pending_order(*, user_id: int, plan_code: str) -> dict:
     return row_to_dict(row) or {}
 
 
+# 打赏金额区间（分）：下限 ¥1 防误触/刷单，上限 ¥5000 防手滑输错巨额；前后端一致校验。
+DONATION_MIN_CENTS = 100
+DONATION_MAX_CENTS = 500000
+DONATION_PLAN_CODE = "donation"
+
+
+def create_donation_order(*, user_id: int, amount_cents: int) -> dict:
+    """创建一笔「打赏 / 捐赠」订单：金额由用户自定，走与会员订单同一套 orders/notify 管线，
+    但支付成功只入账、不开会员（见 mark_order_paid 的 donation 分支）。
+
+    每次都新建独立订单（不复用待支付单）——不同打赏金额本就是不同订单，复用会串金额。
+    """
+    amount = int(amount_cents)
+    if amount < DONATION_MIN_CENTS or amount > DONATION_MAX_CENTS:
+        raise ValueError(
+            f"打赏金额需在 ¥{DONATION_MIN_CENTS // 100} 到 ¥{DONATION_MAX_CENTS // 100} 之间。"
+        )
+    plan = get_plan(DONATION_PLAN_CODE)
+    if not plan or not plan.get("is_active"):
+        raise ValueError("打赏通道未启用。")
+    created_at = utc_now_text()
+    with _connect() as conn:
+        order_no = f"{utc_now().strftime('%Y%m%d%H%M%S')}{secrets.randbelow(100000):05d}"
+        expires_at = (utc_now() + timedelta(hours=24)).isoformat(timespec="seconds")
+        cur = conn.execute(
+            """
+            INSERT INTO orders(
+                order_no, user_id, plan_code, status, amount_cents, currency,
+                payment_provider, notes, created_at, expires_at
+            )
+            VALUES(?, ?, ?, 'pending', ?, 'CNY', 'pending', 'donation', ?, ?)
+            """,
+            (order_no, int(user_id), DONATION_PLAN_CODE, amount, created_at, expires_at),
+        )
+        order_id = cur.lastrowid
+        row = conn.execute(
+            """
+            SELECT o.*, p.name AS plan_name, p.interval_months
+            FROM orders o
+            JOIN plans p ON p.code = o.plan_code
+            WHERE o.id = ?
+            """,
+            (order_id,),
+        ).fetchone()
+        conn.commit()
+    return row_to_dict(row) or {}
+
+
+_DONATION_GUEST_EMAIL = "donation-guest@system.local"
+_donation_guest_id: list[int | None] = [None]
+
+
+def get_or_create_donation_guest_id() -> int:
+    """匿名打赏的占位账号 id：role='system'、is_active=0、无密码——不可登录、不计入注册用户数、
+    不出现在后台用户列表。所有访客（未登录）打赏订单都挂到它名下，以满足 orders.user_id 外键与
+    回调 param 校验；不同打赏仍以各自 order_no 区分。进程内缓存，只在首次触发时建一次。
+    """
+    if _donation_guest_id[0] is not None:
+        return _donation_guest_id[0]
+    with _connect() as conn:
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (_DONATION_GUEST_EMAIL,)).fetchone()
+        if row is None:
+            now = utc_now_text()
+            cur = conn.execute(
+                """
+                INSERT INTO users(email, display_name, password_hash, email_verified_at,
+                                  created_at, updated_at, is_active, role)
+                VALUES(?, '匿名打赏', '', ?, ?, ?, 0, 'system')
+                """,
+                (_DONATION_GUEST_EMAIL, now, now, now),
+            )
+            uid = int(cur.lastrowid)
+            conn.commit()
+        else:
+            uid = int(row["id"])
+    _donation_guest_id[0] = uid
+    return uid
+
+
 def expire_pending_orders(*, older_than_hours: int = 24) -> int:
     cutoff = (utc_now() - timedelta(hours=max(1, int(older_than_hours)))).isoformat(timespec="seconds")
     now = utc_now_text()
@@ -1134,8 +1380,8 @@ def clear_pending_orders(*, user_id: int | None = None) -> int:
 
 
 def list_orders_for_user(user_id: int) -> list[dict]:
-    expire_pending_orders()
-    prune_duplicate_pending_orders_for_user(int(user_id))
+    # 纯读：不再在每次 /account 浏览时跑全表 expire + 去重 UPDATE（会取 WAL 写锁、与支付回调写互相争用）。
+    # 过期与「同用户同套餐重复待支付单」的清理统一交给后台小时级 sweep（app._sweep_expired_orders_if_due）。
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -1151,8 +1397,7 @@ def list_orders_for_user(user_id: int) -> list[dict]:
 
 
 def list_recent_orders(limit: int = 50) -> list[dict]:
-    expire_pending_orders()
-    prune_duplicate_pending_orders_for_user()
+    # 纯读（管理员订单列表）：过期/去重交后台小时级 sweep，避免每次打开后台都跑全表写、与回调写争锁。
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -1352,8 +1597,13 @@ def mark_order_paid(
         if order["status"] not in {"pending", "paid"}:
             raise ValueError("订单状态不允许开通会员")
         is_credit_pack = str(order["plan_kind"] or "membership") == "credit_pack"
+        is_donation = str(order["plan_kind"] or "membership") == "donation"
         if order["status"] == "paid":
-            # 已支付：幂等返回。资源包不开会员，只回当前次数余额。
+            # 已支付：幂等返回。打赏只入账、不开会员，直接回订单本身。
+            if is_donation:
+                conn.rollback()
+                return {"order": row_to_dict(order), "subscription": None}
+            # 资源包不开会员，只回当前次数余额。
             if is_credit_pack:
                 conn.commit()
                 return {
@@ -1372,10 +1622,31 @@ def mark_order_paid(
                 """,
                 (order["user_id"], order["plan_code"]),
             ).fetchone()
+            # 该分支为纯读幂等返回（未写任何行）：及时 rollback 释放 BEGIN IMMEDIATE 写锁，
+            # 不靠 with 退出时才提交，避免无谓地把写锁多持到函数返回后、阻塞其它写者。
+            conn.rollback()
             return {
                 "order": row_to_dict(order),
                 "subscription": row_to_dict(subscription),
             }
+
+        # 打赏 / 捐赠：只标记订单已支付，不开会员、不记次数、不建订阅——纯粹的自愿支持入账。
+        if is_donation:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'paid', payment_provider = ?, payment_reference = ?, notes = ?, paid_at = ?
+                WHERE order_no = ? AND status = 'pending'
+                """,
+                (provider, payment_reference, notes, paid_at, order_no),
+            )
+            updated_order = conn.execute(
+                "SELECT o.*, p.name AS plan_name, p.interval_months FROM orders o "
+                "JOIN plans p ON p.code = o.plan_code WHERE o.order_no = ?",
+                (order_no,),
+            ).fetchone()
+            conn.commit()
+            return {"order": row_to_dict(updated_order), "subscription": None}
 
         # 资源包：标记订单已支付 + 记入次数台账，不创建会员订阅。
         if is_credit_pack:
@@ -1530,6 +1801,318 @@ def create_manual_subscription(*, user_email: str, plan_code: str, note: str = "
     }
 
 
+# 批量会员发放（后台「一键赠送 / 续期 / 升级」）。
+# 目标范围：all_registered＝全部可登录注册用户；active_members＝当前有效会员；emails＝指定邮箱。
+# 档次：给定套餐码即按该档开通/升级；KEEP_TIER＝沿用各自现有档次、仅延长天数（跳过非会员）。
+# 时长：extra_days 指定则用该天数，否则按套餐 interval_months×30；一律叠加在各自现有到期日之后
+# （与 mark_order_paid 同语义），配合「最高档 + 最远到期」判定，续期/升级即时生效、绝不降级。
+BULK_GRANT_SCOPES = ("all_registered", "active_members", "active_members_ungranted", "emails")
+KEEP_TIER_PLAN_CODE = "__keep__"
+
+
+def _bulk_export_records(records: list[dict]) -> None:
+    """把一批会员发放一次性追加到 DR 导出账本（单次打开 + 单次 fsync）。
+
+    与 _append_member_export 同格式、同用途（供本地灾备增量拉取），但批量发放可能一次涉及成百上千个
+    用户，逐条 fsync 会很慢；这里合并成一次写入 + 一次 fsync。纯尽力而为、自吞异常，绝不影响主流程。
+    """
+    if not records:
+        return
+    try:
+        MEMBER_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        with open(MEMBER_EXPORT_FILE, "a", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True, default=str) + "\n")
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
+def _resolve_bulk_audience(conn: sqlite3.Connection, *, scope: str, emails: list[str]) -> tuple[list[dict], list[str]]:
+    """解析批量发放的目标用户，返回 (用户列表, 未找到的邮箱)。
+
+    用户字典含 id/email/display_name/role/is_active/created_at（够 DR 识别账号，不含 password_hash，
+    与增量导出口径一致；完整账号由每日全量同步兜底）。all/active 范围只取可登录（is_active=1）账号。
+    """
+    if scope == "all_registered":
+        rows = conn.execute(
+            """
+            SELECT id, email, display_name, role, is_active, created_at
+            FROM users
+            WHERE is_active = 1 AND TRIM(email) <> ''
+            ORDER BY id ASC
+            """
+        ).fetchall()
+        return [row_to_dict(r) for r in rows], []
+    if scope == "active_members":
+        rows = conn.execute(
+            """
+            SELECT u.id, u.email, u.display_name, u.role, u.is_active, u.created_at
+            FROM users u
+            JOIN subscriptions s ON s.user_id = u.id
+            WHERE u.is_active = 1 AND TRIM(u.email) <> ''
+              AND s.status = 'active' AND s.expires_at > ?
+            GROUP BY u.id
+            ORDER BY u.id ASC
+            """,
+            (utc_now_text(),),
+        ).fetchall()
+        return [row_to_dict(r) for r in rows], []
+    if scope == "active_members_ungranted":
+        # 有效会员中从未收到过任何批量赠送（subscriptions 里没有 source='manual-bulk' 行）的用户。
+        # 用于给批量续期之后新订阅的会员「补发」同等优惠，避免重复赠送老会员。
+        rows = conn.execute(
+            """
+            SELECT u.id, u.email, u.display_name, u.role, u.is_active, u.created_at
+            FROM users u
+            JOIN subscriptions s ON s.user_id = u.id
+            WHERE u.is_active = 1 AND TRIM(u.email) <> ''
+              AND s.status = 'active' AND s.expires_at > ?
+              AND NOT EXISTS (
+                    SELECT 1 FROM subscriptions sb
+                    WHERE sb.user_id = u.id AND sb.source = 'manual-bulk'
+              )
+            GROUP BY u.id
+            ORDER BY u.id ASC
+            """,
+            (utc_now_text(),),
+        ).fetchall()
+        return [row_to_dict(r) for r in rows], []
+    # scope == "emails"：按给定邮箱逐个查找，去重并保留顺序，未命中的单独返回。
+    seen: set[str] = set()
+    found: list[dict] = []
+    missing: list[str] = []
+    for raw in emails:
+        norm = normalize_email(raw)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        row = conn.execute(
+            """
+            SELECT id, email, display_name, role, is_active, created_at
+            FROM users
+            WHERE email = ?
+            """,
+            (norm,),
+        ).fetchone()
+        if row is None:
+            missing.append(norm)
+        else:
+            found.append(row_to_dict(row))
+    return found, missing
+
+
+def _current_tier_plan(conn: sqlite3.Connection, user_id: int, now_text: str) -> tuple[str | None, str | None]:
+    """当前有效订阅中的最高档套餐 (plan_code, plan_name)，无有效会员返回 (None, None)。
+
+    档次以 interval_months 为代理（月 1 < 季 3 < 年 12），与 _compute_membership_snapshot 一致——
+    「沿用现有档次」的延长即照此档补时长，不会把高档会员写成低档。
+    """
+    row = conn.execute(
+        """
+        SELECT s.plan_code, p.name AS plan_name
+        FROM subscriptions s
+        JOIN plans p ON p.code = s.plan_code
+        WHERE s.user_id = ? AND s.status = 'active' AND s.expires_at > ?
+        ORDER BY p.interval_months DESC, s.expires_at DESC, s.id DESC
+        LIMIT 1
+        """,
+        (int(user_id), now_text),
+    ).fetchone()
+    if row is None:
+        return None, None
+    return (row["plan_code"] or None), (row["plan_name"] or None)
+
+
+def bulk_grant_membership(
+    *,
+    scope: str,
+    plan_code: str,
+    emails: list[str] | None = None,
+    extra_days: int | None = None,
+    note: str = "",
+    source: str = "manual-bulk",
+) -> dict:
+    """批量给目标用户开通 / 续期 / 升级会员。
+
+    - scope：见 BULK_GRANT_SCOPES。
+    - plan_code：套餐码，或 KEEP_TIER_PLAN_CODE（沿用各自现有档次、仅延长；此时 extra_days 必填）。
+    - extra_days：自定义时长（天）；为空时按套餐 interval_months×30。
+    - 每个用户都把新时长叠加在其现有有效到期日之后（无有效会员则从现在起算）。
+
+    返回汇总：{target_count, granted, skipped_non_member, missing_emails, plan_name, keep_tier,
+    extra_days, scope}。写库用「先读后一次性 executemany 写入」，把写锁占用压到最短，避免长事务阻塞
+    阅读热路径的记账写。
+    """
+    scope = (scope or "").strip()
+    if scope not in BULK_GRANT_SCOPES:
+        raise ValueError("目标范围无效。")
+    plan_code = (plan_code or "").strip()
+    keep_tier = plan_code == KEEP_TIER_PLAN_CODE
+
+    extra_days_val: int | None = None
+    if extra_days not in (None, ""):
+        extra_days_val = int(extra_days)
+        if extra_days_val < 1:
+            raise ValueError("延长天数必须为正整数。")
+
+    plan: dict | None = None
+    if keep_tier:
+        if not extra_days_val:
+            raise ValueError("「沿用各自现有档次」时必须填写延长天数。")
+    else:
+        plan = get_plan(plan_code)
+        if not plan or not plan.get("is_active"):
+            raise ValueError("套餐不存在或未启用。")
+        if str(plan.get("kind") or "membership") != "membership":
+            raise ValueError("只能批量赠送会员套餐（资源包请用次数发放）。")
+
+    note = (note or "").strip()[:240]
+    now_dt = utc_now()
+    now_text = now_dt.isoformat(timespec="seconds")
+
+    granted_rows: list[tuple] = []
+    export_records: list[dict] = []
+    skipped_non_member = 0
+    audience: list[dict] = []
+    missing: list[str] = []
+
+    with _connect() as conn:
+        audience, missing = _resolve_bulk_audience(conn, scope=scope, emails=list(emails or []))
+        for user in audience:
+            uid = int(user["id"])
+            if keep_tier:
+                user_plan_code, user_plan_name = _current_tier_plan(conn, uid, now_text)
+                if not user_plan_code:
+                    skipped_non_member += 1
+                    continue
+                days = extra_days_val or 1
+            else:
+                user_plan_code = plan["code"]  # type: ignore[index]
+                user_plan_name = plan["name"]  # type: ignore[index]
+                days = extra_days_val or max(1, int(plan.get("interval_months") or 1) * 30)  # type: ignore[union-attr]
+
+            # 叠加：起点取「现在」与「现有最远有效到期日」的较晚者，再往后顺延 days 天。
+            current = conn.execute(
+                """
+                SELECT expires_at FROM subscriptions
+                WHERE user_id = ? AND status = 'active'
+                ORDER BY expires_at DESC, created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (uid,),
+            ).fetchone()
+            starts_at = now_dt
+            if current is not None:
+                current_expires = _parse_utc(current["expires_at"] or "")
+                if current_expires is not None and current_expires > now_dt:
+                    starts_at = current_expires
+            expires_at = starts_at + timedelta(days=max(1, int(days)))
+            starts_text = starts_at.isoformat(timespec="seconds")
+            expires_text = expires_at.isoformat(timespec="seconds")
+
+            granted_rows.append(
+                (uid, user_plan_code, source, starts_text, expires_text, note, now_text, now_text)
+            )
+            export_records.append(
+                {
+                    "ts": now_text,
+                    "event": "membership_bulk_grant",
+                    "order_no": "",
+                    "source": source,
+                    "user": user,
+                    "subscription": {
+                        "user_id": uid,
+                        "plan_code": user_plan_code,
+                        "plan_name": user_plan_name,
+                        "status": "active",
+                        "source": source,
+                        "starts_at": starts_text,
+                        "expires_at": expires_text,
+                        "notes": note,
+                    },
+                    "order": {},
+                }
+            )
+
+        if granted_rows:
+            conn.executemany(
+                """
+                INSERT INTO subscriptions(
+                    user_id, plan_code, status, source, starts_at, expires_at, notes, created_at, updated_at
+                )
+                VALUES(?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                """,
+                granted_rows,
+            )
+            conn.commit()
+
+    # 本请求可能刚为当前登录用户改了会员：清请求级快照缓存，避免同请求后续读到旧值。
+    _invalidate_request_membership_cache()
+    _bulk_export_records(export_records)
+    return {
+        "target_count": len(audience),
+        "granted": len(granted_rows),
+        "skipped_non_member": skipped_non_member,
+        "missing_emails": missing,
+        "plan_name": (plan["name"] if plan else "沿用各自现有档次"),
+        "keep_tier": keep_tier,
+        "extra_days": extra_days_val,
+        "scope": scope,
+    }
+
+
+def bulk_grant_coverage() -> dict:
+    """后台「批量续期覆盖情况」：当前有效会员里谁收到过批量赠送、谁还没有。
+
+    区分依据是订阅来源：批量操作写入的行 source='manual-bulk'（付费为 'zpay_notify'、
+    单人手动开通为 'manual'），同一批次的行共享同一个 created_at，可按其还原历次批量操作。
+    返回 {active_total, granted_total, ungranted: [...], batches: [...]}；ungranted 按注册时间
+    倒序，方便识别「批量续期之后才订阅」的新会员。
+    """
+    now_text = utc_now_text()
+    with _connect() as conn:
+        batch_rows = conn.execute(
+            """
+            SELECT created_at, COUNT(*) AS granted, MAX(notes) AS note
+            FROM subscriptions
+            WHERE source = 'manual-bulk'
+            GROUP BY created_at
+            ORDER BY created_at DESC
+            LIMIT 12
+            """
+        ).fetchall()
+        member_rows = conn.execute(
+            """
+            SELECT u.id, u.email, u.display_name, u.created_at,
+                   MAX(s.expires_at) AS expires_at,
+                   MAX(CASE WHEN s.source = 'manual-bulk' THEN s.created_at END) AS last_bulk_grant_at
+            FROM users u
+            JOIN subscriptions s ON s.user_id = u.id AND s.status = 'active'
+            WHERE u.is_active = 1 AND TRIM(u.email) <> ''
+            GROUP BY u.id
+            HAVING MAX(s.expires_at) > ?
+            """,
+            (now_text,),
+        ).fetchall()
+    members = [row_to_dict(row) for row in member_rows]
+    ungranted = sorted(
+        (m for m in members if not m.get("last_bulk_grant_at")),
+        key=lambda m: str(m.get("created_at") or ""),
+        reverse=True,
+    )
+    return {
+        "active_total": len(members),
+        "granted_total": len(members) - len(ungranted),
+        "ungranted": ungranted,
+        "batches": [row_to_dict(row) for row in batch_rows],
+    }
+
+
 def list_payment_events(limit: int = 50) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
@@ -1547,13 +2130,17 @@ def list_payment_events(limit: int = 50) -> list[dict]:
 
 
 def record_payment_event(*, order_no: str, provider: str, event_type: str, payload: dict) -> None:
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    # 纵深防御：回调参数本应很小；异常超大 payload 不整段入库，避免单行膨胀（调用方已在验签后才写）。
+    if len(payload_json) > 8000:
+        payload_json = json.dumps({"_truncated": True, "len": len(payload_json)}, ensure_ascii=False)
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO payment_events(order_no, provider, event_type, payload_json, created_at)
             VALUES(?, ?, ?, ?, ?)
             """,
-            (order_no, provider, event_type, json.dumps(payload, ensure_ascii=False), utc_now_text()),
+            (order_no, provider, event_type, payload_json, utc_now_text()),
         )
         conn.commit()
 
@@ -1565,18 +2152,23 @@ def record_site_activity(
     day: str,
     feature: str,
     path: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
 ) -> None:
     now = utc_now_text()
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO site_activity(
-                session_key, user_id, day, feature, path, request_count, created_at, last_seen_at
+                session_key, user_id, day, feature, path, client_ip, user_agent,
+                request_count, created_at, last_seen_at
             )
-            VALUES(?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ON CONFLICT(session_key, day, feature) DO UPDATE SET
                 user_id=COALESCE(excluded.user_id, site_activity.user_id),
                 path=excluded.path,
+                client_ip=COALESCE(NULLIF(excluded.client_ip, ''), site_activity.client_ip),
+                user_agent=COALESCE(NULLIF(excluded.user_agent, ''), site_activity.user_agent),
                 request_count=site_activity.request_count + 1,
                 last_seen_at=excluded.last_seen_at
             """,
@@ -1586,6 +2178,8 @@ def record_site_activity(
                 (day or china_day_text()).strip(),
                 (feature or "site").strip()[:40],
                 (path or "").strip()[:240],
+                (client_ip or "").strip()[:80],
+                (user_agent or "").strip()[:500],
                 now,
                 now,
             ),
@@ -1845,6 +2439,86 @@ def list_reader_anomaly_visitors(*, day: str, limit: int = 30) -> list[dict]:
     return anomalies[: max(1, int(limit))]
 
 
+def list_reader_ip_pool_burst_candidates(
+    *,
+    day: str,
+    ip_min: int = 80,
+    request_min: int = 120,
+    path_min: int = 60,
+    window_minutes: int = 15,
+    limit: int = 1000,
+) -> list[dict]:
+    """Find anonymous rotating-IP bursts that share one UA in a short time window.
+
+    This catches the "IP pool" pattern where each address only requests a few pages,
+    so per-IP anomaly thresholds are not enough, but the synchronized group is obvious.
+    """
+    day_value = (day or china_day_text()).strip()
+    ip_threshold = max(2, int(ip_min or 0))
+    request_threshold = max(2, int(request_min or 0))
+    path_threshold = max(1, int(path_min or 0))
+    window = min(60, max(1, int(window_minutes or 1)))
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            WITH events AS (
+                SELECT
+                    *,
+                    substr(created_at, 1, 13) || ':' ||
+                        printf('%02d', (CAST(substr(created_at, 15, 2) AS INTEGER) / ?) * ?) AS window_start
+                FROM reader_access_events
+                WHERE day = ?
+                  AND actor_type = 'ip'
+                  AND user_id IS NULL
+                  AND TRIM(client_ip) != ''
+                  AND TRIM(user_agent) != ''
+            ),
+            pool_groups AS (
+                SELECT
+                    window_start,
+                    user_agent,
+                    COUNT(*) AS pool_request_count,
+                    COUNT(DISTINCT client_ip) AS pool_ip_count,
+                    COUNT(DISTINCT path) AS pool_path_count
+                FROM events
+                GROUP BY window_start, user_agent
+                HAVING pool_ip_count >= ?
+                   AND pool_request_count >= ?
+                   AND pool_path_count >= ?
+            )
+            SELECT
+                e.client_ip,
+                MAX(e.user_agent) AS user_agent,
+                COUNT(*) AS request_count,
+                MAX(g.window_start) AS window_start,
+                ? AS window_minutes,
+                MAX(g.pool_request_count) AS pool_request_count,
+                MAX(g.pool_ip_count) AS pool_ip_count,
+                MAX(g.pool_path_count) AS pool_path_count,
+                MIN(e.created_at) AS first_seen_at,
+                MAX(e.created_at) AS last_seen_at
+            FROM events e
+            JOIN pool_groups g
+              ON g.window_start = e.window_start
+             AND g.user_agent = e.user_agent
+            GROUP BY e.client_ip
+            ORDER BY pool_request_count DESC, request_count DESC, e.client_ip ASC
+            LIMIT ?
+            """,
+            (
+                window,
+                window,
+                day_value,
+                ip_threshold,
+                request_threshold,
+                path_threshold,
+                window,
+                max(1, int(limit)),
+            ),
+        ).fetchall()
+    return [row_to_dict(row) for row in rows]
+
+
 def list_reader_access_events(*, actor_key: str, day: str | None = None, limit: int = 120) -> list[dict]:
     params: list[object] = [(actor_key or "").strip()]
     where = "WHERE actor_key = ?"
@@ -1921,14 +2595,32 @@ def record_ai_usage(
         conn.commit()
 
 
+def _exclude_features_clause(exclude_features: Sequence[str] | None) -> tuple[str, list[object]]:
+    """把「不计入统计的功能」译成 SQL 片段。
+
+    用于「无限量基础服务」（如马克思形象）：这些调用照常写入 ai_usage 供后台审计与总览，
+    但不该占用用户的 AI 额度池，故只在**额度**统计里排除，后台用量总览仍统计全部。
+    """
+    names = [str(f).strip() for f in (exclude_features or []) if str(f).strip()]
+    if not names:
+        return "", []
+    placeholders = ",".join("?" for _ in names)
+    return f" AND feature NOT IN ({placeholders})", list(names)
+
+
 def get_ai_token_usage(
     *,
     day: str | None = None,
     user_id: int | None = None,
     session_key: str = "",
     provider: str = "",
+    exclude_features: Sequence[str] | None = None,
+    since_created_at: str = "",
 ) -> int:
-    """当日估算 token 用量合计。provider 非空时仅统计该通道（如 \"zhipu\"），用于通道级子配额。"""
+    """当日估算 token 用量合计。provider 非空时仅统计该通道（如 \"zhipu\"），用于通道级子配额。
+    exclude_features 非空时排除这些 feature（额度统计用，见 _exclude_features_clause）。
+    since_created_at（UTC ISO，与 created_at 同格式）非空时只统计该时刻之后的记录——后台
+    「重置 AI 额度」用它把已用量归零，既不删审计明细、也不改任何额度配置。"""
     day_value = (day or china_day_text()).strip()
     provider_value = (provider or "").strip()
     where = "WHERE day = ?"
@@ -1942,6 +2634,13 @@ def get_ai_token_usage(
     if provider_value:
         where += " AND provider = ?"
         params.append(provider_value)
+    exclude_sql, exclude_params = _exclude_features_clause(exclude_features)
+    where += exclude_sql
+    params.extend(exclude_params)
+    since_value = (since_created_at or "").strip()
+    if since_value:
+        where += " AND created_at >= ?"
+        params.append(since_value)
     with _connect() as conn:
         value = conn.execute(
             f"SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage {where}",
@@ -1957,10 +2656,15 @@ def get_ai_token_usage_range(
     user_id: int | None = None,
     session_key: str = "",
     provider: str = "",
+    exclude_features: Sequence[str] | None = None,
+    since_created_at: str = "",
 ) -> int:
     """日期区间内估算 token 用量合计（day 为 YYYY-MM-DD 文本，按字典序闭区间）。
 
     用于「每周」额度统计：每日额度是软上限，本周累计封顶才是硬上限（弹性借用）。
+    exclude_features 非空时排除这些 feature（额度统计用，见 _exclude_features_clause）。
+    since_created_at（UTC ISO）非空时只统计该时刻之后的记录，供后台「重置本周 AI 额度」使用：
+    把本周已用量归零、恢复满额，不删 ai_usage 审计明细、不改分档额度配置。
     """
     start_value = (start_day or "").strip()
     end_value = (end_day or "").strip()
@@ -1977,6 +2681,13 @@ def get_ai_token_usage_range(
     if (provider or "").strip():
         where += " AND provider = ?"
         params.append((provider or "").strip())
+    exclude_sql, exclude_params = _exclude_features_clause(exclude_features)
+    where += exclude_sql
+    params.extend(exclude_params)
+    since_value = (since_created_at or "").strip()
+    if since_value:
+        where += " AND created_at >= ?"
+        params.append(since_value)
     with _connect() as conn:
         value = conn.execute(
             f"SELECT COALESCE(SUM(total_tokens), 0) FROM ai_usage {where}",
@@ -2289,8 +3000,9 @@ def get_admin_dashboard_metrics(
             "disabled_users": scalar(
                 "SELECT COUNT(*) FROM users WHERE is_active = 0 OR deactivated_at != ''"
             ),
-            # 在线去重：先把“同一会话曾登录过的访客行”归并到其账号，避免登录前后被
-            # 算成两个访问者（访客一次 + 注册一次）。再按账号/会话去重计数。
+            # 在线去重：登录用户按账号归并；匿名访客使用入库时解析好的去重键。
+            # 有 cookie 的真实回访浏览器仍按会话计；无 cookie 的脚本按真实 IP 计，
+            # 避免“每请求一个新 cookie/新会话”把总览在线数刷高。
             "current_online": scalar(
                 """
                 SELECT COUNT(DISTINCT CASE
@@ -2457,6 +3169,7 @@ def get_admin_dashboard_metrics(
                AND s.status = 'active'
                AND s.starts_at < ?
                AND s.expires_at > ?
+            WHERE p.kind != 'donation'
             GROUP BY p.code, p.name
             ORDER BY p.sort_order ASC, p.code ASC
             """,

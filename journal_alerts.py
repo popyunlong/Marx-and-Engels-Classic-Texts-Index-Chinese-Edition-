@@ -63,6 +63,10 @@ DEFAULT_ALERT_SETTINGS = {
     "automation_paused": False,
     # 归档的旧批次文章是否在下次采集时硬删除（默认仅归档保留）。
     "hard_delete_archived": False,
+    # 单期发布上限：每期综述最多纳入多少篇文章（中英搭配）。超出的转入 deferred 待办，
+    # 由后续各批次按此上限逐周释放，避免一次性涌入（如国内中继首次全量投递）压垮综述生成；
+    # 顺延的文章不会丢弃。0=不限（全部纳入本期）。
+    "weekly_release_cap": 45,
     # 综述专用模型（留空=沿用 ai.override.yaml 的运行时生效模型，自动适配 flash/pro）。
     "review_model": "",
     # 定时自动发送的默认受众：subscribers（邮箱订阅者，按权限）/ members（付费会员）/ registered（全部注册用户）。
@@ -382,6 +386,12 @@ def normalize_alert_settings(raw: dict | None = None) -> dict:
                 if key in raw:
                     try:
                         values[key] = max(1, min(365, int(raw[key])))
+                    except (TypeError, ValueError):
+                        pass
+            elif key == "weekly_release_cap":
+                if key in raw:
+                    try:
+                        values[key] = max(0, min(1000, int(raw[key])))
                     except (TypeError, ValueError):
                         pass
             elif key in raw:
@@ -1368,6 +1378,127 @@ def batch_articles(digest_id: int, statuses: tuple[str, ...] | None = None) -> l
     return [_article_row(row) for row in rows]
 
 
+# ----------------------------------------------------------------------------
+# 单期发布上限与顺延（deferred）待办：把一次涌入的大量文章按每期上限逐周释放
+# ----------------------------------------------------------------------------
+# 「中英搭配」：英文文章通常稀缺，充足时至多占单期上限的这个比例，其余名额给中文。
+_RELEASE_EN_SHARE = 0.4
+
+
+def count_deferred_articles() -> int:
+    """当前顺延（deferred）待办的文章数——尚未纳入任何一期、等待后续批次逐步释放。"""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM journal_articles WHERE status = 'deferred'"
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def _release_language_bucket(article: dict) -> str:
+    return "en" if str(article.get("language") or "").lower().startswith("en") else "zh"
+
+
+def _roundrobin_by_journal(articles: list[dict], quota: int) -> list[dict]:
+    """按期刊分组轮转取前 quota 篇：先各家取第 1 篇、再各家取第 2 篇……把来源铺开，
+    避免某一家期刊刷屏，并自然铺开学科分布。同期刊内按 first_seen_at/id 升序（最早入库优先，
+    保证顺延的旧文最终会被释放）。刊名排序固定，选取结果可复现（便于测试）。"""
+    if quota <= 0 or not articles:
+        return []
+    if quota >= len(articles):
+        return list(articles)
+    groups: dict[str, list[dict]] = {}
+    for a in sorted(articles, key=lambda x: (str(x.get("first_seen_at") or ""), int(x.get("id") or 0))):
+        groups.setdefault(str(a.get("journal_name") or ""), []).append(a)
+    order = sorted(groups)
+    out: list[dict] = []
+    col = 0
+    while len(out) < quota:
+        progressed = False
+        for journal in order:
+            bucket = groups[journal]
+            if col < len(bucket):
+                out.append(bucket[col])
+                progressed = True
+                if len(out) >= quota:
+                    break
+        if not progressed:
+            break
+        col += 1
+    return out[:quota]
+
+
+def _select_release_articles(pool: list[dict], cap: int) -> tuple[list[dict], list[dict]]:
+    """从候选池挑选一期要发布的文章（中英搭配 + 按期刊轮转铺开），返回 (选中, 顺延)。
+
+    - 英文稀缺，优先保证「中英搭配」：英文至多占 cap*_RELEASE_EN_SHARE（不足则全收），
+      其余名额给中文；任一语种不足时名额回补给另一语种。
+    - 同语种内按期刊轮转挑选（见 _roundrobin_by_journal）。
+    - cap<=0 或池内不超上限：全部选中、无顺延。
+    """
+    if cap <= 0 or len(pool) <= cap:
+        return list(pool), []
+    en = [a for a in pool if _release_language_bucket(a) == "en"]
+    zh = [a for a in pool if _release_language_bucket(a) == "zh"]
+    en_quota = min(len(en), max(0, round(cap * _RELEASE_EN_SHARE)))
+    zh_quota = cap - en_quota
+    if zh_quota > len(zh):  # 中文不足，名额回补英文
+        en_quota = min(len(en), cap - len(zh))
+        zh_quota = len(zh)
+    selected = _roundrobin_by_journal(en, en_quota) + _roundrobin_by_journal(zh, zh_quota)
+    selected_ids = {int(a["id"]) for a in selected}
+    deferred = [a for a in pool if int(a["id"]) not in selected_ids]
+    return selected, deferred
+
+
+def apply_release_cap(batch_id: int, settings: dict | None = None) -> dict:
+    """把本批次在办文章 + 历史顺延（deferred）文章合池，按每期上限挑一批纳入本期，
+    其余转入 deferred 待后续批次释放。返回统计 {selected, deferred, backlog_remaining, cap}。
+
+    即便某次采集一次性涌入大量文章（如国内中继首次全量投递），单期综述体量也可控、生成稳定，
+    且没有任何文章被丢弃——顺延的会在后续各期按上限逐步释放。deferred 文章仍在库中，
+    因此去重（_article_seen_before）照常生效，不会被源站重复采回。"""
+    settings = settings or load_alert_settings()
+    cap = int(settings.get("weekly_release_cap") or 0)
+    auto_approve = bool(settings.get("auto_approve_articles") or settings.get("auto_publish_all"))
+    now = utc_now_text()
+    with _connect() as conn:
+        active_rows = conn.execute(
+            "SELECT * FROM journal_articles WHERE batch_id = ? AND status IN ('ready', 'pending_review') "
+            "ORDER BY first_seen_at ASC, id ASC",
+            (int(batch_id),),
+        ).fetchall()
+        backlog_rows = conn.execute(
+            "SELECT * FROM journal_articles WHERE status = 'deferred' ORDER BY first_seen_at ASC, id ASC"
+        ).fetchall()
+    pool = [_article_row(r) for r in active_rows] + [_article_row(r) for r in backlog_rows]
+    selected, deferred = _select_release_articles(pool, cap)
+    selected_ids = {int(a["id"]) for a in selected}
+    deferred_ids = {int(a["id"]) for a in deferred}
+    with _connect() as conn:
+        for a in selected:
+            cur_status = str(a.get("status") or "")
+            # 顺延释放/新纳入：auto_approve 直接 ready，否则待审；已在办的保持原态。
+            new_status = cur_status if cur_status in ("ready", "pending_review") else (
+                "ready" if auto_approve else "pending_review"
+            )
+            conn.execute(
+                "UPDATE journal_articles SET status = ?, batch_id = ?, updated_at = ? WHERE id = ?",
+                (new_status, int(batch_id), now, int(a["id"])),
+            )
+        for aid in deferred_ids:
+            conn.execute(
+                "UPDATE journal_articles SET status = 'deferred', batch_id = NULL, updated_at = ? WHERE id = ?",
+                (now, int(aid)),
+            )
+        conn.commit()
+    return {
+        "selected": len(selected_ids),
+        "deferred": len(deferred_ids),
+        "backlog_remaining": count_deferred_articles(),
+        "cap": cap,
+    }
+
+
 # 可对外（含 PDF 下载）开放的文章状态：已发布/审核预览/已归档（旧邮件链接仍可用），
 # 排除草稿态（待翻译）与人工忽略，避免越权枚举未发布稿件。
 _PUBLIC_ARTICLE_STATUSES = ("ready", "pending_review", "archived")
@@ -1436,6 +1567,12 @@ def _urlopen_json(url: str) -> dict:
 
 
 def _urlopen_text(url: str, user_agent: str = USER_AGENT) -> str:
+    return _urlopen_text_final(url, user_agent)[0]
+
+
+def _urlopen_text_final(url: str, user_agent: str = USER_AGENT) -> tuple[str, str]:
+    """返回 (正文, 最终 URL)。最终 URL 用于识别「被 302 重定向到别处」的软失败
+    （如 NCPSSD 对境外 IP 把期刊详情页重定向回首页——正文是首页 HTML，解析必然空手）。"""
     req = urllib.request.Request(
         url,
         headers={
@@ -1444,7 +1581,147 @@ def _urlopen_text(url: str, user_agent: str = USER_AGENT) -> str:
         },
     )
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_SECONDS) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+        return resp.read().decode("utf-8", errors="replace"), str(resp.geturl() or url)
+
+
+# ====== 国内采集中继（journal relay） ======
+# 背景：NCPSSD 等国内学术站自 2026-06 起对境外/机房 IP 实施访问拦截（详情页 302 回首页、
+# 连接重置），生产服务器（境外）无法直接抓取中文刊。解法＝站长的国内机器定时跑
+# scripts/journal_relay_push.py 抓取全部中文网页源，把「fetch_source_articles 同构的文章
+# 字典」打包成 JSON 推到服务器本文件路径；服务器采集时对 web_html 源**中继优先**：
+# 中继里有该源且足够新鲜 → 直接采用（零外网请求）；否则回退直抓（并对 NCPSSD 重定向
+# 显式报错，不再静默空手）。批次/去重/时间窗/翻译/审核等管线完全不变。
+RELAY_PATH = APPDATA_DIR / "journal_relay.json"
+RELAY_MAX_AGE_DAYS = max(1, int(os.environ.get("MARX_JOURNAL_RELAY_MAX_AGE_DAYS", "10") or "10"))
+# 中继超过该天数未更新时，采集轮在 run 错误里附一条提醒（不影响成功状态判定的 warning 级）。
+RELAY_STALE_WARN_DAYS = 3
+
+_RELAY_CACHE: dict[str, Any] = {"mtime": None, "payload": None}
+
+
+def _load_relay_payload() -> dict:
+    """读中继 JSON（按 mtime 缓存）。缺文件/坏 JSON 一律返回空 dict——回退直抓路径。"""
+    try:
+        mtime = RELAY_PATH.stat().st_mtime
+    except OSError:
+        return {}
+    if _RELAY_CACHE["mtime"] == mtime and isinstance(_RELAY_CACHE["payload"], dict):
+        return _RELAY_CACHE["payload"]
+    try:
+        payload = json.loads(RELAY_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    _RELAY_CACHE["mtime"] = mtime
+    _RELAY_CACHE["payload"] = payload
+    return payload
+
+
+def _relay_entry_age_days(entry: dict) -> float | None:
+    fetched = _parse_utc(str(entry.get("fetched_at") or ""))
+    if fetched is None:
+        return None
+    return max(0.0, (utc_now() - fetched).total_seconds() / 86400.0)
+
+
+def relay_generated_age_days() -> float | None:
+    """整包中继的年龄（天）；无中继返回 None。供采集轮附「中继过旧」提醒。"""
+    payload = _load_relay_payload()
+    generated = _parse_utc(str(payload.get("generated_at") or ""))
+    if generated is None:
+        return None
+    return max(0.0, (utc_now() - generated).total_seconds() / 86400.0)
+
+
+def relay_status() -> dict:
+    """控制台「中文源中继」状态卡数据。
+
+    中英文采集/发送本就在同一批次里统一进行（collect_batch 一次跑全部来源：中文网页源
+    经国内中继、英文源直采 OpenAlex/Crossref；发送按批次群发不分语种）。这里只汇报中继
+    侧健康度：文件年龄、覆盖多少源多少篇、哪些启用中的中文源缺中继（采集时会回退直抓，
+    在境外服务器上必失败）——让管理员在控制台一眼看清，不用登服务器查文件。"""
+    payload = _load_relay_payload()
+    raw_sources = payload.get("sources")
+    sources_map: dict = raw_sources if isinstance(raw_sources, dict) else {}
+    age = relay_generated_age_days()
+    source_count = 0
+    article_count = 0
+    for entry in sources_map.values():
+        if not isinstance(entry, dict):
+            continue
+        n = len(entry.get("articles") or [])
+        if n:
+            source_count += 1
+            article_count += n
+    # 启用中的中文网页源里，在中继中缺失/为空/过期的（这些源采集时将回退直抓并报错）
+    uncovered: list[str] = []
+    try:
+        for s in list_journal_sources(limit=200):
+            if (
+                s.get("language") != "zh"
+                or str(s.get("source_type") or "") != "web_html"
+                or not int(s.get("is_enabled") or 0)
+            ):
+                continue
+            name = str(s.get("name") or "")
+            entry = sources_map.get(name)
+            entry_age = _relay_entry_age_days(entry) if isinstance(entry, dict) else None
+            n = len((entry or {}).get("articles") or []) if isinstance(entry, dict) else 0
+            if not n or entry_age is None or entry_age > RELAY_MAX_AGE_DAYS:
+                uncovered.append(name)
+    except Exception:  # noqa: BLE001 — 状态卡绝不因查询问题弄崩控制台
+        pass
+    return {
+        "present": bool(sources_map),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "age_days": age,
+        "stale": bool(age is not None and age > RELAY_STALE_WARN_DAYS),
+        "expired": bool(age is None or age > RELAY_MAX_AGE_DAYS),
+        "source_count": source_count,
+        "article_count": article_count,
+        "uncovered": uncovered,
+        "max_age_days": RELAY_MAX_AGE_DAYS,
+        "stale_warn_days": RELAY_STALE_WARN_DAYS,
+    }
+
+
+def _fetch_from_relay(source: dict) -> list[dict] | None:
+    """中继里有该源的新鲜数据则返回文章列表；否则 None（走直抓）。
+
+    文章字典与 fetch_source_articles 直抓产物同构；journal_name/language/requires_review
+    以**服务器侧**来源配置为准重算（管理员在控制台改过可信/自动发送开关时不被本地配置盖掉）。
+    """
+    payload = _load_relay_payload()
+    sources = payload.get("sources")
+    if not isinstance(sources, dict):
+        return None
+    entry = sources.get(str(source.get("name") or ""))
+    if not isinstance(entry, dict):
+        return None
+    age = _relay_entry_age_days(entry)
+    if age is None or age > RELAY_MAX_AGE_DAYS:
+        return None
+    raw_articles = entry.get("articles")
+    if not isinstance(raw_articles, list):
+        return None
+    requires_review = (
+        str(source.get("source_type") or "").lower() == "web_html"
+        and not bool(_source_config(source).get("auto_publish"))
+    )
+    articles: list[dict] = []
+    for item in raw_articles:
+        if not isinstance(item, dict) or not str(item.get("title") or "").strip():
+            continue
+        art = dict(item)
+        art["journal_name"] = source.get("name") or art.get("journal_name") or ""
+        art["language"] = source.get("language") or art.get("language") or "zh"
+        art["requires_review"] = requires_review
+        meta = art.get("metadata")
+        art["metadata"] = dict(meta) if isinstance(meta, dict) else {}
+        art["metadata"]["relayed"] = True
+        articles.append(art)
+    return articles
 
 
 def fetch_source_articles(source: dict, lookback_days: int | None = None) -> list[dict]:
@@ -1457,6 +1734,9 @@ def fetch_source_articles(source: dict, lookback_days: int | None = None) -> lis
     if source_type == "rss":
         return _fetch_rss(source)
     if source_type == "web_html":
+        relayed = _fetch_from_relay(source)
+        if relayed is not None:
+            return relayed
         return _fetch_web_html(source)
     return []
 
@@ -1491,9 +1771,17 @@ def _fetch_web_html(source: dict) -> list[dict]:
     errors: list[str] = []
     for url in urls:
         try:
-            text = _urlopen_text(url, user_agent=BROWSER_USER_AGENT)
+            text, final_url = _urlopen_text_final(url, user_agent=BROWSER_USER_AGENT)
         except Exception as exc:
             errors.append(f"{url}: {exc}")
+            continue
+        if parser == "ncpssd_journal" and "journal/details" in url and "journal/details" not in final_url:
+            # NCPSSD 对境外/机房 IP 把详情页 302 重定向回首页：正文是首页 HTML，解析必然
+            # 0 篇。旧行为静默空手（控制台看着一切正常），现在显式报错让 last_error 说人话。
+            errors.append(
+                f"{url}: NCPSSD 把详情页重定向到 {final_url}（境外 IP 访问拦截）——"
+                "需依赖国内中继采集（journal_relay），请检查站长本机的中继推送任务是否在跑"
+            )
             continue
         if parser == "ncpssd_journal":
             articles = _parse_ncpssd_journal_html(text, source, url)
@@ -2385,6 +2673,21 @@ def upsert_article(
     return _article_row(existing), False
 
 
+def _article_seen_before(source: dict, article: dict) -> bool:
+    """该文章（按 dedupe_key）是否已在库中。供占位日期文章的「只收新文」窗口分支使用。"""
+    normalized = {
+        **article,
+        "journal_name": article.get("journal_name") or source.get("name") or "",
+        "language": article.get("language") or source.get("language") or "zh",
+        "authors": article.get("authors") or [],
+    }
+    key = _dedupe_key(normalized)
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT 1 FROM journal_articles WHERE dedupe_key = ?", (key,)
+        ).fetchone() is not None
+
+
 def _is_placeholder_pub_date(value: str, ncpssd_id: Any = None) -> bool:
     """判断 published_at 是否为「占位/不可靠」日期：空、仅年份、或 NCPSSD 列表写入的 YYYY-01-01。"""
     text = str(value or "").strip()
@@ -2582,7 +2885,8 @@ def _plain_to_html(text: str) -> str:
 
 
 def _markdown_to_html(text: str) -> str:
-    """轻量 Markdown→HTML：支持 #-###### 标题、有序/无序列表、> 引用、空行分段、**加粗**、*斜体*、`代码`。
+    """轻量 Markdown→HTML：支持 #-###### 标题、有序/无序列表、> 引用、空行分段、**加粗**、*斜体*、
+    `代码`、![图片](https://…)、[链接](https://…)（图片/链接仅接受 http(s) 绝对地址）。
 
     输出干净语义标签，配合模板中的 .msg-body 样式（与阅读器「AI 讲解」一致）美化呈现。无第三方依赖。
     """
@@ -2605,6 +2909,19 @@ def _markdown_to_html(text: str) -> str:
 
     def inline(s: str) -> str:
         escaped = html.escape(s)
+        # 图片/链接先于加粗斜体替换，生成的标签属性里不会再被后续正则改写。
+        # 仅接受 http(s) 绝对地址（html.escape 已把引号转义，属性注入不可行）。
+        escaped = re.sub(
+            r"!\[([^\]]*)\]\((https?://[^)\s]+)\)",
+            r'<img src="\2" alt="\1" style="max-width:100%;height:auto;display:block;'
+            r'margin:10px auto;border:1px solid #e7dccb;border-radius:10px">',
+            escaped,
+        )
+        escaped = re.sub(
+            r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+            r'<a href="\2" style="color:#8f1d1d;font-weight:600">\1</a>',
+            escaped,
+        )
         escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
         escaped = re.sub(r"(?<![\*\w])\*(?!\s)(.+?)(?<!\s)\*(?![\*\w])", r"<em>\1</em>", escaped)
         escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
@@ -2888,14 +3205,22 @@ def collect_batch(
                         if detail_cache and detail_cache.get("published_at"):
                             article["published_at"] = detail_cache["published_at"]
                     # 窗口判断：能解析到具体日期则严格比较；只到年份/未知则仅保留不早于窗口起始年的。
+                    # NCPSSD 的日期天然只有年精度（列表与详情接口都只给年份 → YYYY-01-01 占位），
+                    # 严格比较会把它们全部滤掉（7 天窗口 vs 1 月 1 日）——2026-07 实测正是如此。
+                    # 占位日期改按「年份粗滤 + 只收库里没见过的新文章」：新文照收，且当期目录
+                    # 长期驻留的旧文不会每周重浮进批次。
                     bound = _pub_date_bound(article.get("published_at"))
-                    if bound is not None:
+                    placeholder = _is_placeholder_pub_date(article.get("published_at"), ncpssd_id)
+                    if bound is not None and not placeholder:
                         if bound < cutoff_dt:
                             filtered_out += 1
                             continue
                     else:
                         year_match = re.match(r"^(\d{4})", str(article.get("published_at") or ""))
                         if year_match and int(year_match.group(1)) < cutoff_dt.year:
+                            filtered_out += 1
+                            continue
+                        if placeholder and _article_seen_before(source, article):
                             filtered_out += 1
                             continue
                     row, created = upsert_article(
@@ -2926,10 +3251,31 @@ def collect_batch(
                 errors.append(f"{source.get('name')}: {exc}")
                 _mark_source_checked(int(source["id"]), str(exc))
         # 回填历史遗留、仍缺摘要的中文文章（独立预算）。
+        # 中继模式下跳过：回填要直连 NCPSSD 详情接口，境外服务器必失败（徒增错误噪音）；
+        # 新文章的摘要/真实日期已由国内中继在推送前补全。
+        relay_age = relay_generated_age_days()
+        if relay_age is None or relay_age > RELAY_MAX_AGE_DAYS:
+            try:
+                backfill_ncpssd_abstracts(NCPSSD_ENRICH_PER_RUN)
+            except Exception as exc:
+                errors.append(f"abstract-backfill: {exc}")
+        if relay_age is not None and relay_age > RELAY_STALE_WARN_DAYS:
+            errors.append(
+                f"journal-relay: 国内中继数据已 {relay_age:.1f} 天未更新"
+                f"（超过 {RELAY_MAX_AGE_DAYS} 天将失效回退直抓）——请检查站长本机的定时推送任务"
+            )
+        # 单期发布上限：把本批在办文章 + 历史顺延文章按上限挑一批纳入本期，其余顺延后续批次。
+        # 放在综述生成之前，确保综述只面对可控体量（避免中继首次全量投递等一次性涌入压垮生成）。
         try:
-            backfill_ncpssd_abstracts(NCPSSD_ENRICH_PER_RUN)
+            cap_result = apply_release_cap(batch_id, settings)
+            if cap_result.get("deferred") or cap_result.get("backlog_remaining"):
+                errors.append(
+                    f"release-cap: 本期纳入 {cap_result['selected']} 篇，"
+                    f"另有 {cap_result['backlog_remaining']} 篇顺延，后续批次按每期上限逐步释放"
+                )
         except Exception as exc:
-            errors.append(f"abstract-backfill: {exc}")
+            errors.append(f"release-cap: {exc}")
+
         # 自动生成综述：auto_generate_review 或 auto_send 任一开启即生成（auto_send 隐含需要综述）。
         # auto_send 时连带自动批准综述，从而发送日定时器可直接群发，实现全流程自动化。
         want_review = settings.get("auto_generate_review") or settings.get("auto_send")

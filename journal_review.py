@@ -88,6 +88,10 @@ DISCLAIMER = (
 _CLASSIFY_CHUNK = 10
 _CLASSIFY_MIN_SUBCHUNK = 3
 _ABSTRACT_CLIP = 320
+# 单个学科每类（经典/前沿）送 AI 撰写正文的篇数上限：防止某学科文章过多时，单次调用输入
+# 过大导致综述生成超时/返回空/被截断。超出部分不进正文评述，但仍 100% 保留在文末引文里
+# （引文块独立于此，见 _citation_block）。正常单期发布上限下极少触发，作为稳健性兜底。
+_REVIEW_MAX_PER_TYPE = 16
 
 
 def build_literature_review(
@@ -187,6 +191,11 @@ def _chat(client: Any, system: str, user: str, max_tokens: int) -> str:
     raw = client.chat_complete(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         max_tokens=max_tokens,
+        # 关键防泄漏：deepseek-v4-pro 是推理模型，content 偶尔空（推理吃光 token 预算）。
+        # 该参数今已废弃——chat_complete 在任何情况下都不再把 reasoning_content 当正文返回，
+        # 而是关掉思考重试一次，仍拿不到正文才报错，由 _review_one_discipline 的 try/except
+        # 走确定性兜底（_fallback_discipline_body）。这里保留传参只为显式表态：绝不泄漏思考。
+        allow_reasoning_fallback=False,
     )
     return _strip_thinking(raw)
 
@@ -411,9 +420,13 @@ def _review_one_discipline(
     if not _client_enabled(client):
         return _fallback_discipline_body(classic, frontier, ref_by_id)
 
+    # 稳健性兜底：每类最多送 _REVIEW_MAX_PER_TYPE 篇给 AI 撰写正文，避免单次输入过大而超时/空返；
+    # 超出部分（extra_*）不进正文评述，但仍完整保留在文末引文，并在小节末尾提示读者去引文查看。
+    classic_used, classic_extra = classic[:_REVIEW_MAX_PER_TYPE], classic[_REVIEW_MAX_PER_TYPE:]
+    frontier_used, frontier_extra = frontier[:_REVIEW_MAX_PER_TYPE], frontier[_REVIEW_MAX_PER_TYPE:]
     briefs = {
-        "经典问题": [_article_brief(a, ref_by_id.get(int(a["id"]))) for a in classic],
-        "前沿问题": [_article_brief(a, ref_by_id.get(int(a["id"]))) for a in frontier],
+        "经典问题": [_article_brief(a, ref_by_id.get(int(a["id"]))) for a in classic_used],
+        "前沿问题": [_article_brief(a, ref_by_id.get(int(a["id"]))) for a in frontier_used],
     }
     system = (
         "你是马克思主义理论学科的资深综述作者，正在为一篇期刊文献综述撰写其中一个学科小节。\n\n"
@@ -441,12 +454,23 @@ def _review_one_discipline(
         + json.dumps(briefs, ensure_ascii=False)
     )
     try:
-        text = _trim_to_first_heading(_chat(client, system, user, max_tokens=2200).strip())
+        # 推理模型下 content 与 reasoning 共享 max_tokens 预算：给足额度，避免推理吃光后 content 空返
+        # 触发兜底（背景线程生成、已与 CF 100s 解耦，可放宽）。2200→6000。
+        text = _trim_to_first_heading(_chat(client, system, user, max_tokens=6000).strip())
         if text:
-            return text
+            return text + _extra_refs_note(classic_extra + frontier_extra, ref_by_id)
     except Exception:
         pass
     return _fallback_discipline_body(classic, frontier, ref_by_id)
+
+
+def _extra_refs_note(extra: list[dict], ref_by_id: dict[int, int]) -> str:
+    """某学科篇数超过单类上限、未进正文评述时，在小节末尾提示读者去文末引文查看（并列出序号）。"""
+    if not extra:
+        return ""
+    refs = sorted(r for r in (ref_by_id.get(int(a["id"])) for a in extra) if r)
+    ref_text = "".join(f"[{r}]" for r in refs)
+    return f"\n\n> 本领域本期另有 {len(extra)} 篇相关文献未在上文逐一评述，详见文末引文 {ref_text}。"
 
 
 def _trim_to_first_heading(text: str) -> str:

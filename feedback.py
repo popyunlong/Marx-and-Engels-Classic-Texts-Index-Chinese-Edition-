@@ -9,6 +9,8 @@ from runtime_env import APPDATA_DIR, secure_db_file
 
 DB_PATH = APPDATA_DIR / "feedback.sqlite3"
 
+_WAL_ENABLED = False
+
 
 def _connect() -> sqlite3.Connection:
     APPDATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -16,6 +18,15 @@ def _connect() -> sqlite3.Connection:
     secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # 并发反馈提交/送图须等锁而非立即 500：busy_timeout 等锁，WAL 提升读写并发（持久属性，设一次、失败静默回退）。
+    conn.execute("PRAGMA busy_timeout = 5000")
+    global _WAL_ENABLED
+    if not _WAL_ENABLED:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            _WAL_ENABLED = True
+        except sqlite3.Error:
+            pass
     return conn
 
 
@@ -75,6 +86,29 @@ def init_feedback_db() -> Path:
                 ON feedback_messages(thread_id, created_at ASC, id ASC);
             CREATE INDEX IF NOT EXISTS idx_feedback_attachments_message
                 ON feedback_attachments(message_id, id ASC);
+
+            -- 阅读器「页码报错」：读者在引文处一键上报「此处页码有误」，管理员后台可见 + 邮件提醒。
+            CREATE TABLE IF NOT EXISTS page_error_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reader TEXT NOT NULL DEFAULT '',          -- viewer(扫描) / liushi(流式) / wenku(文库)
+                book_title TEXT NOT NULL DEFAULT '',
+                volume_label TEXT NOT NULL DEFAULT '',
+                page TEXT NOT NULL DEFAULT '',
+                source_ref TEXT NOT NULL DEFAULT '',       -- source_file(扫描) 或 文档路径(流式)
+                citation_text TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                user_id INTEGER,
+                user_email TEXT NOT NULL DEFAULT '',
+                client_ip TEXT NOT NULL DEFAULT '',
+                user_agent TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',        -- open / resolved
+                report_count INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                last_reported_at TEXT NOT NULL DEFAULT '',
+                resolved_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_page_error_reports_status
+                ON page_error_reports(status, last_reported_at DESC, id DESC);
             """
         )
         conn.commit()
@@ -289,3 +323,113 @@ def get_attachment(attachment_id: int) -> dict | None:
             (int(attachment_id),),
         ).fetchone()
         return _row_to_dict(row)
+
+
+# ---------------------------------------------------------------------------
+# 阅读器「页码报错」：读者在引文处一键上报，管理员后台可见 + 邮件提醒
+# ---------------------------------------------------------------------------
+def create_page_error_report(
+    *,
+    reader: str,
+    book_title: str,
+    volume_label: str,
+    page: str,
+    source_ref: str,
+    citation_text: str,
+    note: str = "",
+    user_id: int | None = None,
+    user_email: str = "",
+    client_ip: str = "",
+    user_agent: str = "",
+) -> tuple[dict, bool]:
+    """记录一条页码报错。若同一 (reader, source_ref, page) 已有未处理报告，则累加计数、不新建，
+    返回 (报告, is_new)——is_new=True 才给管理员发邮件（同一页多人报错不刷屏）。"""
+    now = utc_now_text()
+    reader = str(reader or "")[:24]
+    source_ref = str(source_ref or "")[:500]
+    page = str(page or "")[:32]
+    with _connect() as conn:
+        existing = None
+        if source_ref and page:
+            existing = conn.execute(
+                """
+                SELECT * FROM page_error_reports
+                WHERE status = 'open' AND reader = ? AND source_ref = ? AND page = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (reader, source_ref, page),
+            ).fetchone()
+        if existing is not None:
+            conn.execute(
+                "UPDATE page_error_reports SET report_count = report_count + 1, last_reported_at = ? WHERE id = ?",
+                (now, int(existing["id"])),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM page_error_reports WHERE id = ?", (int(existing["id"]),)).fetchone()
+            return _row_to_dict(row) or {}, False
+        cur = conn.execute(
+            """
+            INSERT INTO page_error_reports(
+                reader, book_title, volume_label, page, source_ref, citation_text, note,
+                user_id, user_email, client_ip, user_agent, status, report_count, created_at, last_reported_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', 1, ?, ?)
+            """,
+            (
+                reader,
+                str(book_title or "")[:200],
+                str(volume_label or "")[:200],
+                page,
+                source_ref,
+                str(citation_text or "")[:600],
+                str(note or "")[:800],
+                (int(user_id) if user_id else None),
+                str(user_email or "")[:200],
+                str(client_ip or "")[:64],
+                str(user_agent or "")[:300],
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM page_error_reports WHERE id = ?", (int(cur.lastrowid),)).fetchone()
+        return _row_to_dict(row) or {}, True
+
+
+def list_page_error_reports(*, limit: int = 60, status: str | None = None) -> list[dict]:
+    with _connect() as conn:
+        if status:
+            rows = conn.execute(
+                """
+                SELECT * FROM page_error_reports WHERE status = ?
+                ORDER BY last_reported_at DESC, id DESC LIMIT ?
+                """,
+                (str(status), max(1, int(limit))),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM page_error_reports
+                ORDER BY (status = 'open') DESC, last_reported_at DESC, id DESC LIMIT ?
+                """,
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [_row_to_dict(row) or {} for row in rows]
+
+
+def count_open_page_error_reports() -> int:
+    with _connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM page_error_reports WHERE status = 'open'").fetchone()
+        return int(row["n"]) if row else 0
+
+
+def set_page_error_report_status(report_id: int, status: str) -> bool:
+    """把一条页码报错标记为 resolved / open。"""
+    status = "resolved" if str(status) == "resolved" else "open"
+    now = utc_now_text()
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE page_error_reports SET status = ?, resolved_at = ? WHERE id = ?",
+            (status, (now if status == "resolved" else ""), int(report_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0

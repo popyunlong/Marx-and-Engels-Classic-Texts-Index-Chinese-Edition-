@@ -4,14 +4,16 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "journal_alerts", "ai", "search_chat", "associative", "research", "ai_web")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "ai", "search_chat", "associative", "research", "ai_web")
 FEATURE_ACCESS_LABELS = {
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
     "dictionary": "马克思主义大辞典",
     "static_library": "原文文库",
+    "stream_reading": "流式阅读",
     "journal_alerts": "期刊提醒",
+    "notes": "笔记与知识库",
     "ai": "AI 导学（阅读器）",
     "search_chat": "AI 随心问",
     "associative": "联想检索",
@@ -25,7 +27,9 @@ FEATURE_ACCESS_HINTS = {
     "library": "独立阅读器逐卷阅读",
     "dictionary": "马克思主义大辞典查词",
     "static_library": "中外文原著文库",
+    "stream_reading": "《马克思恩格斯文集》网页适配阅读",
     "journal_alerts": "期刊订阅与提醒",
+    "notes": "阅读器记笔记 + 「我的知识库」跨书聚合",
     "ai": "阅读器内 AI 导学讲解",
     "search_chat": "首页右下「AI 随心问」对话",
     "associative": "凭大意/残句定位特定原文",
@@ -34,7 +38,7 @@ FEATURE_ACCESS_HINTS = {
 }
 # 控制台权限分组：把同类功能聚到一张子表里，避免十余项平铺难辨。每个键必须且只属于一组。
 FEATURE_ACCESS_GROUPS = (
-    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "journal_alerts")},
+    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes")},
     {"label": "AI 功能（由「AI 导学」拆分而来，可分别开放）", "features": ("ai", "search_chat", "associative", "research", "ai_web")},
 )
 # ai_web（智谱联网通道）默认全站关闭：仅管理员显式勾选（全站/套餐/个人任一层）后才放开。
@@ -44,8 +48,8 @@ AUDIENCE_ACCESS_LABELS = {
     "registered": "注册用户",
 }
 DEFAULT_AUDIENCE_ACCESS = {
-    "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False},
-    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False},
+    "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False},
+    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False},
 }
 
 
