@@ -4,11 +4,14 @@ data/*
 !data/subject_index.sqlite
 !data/dictionary_polish_report.json
 !data/release.json
-pdfs/*/*.pdf
+# 源书 PDF/电子书整目录不入库（体量巨大，走仓库外上传部署）
+pdfs/
 .deps_installed
 __pycache__/
 *.pyc
 .venv/
+.venv-*/
+.pytest_cache/
 build/
 dist/
 logs/
@@ -33,11 +36,24 @@ config/*.bak-*
 _*.json
 # 毛泽东选集源 PDF（扫描版在 pdfs/ 已被忽略；文字版置于项目根目录，同样不入库）
 毛泽东选集文字版/
-# 本地一次性运维/诊断脚本（下划线前缀）：保留本地备用，不入库
-scripts/_*.py
+# 本地一次性运维/诊断脚本（下划线前缀，任意扩展名）：保留本地备用，不入库
+scripts/_*
 # 第三方 pdf.js 阅读器库：网站用服务端页面图像渲染，未引用此库，不入库（防回流）
 static/vendor/pdfjs/
 # 「原文文库」自托管静态书库内容（145MB/8千+文件，纯文本）：与 PDF 同样走仓库外部署，不入 git
 static_library/
+# 「流式阅读」自托管静态书库内容（《文集》网页适配版，13MB/数百文件）：同样走仓库外部署，不入 git
+stream_library/
 # 「原文文库」本地演示截图：仅本地查看，不入库
 _wenku_shots/
+# 流式阅读源数据本地缓存（MEAS_zh 源 HTML），仅供重建用，不入 git
+.cache/
+# 本地会话/临时工作区：AI 会话临时产物、布局改版前的手工备份，均只留本地
+/tmp/
+/.layout_backup/
+.claude/
+# 根目录杂散 0 字节 sqlite 防再生（真实数据库在 data/ 下）
+/corpus.sqlite
+/dictionary.sqlite
+# 本地图片素材（未被代码引用，仅留本地）
+/背景图.png
