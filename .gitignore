@@ -4,6 +4,12 @@ data/*
 !data/subject_index.sqlite
 !data/dictionary_polish_report.json
 !data/release.json
+# 离线 IP 归属库：v4(11MB) 在 cloud_patch_files.txt 部署清单内，必须入库——
+# 否则全新检出/CI 跑 test_deploy_manifests 的「清单文件存在」断言必红。
+# v6(37MB) 与原始 json 不在清单、走仓库外部署，继续排除。
+!data/geo/
+data/geo/*
+!data/geo/ip2region_v4.xdb
 # 源书 PDF/电子书整目录不入库（体量巨大，走仓库外上传部署）
 pdfs/
 .deps_installed

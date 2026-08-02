@@ -178,9 +178,12 @@ class AssociativeUnitTests(unittest.TestCase):
 
     def test_keyword_cooccurrence_window_and_score(self) -> None:
         # 从真实窗口里截三个互不相同的两字片段做关键词，保证“近邻共现”可命中。
-        _book, sample = _corpus_sample(min_len=60)
+        # book_scope 限定在取样所在书库：两字词在全语料属超高频，不限范围时每卷都要全文扫描，
+        # 语料扩容后（2026-08 已达 740MB）足以让 pre-push 门禁跑不完；目标窗口本就在该书内，
+        # 限定范围不改变断言语义。
+        book, sample = _corpus_sample(min_len=60)
         kws = [sample[0:2], sample[20:22], sample[40:42]]
-        hits = app_module.corpus.keyword_cooccurrence(kws, window=200)
+        hits = app_module.corpus.keyword_cooccurrence(kws, window=200, book_scope=[book])
         self.assertTrue(hits)
         for h in hits:
             self.assertTrue(0 <= h.score <= 100)
@@ -209,9 +212,10 @@ class AssociativeUnitTests(unittest.TestCase):
         self.assertTrue(res[0].citation.startswith("《"))
 
     def test_locate_associative_capped_and_sorted(self) -> None:
-        _book, sample = _corpus_sample(min_len=60)
+        # book_scope 同上：避免超高频两字词在全语料上的无界扫描拖垮门禁。
+        book, sample = _corpus_sample(min_len=60)
         kws = [sample[0:2], sample[20:22], sample[40:42]]
-        res = app_module.corpus.locate_associative(quotes=[sample], keywords=kws)
+        res = app_module.corpus.locate_associative(quotes=[sample], keywords=kws, book_scope=[book])
         self.assertLessEqual(len(res), search_module.ASSOC_CANDIDATE_CAP)
         scores = [h.score for h in res]
         self.assertEqual(scores, sorted(scores, reverse=True))
