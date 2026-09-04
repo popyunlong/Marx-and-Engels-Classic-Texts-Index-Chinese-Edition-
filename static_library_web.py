@@ -65,15 +65,20 @@ class _BookSource:
         return self.root / str(book.get("folder") or book.get("key") or "")
 
     def load_books(self) -> list[dict]:
-        """只返回「本地确有内容」的书（目录存在）。"""
-        return [b for b in self._load_raw_books() if self.book_folder(b).is_dir()]
+        """返回面向公共目录的书：内容目录存在，且未显式隐藏。"""
+        return [
+            b
+            for b in self._load_raw_books()
+            if self.book_folder(b).is_dir() and b.get("catalog_hidden") is not True
+        ]
 
     def has_content(self) -> bool:
         return bool(self.load_books())
 
     def get_book(self, key: str) -> dict | None:
-        for b in self.load_books():
-            if str(b.get("key")) == str(key):
+        # catalog_hidden 只控制首页/公共书目展示；历史阅读器与 raw URL 必须继续可达。
+        for b in self._load_raw_books():
+            if str(b.get("key")) == str(key) and self.book_folder(b).is_dir():
                 return b
         return None
 
@@ -116,6 +121,7 @@ def register_static_library(
     require_content_feature,
     ai_web_allowed=None,
     notes_access=None,
+    record_book_read=None,
     source: _BookSource = _STATIC,
     prefix: str = "wenku",
     feature: str = "static_library",
@@ -157,7 +163,23 @@ def register_static_library(
         volume = _pick_volume(book)
         if not volume:
             abort(404)
-        start_doc = (request.args.get("doc") or volume.get("index") or "").lstrip("/")
+        if record_book_read:
+            # 阅读周榜按具体卷册统计；多卷本的不同卷不再合并为整套书。
+            book_title = str(book.get("title_zh") or book.get("key") or "").strip()
+            volume_title = str(volume.get("vol_zh") or "").strip()
+            if not volume_title:
+                try:
+                    volume_title = f"第{int(volume.get('n'))}卷"
+                except (TypeError, ValueError):
+                    volume_title = str(volume.get("label") or "").strip()
+            record_book_read(f"{book_title}{volume_title}" if volume_title else book_title)
+        # A single-document volume is deliberately one continuous reading surface.
+        # Ignore stale ``?doc=sec-*.html`` resume links so they cannot drop readers
+        # back into the retired generated section catalogue; ``?pg=`` remains
+        # available to restore the printed-page anchor inside the full document.
+        single_document = volume.get("single_document") is True
+        requested_doc = None if single_document else request.args.get("doc")
+        start_doc = (requested_doc or volume.get("index") or "").lstrip("/")
         # ?ai=0 → 隐藏「AI 导读」（普通阅读器/全文阅读器入口）；缺省显示（会员/AI 导学入口、/liushi、直链）。
         ai_enabled = request.args.get("ai") != "0"
         # 返回按钮目标：从「著作目录」(全文/AI导学阅读器)经 ?from= 进来的，回到该阅读器，
@@ -167,13 +189,35 @@ def register_static_library(
         if back_targets and bf in back_targets:
             back_ep, back_title = back_targets[bf]
         serve_prefix = str(book.get("serve_prefix") or f"/{prefix}/raw/{book_key}").rstrip("/")
+        source_lang = volume.get("lang") or book.get("lang") or "ru"
+
+        def reader_flag(name: str, default: bool) -> bool:
+            """Resolve an explicit per-volume/book reader capability without truthy strings."""
+            value = volume.get(name, book.get(name, default))
+            return value if isinstance(value, bool) else default
+
         config_payload = {
             "book_key": book_key,
             "serve_prefix": serve_prefix,
             "start_doc": start_doc,
-            "lang": book.get("lang") or "ru",
-            "title_zh": book.get("title_zh"),
-            "citation": book.get("citation") or {},
+            "single_document": single_document,
+            # MEGA 等多语种套书会在同一书目下包含德/法/英卷；允许卷级语言覆盖书级默认值。
+            "lang": source_lang,
+            # Keep language and document capabilities separate.  In particular, an
+            # English MEGA volume still has stable printed-page anchors, whereas the
+            # legacy English collected works intentionally use article-only citations.
+            "has_page_labels": reader_flag("has_page_labels", source_lang != "en"),
+            "selection_citation": reader_flag(
+                "selection_citation", source_lang == "zh"
+            ),
+            "translation_enabled": reader_flag(
+                "translation_enabled", source_lang != "zh"
+            ),
+            # 合集首项可为独立研究专著；AI 导读、笔记与报错上下文使用卷级题名。
+            "title_zh": volume.get("title_zh") or book.get("title_zh"),
+            # 合集内可混入不同著者/语种的独立专著。卷级引文契约一旦存在就
+            # 整体覆盖书级模板，避免残留合集的著者或外文模板。
+            "citation": volume.get("citation") or book.get("citation") or {},
             # 整卷字典都给前端（引文模板可引用任意逐卷字段，如 vol_zh/vol_de/publisher_*）。
             "volume": {k: v for k, v in volume.items() if k != "index"},
         }
@@ -214,7 +258,9 @@ def register_static_library(
     app.add_url_rule(f"/{prefix}/raw/<book_key>/<path:relpath>", endpoint=raw_ep, view_func=raw)
 
 
-def register_stream_reading(app, *, require_content_feature, ai_web_allowed=None, notes_access=None) -> None:
+def register_stream_reading(
+    app, *, require_content_feature, ai_web_allowed=None, notes_access=None, record_book_read=None
+) -> None:
     """流式阅读 /liushi：《马克思恩格斯文集》中文网页适配版。复用上面的整套机制，
     仅换数据源/前缀/权限键/首页模板，并把翻译入口置空（中文书不做对照/划词翻译）。"""
     register_static_library(
@@ -222,6 +268,7 @@ def register_stream_reading(app, *, require_content_feature, ai_web_allowed=None
         require_content_feature=require_content_feature,
         ai_web_allowed=ai_web_allowed,
         notes_access=notes_access,
+        record_book_read=record_book_read,
         source=_STREAM,
         prefix="liushi",
         feature="stream_reading",

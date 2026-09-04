@@ -143,13 +143,15 @@ sudo nano /etc/marx-search.env
 - `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`，用于注册与高风险登录的人机验证；未配置时仍会启用频率限制
 - `SECURITY_CONTACT`，用于 `/.well-known/security.txt`
 - `MAX_RELEASE_UPLOAD_MB`，限制后台发布文件上传大小
+- 论文引文助手默认使用独立单并发工作进程；保持 `CITATION_ASSISTANT_INLINE_WORKER=0`。如工作节点不与应用共享数据目录，另生成至少 32 位随机 `CITATION_ASSISTANT_WORKER_TOKEN`，并在两端使用同一值。
 
 ### 5. 安装 systemd 服务
 
 ```bash
 sudo cp deploy/marx-search.service /etc/systemd/system/marx-search.service
+sudo cp deploy/marx-search-citation-worker.service /etc/systemd/system/marx-search-citation-worker.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now marx-search.service
+sudo systemctl enable --now marx-search.service marx-search-citation-worker.service
 ```
 
 ### 6. 安装 Caddy
@@ -168,8 +170,10 @@ sudo systemctl reload caddy
 ```bash
 curl http://127.0.0.1:8000/api/runtime
 systemctl status marx-search.service --no-pager
+systemctl status marx-search-citation-worker.service --no-pager
 systemctl status caddy --no-pager
 journalctl -u marx-search.service -n 50 --no-pager
+journalctl -u marx-search-citation-worker.service -n 50 --no-pager
 ```
 
 再从浏览器验证：
@@ -215,6 +219,21 @@ journalctl -u marx-search.service -n 50 --no-pager
 
 注意：`device` 留空或填 `pc` 时本站**不下发** device，由网关按浏览器 UA 自动判定（与历史行为一致，不影响手机端）。
 只有显式填 `mobile`/`jump` 等非 `pc` 值时才会下发，从而切换支付产品。
+
+## 论文引文助手上线顺序
+
+1. 先保持全站功能开关 `citation_assistant` 关闭，确认 `marx-search-citation-worker` 正常运行。
+2. 管理员使用 GB/T 7714—2015 或期刊格式完成隔离内测；确认校对 PDF 保留原 DOCX 版式、
+   在对应文字范围显示页边批注，并检查任务目录可在七天后自动清除。生产节点需安装
+   `libreoffice-core libreoffice-writer`，只允许独立单并发 worker 调用无界面转换。
+3. 可在管理员内测阶段将 `CITATION_ASSISTANT_AGENT_SHADOW=1` 开启 V4 Pro 补漏影子。该模式固定使用
+   `deepseek-v4-pro`，模型只提议短片段，本地语料必须再通过全文相似度和页码校验；影子数据不进入候选，
+   只记录汇总指标。先比较增量召回与歧义率，确认稳定后再讨论是否进入人工复核结果。
+4. 在后台“引用格式”中依据 GB/T 7714—2025 正式标准文本录入模板，用黄金样例核对后勾选确认。未确认前，会员入口和前台 2025 选项会保持关闭。
+5. 用 Word 与 WPS 人工打开导出的 DOCX，确认脚注、尾注、编号和原有样式；再开放 DOCX 导出和小范围会员灰度。
+6. 观察工作进程日志以及失败率、歧义率、平均耗时、内存峰值和导出结构校验失败数。
+
+应用进程与工作进程必须挂载同一应用数据目录和同一只读语料索引；语料哈希或模板版本发生变化时，已有任务会拒绝继续处理，用户需要重新上传。
 
 ## 更新部署
 
@@ -344,3 +363,10 @@ PDF 与 `corpus.sqlite` 由独立脚本（`upload_corpus_db.ps1` / `upload_lenin
 - 重大更新先 `update_cloud.ps1 -SkipRestart`：上传 + 远端冒烟通过后，人工确认无误，再单独重启。
 - 推送 GitHub 前 `git push` 会触发 `.githooks/pre-push`（需 `git config core.hooksPath .githooks` 启用一次），自动跑 pytest + 冒烟 + pdf.js 防回流；CI（`ci.yml`）的 `test` job 再做一次确定性门禁（清单漂移/编译/防回流）。
 - 注意：`git push` 只更新 GitHub 远程，**不会改动线上服务器**；线上更新一律走 `update_cloud.ps1`。
+
+## 8·15 发布特别约束
+
+- 先在本机执行 `deploy/update_cloud.ps1 -DryRun -AllowDirty`；干跑不会连接云服务器。
+- MiMo 正式迁移开关默认为 0。未完成 60 条匿名生产样本盲评和管理员灰度前，不得将 `MIMO_MIGRATION_ENABLED` 改为 1。
+- 实际发布先在隔离目录与 8001 端口验证候选版，再平滑切换 Caddy；迁移或健康检查失败时原 8000 进程继续服务。
+- 密钥只由 `/etc/marx-search.env` 注入。聊天、工单或日志中暴露过的密钥必须先轮换。

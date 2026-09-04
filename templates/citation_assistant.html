@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ site_text("citation.page_title") }} - {{ app_name }}</title>
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=3">
+  <link rel="stylesheet" href="/static/citation-assistant/citation-assistant.css?v=4">
+</head>
+<body class="v2 ca-page">
+  {% include "_appnav.html" %}
+
+  <main class="ca-shell" id="citationAssistant"
+        data-csrf="{{ csrf_token }}"
+        data-job='{{ (job or {})|tojson|forceescape }}'
+        data-jobs='{{ jobs|tojson|forceescape }}'
+        data-scope='{{ book_scope_tree|tojson|forceescape }}'
+        data-access="{{ '1' if citation_access else '0' }}"
+        data-upgrade-url="{{ upgrade_url }}"
+        data-gb2025-approved="{{ '1' if gb2025_approved else '0' }}">
+    <section class="ca-hero">
+      <div>
+        <p class="ca-eyebrow">{{ site_text("citation.page_title") }} · 文件 7 天后自动删除</p>
+        <h1>让每一条引文都能回到原文</h1>
+        <p>上传 .docx 后，系统会识别真正的 Word 脚注与尾注，核对站内原著，并在原稿版式上生成可审核的 Word 副本和页边批注 PDF。</p>
+      </div>
+      <div class="ca-privacy"><b>隐私提示</b><br>论文正文、候选内容和导出文件均保留 7 天，可随时手动删除。</div>
+    </section>
+
+    {% if not citation_access %}
+    <aside class="ca-membership-preview" role="note">
+      <div><b>会员功能预览</b><span>你可以查看完整处理界面；上传、校注、审核和导出需要开通会员。</span></div>
+      <a href="{{ upgrade_url }}">查看会员套餐 →</a>
+    </aside>
+    {% endif %}
+
+    <div id="caNotice" class="ca-notice" hidden></div>
+
+    {% if not job %}
+    <section class="ca-card ca-upload-card{% if not citation_access %} ca-locked-card{% endif %}">
+      {% if not citation_access %}<a class="ca-lock-overlay" href="{{ upgrade_url }}" aria-label="开通会员后使用论文插注校注"><span><b>开通会员后即可使用</b><small>点击此处前往会员购买</small></span></a>{% endif %}
+      <div class="ca-card-head">
+        <div><span class="ca-step">1</span><h2>上传论文</h2></div>
+        <p>上限 {{ max_mb }}MB；旧 .doc 请先在 Word/WPS 中另存为 .docx。</p>
+      </div>
+      <form id="caUploadForm" class="ca-form"{% if not citation_access %} inert aria-disabled="true"{% endif %}>
+        <label class="ca-file" id="caFileDrop">
+          <input type="file" name="file" id="caFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+          <span class="ca-file-icon">W</span>
+          <span><b id="caFileName">选择 .docx 论文</b><small>可点击选择，也可拖入此处</small></span>
+        </label>
+        <div class="ca-grid">
+          <label><span>处理方式</span><select name="mode"><option value="both">补注＋校对（推荐）</option><option value="generate">只建议补注</option><option value="audit">只校对已有注释</option></select></label>
+          <label><span>新增注释类型</span><select name="note_kind"><option value="footnote">脚注</option><option value="endnote">尾注</option></select></label>
+          <label><span>引文格式</span><select name="citation_style"><option value="mkszyj" selected>《马克思主义研究》（默认）</option>{% if gb2025_approved %}<option value="auto">自动识别</option><option value="gb2025">GB/T 7714—2025</option>{% endif %}<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option></select>{% if not gb2025_approved %}<small>2025 模板待站长依据正式标准和黄金样例确认，当前不参与内测。</small>{% endif %}</label>
+        </div>
+        <div class="ca-rule-note"><b>系统会自动处理什么？</b><span>唯一、逐字一致且页码可靠的结果会直接采用；文字有差异、模糊命中、多出处或页码不可靠的结果都留给你审核。</span></div>
+        <div class="ca-scope-block">
+          <span>可选：限定著作 / 卷</span>
+          <div id="caBookScope"></div>
+          <small>默认扫描站内全部公开书库。只有明确知道出处时才建议在这里限定；选中后其他书库不再参与匹配。</small>
+        </div>
+        <button class="ca-primary" type="submit">上传并读取章节</button>
+      </form>
+    </section>
+
+    <section class="ca-card" id="caHistory">
+      <div class="ca-card-head"><div><h2>最近任务</h2></div><p>{% if citation_access %}过期或删除后无法恢复。{% else %}开通会员并完成任务后，记录会显示在这里。{% endif %}</p></div>
+      <div id="caJobList" class="ca-job-list"></div>
+    </section>
+    {% else %}
+    <section class="ca-card ca-workspace">
+      <div class="ca-card-head">
+        <div><a class="ca-back" href="{{ url_for('citation_assistant_page') }}">← 返回任务列表</a><h2 id="caJobTitle">{{ job.original_filename }}</h2></div>
+        <button type="button" class="ca-danger-link" id="caDeleteJob">删除任务和文件</button>
+      </div>
+      <div id="caStatusPanel"></div>
+      <div id="caSectionsPanel" hidden></div>
+      <div id="caReviewPanel" hidden>
+        <div class="ca-review-summary">
+          <div><strong id="caAutoCount">0</strong><span>精确命中已自动采用</span></div>
+          <div class="ca-review-needed"><strong id="caPendingCount">0</strong><span>条需要你审核</span></div>
+          <div><strong id="caAcceptedCount">0</strong><span>条将写入 Word</span></div>
+        </div>
+        <div class="ca-exportbar ca-exportbar-top"><div><b>文件准备好后从这里生成</b><p>待审核项如果不处理，将不写入 Word；原文 PDF 仍会显示它们供你对照。</p></div><button class="ca-primary ca-generate-button" type="button" id="caExport">生成 Word 与批注 PDF</button></div>
+        <div class="ca-review-tabs" role="tablist" aria-label="候选状态">
+          <button type="button" class="active" data-review-decision="pending">待审核 <span id="caPendingTabCount">0</span></button>
+          <button type="button" data-review-decision="accepted">已采信 <span id="caAcceptedTabCount">0</span></button>
+          <button type="button" data-review-decision="rejected">已弃用 <span id="caRejectedTabCount">0</span></button>
+          <button type="button" data-review-decision="">全部 <span id="caAllTabCount">0</span></button>
+        </div>
+        <div class="ca-batchbar" id="caPendingActions"><div><b>快速处理全部待审核项</b><small>只影响尚未决定的结果，不会改动精确匹配项。</small></div><button type="button" id="caAcceptPending">一键采信全部</button><button type="button" class="ca-reject-button" id="caRejectPending">一键弃用全部</button></div>
+        <details class="ca-more-filters"><summary>按章节或问题类型筛选</summary><div class="ca-toolbar">
+          <select id="caFilterKind"><option value="">全部任务</option><option value="generate">建议补注</option><option value="audit">校对已有注释</option></select>
+          <select id="caFilterSection"><option value="">全部章节</option></select>
+          <select id="caFilterIssue"><option value="">全部问题</option><option value="verified">已核验</option><option value="text_mismatch">文字有出入</option><option value="wrong_page">页码错误</option><option value="wrong_source">著作或卷次错误</option><option value="wrong_version">版本信息错误</option><option value="format_mismatch">格式不符</option><option value="ambiguous">多个可能出处</option><option value="unverifiable">本站无法核验</option><option value="unsupported">文档结构不支持</option><option value="suggest_add">建议补注</option></select>
+          <span id="caCandidateCount"></span>
+        </div></details>
+        <div id="caCandidateList" class="ca-candidate-list"></div>
+        <div class="ca-pagination"><button type="button" id="caPrevPage">上一页</button><span id="caPageText"></span><button type="button" id="caNextPage">下一页</button></div>
+      </div>
+      <div id="caDownloads" hidden></div>
+    </section>
+    {% endif %}
+  </main>
+
+  <script src="/static/book-scope/book-scope.js?v=3"></script>
+  <script src="/static/citation-assistant/citation-assistant.js?v=7"></script>
+</body>
+</html>

@@ -570,3 +570,623 @@ books:
   collection: western_marxism
   authors: [〔法〕亨利·列斐伏尔]
   translators: [刘怀玉]
+
+# ============ 2026-08-02 新增 12 个书库（15 卷册）============
+# 《资本论》三卷「马克思诞辰 200 周年纪念版」（人民出版社 2018 年 3 月第 1 版，中共中央马克思
+# 恩格斯列宁斯大林著作编译局编译；卷一 ISBN 978-7-01-018906-2、卷二 978-7-01-018988-8，
+# 均据各卷版权页）。内容虽与《文集》第 5—7 卷同源，但版次、页码、译文校订各不相同，读者引
+# 《资本论》时须能引到这一版的页码，故独立成库。高清扫描件（原生 1824×2952 ~ 1920×2920，
+# 无文本层）→ GLM-4V OCR + RapidOCR 兜底；无 PDF 书签，目录从印刷「目录」页解析（篇/章/节三级）。
+# sort_order 29 使其紧排在马恩四套（文集 10 / 全集 20 / 二版 25 / 选集 28）之后、《列宁全集》30 之前。
+- key: 资本论
+  title: 《资本论》
+  short_title: 《资本论》
+  citation_title: 资本论
+  folder: pdfs/资本论
+  publisher: 人民出版社
+  sort_order: 29
+  tag_class: ziben
+  collection: classical_marxism
+  available: true
+# 《习近平著作选读》两卷（人民出版社 2023 年 4 月第 1 版）：全国干部培训权威教材，扫描件
+# （原生 2328×3516 高清）走 GLM-4V OCR；无书签，目录从印刷「目录」页解析「篇名（日期）」。
+- key: 习近平著作选读
+  title: 《习近平著作选读》
+  short_title: 《著作选读》
+  citation_title: 习近平著作选读
+  folder: pdfs/习近平著作选读
+  publisher: 人民出版社
+  sort_order: 92
+  tag_class: xi-xuandu
+  collection: xi_thought
+  available: true
+# 《习近平党建文选》两卷（中央文献出版社 2026 年 6 月第 1 版，据各卷版权页 CIP；
+# 卷一 ISBN 978-7-5073-5147-7、卷二 978-7-5073-5150-7）。PDF 自带文本层，但那是扫描件
+# 附的低质 OCR 层（「深入」→「深人」、「十八届」→「十八庙」成片），会污染精确引文检索，
+# 故与扫描本同样走 GLM-4V 重新转录；无书签，目录从印刷「目录」页解析「篇名（日期）」。
+- key: 习近平党建文选
+  title: 《习近平党建文选》
+  short_title: 《党建文选》
+  citation_title: 习近平党建文选
+  folder: pdfs/习近平党建文选
+  publisher: 中央文献出版社
+  sort_order: 94
+  tag_class: xi-dangjianwx
+  collection: xi_thought
+  available: true
+# 《习近平外交思想学习纲要》：与既有 6 种「学习纲要/概论」同族，sort_order 107 紧接其后。
+- key: 习近平外交思想学习纲要
+  title: 《习近平外交思想学习纲要》
+  short_title: 《外交思想·纲要》
+  citation_title: 习近平外交思想学习纲要
+  folder: pdfs/习近平专题论述
+  publisher: 学习出版社、人民出版社
+  sort_order: 107
+  tag_class: xi-waijiao
+  collection: xi_thought
+  available: true
+  single_volume: true
+# 习近平专题著作 5 种，均为中央文献出版社单卷本。与「学习纲要」族相邻，按初版年份排序。
+- key: 论坚持党对一切工作的领导
+  title: 《论坚持党对一切工作的领导》
+  short_title: 《论党的领导》
+  citation_title: 论坚持党对一切工作的领导
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 108
+  tag_class: xi-lun-lingdao
+  collection: xi_thought
+  authors: [习近平]
+  available: true
+  single_volume: true
+- key: 论党的宣传思想工作
+  title: 《论党的宣传思想工作》
+  short_title: 《论宣传思想工作》
+  citation_title: 论党的宣传思想工作
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 109
+  tag_class: xi-lun-xuanchuan
+  collection: xi_thought
+  authors: [习近平]
+  available: true
+  single_volume: true
+- key: 论中国共产党历史
+  title: 《论中国共产党历史》
+  short_title: 《论党史》
+  citation_title: 论中国共产党历史
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 110
+  tag_class: xi-lun-dangshi
+  collection: xi_thought
+  authors: [习近平]
+  available: true
+  single_volume: true
+- key: 论把握新发展阶段、贯彻新发展理念、构建新发展格局
+  title: 《论把握新发展阶段、贯彻新发展理念、构建新发展格局》
+  short_title: 《论新发展》
+  citation_title: 论把握新发展阶段、贯彻新发展理念、构建新发展格局
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 111
+  tag_class: xi-lun-xinfazhan
+  collection: xi_thought
+  authors: [习近平]
+  available: true
+  single_volume: true
+- key: 论党的自我革命
+  title: 《论党的自我革命》
+  short_title: 《论自我革命》
+  citation_title: 论党的自我革命
+  folder: pdfs/习近平专题论述
+  publisher: 党建读物出版社、中央文献出版社
+  sort_order: 112
+  tag_class: xi-lun-ziwogeming
+  collection: xi_thought
+  authors: [习近平]
+  available: true
+  single_volume: true
+# 习近平专题「论述摘编 / 论述选编」12 种（中共中央文献研究室 / 中共中央党史和文献研究院编，
+# 中央文献出版社）：每种都是按专题分章、逐段摘录并注明出处的独立单行本，各有独立 ISBN，
+# 引用时须指名具体哪一本，故各自成库、single_volume: true（引文不冠「第N卷」）。
+# sort_order 141-152 按初版年份编年聚成一簇（2014→2026），排在既有纲要族之后。
+# 版本依据均为各书版权页 CIP（力戒/作风两种 PDF 未收版权页，据其「出版说明」落款与封底 ISBN）。
+- key: 习近平关于党的群众路线教育实践活动论述摘编
+  title: 《习近平关于党的群众路线教育实践活动论述摘编》
+  short_title: 《群众路线·摘编》
+  citation_title: 习近平关于党的群众路线教育实践活动论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 141
+  tag_class: xi-zb-qunzhong
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于全面深化改革论述摘编
+  title: 《习近平关于全面深化改革论述摘编》
+  short_title: 《深化改革·摘编》
+  citation_title: 习近平关于全面深化改革论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 142
+  tag_class: xi-zb-gaige
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于全面依法治国论述摘编
+  title: 《习近平关于全面依法治国论述摘编》
+  short_title: 《依法治国·摘编》
+  citation_title: 习近平关于全面依法治国论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 143
+  tag_class: xi-zb-yifa
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于科技创新论述摘编
+  title: 《习近平关于科技创新论述摘编》
+  short_title: 《科技创新·摘编》
+  citation_title: 习近平关于科技创新论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 144
+  tag_class: xi-zb-keji
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于全面从严治党论述摘编
+  title: 《习近平关于全面从严治党论述摘编》
+  short_title: 《从严治党·摘编》
+  citation_title: 习近平关于全面从严治党论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 145
+  tag_class: xi-zb-congyan
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于社会主义生态文明建设论述摘编
+  title: 《习近平关于社会主义生态文明建设论述摘编》
+  short_title: 《生态文明·摘编》
+  citation_title: 习近平关于社会主义生态文明建设论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 146
+  tag_class: xi-zb-shengtai
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于总体国家安全观论述摘编
+  title: 《习近平关于总体国家安全观论述摘编》
+  short_title: 《国家安全·摘编》
+  citation_title: 习近平关于总体国家安全观论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 147
+  tag_class: xi-zb-anquan
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于力戒形式主义官僚主义重要论述选编
+  title: 《习近平关于力戒形式主义官僚主义重要论述选编》
+  short_title: 《力戒形式主义·选编》
+  citation_title: 习近平关于力戒形式主义官僚主义重要论述选编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 148
+  tag_class: xi-zb-lijie
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于网络强国论述摘编
+  title: 《习近平关于网络强国论述摘编》
+  short_title: 《网络强国·摘编》
+  citation_title: 习近平关于网络强国论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 149
+  tag_class: xi-zb-wangluo
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于社会主义精神文明建设论述摘编
+  title: 《习近平关于社会主义精神文明建设论述摘编》
+  short_title: 《精神文明·摘编》
+  citation_title: 习近平关于社会主义精神文明建设论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 150
+  tag_class: xi-zb-jingshenwenming
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于加强党的作风建设论述摘编
+  title: 《习近平关于加强党的作风建设论述摘编》
+  short_title: 《作风建设·摘编》
+  citation_title: 习近平关于加强党的作风建设论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 151
+  tag_class: xi-zb-zuofeng
+  collection: xi_thought
+  available: true
+  single_volume: true
+- key: 习近平关于树立和践行正确政绩观论述摘编
+  title: 《习近平关于树立和践行正确政绩观论述摘编》
+  short_title: 《正确政绩观·摘编》
+  citation_title: 习近平关于树立和践行正确政绩观论述摘编
+  folder: pdfs/习近平专题论述
+  publisher: 中央文献出版社
+  sort_order: 152
+  tag_class: xi-zb-zhengjiguan
+  collection: xi_thought
+  available: true
+  single_volume: true
+
+# 黑格尔著作集：商务印书馆「汉译世界学术名著丛书」120 年纪念版，8 部 16 册。
+# 全部是无文本层扫描本，正文由 mimo-v2.5 全模态逐页转录；目录从各册印刷目录的
+# MiMo 保真转录中构建。8 部著作共用一个 collection，阅读/检索端显示为一个专题库，
+# 但引文仍按具体著作、卷标、译者和 2017 年纪念版页码分别著录。
+- key: 黑格尔早期神学著作
+  title: 《黑格尔早期神学著作》
+  short_title: 《早期神学著作》
+  citation_title: 黑格尔早期神学著作
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 167
+  tag_class: hegel hegel-theology
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [贺麟]
+  available: true
+  single_volume: true
+- key: 黑格尔精神现象学
+  title: 《精神现象学》
+  short_title: 《精神现象学》
+  citation_title: 精神现象学
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 168
+  tag_class: hegel hegel-phenomenology
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [贺麟, 王玖兴]
+  volume_labels: {1: 上卷, 2: 下卷}
+  available: true
+- key: 黑格尔逻辑学
+  title: 《逻辑学》
+  short_title: 《逻辑学》
+  citation_title: 逻辑学
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 169
+  tag_class: hegel hegel-logic
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [杨一之]
+  volume_labels: {1: 上卷, 2: 下卷}
+  available: true
+- key: 黑格尔小逻辑
+  title: 《小逻辑》
+  short_title: 《小逻辑》
+  citation_title: 小逻辑
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 170
+  tag_class: hegel hegel-shorter-logic
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [贺麟]
+  available: true
+  single_volume: true
+- key: 黑格尔自然哲学
+  title: 《自然哲学》
+  short_title: 《自然哲学》
+  citation_title: 自然哲学
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 171
+  tag_class: hegel hegel-nature
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [梁志学, 薛华, 钱广华, 沈真]
+  available: true
+  single_volume: true
+- key: 黑格尔法哲学原理
+  title: 《法哲学原理》
+  short_title: 《法哲学原理》
+  citation_title: 法哲学原理
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 172
+  tag_class: hegel hegel-right
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [范扬, 张企泰]
+  available: true
+  single_volume: true
+- key: 黑格尔美学
+  title: 《美学》
+  short_title: 《美学》
+  citation_title: 美学
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 173
+  tag_class: hegel hegel-aesthetics
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [朱光潜]
+  volume_labels: {1: 第一卷, 2: 第二卷, 3: 第三卷（上册）, 4: 第三卷（下册）}
+  available: true
+- key: 黑格尔哲学史讲演录
+  title: 《哲学史讲演录》
+  short_title: 《哲学史讲演录》
+  citation_title: 哲学史讲演录
+  folder: pdfs/黑格尔全集
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 174
+  tag_class: hegel hegel-history
+  collection: hegel_works
+  authors: [〔德〕黑格尔]
+  translators: [贺麟, 王太庆]
+  volume_labels: {1: 第一卷, 2: 第二卷, 3: 第三卷, 4: 第四卷}
+  available: true
+
+# 康德《著作全集》典藏本：本次持有第 1—5、7—9 卷，共 8 册；不虚构或重排缺失的第 6 卷。
+- key: 康德前批判时期著作
+  title: 《前批判时期著作》
+  short_title: 《前批判时期著作》
+  citation_title: 前批判时期著作
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 175
+  tag_class: kant kant-precritical
+  collection: kant_works
+  authors: [〔德〕康德]
+  volume_labels: {1: I（1747—1756）, 2: II（1757—1777）}
+  available: true
+- key: 康德纯粹理性批判（第2版）
+  title: 《纯粹理性批判（第2版）》
+  short_title: 《纯粹理性批判（第2版）》
+  citation_title: 纯粹理性批判（第2版）
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 176
+  tag_class: kant kant-pure-reason-second
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+- key: 康德纯粹理性批判（第1版）等
+  title: 《纯粹理性批判（第1版）》
+  short_title: 《纯粹理性批判（第1版）等》
+  citation_title: 纯粹理性批判（第1版）·未来形而上学导论·道德形而上学的奠基·自然科学的形而上学初始根据
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 177
+  tag_class: kant kant-pure-reason-first
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+- key: 康德实践理性批判与判断力批判
+  title: 《实践理性批判·判断力批判》
+  short_title: 《实践理性批判·判断力批判》
+  citation_title: 实践理性批判·判断力批判
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 178
+  tag_class: kant kant-practical-judgment
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+- key: 康德学科之争与实用人类学
+  title: 《学科之争·实用人类学》
+  short_title: 《学科之争·实用人类学》
+  citation_title: 学科之争·实用人类学
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 179
+  tag_class: kant kant-conflict-anthropology
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+- key: 康德1781年之后的论文
+  title: 《1781年之后的论文》
+  short_title: 《1781年之后的论文》
+  citation_title: 1781年之后的论文
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 180
+  tag_class: kant kant-post-1781
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+- key: 康德逻辑学自然地理学教育学
+  title: 《逻辑学·自然地理学·教育学》
+  short_title: 《逻辑学·自然地理学·教育学》
+  citation_title: 逻辑学·自然地理学·教育学
+  folder: pdfs/康德全集
+  publisher: 中国人民大学出版社
+  place: 北京
+  sort_order: 181
+  tag_class: kant kant-logic-geography-education
+  collection: kant_works
+  authors: [〔德〕康德]
+  available: true
+  single_volume: true
+
+# 商务印书馆 2022 年《费尔巴哈文集》11 卷：前台按各卷独立著作陈列。
+- key: 费尔巴哈从培根到斯宾诺莎的近代哲学史
+  title: 《从培根到斯宾诺莎的近代哲学史》
+  short_title: 《从培根到斯宾诺莎的近代哲学史》
+  citation_title: 从培根到斯宾诺莎的近代哲学史
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 182
+  tag_class: feuerbach feuerbach-modern-philosophy
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [涂纪亮]
+  available: true
+  single_volume: true
+- key: 费尔巴哈对莱布尼茨哲学的叙述分析和批判
+  title: 《对莱布尼茨哲学的叙述、分析和批判》
+  short_title: 《对莱布尼茨哲学的叙述、分析和批判》
+  citation_title: 对莱布尼茨哲学的叙述、分析和批判
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 183
+  tag_class: feuerbach feuerbach-leibniz
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [涂纪亮]
+  available: true
+  single_volume: true
+- key: 费尔巴哈比埃尔培尔对哲学史和人类史的贡献
+  title: 《比埃尔·培尔对哲学史和人类史的贡献》
+  short_title: 《比埃尔·培尔对哲学史和人类史的贡献》
+  citation_title: 比埃尔·培尔对哲学史和人类史的贡献
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 184
+  tag_class: feuerbach feuerbach-bayle
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [涂纪亮]
+  available: true
+  single_volume: true
+- key: 费尔巴哈基督教的本质
+  title: 《基督教的本质》
+  short_title: 《基督教的本质》
+  citation_title: 基督教的本质
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 185
+  tag_class: feuerbach feuerbach-christianity
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [荣震华]
+  available: true
+  single_volume: true
+- key: 费尔巴哈宗教的本质
+  title: 《宗教的本质》
+  short_title: 《宗教的本质》
+  citation_title: 宗教的本质
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 186
+  tag_class: feuerbach feuerbach-religion
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [王太庆]
+  available: true
+  single_volume: true
+- key: 费尔巴哈宗教本质讲演录
+  title: 《宗教本质讲演录》
+  short_title: 《宗教本质讲演录》
+  citation_title: 宗教本质讲演录
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 187
+  tag_class: feuerbach feuerbach-religion-lectures
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [刘磊, 荣震华]
+  available: true
+  single_volume: true
+- key: 费尔巴哈从人本学观点论不死问题
+  title: 《从人本学观点论不死问题》
+  short_title: 《从人本学观点论不死问题》
+  citation_title: 从人本学观点论不死问题
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 188
+  tag_class: feuerbach feuerbach-immortality
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [荣震华]
+  available: true
+  single_volume: true
+- key: 费尔巴哈论唯灵主义和唯物主义
+  title: 《论唯灵主义和唯物主义——特别是从意志自由方面着眼》
+  short_title: 《论唯灵主义和唯物主义》
+  citation_title: 论唯灵主义和唯物主义——特别是从意志自由方面着眼
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 189
+  tag_class: feuerbach feuerbach-spiritualism-materialism
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [张大同]
+  available: true
+  single_volume: true
+- key: 费尔巴哈幸福论
+  title: 《幸福论》
+  short_title: 《幸福论》
+  citation_title: 幸福论
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 190
+  tag_class: feuerbach feuerbach-happiness
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [汪耀三]
+  available: true
+  single_volume: true
+- key: 费尔巴哈未来哲学原理
+  title: 《未来哲学原理》
+  short_title: 《未来哲学原理》
+  citation_title: 未来哲学原理
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 191
+  tag_class: feuerbach feuerbach-future-philosophy
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [洪谦]
+  available: true
+  single_volume: true
+- key: 费尔巴哈哲学短篇集
+  title: 《哲学短篇集》
+  short_title: 《哲学短篇集》
+  citation_title: 哲学短篇集
+  folder: pdfs/费尔巴哈
+  publisher: 商务印书馆
+  place: 北京
+  sort_order: 192
+  tag_class: feuerbach feuerbach-philosophical-essays
+  collection: feuerbach_works
+  authors: [〔德〕费尔巴哈]
+  translators: [洪谦, 荣震华, 王太庆等]
+  available: true
+  single_volume: true

@@ -1,0 +1,20 @@
+[Unit]
+Description=Marx OCR circuit breaker (freeze OCR whenever the website slows down)
+# 站点健康探针 → 变慢就冻结 marx-ocr,恢复后解冻。必须与 marx-ocr 同生共死。
+After=marx-ocr.service
+BindsTo=marx-ocr.service
+
+[Service]
+Type=simple
+# root：需要写 marx-ocr 的 cgroup.freeze。
+User=root
+ExecStart=/bin/bash /opt/marx-search/scripts/_ocr_guard.sh
+# 守护自身极轻，但仍限一点资源，且不与 OCR 同核以免被冻住时误判。
+Nice=0
+MemoryMax=128M
+# 守护挂了必须拉起来——它是网站的保护伞。
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+schema: kant-feuerbach-reviewed-blank-pages-v1
+render_contract: PyMuPDF 2x RGB PNG, physical PDF page
+pages:
+  - id: kant-precritical-1
+    pdf_page: 2
+    render_file: kant-precritical-1-p2.png
+    source_sha256: 691de60f3b91008102970b60e3f914bf802ece3634cce779780ab5389c779abd
+    render_sha256: ac5835377bfcf7625bf2e44b02f8987ff8e43304080288e1b619abcf486d6967
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-precritical-2
+    pdf_page: 479
+    render_file: kant-precritical-2-p479-2x.png
+    source_sha256: ff7b30d6d8343d2d7fb49018d1b5c9cd583eea86ba4ef70e0c2ed0c6be4d2eb1
+    render_sha256: 713b6a7b492a8963e640471c27caab5992456462f8d7d2b60c3f87ab3a5fcf92
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-pure-reason-second
+    pdf_page: 2
+    render_file: kant-pure-reason-second-p2-2x.png
+    source_sha256: db892528ae5c07beabdbcd22a545fa1791cf22318bd2ad231212fce06b1f4eba
+    render_sha256: e93bdf99ca3853459cd1fd997890951c95bba7044cd6f7e0026d7cb98c44be9f
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-pure-reason-first-essays
+    pdf_page: 595
+    render_file: kant-pure-reason-first-essays-p595-2x.png
+    source_sha256: 13f5e8ebbde2482a95a3e71970ee3eff59c4fe7744067e3f8cca43035716e2e5
+    render_sha256: b49b881b172ad247b5b37589dfdaf32361f1bbf2fe208670056c9413002d6e90
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-practical-judgment
+    pdf_page: 525
+    render_file: kant-practical-judgment-p525-2x.png
+    source_sha256: 5e5b33248e6964aab496284610af3fbf31e51b65f8dbc062a8ca39da82b7cb83
+    render_sha256: 368beb3ea6f35009a571b5263eb8fcd0b58a99a3c09d36ec4ff19e3c675e00cf
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-conflict-anthropology
+    pdf_page: 2
+    render_file: kant-conflict-anthropology-p2-2x.png
+    source_sha256: f67259265a94d0b17eb342fab0e477d9546064dbd654b0439230682db0b6c52d
+    render_sha256: 5dc4103c59f834742f45cc274ddf3dd4ba20bd6bdc850ec4fefff4e38389420b
+    review: no visible text; paper texture and a faint decorative watermark only
+  - id: kant-post-1781-essays
+    pdf_page: 2
+    render_file: kant-post-1781-essays-p2-2x.png
+    source_sha256: 06ea2167fa6ae6ab18bb9b67d39b3fbb76f96c732294fa871de316a6417b67cb
+    render_sha256: c7ccf784d612ee6cfe838945b837cef937f8efb954d4d35dba73df175c242a0f
+    review: no visible text; paper texture and a faint decorative watermark only

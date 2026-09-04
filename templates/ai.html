@@ -5,9 +5,9 @@
   <title>AI 研究对话 · {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=11">
+  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=18">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
-  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=24">{% endif %}
+  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">{% endif %}
 </head>
 <body{% if layout_v2 %} class="v2"{% endif %}>
   {# 四页面布局：在原页面之上套统一导航外壳。页面自身结构（含 JS 引用的 #aipModelBadge）
@@ -16,7 +16,7 @@
   {# ===========================================================================
      「AI 研究对话」全屏页：把「AI 随心问」（快速问答）与「研究型检索」（研究综述）
      合并为一条可连续追问、带上下文的会话线程。自包含（命名空间 aip*），与全站右侧
-     抽屉共用同一条 localStorage 会话（marx-ai-thread-v1），跨页/跨标签连贯。
+     会话以浏览器 IndexedDB 为本机副本；会员可主动勾选同步到独立的个人文库服务器。
      权限/额度/著作群范围经 /api/ai/assistant-config 惰性拉取后自适应显隐。
      =========================================================================== #}
   <div id="aip-root"
@@ -30,15 +30,16 @@
       <div class="aip-title">
         <span class="aip-badge" aria-hidden="true">AI</span>
         <div class="aip-title-text">
-          <h1>AI 研究对话</h1>
-          <p>连续追问、带上下文的马克思主义经典研究问答</p>
+          <h1>{{ site_text("ai_page.title") }}</h1>
+          <p>{{ site_text("ai_page.subtitle") }}</p>
         </div>
       </div>
       <span class="aip-model" id="aipModelBadge">正在载入…</span>
     </header>
 
     <main class="aip-main">
-      {# 本地会话记录侧栏：多会话（新建/切换/删除/重命名），localStorage 按账号隔离。
+      {# 会话记录侧栏：多会话（新建/切换/删除/重命名），浏览器副本按账号隔离；
+         会员可明确授权后同步至独立的个人文库服务器。
          宽屏常驻左侧；窄屏收起为抽屉，由 aip-stage 顶部「会话记录」按钮唤出。 #}
       <aside class="aip-sessions" id="aipSessions" aria-label="会话记录">
         <div class="aip-sessions-head">
@@ -46,7 +47,32 @@
           <button type="button" class="aip-sessions-close" id="aipSessionsClose" aria-label="关闭">×</button>
         </div>
         <div class="aip-sessions-list" id="aipSessionsList"></div>
-        <div class="aip-sessions-foot">会话仅存于本设备浏览器</div>
+        <section class="aip-storage-manager" aria-label="会话保存设置">
+          <label class="aip-cloud-consent" id="aipCloudConsentRow">
+            <input type="checkbox" id="aipCloudConsent">
+            <span><strong>会员云端保存</strong><small id="aipCloudConsentHint">正在检查保存状态…</small></span>
+          </label>
+          <p class="aip-privacy-note" id="aipCloudPrivacy" title="会话正文按账号隔离；管理员仅在你申请找回时从回收区协助恢复。">独立个人文库服务器 · 账号隔离 · 仅本人可见 · 可申请找回</p>
+          <div class="aip-cloud-status" id="aipCloudStatus" role="status"></div>
+          <div class="aip-storage-usage" id="aipStorageUsage" hidden>
+            <span id="aipStorageUsageText"></span>
+            <span class="aip-storage-meter"><i id="aipStorageUsageFill"></i></span>
+          </div>
+          <div class="aip-cleanup-row">
+            <label for="aipCleanupDate">清理较早会话</label>
+            <div><input type="date" id="aipCleanupDate"><button type="button" id="aipCleanupOld">快捷清理</button></div>
+          </div>
+          <div class="aip-export-range">
+            <label>按更新时间批量导出</label>
+            <div class="aip-export-controls">
+              <input type="date" id="aipExportStart" aria-label="导出开始日期">
+              <span>至</span>
+              <input type="date" id="aipExportEnd" aria-label="导出结束日期">
+              <button type="button" id="aipExportRange">导出 ZIP</button>
+            </div>
+          </div>
+        </section>
+        <div class="aip-sessions-foot" id="aipSessionsFoot">本机副本</div>
       </aside>
       <div class="aip-sessions-scrim" id="aipSessionsScrim" hidden></div>
 
@@ -62,12 +88,12 @@
           {# 回答深度：快速问答（随心问）/ 研究综述（研究型检索）。整条会话连续、共享上下文。 #}
           <div class="aip-depth" role="tablist" aria-label="回答深度">
             <button type="button" class="aip-depth-tab active" data-depth="quick" role="tab" aria-selected="true">
-              <strong>快速问答</strong>
-              <span>即时对话 · 可选检索引文库佐证</span>
+              <strong>{{ site_text("ai_page.quick_title") }}</strong>
+              <span>{{ site_text("ai_page.quick_description") }}</span>
             </button>
             <button type="button" class="aip-depth-tab tab-research" data-depth="research" role="tab" aria-selected="false">
-              <strong>研究综述</strong>
-              <span>深度长文 · 20–24 条来自原著的真实引用</span>
+              <strong>{{ site_text("ai_page.research_title") }}</strong>
+              <span>{{ site_text("ai_page.research_description") }}</span>
             </button>
           </div>
 
@@ -75,9 +101,9 @@
             <div class="aip-provider-row" id="aipProviderRow" hidden>
               <label for="aipModel">模型</label>
               <select id="aipModel">
-                <option value="flash">DeepSeek Flash（默认 · 快）</option>
-                <option value="pro">DeepSeek Pro（更强 · 较慢）</option>
-                <option value="zhipu" id="aipModelZhipuOpt">智谱 GLM-5.1（可联网检索）</option>
+                <option value="flash" data-provider="deepseek" data-model="deepseek-v4-flash" data-effort="off" data-research-disabled="1">DeepSeek Flash（快速回答 / AI 导读）</option>
+                <option value="pro" data-provider="deepseek" data-model="deepseek-v4-pro" data-effort="on" data-research-only="1">DeepSeek Pro（研究级检索）</option>
+                {% if ai_web_access_enabled %}<option value="zhipu" id="aipModelZhipuOpt">智谱 GLM-5.1（可联网检索）</option>{% endif %}
               </select>
             </div>
             <label class="aip-grounding" id="aipGroundingRow">
@@ -124,6 +150,6 @@
     </main>
   </div>
   <script src="/static/book-scope/book-scope.js?v=4" defer></script>
-  <script src="/static/ai-page/ai-page.js?v=25" defer></script>
+  <script src="/static/ai-page/ai-page.js?v=36" defer></script>
 </body>
 </html>

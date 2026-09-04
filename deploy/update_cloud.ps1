@@ -205,6 +205,8 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $stage = Join-Path $env:TEMP "marx-cloud-patch-$stamp"
 $archive = Join-Path $env:TEMP "marx-cloud-patch-$stamp.tar.gz"
+$remoteRelease = "$RemoteDir.release.$stamp"
+$didPromote = $false
 
 try {
     Write-Host "Running local deployment smoke test ..."
@@ -259,12 +261,11 @@ try {
     Write-Host "Pruning old cloud backups, keeping the 5 most recent ..."
     Invoke-Remote-BestEffort "ls -1dt '$RemoteDir'.cloud-backup.* 2>/dev/null | tail -n +6 | xargs -r rm -rf"
 
-    Write-Host "Applying patch on server without touching PDFs or corpus data ..."
-    Invoke-Remote "mkdir -p '$RemoteDir/templates' '$RemoteDir/scripts' '$RemoteDir/config' '$RemoteDir/deploy'"
-    Invoke-Remote "tar -xzf '$remoteArchive' -C '$RemoteDir' && rm -f '$remoteArchive'"
+    Write-Host "Staging an isolated candidate release; the live application tree remains untouched ..."
+    Invoke-Remote "tar -xOf '$remoteArchive' ./deploy/stage_release.sh | bash -s -- '$RemoteDir' '$remoteRelease' '$remoteArchive'"
 
-    Write-Host "Fixing lightweight permissions ..."
-    Invoke-Remote-BestEffort "cd '$RemoteDir' && chown www-data:www-data *.py templates/*.html scripts/*.py deploy/*.ps1 deploy/*.sh deploy/marx-search-journal-alerts.* deploy/marx-search-journal-send.* config/*.example config/books.yaml config/manifest.yaml config/volumes.yaml config/wenji_toc_overrides.yaml config/quanji_toc_overrides.yaml data/dictionary.sqlite data/subject_index.sqlite data/dictionary_polish_report.json DEPLOY_SERVER.md 2>/dev/null || true && chmod -R a+rX templates scripts deploy config static 2>/dev/null || true && chmod a+r static/vendor/qrcode.min.js data/dictionary.sqlite data/subject_index.sqlite data/dictionary_polish_report.json 2>/dev/null || true"
+    Write-Host "Fixing permissions only inside the isolated candidate ..."
+    Invoke-Remote "find '$remoteRelease' -xdev -type d -exec chmod a+rx {} + && find '$remoteRelease' -xdev -type f -exec chown www-data:www-data {} + -exec chmod a+r {} + && chmod 0755 '$remoteRelease/deploy/zero_downtime_restart.sh' '$remoteRelease/deploy/stage_release.sh'"
     Invoke-Remote-BestEffort "install -d -o www-data -g www-data -m 0700 /var/www/.marx_search_full /var/www/.marx_search_full/page_images"
     if ($FixCachePermissions) {
         Write-Host "Recursively fixing cache permissions because -FixCachePermissions was supplied ..."
@@ -273,12 +274,24 @@ try {
         Write-Host "Skipping recursive cache permission scan. Use -FixCachePermissions only when cache ownership is known to be wrong."
     }
 
+    Write-Host "Installing candidate dependencies into an isolated target ..."
+    Invoke-Remote "mkdir -p '$remoteRelease/.deploy-deps' && '$RemoteDir/.venv/bin/python' -m pip install --target '$remoteRelease/.deploy-deps' -r '$remoteRelease/requirements.txt'"
+
+    Write-Host "Ensuring the licensed CJK font package for citation PDF reports ..."
+    Invoke-Remote "if ! dpkg-query -W -f='`${Status}' fonts-noto-cjk 2>/dev/null | grep -q 'install ok installed'; then export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y fonts-noto-cjk; fi"
+
     Write-Host "Compiling changed Python files ..."
-    Invoke-Remote "cd '$RemoteDir' && . .venv/bin/activate && python -m py_compile $($compileFiles -join ' ')"
+    Invoke-Remote "cd '$remoteRelease' && PYTHONPATH='$remoteRelease/.deploy-deps' '$RemoteDir/.venv/bin/python' -m py_compile $($compileFiles -join ' ')"
+
+    Write-Host "Backing up and migrating the membership database before loading the new app ..."
+    # 必须位于 deployment_smoke 之前：后者会 import app，而 app 启动时会调用
+    # init_membership_db。先显式做 WAL 一致性备份和有耗时上限的幂等迁移，
+    # 任一步失败就在重启前终止，当前线上进程继续正常服务。
+    Invoke-Remote "cd '$remoteRelease' && sudo -u www-data -H env PYTHONPATH='$remoteRelease/.deploy-deps' '$RemoteDir/.venv/bin/python' scripts/predeploy_membership_migration.py --max-seconds 30"
 
     Write-Host "Running server import smoke test before restart ..."
     # 远端合并 stderr 到 stdout，避免冒烟脚本日志经 ssh 的 stderr 在本地触发终止错误（exit code 仍会正确传回）。
-    Invoke-Remote "cd '$RemoteDir' && . .venv/bin/activate && python scripts/deployment_smoke.py --mode server 2>&1"
+    Invoke-Remote "cd '$remoteRelease' && PYTHONPATH='$remoteRelease/.deploy-deps' '$RemoteDir/.venv/bin/python' scripts/deployment_smoke.py --mode server 2>&1"
 
     if ($RebuildCorpus) {
         Write-Host "Rebuilding corpus.sqlite on server because -RebuildCorpus was supplied. This is a long-running foreground task."
@@ -287,51 +300,54 @@ try {
         Write-Host "Skipping corpus rebuild. Use -RebuildCorpus after PDFs are uploaded and verified."
     }
 
-    Write-Host "Installing journal alert collect timer if systemd files changed ..."
-    Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-journal-alerts.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-journal-alerts.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-journal-alerts.service && changed=1; fi && rm -f `"`$tmp_service`" && if ! cmp -s deploy/marx-search-journal-alerts.timer /etc/systemd/system/marx-search-journal-alerts.timer 2>/dev/null; then cp deploy/marx-search-journal-alerts.timer /etc/systemd/system/marx-search-journal-alerts.timer && changed=1; fi && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload && systemctl restart marx-search-journal-alerts.timer; else if ! systemctl is-active --quiet marx-search-journal-alerts.timer; then systemctl start marx-search-journal-alerts.timer; fi; fi && if ! systemctl is-enabled --quiet marx-search-journal-alerts.timer; then systemctl enable marx-search-journal-alerts.timer >/dev/null; fi"
-
-    Write-Host "Installing journal alert send timer if systemd files changed ..."
-    Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-journal-send.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-journal-send.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-journal-send.service && changed=1; fi && rm -f `"`$tmp_service`" && if ! cmp -s deploy/marx-search-journal-send.timer /etc/systemd/system/marx-search-journal-send.timer 2>/dev/null; then cp deploy/marx-search-journal-send.timer /etc/systemd/system/marx-search-journal-send.timer && changed=1; fi && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload && systemctl restart marx-search-journal-send.timer; else if ! systemctl is-active --quiet marx-search-journal-send.timer; then systemctl start marx-search-journal-send.timer; fi; fi && if ! systemctl is-enabled --quiet marx-search-journal-send.timer; then systemctl enable marx-search-journal-send.timer >/dev/null; fi"
-
-    Write-Host "Installing daily data backup timer ..."
-    Invoke-Remote "cd '$RemoteDir' && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-backup.service > /etc/systemd/system/marx-search-backup.service && cp deploy/marx-search-backup.timer /etc/systemd/system/marx-search-backup.timer && systemctl daemon-reload && systemctl enable --now marx-search-backup.timer"
-
-    Write-Host "Running one backup now to verify it works ..."
-    Invoke-Remote-BestEffort "systemctl start marx-search-backup.service; sleep 2; ls -1dt /var/backups/marx-search/*/ 2>/dev/null | head -1"
-
     if ($SkipRestart) {
-        Write-Host "Skipping service restart because -SkipRestart was supplied."
+        Write-Host "Candidate validation completed; -SkipRestart leaves the live tree unchanged."
+        Invoke-Remote-BestEffort "rm -rf -- '$remoteRelease' && rm -f -- '$remoteArchive'"
     } else {
-        Write-Host "Restarting service ..."
-        Invoke-Remote "systemctl restart marx-search"
+        Write-Host "Performing zero-downtime Caddy/Waitress cutover ..."
+        Invoke-Remote "MARX_APP_DIR='$RemoteDir' MARX_RELEASE_DIR='$remoteRelease' MARX_PATCH_ARCHIVE='$remoteArchive' bash '$remoteRelease/deploy/zero_downtime_restart.sh'"
+        $didPromote = $true
+
+        Write-Host "Applying final ownership to promoted files ..."
+        Invoke-Remote-BestEffort "cd '$RemoteDir' && while IFS= read -r item; do case `"`$item`" in ''|'#'*) continue;; esac; if [ -e `"`$item`" ]; then chown www-data:www-data `"`$item`" 2>/dev/null || true; chmod a+r `"`$item`" 2>/dev/null || true; fi; done < deploy/cloud_patch_files.txt"
 
         Write-Host "Verifying runtime and core pages ..."
         # Large corpus startup can take a few seconds; retry for up to about 36 seconds.
         # Beyond /api/runtime (process up), also probe core pages / and /pricing
-        # (features work): any 5xx makes curl -fsS fail and triggers the rollback below.
-        try {
-            Invoke-Remote "for i in `$(seq 1 12); do curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null 2>&1 && break; sleep 3; done; curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null && curl -fsS http://127.0.0.1:8000/ >/dev/null && curl -fsS http://127.0.0.1:8000/pricing >/dev/null && systemctl is-active marx-search >/dev/null && systemctl is-active marx-search-journal-alerts.timer >/dev/null"
-        } catch {
-            Write-Warning "Runtime verification failed. Attempting rollback from $remoteBackup ..."
-            Invoke-Remote "test -n '$remoteBackup' && test -d '$remoteBackup' && cd '$RemoteDir' && cp -a '$remoteBackup/.' '$RemoteDir/' && systemctl restart marx-search"
-            Invoke-Remote "for i in `$(seq 1 12); do curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null 2>&1 && break; sleep 3; done; curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null && curl -fsS http://127.0.0.1:8000/ >/dev/null && systemctl is-active marx-search >/dev/null"
-            throw "Deployment verification failed and rollback was applied from $remoteBackup."
-        }
+        # (features work): any 5xx makes curl -fsS fail. The cutover script has
+        # already retained the candidate as a fallback throughout both drains.
+        Invoke-Remote "for i in `$(seq 1 12); do curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null 2>&1 && break; sleep 3; done; curl -fsS http://127.0.0.1:8000/api/runtime >/dev/null && curl -fsS http://127.0.0.1:8000/ >/dev/null && curl -fsS http://127.0.0.1:8000/pricing >/dev/null && systemctl is-active marx-search >/dev/null"
+
+        Write-Host "Installing background workers and timers after the website cutover ..."
+        # Worker imports app and loads corpus.sqlite into memory. It must restart on every
+        # promoted code/corpus release even when its unit file itself is unchanged.
+        Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-citation-worker.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-citation-worker.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-citation-worker.service && changed=1; fi && rm -f `"`$tmp_service`" && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload; fi && systemctl restart marx-search-citation-worker.service && systemctl is-active --quiet marx-search-citation-worker.service && if ! systemctl is-enabled --quiet marx-search-citation-worker.service; then systemctl enable marx-search-citation-worker.service >/dev/null; fi"
+        Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-journal-alerts.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-journal-alerts.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-journal-alerts.service && changed=1; fi && rm -f `"`$tmp_service`" && if ! cmp -s deploy/marx-search-journal-alerts.timer /etc/systemd/system/marx-search-journal-alerts.timer 2>/dev/null; then cp deploy/marx-search-journal-alerts.timer /etc/systemd/system/marx-search-journal-alerts.timer && changed=1; fi && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload && systemctl restart marx-search-journal-alerts.timer; else if ! systemctl is-active --quiet marx-search-journal-alerts.timer; then systemctl start marx-search-journal-alerts.timer; fi; fi && if ! systemctl is-enabled --quiet marx-search-journal-alerts.timer; then systemctl enable marx-search-journal-alerts.timer >/dev/null; fi"
+        Invoke-Remote "cd '$RemoteDir' && changed=0 && tmp_service=`$(mktemp) && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-journal-process.service > `"`$tmp_service`" && if ! cmp -s `"`$tmp_service`" /etc/systemd/system/marx-search-journal-process.service 2>/dev/null; then cp `"`$tmp_service`" /etc/systemd/system/marx-search-journal-process.service && changed=1; fi && rm -f `"`$tmp_service`" && if ! cmp -s deploy/marx-search-journal-process.timer /etc/systemd/system/marx-search-journal-process.timer 2>/dev/null; then cp deploy/marx-search-journal-process.timer /etc/systemd/system/marx-search-journal-process.timer && changed=1; fi && if [ `"`$changed`" -eq 1 ]; then systemctl daemon-reload && systemctl restart marx-search-journal-process.timer; else if ! systemctl is-active --quiet marx-search-journal-process.timer; then systemctl start marx-search-journal-process.timer; fi; fi && if ! systemctl is-enabled --quiet marx-search-journal-process.timer; then systemctl enable marx-search-journal-process.timer >/dev/null; fi"
+        # 邮件只允许管理员在控制台最终确认后发送；部署不得重新启用历史定时发送器。
+        Invoke-Remote "systemctl disable --now marx-search-journal-send.timer >/dev/null 2>&1 || true"
+        Invoke-Remote "cd '$RemoteDir' && sed -e 's|/opt/marx-search|$RemoteDir|g' deploy/marx-search-backup.service > /etc/systemd/system/marx-search-backup.service && cp deploy/marx-search-backup.timer /etc/systemd/system/marx-search-backup.timer && systemctl daemon-reload && systemctl enable --now marx-search-backup.timer"
+        Invoke-Remote-BestEffort "systemctl start marx-search-backup.service; sleep 2; ls -1dt /var/backups/marx-search/*/ 2>/dev/null | head -1"
+        Invoke-Remote-BestEffort "rm -rf -- '$remoteRelease' && rm -f -- '$remoteArchive'"
     }
 
     if ($SkipRestart) {
         Write-Host "Checking current running service status without rollback ..."
-        Invoke-Remote-BestEffort "systemctl is-active marx-search >/dev/null && curl -fsS --max-time 5 http://127.0.0.1:8000/api/runtime >/dev/null && systemctl is-active marx-search-journal-alerts.timer >/dev/null"
+        Invoke-Remote-BestEffort "systemctl is-active marx-search >/dev/null && curl -fsS --max-time 5 http://127.0.0.1:8000/api/runtime >/dev/null && systemctl is-active marx-search-journal-alerts.timer >/dev/null && systemctl is-active marx-search-journal-process.timer >/dev/null"
     }
 
-    if ($deployedSha -ne "unknown") {
+    if ($didPromote -and $deployedSha -ne "unknown") {
         $shaMarker = if ($treeDirty) { "$deployedSha-dirty" } else { "$deployedSha" }
         Write-Host "Recording deployed revision $shaMarker into $RemoteDir/DEPLOYED_SHA ..."
         Invoke-Remote-BestEffort "printf '%s\n' '$shaMarker' > '$RemoteDir/DEPLOYED_SHA'"
     }
 
     Write-Host ""
-    Write-Host "Cloud patch complete."
+    if ($didPromote) {
+        Write-Host "Cloud patch complete."
+    } else {
+        Write-Host "Validation complete; no live files or processes were replaced."
+    }
     Write-Host "Open: https://mazhuzuojiansuo.com/library"
 } finally {
     if (-not $KeepLocalArchive -and (Test-Path $archive)) {

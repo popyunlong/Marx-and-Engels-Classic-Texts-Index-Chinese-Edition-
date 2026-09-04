@@ -25,6 +25,47 @@
     .fgroup .btn+.btn{border-left:1px solid var(--line);}
     .stage{flex:1 1 auto;display:flex;min-height:0;}
     iframe#reader{flex:1 1 auto;min-width:0;border:0;background:#EEF0F5;}
+    /* MEGA2 研究导论章—节目录：只由阅读器扫描 h2/h3 生成，不改审定全文字节。 */
+    #researchTocPanel{flex:0 0 0;width:0;min-width:0;overflow:hidden;border-right:0 solid var(--line);background:var(--panel);transition:flex-basis .2s,width .2s,border-width .2s;display:flex;flex-direction:column;}
+    #researchTocPanel.open{flex:0 0 340px;width:340px;border-right-width:1px;}
+    .rt-head{display:flex;align-items:center;gap:10px;min-width:300px;padding:13px 14px;border-bottom:1px solid var(--line);}
+    .rt-head-copy{min-width:0;display:flex;flex-direction:column;gap:2px;}
+    .rt-head strong{font-size:.96em;}
+    .rt-count{font-size:.74em;color:var(--muted);}
+    .rt-close{margin-left:auto;border:0;background:none;color:var(--muted);font-size:1.35em;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px;}
+    .rt-close:hover{background:var(--accent-soft);color:var(--accent);}
+    .rt-list{min-width:320px;flex:1 1 auto;overflow:auto;padding:8px 10px 18px;scrollbar-gutter:stable;}
+    .rt-loading{padding:18px 10px;color:var(--muted);font-size:.84em;line-height:1.7;}
+    .rt-chapter{border-bottom:1px solid #eee5da;}
+    .rt-chapter-row{display:flex;align-items:stretch;gap:2px;}
+    .rt-jump,.rt-section{border:0;background:transparent;color:var(--text);font-family:inherit;text-align:left;cursor:pointer;}
+    .rt-jump{flex:1;min-width:0;padding:11px 7px;font-size:.88em;font-weight:700;line-height:1.55;display:flex;align-items:baseline;gap:8px;}
+    .rt-jump:hover,.rt-section:hover{color:var(--accent);background:#fbf5ed;}
+    .rt-toggle{flex:0 0 34px;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:.86em;transition:transform .15s;}
+    .rt-toggle[aria-expanded="false"]{transform:rotate(-90deg);}
+    .rt-toggle:disabled{visibility:hidden;}
+    .rt-sections{padding:0 0 7px 13px;}
+    .rt-sections[hidden]{display:none;}
+    .rt-section{width:100%;padding:7px 8px 7px 14px;border-left:2px solid #e7ddd1;font-size:.82em;line-height:1.55;display:flex;align-items:baseline;gap:8px;}
+    .rt-title{flex:1;min-width:0;}
+    .rt-page{flex:none;color:#9a8d82;font-size:.82em;font-weight:400;white-space:nowrap;font-variant-numeric:tabular-nums;}
+    .rt-jump.active,.rt-section.active{color:var(--accent);background:var(--accent-soft);}
+    .rt-section.active{border-left-color:var(--accent);font-weight:600;}
+    #researchTocBackdrop{display:none;}
+    @media (max-width:760px){
+      .topbar{gap:6px;padding:8px;overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:none;}
+      .topbar::-webkit-scrollbar{display:none;}
+      .topbar>*{flex-shrink:0;}
+      .topbar .spacer{flex:0 0 2px;}
+      .titlewrap{max-width:42vw;flex-shrink:1;}
+      .stage{position:relative;}
+      #researchTocPanel{position:absolute;z-index:45;inset:0 auto 0 0;display:flex;flex:none;width:min(88vw,360px);max-width:360px;transform:translateX(-102%);visibility:hidden;border-right:1px solid var(--line);box-shadow:8px 0 28px rgba(30,20,14,.22);transition:transform .2s,visibility .2s;}
+      #researchTocPanel.open{flex:none;width:min(88vw,360px);transform:translateX(0);visibility:visible;}
+      #researchTocBackdrop{position:absolute;z-index:44;inset:0;border:0;background:rgba(28,20,14,.34);cursor:pointer;}
+      #researchTocBackdrop.open{display:block;}
+      .rt-list{min-width:0;width:100%;}
+      .rt-head{min-width:0;}
+    }
     /* AI 导读抽屉 */
     #aiPanel{flex:0 0 0;width:0;overflow:hidden;transition:flex-basis .2s,width .2s;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;}
     #aiPanel.open{flex:0 0 380px;width:380px;}
@@ -89,6 +130,7 @@
   </style>
 </head>
 <body>
+  {% set research_toc_enabled = volume.get('single_document') and (volume.get('source_id') == 'mega2-research-editing-history-zh' or book.get('key') == 'mega2-research-editing-history-zh') %}
   <div class="topbar">
     <a class="back" href="{{ url_for(home_endpoint) }}">← {{ home_title or '文库' }}</a>
     <div class="titlewrap">
@@ -101,8 +143,8 @@
       <button class="btn" id="fminus" title="缩小字号">A−</button>
       <button class="btn" id="fplus" title="放大字号">A+</button>
     </div>
-    <button class="btn" id="toc" title="本卷目录">目录</button>
-    <button class="btn" id="bilingual" title="整段中文对照翻译（DeepSeek，永久缓存）">对照翻译</button>
+    <button class="btn" id="toc" title="{{ '章节目录' if research_toc_enabled else ('回到全文开头' if volume.get('single_document') else '本卷目录') }}"{% if research_toc_enabled %} aria-expanded="false" aria-controls="researchTocPanel"{% endif %}>{{ '目录' if research_toc_enabled else ('回到开头' if volume.get('single_document') else '目录') }}</button>
+    <button class="btn" id="bilingual" title="整段中文对照翻译（MiMo 非思考，站方承担，永久缓存）">对照翻译</button>
     <button class="btn" id="aiBtn" title="AI 导读（基于当前页原文，中文讲解）">AI 导读</button>
     <button class="btn primary" id="cite" title="生成本页引文">引用本页</button>
     {% if notes_access_enabled %}
@@ -111,6 +153,16 @@
   </div>
 
   <div class="stage">
+    {% if research_toc_enabled %}
+    <aside id="researchTocPanel" aria-label="研究导论章节目录" aria-hidden="true">
+      <div class="rt-head">
+        <div class="rt-head-copy"><strong>章节目录</strong><span class="rt-count" id="researchTocCount">正在读取标题…</span></div>
+        <button class="rt-close" id="researchTocClose" type="button" title="关闭目录" aria-label="关闭章节目录">×</button>
+      </div>
+      <nav class="rt-list" id="researchTocList" aria-label="章和节"><div class="rt-loading">正在从研究导论正文生成目录…</div></nav>
+    </aside>
+    <button id="researchTocBackdrop" type="button" tabindex="-1" aria-label="关闭章节目录"></button>
+    {% endif %}
     <iframe id="reader" title="{{ book.title_zh }} {{ volume.label }}"></iframe>
     <aside id="aiPanel" aria-label="AI 导读">
       <div class="ai-head">AI 导读<button class="x" id="aiClose" title="关闭">×</button></div>
@@ -173,12 +225,28 @@
 
     const VOL_INDEX = {{ (serve_prefix ~ '/' ~ volume['index']) | tojson }};
     const SRC_LANG = CFG.lang || 'ru', TGT_LANG = 'zh';
-    // 中文书（文集流式阅读）：源文即中文，无需对照/划词翻译，仅保留 AI 导读与引文。
-    const TRANSLATE_ON = (CFG.lang !== 'zh') && !!TRANSLATE_URL;
-    // 中文《文集》流式（无划词翻译）：选中文字即就地显示「引用此处」，页码精确到所选段落所在印本页。
-    // 仅页码型书启用（英文文集无原书页码；俄/德文书走划词翻译，不启用）。
-    const CITE_ON_SELECT = !TRANSLATE_ON && CFG.lang !== 'en';
+    function readerCapabilities(cfg, translateUrl){
+      const lang = cfg.lang || 'ru';
+      const hasPageLabels = cfg.has_page_labels !== false;
+      return {
+        hasPageLabels,
+        pagelessEnglish: lang === 'en' && !hasPageLabels,
+        translateOn: cfg.translation_enabled !== false && lang !== 'zh' && !!translateUrl,
+        citeOnSelect: cfg.selection_citation === true && hasPageLabels,
+      };
+    }
+    const READER_CAPS = readerCapabilities(CFG, TRANSLATE_URL);
+    const HAS_PAGE_LABELS = READER_CAPS.hasPageLabels;
+    const PAGELESS_ENGLISH = READER_CAPS.pagelessEnglish;
+    const TRANSLATE_ON = READER_CAPS.translateOn;
+    const CITE_ON_SELECT = READER_CAPS.citeOnSelect;
     const iframe = document.getElementById('reader');
+    const tocButton = document.getElementById('toc');
+    const researchTocPanel = document.getElementById('researchTocPanel');
+    const researchTocList = document.getElementById('researchTocList');
+    const researchTocBackdrop = document.getElementById('researchTocBackdrop');
+    const RESEARCH_TOC_ON = !!researchTocPanel;
+    let researchTocEntries = [], activeResearchTocId = '';
     let scale = parseFloat(localStorage.getItem('wenku_scale') || '1') || 1;
 
     function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -186,6 +254,9 @@
       try{ const d = iframe.contentDocument; if(d && d.body) d.body.style.fontSize = Math.round(20*scale) + 'px'; }catch(e){}
     }
     function markerNum(el){
+      // 新版 MEGA 流式页：唯一 DOM id + 原书页标（可为罗马数字、M-1、I-1）。
+      const label = (el.getAttribute && el.getAttribute('data-page-label') || '').trim();
+      if(label) return label;
       const t = (el.textContent || '').trim();
       if(/^\d+$/.test(t)) return t;
       // 锚点页码：列宁/MEGA 用 id（s124 / 大写 S38），MEW 用 <a name="S49">（Seite，大写 NAME 属性）
@@ -196,7 +267,7 @@
     function detectPage(){
       let d; try{ d = iframe.contentDocument; }catch(e){ return null; }
       if(!d) return null;
-      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
+      const markers = d.querySelectorAll('[data-page-label], .chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
       const offset = 96; let cur = null, first = null;
       markers.forEach(el=>{
         const num = markerNum(el); if(num === null) return;
@@ -210,9 +281,136 @@
       document.getElementById('curPage').textContent = p ? String(p) : '—';
       return p;
     }
+    function normalizeResearchTocTitle(value){
+      return String(value || '')
+        .replace(/\s+/g, ' ').trim()
+        .replace(/^(第[一二三四五六七八九十百]+节)(?=\S)/, '$1 ')
+        .replace(/\bMEGA\s*([12])/g, 'MEGA $1')
+        .replace(/\b(MEGA [12])(?=[\u3400-\u9fff])/g, '$1 ');
+    }
+    function researchHeadingPage(d, heading){
+      let page = '';
+      for(const marker of d.querySelectorAll('a.pgmark[data-pdf-page]')){
+        if(marker.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING){
+          page = marker.getAttribute('data-page-label') || marker.getAttribute('data-pdf-page') || '';
+        }else break;
+      }
+      return page;
+    }
+    function setResearchTocOpen(open){
+      if(!RESEARCH_TOC_ON) return;
+      const next = !!open;
+      researchTocPanel.classList.toggle('open', next);
+      researchTocPanel.setAttribute('aria-hidden', next ? 'false' : 'true');
+      tocButton.classList.toggle('primary', next);
+      tocButton.setAttribute('aria-expanded', next ? 'true' : 'false');
+      if(researchTocBackdrop) researchTocBackdrop.classList.toggle('open', next);
+      if(next){
+        if(typeof aiClose === 'function') aiClose();
+        syncResearchToc();
+      }
+    }
+    function jumpToResearchHeading(entry){
+      if(!entry || !entry.heading) return;
+      markResearchTocActive(entry);
+      try{ entry.heading.scrollIntoView({block:'start', behavior:'smooth'}); }
+      catch(e){ try{ entry.heading.scrollIntoView(true); }catch(_e){} }
+      if(window.matchMedia('(max-width:760px)').matches) setResearchTocOpen(false);
+      setTimeout(()=>{ updatePageLabel(); syncResearchToc(); }, 260);
+    }
+    function setResearchChapterExpanded(chapter, expanded){
+      const sections = chapter.querySelector('.rt-sections');
+      const toggle = chapter.querySelector('.rt-toggle');
+      if(!sections || !toggle) return;
+      sections.hidden = !expanded;
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      toggle.setAttribute('aria-label', expanded ? '折叠本章' : '展开本章');
+    }
+    function buildResearchToc(){
+      if(!RESEARCH_TOC_ON) return;
+      let d; try{ d = iframe.contentDocument; }catch(e){ return; }
+      if(!d || !researchTocList) return;
+      const headings = [...d.querySelectorAll('h2,h3')].filter(heading=>{
+        const title = normalizeResearchTocTitle(heading.textContent);
+        return title && title !== '目录' && !heading.closest('details.frontmatter');
+      });
+      researchTocEntries = headings.map((heading, index)=>{
+        if(!heading.id) heading.id = 'research-toc-heading-' + (index + 1);
+        return {
+          id: heading.id,
+          level: Number(heading.tagName.slice(1)),
+          title: normalizeResearchTocTitle(heading.textContent),
+          page: researchHeadingPage(d, heading),
+          heading,
+        };
+      });
+      const chapters = [];
+      for(const entry of researchTocEntries){
+        if(entry.level === 2) chapters.push({entry, sections:[]});
+        else if(entry.level === 3 && chapters.length) chapters[chapters.length - 1].sections.push(entry);
+      }
+      researchTocList.replaceChildren();
+      const makeJump = (entry, className)=>{
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = className;
+        button.dataset.researchTocTarget = entry.id;
+        const title = document.createElement('span'); title.className = 'rt-title'; title.textContent = entry.title;
+        const page = document.createElement('span'); page.className = 'rt-page'; page.textContent = entry.page ? ('p.' + entry.page) : '';
+        button.append(title, page); button.addEventListener('click', ()=>jumpToResearchHeading(entry));
+        return button;
+      };
+      chapters.forEach((chapter, index)=>{
+        const section = document.createElement('section'); section.className = 'rt-chapter';
+        const row = document.createElement('div'); row.className = 'rt-chapter-row';
+        row.appendChild(makeJump(chapter.entry, 'rt-jump'));
+        const toggle = document.createElement('button');
+        toggle.type = 'button'; toggle.className = 'rt-toggle'; toggle.textContent = '▾';
+        toggle.disabled = chapter.sections.length === 0;
+        toggle.setAttribute('aria-expanded', chapter.sections.length ? 'true' : 'false');
+        toggle.setAttribute('aria-label', chapter.sections.length ? '折叠本章' : '本章没有二级条目');
+        row.appendChild(toggle); section.appendChild(row);
+        if(chapter.sections.length){
+          const children = document.createElement('div'); children.className = 'rt-sections';
+          chapter.sections.forEach(entry=>children.appendChild(makeJump(entry, 'rt-section')));
+          section.appendChild(children);
+          toggle.addEventListener('click', ()=>setResearchChapterExpanded(section, toggle.getAttribute('aria-expanded') !== 'true'));
+        }
+        researchTocList.appendChild(section);
+      });
+      const count = document.getElementById('researchTocCount');
+      const chapterCount = chapters.filter(chapter=>/^第.+章/.test(chapter.entry.title)).length;
+      if(count) count.textContent = chapterCount + ' 章 · ' + researchTocEntries.filter(item=>item.level === 3).length + ' 节';
+      if(!chapters.length) researchTocList.innerHTML = '<div class="rt-loading">未识别到可靠的章—节标题。</div>';
+      activeResearchTocId = '';
+      syncResearchToc();
+    }
+    function markResearchTocActive(active){
+      if(!RESEARCH_TOC_ON || !active || active.id === activeResearchTocId) return;
+      activeResearchTocId = active.id;
+      researchTocList.querySelectorAll('[data-research-toc-target]').forEach(button=>{
+        const current = button.dataset.researchTocTarget === active.id;
+        button.classList.toggle('active', current);
+        if(current) button.setAttribute('aria-current', 'location'); else button.removeAttribute('aria-current');
+      });
+      const button = researchTocList.querySelector('[data-research-toc-target="' + CSS.escape(active.id) + '"]');
+      if(button){
+        const chapter = button.closest('.rt-chapter');
+        if(chapter && button.classList.contains('rt-section')) setResearchChapterExpanded(chapter, true);
+        if(researchTocPanel.classList.contains('open')) button.scrollIntoView({block:'nearest'});
+      }
+    }
+    function syncResearchToc(){
+      if(!RESEARCH_TOC_ON || !researchTocEntries.length) return;
+      let active = researchTocEntries[0];
+      for(const entry of researchTocEntries){
+        if(entry.heading.getBoundingClientRect().top <= 120) active = entry;
+        else break;
+      }
+      markResearchTocActive(active);
+    }
     // 某节点所在的印本页：取它之前最近的页锚点。与 detectPage 用同一套页锚点选择器。
     function pageAtNode(d, node){
-      const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
+      const markers = d.querySelectorAll('[data-page-label], .chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
       let page = null;
       for(const el of markers){
         const num = markerNum(el); if(num === null) continue;
@@ -232,10 +430,13 @@
         const a = pageAtNode(d, r.startContainer);
         const b = pageAtNode(d, r.endContainer);
         if(a === null && b === null) return null;
-        const lo = (a === null) ? b : a, hi = (b === null) ? a : b;
-        // 页锚点按文档序递增，故 lo<=hi；异常顺序（选区反向等）时兜底取小/大。
-        const n1 = Math.min(Number(lo), Number(hi)), n2 = Math.max(Number(lo), Number(hi));
-        return {start: n1, end: n2, text: (n1 === n2) ? String(n1) : (n1 + '—' + n2)};
+        const lo = String((a === null) ? b : a), hi = String((b === null) ? a : b);
+        // 旧书库纯数字页仍规范化为数值范围；MEGA 的罗马/手稿页标按文档顺序原样保留。
+        if(/^\d+$/.test(lo) && /^\d+$/.test(hi)){
+          const n1 = Math.min(Number(lo), Number(hi)), n2 = Math.max(Number(lo), Number(hi));
+          return {start: String(n1), end: String(n2), text: (n1 === n2) ? String(n1) : (n1 + '—' + n2)};
+        }
+        return {start: lo, end: hi, text: (lo === hi) ? lo : (lo + '—' + hi)};
       }catch(e){ return null; }
     }
 
@@ -293,7 +494,7 @@
       if(num == null || num === '') return false;
       try{
         const d = iframe.contentDocument; if(!d) return false;
-        const markers = d.querySelectorAll('.chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
+        const markers = d.querySelectorAll('[data-page-label], .chapter-r, .rp, [id^="s"], [id^="S"], a[name^="s"], a[name^="S"]');
         for(const el of markers){
           if(markerNum(el) === String(num)){ el.scrollIntoView({block:'start'}); return true; }
         }
@@ -306,28 +507,63 @@
       scrollToPage(target);
     }
 
-    // ---------- 翻译（DeepSeek，永久缓存；命中缓存零成本） ----------
+    // ---------- 翻译（MiMo 非思考，站方承担；永久缓存，命中零成本） ----------
+    async function readEventStream(r, onProgress){
+      if(!r.body){
+        const raw = await r.text(), blocks = String(raw||'').split('\n\n');
+        let result = null;
+        blocks.forEach(block=>{ const line=block.split('\n').find(x=>x.startsWith('data:')); if(line){ try{ result=JSON.parse(line.slice(5).trim()); }catch(_){ } } });
+        if(!result) throw new Error('服务器未返回完整结果');
+        return result;
+      }
+      const reader=r.body.getReader(), decoder=new TextDecoder();
+      let buffer='', result=null;
+      while(true){
+        const chunk=await reader.read();
+        buffer += decoder.decode(chunk.value || new Uint8Array(), {stream:!chunk.done});
+        const blocks=buffer.split('\n\n'); buffer=chunk.done?'':(blocks.pop()||'');
+        for(const block of blocks){
+          const lines=block.split('\n');
+          const eventName=((lines.find(x=>x.startsWith('event:'))||'').slice(6).trim());
+          const parts=lines.filter(x=>x.startsWith('data:')).map(x=>x.slice(5).trim());
+          if(!parts.length) continue;
+          let data=null; try{ data=JSON.parse(parts.join('')); }catch(_){ continue; }
+          if(eventName==='progress'){ if(onProgress) onProgress(data); }
+          else if(eventName==='error'){ throw new Error(data.error||'AI 请求失败'); }
+          else if(eventName==='done'||!eventName){ result=data; }
+        }
+        if(chunk.done) break;
+      }
+      if(!result) throw new Error('服务器未返回完整结果');
+      return result;
+    }
     async function postTranslate(texts){
       const r = await fetch(TRANSLATE_URL, {
         method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
         body: JSON.stringify({texts, src:SRC_LANG, tgt:TGT_LANG})
       });
       if(!r.ok) throw new Error('HTTP '+r.status);
-      const j = await r.json();
+      const ctype=(r.headers.get('content-type')||'').toLowerCase();
+      const j=ctype.indexOf('text/event-stream')>=0 ? await readEventStream(r) : await r.json();
       if(!j.ok) throw new Error(j.error || '翻译失败');
       return j;
     }
 
-    // 划词翻译
+    // 划词操作：外文 MEGA 同时提供翻译、按印本页引用与会员笔记。
     const selPop = document.getElementById('selPop');
     function hideSel(){ selPop.style.display='none'; selPop.dataset.text=''; }
-    function showSelBubble(x, y, text){
+    function showSelBubble(x, y, text, pg){
+      hideCiteSel();
       selPop.dataset.text = text;
-      selPop.innerHTML = '<button class="btn primary" id="selDo">译 ▸</button>' + (NOTES_ON ? '<button class="btn" id="selNote" title="把所选原文记入知识库">✎ 记笔记</button>' : '');
+      selPop.innerHTML =
+        (TRANSLATE_ON ? '<button class="btn primary" id="selDo">译 ▸</button>' : '') +
+        (CITE_ON_SELECT ? '<button class="btn" id="selCite" title="按所选文字所在印本页生成引文">引用</button>' : '') +
+        (NOTES_ON ? '<button class="btn" id="selNote" title="把所选原文记入知识库">✎ 记笔记</button>' : '');
       selPop.style.left = Math.max(8, Math.min(x, window.innerWidth-230)) + 'px';
       selPop.style.top  = Math.min(y, window.innerHeight-60) + 'px';
       selPop.style.display = 'block';
-      document.getElementById('selDo').onclick = doSelTranslate;
+      const sd = document.getElementById('selDo'); if(sd) sd.onclick = doSelTranslate;
+      const sc = document.getElementById('selCite'); if(sc) sc.onclick = function(){ hideSel(); showCiteBubble(x, y, pg); };
       if(NOTES_ON){ const sn = document.getElementById('selNote'); if(sn) sn.onclick = function(){ if(window.__mxnPanel) window.__mxnPanel.noteFromSelection(); }; }
     }
     async function doSelTranslate(){
@@ -344,14 +580,14 @@
     function onIframeMouseUp(){
       let sel; try{ sel = iframe.contentWindow.getSelection(); }catch(e){ return; }
       const text = (sel && sel.toString() || '').trim();
-      if(TRANSLATE_ON){   // 非中文书：划词翻译（原有行为）
+      if(TRANSLATE_ON){   // 外文书：翻译；页码型 MEGA 还在同一浮层提供引用。
         if(text.length < 2){ if(selPop.dataset.text) hideSel(); return; }
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         const ib = iframe.getBoundingClientRect();
-        showSelBubble(ib.left + rect.left, ib.top + rect.bottom + 6, text);
+        showSelBubble(ib.left + rect.left, ib.top + rect.bottom + 6, text, pagesOfSelection(sel));
         return;
       }
-      if(CITE_ON_SELECT){   // 中文《文集》流式：选中即显示「引用此处」，页码精确到所选段落所在印本页
+      if(CITE_ON_SELECT){   // 中文流式或禁用翻译的页码型书：直接显示引用。
         if(text.length < 2){ if(citePop.dataset.on) hideCiteSel(); return; }
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         const ib = iframe.getBoundingClientRect();
@@ -364,6 +600,7 @@
     const citePop = document.getElementById('citePop');
     function hideCiteSel(){ citePop.style.display = 'none'; citePop.dataset.on = ''; }
     function showCiteBubble(x, y, pg){
+      hideSel();
       // pg = pagesOfSelection() 的 {start,end,text}；跨页选中时 text 形如「10—11」，
       // 直接作为引文模板的 {page} 填入即得「…人民出版社，2009：10—11.」。
       const pageStr = pg ? pg.text : '';
@@ -384,7 +621,11 @@
         '<div class="cp-foot"><button class="btn primary" id="cpCopy">复制引文</button>' +
         (NOTES_ON ? '<button class="btn" id="cpNote" title="把所选原文记入知识库">✎ 记笔记</button>' : '') +
         '<button class="btn" id="cpReport" title="此处页码有误？提醒管理员核对">⚑ 报错</button>' +
-        '<span class="cp-hint">' + (pg && pg.start !== pg.end ? '所选跨 ' + (pg.end - pg.start + 1) + ' 个印本页' : '页码依据所选文字定位') + '</span></div>';
+        '<span class="cp-hint">' + (pg && pg.start !== pg.end
+          ? (/^\d+$/.test(pg.start) && /^\d+$/.test(pg.end)
+              ? '所选跨 ' + (Number(pg.end) - Number(pg.start) + 1) + ' 个印本页'
+              : '所选跨印本页 ' + escapeHtml(pg.text))
+          : '页码依据所选文字定位') + '</span></div>';
       citePop.style.left = Math.max(8, Math.min(x, window.innerWidth - 380)) + 'px';
       citePop.style.top  = Math.min(y, window.innerHeight - 170) + 'px';
       citePop.style.display = 'block';
@@ -582,6 +823,7 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     let scrollTimer = null;
     function onScroll(){
       const p = updatePageLabel();
+      syncResearchToc();
       recordReadingPosition(p);  // 复用刚算好的页码，模块内节流，随滚动更新「读到哪一页」
       hideCiteSel();             // 滚动后气泡会脱离所选文字位置，收起
       if(bilingual){ clearTimeout(scrollTimer); scrollTimer = setTimeout(runBilingualPass, 350); }
@@ -592,6 +834,7 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
       applyFont();
       maybeResumeScroll();      // 进场续读：滚到上次读到的印本页（仅首个文档、仅一次）
       updatePageLabel();
+      buildResearchToc();
       recordReadingPosition();  // 翻到新文档即记录「继续阅读」
       try{
         iframe.contentWindow.addEventListener('scroll', onScroll, {passive:true});
@@ -606,7 +849,20 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     function setScale(s){ scale = Math.max(0.7, Math.min(2.0, Math.round(s*10)/10)); localStorage.setItem('wenku_scale', scale); applyFont(); }
     document.getElementById('fminus').onclick = ()=> setScale(scale - 0.1);
     document.getElementById('fplus').onclick  = ()=> setScale(scale + 0.1);
-    document.getElementById('toc').onclick    = ()=> { iframe.src = VOL_INDEX; };
+    if(RESEARCH_TOC_ON){
+      document.getElementById('researchTocClose').onclick = ()=>setResearchTocOpen(false);
+      researchTocBackdrop.onclick = ()=>setResearchTocOpen(false);
+      document.addEventListener('keydown', e=>{ if(e.key === 'Escape' && researchTocPanel.classList.contains('open')) setResearchTocOpen(false); });
+    }
+    tocButton.onclick = ()=> {
+      if(RESEARCH_TOC_ON){ setResearchTocOpen(!researchTocPanel.classList.contains('open')); return; }
+      if(CFG.single_document){
+        try{ iframe.contentWindow.scrollTo({top:0, left:0, behavior:'smooth'}); }
+        catch(e){ try{ iframe.contentWindow.scrollTo(0, 0); }catch(_e){} }
+        return;
+      }
+      iframe.src = VOL_INDEX;
+    };
 
     // ---------- 引文 ----------
     function fillTpl(tpl, ctx){ return String(tpl||'').replace(/\{(\w+)\}/g, (m,k)=> (ctx[k]!=null ? ctx[k] : '')); }
@@ -623,7 +879,7 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     // 三种标准中文引文格式（与检索/AI 页共用同一套：国标 GB/T 7714 / 中国社会科学 / 马克思主义研究），
     // 供「引用所选 / 引用本页」下拉切换；共用同一把 localStorage 键，跨页记忆。仅中文《文集》流式启用。
     const CITE_FORMAT_KEY = 'marx-citation-format-v1';
-    const CITE_FORMAT_LABELS = { gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+    const CITE_FORMAT_LABELS = { gb2025: '国标 GB/T 7714—2025', gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
     function citeFormat(){ try{ const val = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[val] ? val : 'gb2015'; }catch(e){ return 'gb2015'; } }
     // 从卷字段就地拼装三格式，与后端 search.DEFAULT_CITATION_TEMPLATES 对齐（题名领起、无著者前缀）。
     // 仅中文《文集》(lang=zh) 生成；外文书/缺题名·出版者时返回 null → 不显下拉、回退到 zh 单一格式。
@@ -637,6 +893,7 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
       if(!pub) return null;
       const n = (v.n != null ? v.n : ''), year = (v.year != null ? v.year : ''), pg = page || '';
       return {
+        gb2025: `${title}:第${n}卷[M].${place}:${pub},${year}:${pg}.`,
         gb2015: `${title}:第${n}卷[M].${place}:${pub},${year}:${pg}.`,
         zgshkx: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
         mkszyj: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
@@ -644,8 +901,11 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     }
     function buildCitations(page){
       const c = CFG.citation || {}, v = CFG.volume || {};
-      const ctx = Object.assign({}, c, v, {page: page || ''});
-      if(CFG.lang === 'en'){
+      // MEGA is multilingual: German citation style uses "S.", French/English "p.".
+      // A volume may still override page_prefix explicitly for exceptional editions.
+      const pagePrefix = v.page_prefix || (SRC_LANG === 'de' ? 'S.' : 'p.');
+      const ctx = Object.assign({}, c, v, {page: page || '', page_prefix: pagePrefix});
+      if(PAGELESS_ENGLISH){
         const info = enArticleInfo();
         ctx.article = info.article || (CFG.title_zh || '');
         ctx.source = info.source || 'Marx-Engels Collected Works';
@@ -701,8 +961,8 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
       } else { lab.style.display = ''; sel.style.display = 'none'; }
       setZh();
       document.getElementById('citeRu').textContent = cit.alt;
-      // 英文文集无页码概念，不弹「未识别页码」告警。
-      document.getElementById('citeWarn').style.display = (!p && CFG.lang !== 'en') ? 'block' : 'none';
+      // 仅旧英文文集是无页码篇目；英文 MEGA 仍须识别并显示印本页。
+      document.getElementById('citeWarn').style.display = (!p && HAS_PAGE_LABELS) ? 'block' : 'none';
       // 每次打开即把「一键报错」绑定到当前页/引文并复位状态（用当前所选格式的引文文本）。
       const cr = document.getElementById('citeReport');
       if(cr){ cr.disabled = false; delete cr.dataset.done; cr.textContent = '⚑ 一键报错';
@@ -728,8 +988,8 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
 
     // 「原文式」引文标签按书语种切换（列宁=俄文原版式 / MEGA=德文原版式 / 英文=英文版式）
     document.getElementById('altLabel').textContent = (CFG.citation && CFG.citation.alt_label) || '原文版式';
-    // 英文文集：无原书页码，隐藏「当前页」并改引文提示。
-    if(CFG.lang === 'en'){
+    // 旧英文文集：无原书页码；英文 MEGA 有页锚，不进入此分支。
+    if(PAGELESS_ENGLISH){
       const cp = document.querySelector('.curpage'); if(cp) cp.style.display = 'none';
       const hint = document.querySelector('#citeModal .hint');
       if(hint) hint.textContent = '英文文集无原书页码，引文按篇名与 MECW（马恩全集英文版）出处生成。';
@@ -749,7 +1009,7 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     const aiPanel = document.getElementById('aiPanel');
     const aiLog = document.getElementById('aiLog');
     let aiBusy = false;
-    function aiOpen(){ aiPanel.classList.add('open'); document.getElementById('aiBtn').classList.add('primary'); }
+    function aiOpen(){ if(RESEARCH_TOC_ON) setResearchTocOpen(false); aiPanel.classList.add('open'); document.getElementById('aiBtn').classList.add('primary'); }
     function aiClose(){ aiPanel.classList.remove('open'); document.getElementById('aiBtn').classList.remove('primary'); }
     document.getElementById('aiBtn').onclick = ()=> aiPanel.classList.contains('open') ? aiClose() : aiOpen();
     document.getElementById('aiClose').onclick = aiClose;
@@ -884,7 +1144,13 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
           method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': CSRF},
           body: JSON.stringify({mode, question, context, ref: curRef(), lang: SRC_LANG, provider})
         });
-        const j = await r.json();
+        const ctype=(r.headers.get('content-type')||'').toLowerCase();
+        const j=ctype.indexOf('text/event-stream')>=0
+          ? await readEventStream(r, progress=>{
+              const elapsed=Number(progress.elapsed_seconds||0);
+              waiting.innerHTML='<span style="color:#888">'+escapeHtml(progress.message||'正在生成导读')+(elapsed?'（'+elapsed+'秒）':'')+'…</span>';
+            })
+          : await r.json();
         if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
         waiting.innerHTML = aiRenderMd(j.answer || '（无回应）');
         if(j.sources && j.sources.length){

@@ -202,8 +202,11 @@
       background: var(--accent);
     }
     .tool-btn:hover { background: var(--accent-deep); }
-    .tool-btn[aria-disabled="true"] {
+    .tool-btn[aria-disabled="true"],
+    .tool-btn:disabled {
       background: #bca99a;
+      cursor: not-allowed;
+      opacity: 0.78;
       pointer-events: none;
     }
     .tool-btn.secondary {
@@ -276,6 +279,57 @@
       min-width: 240px;
       text-align: center;
     }
+    .page-jump-controls {
+      display: flex;
+      flex: 1 1 360px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      line-height: 1.7;
+    }
+    .page-jump-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .page-jump-input {
+      width: 5.2rem;
+      min-height: 36px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+      font-weight: 700;
+      text-align: center;
+    }
+    .page-jump-input.pdf-page-input { width: 4.4rem; }
+    .page-jump-input:hover { border-color: rgba(143, 29, 29, 0.52); }
+    .page-jump-input:focus {
+      border-color: var(--accent);
+      outline: 3px solid rgba(143, 29, 29, 0.13);
+    }
+    .page-jump-input[aria-invalid="true"] {
+      border-color: #b42318;
+      outline-color: rgba(180, 35, 24, 0.16);
+    }
+    .page-jump-input:disabled {
+      color: #8c8178;
+      background: #f1ece6;
+      cursor: not-allowed;
+    }
+    .page-jump-status {
+      display: none;
+      flex-basis: 100%;
+      color: #a1261d;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .page-jump-status.show { display: block; }
     .reader-find {
       padding: 10px 18px;
       border-bottom: 1px solid var(--line);
@@ -330,6 +384,23 @@
       background: var(--page-bg);
       text-align: center;
     }
+    .page-footer-nav {
+      display: grid;
+      grid-template-columns: auto minmax(180px, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(36, 29, 23, 0.1);
+      border-radius: 16px;
+      background: rgba(255, 253, 248, 0.96);
+      box-shadow: 0 8px 22px rgba(36, 29, 23, 0.08);
+    }
+    .page-footer-indicator {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.6;
+      text-align: center;
+    }
     .page-image {
       display: block;
       width: min(100%, 960px);
@@ -345,7 +416,8 @@
       height: auto;
     }
     /* 纯文字渲染模式（如《全集》仅保留 OCR 文本时）：隐藏书页图像，放大正文阅读区。 */
-    body.mode-text .page-image-wrap { display: none; }
+    body.mode-text .page-image-wrap,
+    body.mode-text .page-footer-nav { display: none; }
     body.mode-text .page-text-wrap {
       background: #fffdf8;
       box-shadow: 0 16px 40px rgba(64, 44, 27, 0.1);
@@ -463,7 +535,30 @@
       flex-wrap: wrap;
       margin-bottom: 8px;
     }
-    .page-cite-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .page-cite-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .page-cite-format {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      white-space: nowrap;
+    }
+    .page-cite-format select {
+      min-height: 42px;
+      max-width: min(260px, 58vw);
+      padding: 8px 30px 8px 11px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      background: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+    .page-cite-format select:focus {
+      outline: 3px solid rgba(143, 29, 29, 0.13);
+      outline-offset: 1px;
+    }
     #reportPageBtn.done { color: #2f7a53; border-color: rgba(47,122,83,.4); background: rgba(47,122,83,.08); }
     .page-cite-label {
       font-weight: 800;
@@ -901,6 +996,18 @@
         min-width: 0;
         text-align: left;
       }
+      .page-jump-controls {
+        flex-basis: 100%;
+        justify-content: flex-start;
+      }
+      .page-jump-status { text-align: left; }
+      .page-footer-nav {
+        grid-template-columns: 1fr 1fr;
+      }
+      .page-footer-indicator {
+        grid-column: 1 / -1;
+        grid-row: 1;
+      }
     }
   </style>
   {# 首屏页图预取：在 <head> 解析时就发起初始页书页图的下载，与其后约 90KB 内联脚本的下载/解析
@@ -980,10 +1087,43 @@
         </div>
       </div>
       <div class="viewer-bar">
-        <a class="tool-btn" id="prevBtn" href="#">上一页</a>
-        <div class="page-indicator" id="pageIndicator">书本第 {{ current_page_label }} 页 · PDF 第 {{ page }} / {{ page_count }} 页</div>
+        <a class="tool-btn" id="prevBtn" href="#" aria-label="上一页">上一页</a>
+        <div class="page-indicator page-jump-controls" id="pageIndicator" role="group" aria-label="输入页码跳转">
+          <label class="page-jump-label" for="bookPageInput">
+            书本第
+            <input
+              class="page-jump-input"
+              id="bookPageInput"
+              type="text"
+              value="{% if current_page_label and not current_page_label.startswith('PDF-') %}{{ current_page_label | replace('pre-', '') }}{% endif %}"
+              placeholder="页码"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="pageJumpStatus"
+              title="输入书本页码后按 Enter 跳转"
+            >
+            页
+          </label>
+          <span aria-hidden="true">·</span>
+          <label class="page-jump-label" for="pdfPageInput">
+            PDF 第
+            <input
+              class="page-jump-input pdf-page-input"
+              id="pdfPageInput"
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              value="{{ page }}"
+              autocomplete="off"
+              aria-describedby="pageJumpStatus"
+              title="输入 1 至 {{ page_count }} 后按 Enter 跳转"
+            >
+            / <span id="pdfPageTotal">{{ page_count }}</span> 页
+          </label>
+          <span class="page-jump-status" id="pageJumpStatus" aria-live="polite"></span>
+        </div>
         <a class="tool-btn secondary" id="findToggle" href="#" title="在本著作中查找词句（Ctrl+F）">查找本书</a>
-        <a class="tool-btn" id="nextBtn" href="#">下一页</a>
+        <a class="tool-btn" id="nextBtn" href="#" aria-label="下一页">下一页</a>
       </div>
       <div class="reader-find" id="readerFind" hidden>
         <div class="reader-find-row">
@@ -1010,16 +1150,32 @@
             <div class="image-error" id="imageError"></div>
           </section>
 
+          <nav class="page-footer-nav" aria-label="PDF 页面底部分页">
+            <button type="button" class="tool-btn" id="bottomPrevBtn" aria-label="上一页，并回到新页面顶部">上一页</button>
+            <div class="page-footer-indicator" id="bottomPageIndicator">
+              {% if current_page_label and not current_page_label.startswith('PDF-') %}书本第 {{ current_page_label | replace('pre-', '') }} 页 · {% endif %}PDF 第 {{ page }} / {{ page_count }} 页
+            </div>
+            <button type="button" class="tool-btn" id="bottomNextBtn" aria-label="下一页，并回到新页面顶部">下一页</button>
+          </nav>
+
           <section class="page-cite" id="pageCite" hidden>
             <div class="page-cite-head">
               <span class="page-cite-label">本页引文定位</span>
               <span class="page-cite-btns">
+                <label class="page-cite-format" for="pageCiteFormatSelect">
+                  <span>引用格式</span>
+                  <select id="pageCiteFormatSelect" aria-label="选择本页引文格式">
+                    <option value="gb2015">国标 GB/T 7714—2015</option>
+                    <option value="zgshkx">《中国社会科学》</option>
+                    <option value="mkszyj" selected>《马克思主义研究》</option>
+                  </select>
+                </label>
                 <button type="button" class="tool-btn secondary" id="copyCiteBtn">复制引文</button>
-                <button type="button" class="tool-btn secondary" id="reportPageBtn" title="此处页码有误？一键提醒管理员核对">⚑ 一键报错</button>
+                <button type="button" class="tool-btn secondary" id="reportPageBtn" title="报告本页的页码、错字、乱码或标点问题">⚑ 报告本页问题</button>
               </span>
             </div>
             <div class="page-cite-text" id="pageCiteText"></div>
-            <div class="page-cite-note">含本页印刷页码，可直接复制引用。</div>
+            <div class="page-cite-note">默认按《马克思主义研究》格式；切换后可直接复制，均含本页印刷页码。</div>
             <div class="page-cite-source" id="pageSource" hidden>原文来源：<a id="pageSourceLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
           </section>
 
@@ -1052,6 +1208,10 @@
       </div>
     </main>
 
+    {% set reader_defaults = state.ai_entitlements.defaults if state.ai_entitlements and state.ai_entitlements.defaults else {} %}
+    {% set reader_default = reader_defaults.reader if reader_defaults.reader else {} %}
+    {% set reader_default_model = reader_default.model if reader_default.model else '' %}
+    {% set reader_default_label = 'MiMo V2.5 Pro' if reader_default_model == 'mimo-v2.5-pro' else 'MiMo V2.5' if reader_default_model == 'mimo-v2.5' else 'DeepSeek V4 Pro' if reader_default_model == 'deepseek-v4-pro' else 'DeepSeek V4 Flash' if reader_default_model == 'deepseek-v4-flash' else (ai_runtime.model or 'AI 导学') %}
     <aside class="ai-panel">
       <div class="ai-top-section">
         <div class="ai-head">
@@ -1059,7 +1219,7 @@
           <p id="aiStatus">{{ site_text("viewer.ai_status_loading") }}</p>
           <div class="ai-top-row">
             <input type="checkbox" id="webToggle" hidden>
-            <span id="aiModelBadge">{{ ai_runtime.model if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</span>
+            <span id="aiModelBadge">{{ reader_default_label if ai_access_enabled and ai_runtime.enabled else (site_text("index.ai_unavailable") if ai_access_enabled else "未开放") }}</span>
           </div>
           {% if ai_access_enabled %}
           <div class="ai-quota hidden" id="aiTokenQuota">
@@ -1071,7 +1231,7 @@
           <div class="ai-provider-row" style="display:flex;align-items:center;gap:8px;margin-top:6px">
             <label for="aiProviderSelect" style="font-size:12px;white-space:nowrap">选择模型</label>
             <select id="aiProviderSelect" style="flex:1;min-width:0;padding:4px 6px;border:1px solid var(--line,#ddd);border-radius:8px;font-size:12px">
-              <option value="deepseek">DeepSeek（默认，不联网）</option>
+              <option value="default">{{ reader_default_label }}（当前套餐默认，不联网）</option>
               <option value="zhipu">智谱 {{ ai_runtime.zhipu_model or "GLM-5.1" }}（可联网检索）</option>
             </select>
           </div>
@@ -1198,6 +1358,12 @@
   const pageIndicator = document.getElementById('pageIndicator');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
+  const bottomPrevBtn = document.getElementById('bottomPrevBtn');
+  const bottomNextBtn = document.getElementById('bottomNextBtn');
+  const bottomPageIndicator = document.getElementById('bottomPageIndicator');
+  const bookPageInput = document.getElementById('bookPageInput');
+  const pdfPageInput = document.getElementById('pdfPageInput');
+  const pageJumpStatus = document.getElementById('pageJumpStatus');
   const tocPanel = document.getElementById('tocPanel');
   const tocList = document.getElementById('tocList');
   const viewerPanel = document.querySelector('.viewer-panel');
@@ -1209,6 +1375,7 @@
   const pageText = document.getElementById('pageText');
   const pageCite = document.getElementById('pageCite');
   const pageCiteText = document.getElementById('pageCiteText');
+  const pageCiteFormatSelect = document.getElementById('pageCiteFormatSelect');
   const copyCiteBtn = document.getElementById('copyCiteBtn');
   const pageSource = document.getElementById('pageSource');
   const pageSourceLink = document.getElementById('pageSourceLink');
@@ -1241,6 +1408,19 @@
   let aiMessagesState = [];
   let aiStreaming = false;   // 本处正在生成回答（贯通会话跨标签同步时用于避免打断本处生成）
   let imageSeq = 0;
+  let pageLoadSeq = 0;       // 快速连续跳页时，只允许最后一次请求更新正文与引文。
+  const PAGE_CITE_FORMAT_KEY = 'marx-citation-format-v1';
+  const PAGE_CITE_FORMATS = { gb2015: true, zgshkx: true, mkszyj: true };
+  const PAGE_CITE_FORMAT_DEFAULT = 'mkszyj';
+  function loadPageCiteFormat() {
+    try {
+      const saved = localStorage.getItem(PAGE_CITE_FORMAT_KEY);
+      return PAGE_CITE_FORMATS[saved] ? saved : PAGE_CITE_FORMAT_DEFAULT;
+    } catch (_) {
+      return PAGE_CITE_FORMAT_DEFAULT;
+    }
+  }
+  let pageCiteFormat = loadPageCiteFormat();
 
   // AI 导读引文「展开/收起」：默认折叠，点标题条才展开。事件委托到对话容器（渲染会重建 DOM）。
   if (aiMessagesEl) {
@@ -1551,11 +1731,78 @@
     return url.toString();
   }
 
+  function getRawPageLabel(page) {
+    return String(pageLabels[String(page)] || pageLabels[page] || '').trim();
+  }
+
+  function getPrintedPageLabel(page) {
+    const label = getRawPageLabel(page);
+    if (!label || label.startsWith('PDF-')) return '';
+    return label.startsWith('pre-') ? label.replace(/^pre-/, '') : label;
+  }
+
   function getPageLabel(page) {
-    const label = pageLabels[String(page)] || pageLabels[page];
-    if (!label || String(label).startsWith('PDF-')) return `PDF ${page}`;
-    if (String(label).startsWith('pre-')) return String(label).replace(/^pre-/, '');
-    return label;
+    return getPrintedPageLabel(page) || `PDF ${page}`;
+  }
+
+  function normalizePageInput(value) {
+    return String(value || '')
+      .replace(/[０-９]/g, digit => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+      .trim()
+      .replace(/\s+/g, '');
+  }
+
+  function pageInputToken(value, kind) {
+    let token = normalizePageInput(value).replace(/页$/, '');
+    if (kind === 'pdf') {
+      token = token.replace(/^PDF第?/i, '').replace(/^第/, '');
+    } else {
+      token = token.replace(/^书本第/, '').replace(/^第/, '');
+    }
+    return token;
+  }
+
+  function printedPageCandidates(value) {
+    const token = pageInputToken(value, 'book');
+    if (!token) return [];
+    const wanted = token.toLowerCase();
+    const explicitlyPrefixed = wanted.startsWith('pre-');
+    const matches = [];
+    for (const [pdfPageKey, rawValue] of Object.entries(pageLabels || {})) {
+      const raw = normalizePageInput(rawValue);
+      if (!raw || raw.startsWith('PDF-')) continue;
+      const rawKey = raw.toLowerCase();
+      const shownKey = rawKey.replace(/^pre-/, '');
+      const matched = explicitlyPrefixed ? rawKey === wanted : (shownKey === wanted || rawKey === wanted);
+      const pdfPage = Number(pdfPageKey);
+      if (matched && Number.isSafeInteger(pdfPage) && pdfPage >= 1 && pdfPage <= pageCount) {
+        matches.push(pdfPage);
+      }
+    }
+    return [...new Set(matches)].sort((a, b) => a - b);
+  }
+
+  function clearPageJumpStatus() {
+    if (pageJumpStatus) {
+      pageJumpStatus.textContent = '';
+      pageJumpStatus.classList.remove('show');
+    }
+    for (const input of [bookPageInput, pdfPageInput]) {
+      if (input) input.removeAttribute('aria-invalid');
+    }
+  }
+
+  function showPageJumpError(message, input) {
+    clearPageJumpStatus();
+    if (pageJumpStatus) {
+      pageJumpStatus.textContent = message;
+      pageJumpStatus.classList.add('show');
+    }
+    if (input) {
+      input.setAttribute('aria-invalid', 'true');
+      input.focus();
+      input.select();
+    }
   }
 
   // 记录当前阅读位置到本设备（「继续阅读」）：书名 + 当前页 + 站内续读 URL。
@@ -1578,12 +1825,34 @@
 
   function updatePager() {
     const pageLabel = getPageLabel(currentPageNumber);
-    pageIndicator.textContent = `书本第 ${pageLabel} 页 · PDF 第 ${currentPageNumber} / ${pageCount} 页`;
+    const printedPageLabel = getPrintedPageLabel(currentPageNumber);
+    const locationText = `${printedPageLabel ? `书本第 ${printedPageLabel} 页 · ` : ''}PDF 第 ${currentPageNumber} / ${pageCount} 页`;
+    clearPageJumpStatus();
+    if (bookPageInput) {
+      bookPageInput.value = printedPageLabel;
+      const hasPrintedPages = Object.values(pageLabels || {}).some(label => {
+        const raw = String(label || '').trim();
+        return raw && !raw.startsWith('PDF-');
+      });
+      bookPageInput.disabled = !hasPrintedPages;
+      bookPageInput.placeholder = hasPrintedPages ? '页码' : '本卷无书本页码';
+    }
+    if (pdfPageInput) pdfPageInput.value = String(currentPageNumber);
+    if (bottomPageIndicator) bottomPageIndicator.textContent = locationText;
     currentPage.textContent = pageLabel;
-    if (currentPageNumber <= 1) prevBtn.setAttribute('aria-disabled', 'true');
-    else prevBtn.removeAttribute('aria-disabled');
-    if (currentPageNumber >= pageCount) nextBtn.setAttribute('aria-disabled', 'true');
-    else nextBtn.removeAttribute('aria-disabled');
+    const setDisabled = (button, disabled) => {
+      if (!button) return;
+      if (disabled) {
+        button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('tabindex', '-1');
+      } else {
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('tabindex');
+      }
+      if ('disabled' in button) button.disabled = disabled;
+    };
+    for (const button of [prevBtn, bottomPrevBtn]) setDisabled(button, currentPageNumber <= 1);
+    for (const button of [nextBtn, bottomNextBtn]) setDisabled(button, currentPageNumber >= pageCount);
   }
 
   function syncAiPanelHeight() {
@@ -1707,10 +1976,9 @@
   }
   async function loadPageContext(page) {
     if (pageContextCache.has(page)) {
-      applyPageContext(pageContextCache.get(page));
-      return;
+      return pageContextCache.get(page);
     }
-    applyPageContext(await fetchPageContext(page));
+    return fetchPageContext(page);
   }
   // 邻页上下文预取（随预取图一并触发）：失败静默，绝不影响阅读主路径。投机请求不重试（retries=0，不放大负载）。
   function prefetchPageContext(page) {
@@ -1718,8 +1986,14 @@
     fetchPageContext(page, 0).catch(() => {});
   }
 
-  function updateCitation() {
-    const cite = currentPageContext && currentPageContext.citation ? currentPageContext.citation : '';
+  function getCurrentPageCitation() {
+    const citations = currentPageContext && currentPageContext.citations;
+    if (citations && citations[pageCiteFormat]) return String(citations[pageCiteFormat]);
+    return currentPageContext && currentPageContext.citation ? String(currentPageContext.citation) : '';
+  }
+
+  function renderCurrentPageCitation() {
+    const cite = getCurrentPageCitation();
     if (cite) {
       pageCiteText.textContent = cite;
       if (pageCite) pageCite.hidden = false;
@@ -1738,9 +2012,29 @@
         pageSource.hidden = true;
       }
     }
-    // 翻页后重置「一键报错」按钮（换页即可对新页重新上报）
+    return cite;
+  }
+
+  function updateCitation() {
+    renderCurrentPageCitation();
+    // 翻页后重置报错按钮（换页即可对新页重新上报）
     const rpb = document.getElementById('reportPageBtn');
-    if (rpb) { rpb.classList.remove('done'); rpb.disabled = false; rpb.textContent = '⚑ 一键报错'; }
+    if (rpb) { rpb.classList.remove('done'); rpb.disabled = false; rpb.textContent = '⚑ 报告本页问题'; }
+  }
+
+  function applyPageCiteFormat(format) {
+    if (!PAGE_CITE_FORMATS[format]) return;
+    pageCiteFormat = format;
+    if (pageCiteFormatSelect && pageCiteFormatSelect.value !== format) {
+      pageCiteFormatSelect.value = format;
+    }
+    try { localStorage.setItem(PAGE_CITE_FORMAT_KEY, format); } catch (_) {}
+    renderCurrentPageCitation();
+  }
+
+  if (pageCiteFormatSelect) {
+    pageCiteFormatSelect.value = pageCiteFormat;
+    pageCiteFormatSelect.addEventListener('change', () => applyPageCiteFormat(pageCiteFormatSelect.value));
   }
 
   function renderPageText() {
@@ -1851,7 +2145,7 @@
 
   if (copyCiteBtn) {
     copyCiteBtn.addEventListener('click', async () => {
-      const text = (currentPageContext && currentPageContext.citation) || pageCiteText.textContent || '';
+      const text = getCurrentPageCitation() || pageCiteText.textContent || '';
       if (!text) return;
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1872,12 +2166,17 @@
     });
   }
 
-  // 「一键报错」：读者反馈本页页码有误 → 记录并邮件提醒管理员（后台内容运营页可见）。
+  // 本页问题报告：页码、文字和标点均可记录，生产语料不会因此自动修改。
   const reportPageBtn = document.getElementById('reportPageBtn');
   if (reportPageBtn) {
     reportPageBtn.addEventListener('click', async () => {
       if (reportPageBtn.disabled || reportPageBtn.classList.contains('done')) return;
       const citation = (currentPageContext && currentPageContext.citation) || pageCiteText.textContent || '';
+      const note = window.prompt('请简要说明页码、错字、乱码或标点问题（不会自动修改原文）：', '');
+      if (note === null) return;
+      const issueType = /标点|逗号|句号|冒号|分号|问号|叹号/.test(note)
+        ? 'punctuation'
+        : (/错字|文字|乱码|漏字|多字/.test(note) ? 'text_error' : 'page_number');
       reportPageBtn.disabled = true;
       reportPageBtn.textContent = '提交中…';
       try {
@@ -1886,11 +2185,16 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reader: 'viewer',
+            issue_type: issueType,
             book: readingTitle || '',
             volume: '',
             page: getPageLabel(currentPageNumber) || String(currentPageNumber),
+            page_id: (currentPageContext && currentPageContext.page_id) || '',
             source_ref: sourceFile || '',
             citation: citation,
+            query: new URLSearchParams(location.search).get('q') || new URLSearchParams(location.search).get('h') || '',
+            snippet: (currentPageContext && currentPageContext.current_text) || '',
+            note: note || '',
           }),
         });
         if (!r.ok) throw new Error('status ' + r.status);
@@ -1899,7 +2203,7 @@
       } catch (e) {
         reportPageBtn.textContent = '提交失败，请重试';
         reportPageBtn.disabled = false;
-        setTimeout(() => { if (!reportPageBtn.classList.contains('done')) reportPageBtn.textContent = '⚑ 一键报错'; }, 1800);
+        setTimeout(() => { if (!reportPageBtn.classList.contains('done')) reportPageBtn.textContent = '⚑ 报告本页问题'; }, 1800);
       }
     });
   }
@@ -2045,7 +2349,7 @@
         return `<div class="msg user">${esc(message.content)}</div>`;
       }
       if (message.pending && !message.content) {
-        return `<div class="msg assistant"><span class="msg-title">AI 讲解</span><div class="msg-body" style="color:#999">正在思考…</div></div>`;
+        return `<div class="msg assistant"><span class="msg-title">AI 讲解</span><div class="msg-body" style="color:#999">${esc(message.progress || '正在思考…')}</div></div>`;
       }
       return `
         <div class="msg assistant">
@@ -2079,12 +2383,13 @@
     renderSelectedText();
   }
 
-  // AI 通道选择：默认 DeepSeek；持有「AI 联网（智谱）」权限时可切换智谱 GLM（选中即自动联网检索）。
+  // 默认通道由服务端按套餐权益决定；持有 GLM-5.1 权限时可手动切换联网通道。
   const aiProviderSelect = document.getElementById('aiProviderSelect');
   const AI_PROVIDER_KEY = 'marx-ai-provider-v1';
+  const aiReaderDefaultLabel = {{ reader_default_label|tojson }};
 
   function currentAiProvider() {
-    return (aiWebAccessEnabled && aiProviderSelect && aiProviderSelect.value === 'zhipu') ? 'zhipu' : 'deepseek';
+    return (aiWebAccessEnabled && aiProviderSelect && aiProviderSelect.value === 'zhipu') ? 'zhipu' : 'default';
   }
 
   function updateAiStatusLine() {
@@ -2094,15 +2399,16 @@
       aiModelBadge.textContent = '智谱 ' + zhipuName;
       aiStatus.textContent = `已启用 智谱 ${zhipuName}，联网检索已开启：讲解以本页文本为主，可联网补充背景并注明来源。`;
     } else {
-      aiModelBadge.textContent = aiRuntime.model || 'AI 导学';
-      aiStatus.textContent = `已启用 ${aiRuntime.model || 'AI 导学'}。当前已关闭联网检索，AI 将基于本页和相邻页文本讲解。`;
+      aiModelBadge.textContent = aiReaderDefaultLabel;
+      aiStatus.textContent = `已启用 ${aiReaderDefaultLabel}。当前已关闭联网检索，AI 将基于本页和相邻页文本讲解。`;
     }
   }
 
   if (aiProviderSelect) {
     try {
       const savedProvider = localStorage.getItem(AI_PROVIDER_KEY);
-      if (savedProvider === 'zhipu' || savedProvider === 'deepseek') aiProviderSelect.value = savedProvider;
+      if (savedProvider === 'zhipu') aiProviderSelect.value = 'zhipu';
+      else aiProviderSelect.value = 'default';
     } catch (_) {}
     aiProviderSelect.addEventListener('change', () => {
       try { localStorage.setItem(AI_PROVIDER_KEY, aiProviderSelect.value); } catch (_) {}
@@ -2165,7 +2471,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!resp.ok || !resp.body) return false;
+    if (!resp.ok || !resp.body) throw new Error(`AI 请求失败（HTTP ${resp.status}）`);
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -2203,7 +2509,8 @@
         }
       }
     }
-    return doneSeen;
+    if (!doneSeen) throw new Error('AI 流在完成前中断，请稍后重试。');
+    return true;
   }
 
   async function fetchAiQuestion(payload) {
@@ -2234,6 +2541,42 @@
     return result;
   }
 
+  async function readSseResultStream(resp, onProgress) {
+    if (!resp.body) {
+      const fallback = parseSseResult(await resp.text());
+      if (!fallback) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+      return fallback;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result = null;
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done });
+      const blocks = buffer.split('\n\n');
+      buffer = chunk.done ? '' : (blocks.pop() || '');
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        const eventName = (lines.find(line => line.startsWith('event:')) || '').slice(6).trim();
+        const dataParts = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trim());
+        if (!dataParts.length) continue;
+        let data = null;
+        try { data = JSON.parse(dataParts.join('')); } catch (_) { continue; }
+        if (eventName === 'progress') {
+          if (onProgress) onProgress(data);
+        } else if (eventName === 'error') {
+          throw new Error(data.error || 'AI 请求失败');
+        } else if (eventName === 'done' || !eventName) {
+          result = data;
+        }
+      }
+      if (chunk.done) break;
+    }
+    if (!result) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+    return result;
+  }
+
   // 「检索原著原文」开启时的自由提问：复用首页「随心问」接地链路（/api/ai/search-chat, grounding=true），
   // 跨库检索真实原著原文并附出处。与「解释本页/所选」无关——那两者始终走 pdf-chat（本页上下文）。
   async function runGroundedQuestion(question, historyMessages, assistantMessage) {
@@ -2245,8 +2588,11 @@
     let data;
     const ctype = (resp.headers.get('content-type') || '').toLowerCase();
     if (ctype.indexOf('text/event-stream') >= 0) {
-      data = parseSseResult(await resp.text());
-      if (!data) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+      data = await readSseResultStream(resp, progress => {
+        const elapsed = Number(progress.elapsed_seconds || 0);
+        assistantMessage.progress = `${progress.message || '正在生成回答'}${elapsed ? `（${elapsed}秒）` : ''}`;
+        renderAiMessages();
+      });
     } else {
       data = await resp.json();
     }
@@ -2284,18 +2630,7 @@
         await runGroundedQuestion(question, historyMessages, assistantMessage);
       } else {
         const payload = buildPdfAiPayload(question, historyMessages, quickMode);
-        let streamed = false;
-        try {
-          streamed = await streamAiQuestion(payload, assistantMessage);
-        } catch (_) {
-          streamed = false;
-        }
-        if (!streamed) {
-          const data = await fetchAiQuestion(payload);
-          assistantMessage.content = data.answer_markdown || '';
-          assistantMessage.sources = data.sources || [];
-          assistantMessage.warnings = data.warnings || [];
-        }
+        await streamAiQuestion(payload, assistantMessage);
       }
       delete assistantMessage.pending;
       saveThread();
@@ -2316,7 +2651,10 @@
   }
 
   async function loadPage(page, title = null) {
-    const target = Math.min(Math.max(1, Number(page)), pageCount);
+    const requestedPage = Number(page);
+    if (!Number.isSafeInteger(requestedPage)) return false;
+    const target = Math.min(Math.max(1, requestedPage), pageCount);
+    const loadSeq = ++pageLoadSeq;
     // 记翻页方向，供方向感知预取用（相邻页翻动=顺/逆向；跳转或原地则沿用上次方向）。
     lastTurnDir = target > currentPageNumber ? 1 : (target < currentPageNumber ? -1 : lastTurnDir);
     currentPageNumber = target;
@@ -2332,13 +2670,17 @@
     pageText.textContent = {{ site_text("viewer.page_context_loading") | tojson }};
     if (pageCite) pageCite.hidden = true;
     if (renderMode === 'image') {
-      loadPageImage(currentPageNumber);
+      loadPageImage(target);
     }
 
     try {
-      await loadPageContext(currentPageNumber);
+      const context = await loadPageContext(target);
+      if (loadSeq !== pageLoadSeq || currentPageNumber !== target) return false;
+      applyPageContext(context);
       renderPageText();
+      return true;
     } catch (error) {
+      if (loadSeq !== pageLoadSeq || currentPageNumber !== target) return false;
       pageText.textContent = `页面上下文加载失败：${error.message || '未知错误'}`;
       aiMessagesState.push({
         role: 'assistant',
@@ -2348,18 +2690,94 @@
       });
       saveThread();
       renderAiMessages();
+      return false;
     }
   }
 
-  prevBtn.addEventListener('click', e => {
-    e.preventDefault();
-    if (currentPageNumber > 1) loadPage(currentPageNumber - 1);
-  });
+  function turnPage(direction, fromBottom = false) {
+    const target = currentPageNumber + direction;
+    if (target < 1 || target > pageCount) return;
+    loadPage(target);
+    if (fromBottom && pageImageWrap) {
+      requestAnimationFrame(() => pageImageWrap.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+  }
 
-  nextBtn.addEventListener('click', e => {
-    e.preventDefault();
-    if (currentPageNumber < pageCount) loadPage(currentPageNumber + 1);
-  });
+  function bindPageTurnButton(button, direction, fromBottom = false) {
+    if (!button) return;
+    button.addEventListener('click', e => {
+      e.preventDefault();
+      turnPage(direction, fromBottom);
+    });
+  }
+
+  function commitBookPageInput() {
+    if (!bookPageInput || bookPageInput.disabled) return;
+    const token = pageInputToken(bookPageInput.value, 'book');
+    if (!token) {
+      showPageJumpError('请输入有效的书本页码。', bookPageInput);
+      return;
+    }
+    if (token.toLowerCase() === normalizePageInput(getPrintedPageLabel(currentPageNumber)).toLowerCase()) {
+      updatePager();
+      return;
+    }
+    const candidates = printedPageCandidates(bookPageInput.value);
+    if (!candidates.length) {
+      showPageJumpError(`未找到书本第 ${token} 页，请核对页码或改用 PDF 页码。`, bookPageInput);
+      return;
+    }
+    if (candidates.length > 1) {
+      const choices = candidates.slice(0, 5).join('、');
+      const more = candidates.length > 5 ? '等' : '';
+      showPageJumpError(`书本第 ${token} 页对应多个位置（PDF 第 ${choices}${more} 页），请改用 PDF 页码。`, bookPageInput);
+      return;
+    }
+    loadPage(candidates[0]);
+  }
+
+  function commitPdfPageInput() {
+    if (!pdfPageInput) return;
+    const token = pageInputToken(pdfPageInput.value, 'pdf');
+    if (!/^\d+$/.test(token)) {
+      showPageJumpError(`请输入 1 至 ${pageCount} 的整数 PDF 页码。`, pdfPageInput);
+      return;
+    }
+    const target = Number(token);
+    if (!Number.isSafeInteger(target) || target < 1 || target > pageCount) {
+      showPageJumpError(`PDF 页码范围为 1 至 ${pageCount}。`, pdfPageInput);
+      return;
+    }
+    if (target === currentPageNumber) {
+      updatePager();
+      return;
+    }
+    loadPage(target);
+  }
+
+  function bindPageJumpInput(input, commit) {
+    if (!input) return;
+    input.addEventListener('keydown', e => {
+      if (e.isComposing) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        updatePager();
+        input.blur();
+      }
+    });
+    input.addEventListener('change', commit);
+    input.addEventListener('input', clearPageJumpStatus);
+  }
+
+  bindPageTurnButton(prevBtn, -1);
+  bindPageTurnButton(nextBtn, 1);
+  bindPageTurnButton(bottomPrevBtn, -1, true);
+  bindPageTurnButton(bottomNextBtn, 1, true);
+  bindPageJumpInput(bookPageInput, commitBookPageInput);
+  bindPageJumpInput(pdfPageInput, commitPdfPageInput);
 
   window.addEventListener('keydown', e => {
     if (e.target && ['TEXTAREA', 'INPUT'].includes(e.target.tagName)) return;

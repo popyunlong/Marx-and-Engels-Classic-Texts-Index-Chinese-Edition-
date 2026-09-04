@@ -1,6 +1,22 @@
 collection: western_marxism
 label: 西马文库
 license_policy: 仅接收权利人明确开放的文件，或用户提供并确认有权使用的文件。
+reviewed_metadata: config/western_marxism_reviewed.yaml
+# 下方增量行保留机器初审状态；构建器仅在 reviewed_metadata 中存在同 key+volume 的
+# 人工复核记录时，于内存中提升为 status=ready / metadata_verified=true。原始 false 不可单独上线。
+excluded_files:
+  # 已上线七本：内部题名与生产书目一致，绝不再次上传。
+  - {file: pdfs/西马文库/历史与阶级意识.pdf, reason: existing_title, existing_key: 历史与阶级意识}
+  - {file: pdfs/西马文库/马克思主义和哲学.pdf, reason: existing_title, existing_key: 马克思主义和哲学}
+  - {file: pdfs/西马文库/狱中札记.pdf, reason: existing_title, existing_key: 狱中札记}
+  - {file: pdfs/西马文库/希望的原理（第一卷）.pdf, reason: existing_title, existing_key: 希望的原理（第一卷）}
+  - {file: pdfs/西马文库/启蒙辩证法.pdf, reason: existing_title, existing_key: 启蒙辩证法}
+  - {file: pdfs/西马文库/保卫马克思.pdf, reason: existing_title, existing_key: 保卫马克思, sha256: d8206caf2ab3ea25d4ada93c294d5dc91270a7348c208e291fd7c92b2f43abaa}
+  - {file: pdfs/西马文库/空间的生产.pdf, reason: existing_title, existing_key: 空间的生产}
+  # 文件名不同但题名页主标题与生产书目一致；版次不构成保留理由。
+  - {file: pdfs/西马文库/资本论_13963888.pdf, reason: existing_title, existing_key: 资本论, sha256: dfa650f71f9fa253e77932ea5fab87cfb6ed12c636aa3e5760af66a85b88ef27}
+  # 与《保卫马克思》逐字节相同。
+  - {file: 'pdfs/西马文库/14456890  81.pdf', reason: duplicate_sha256, existing_key: 保卫马克思, sha256: d8206caf2ab3ea25d4ada93c294d5dc91270a7348c208e291fd7c92b2f43abaa}
 books:
   - key: 历史与阶级意识
     file: pdfs/西马文库/历史与阶级意识.pdf
@@ -60,3 +76,564 @@ books:
     downloaded_at: "2026-07-12"
     sha256: 3136ec2f34c71f885875b349972b668c5845c273978fef321843529501a66a96
     metadata_verified: true
+
+  # ---- 2026-08-20 西马文库增量：43 个 PDF / 41 个新书目 ----
+  - key: '公共领域的结构转型'
+    volume: 1
+    display_title: '公共领域的结构转型'
+    file: 'pdfs/西马文库/10393408.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 91083ce00ed4459ae4a2f2098a10e03a6f61c738217e67fa664fa8a0a0e14c23
+    page_count: 402
+    metadata_verified: false
+  - key: '西方左派图绘'
+    volume: 1
+    display_title: '西方左派图绘'
+    file: 'pdfs/西马文库/10653139.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: ac8346028defae6495997ecb9932766c1c62db420d57f0c39de19864f77fa075
+    page_count: 339
+    metadata_verified: false
+  - key: '科耶夫的新拉丁帝国'
+    volume: 1
+    display_title: '科耶夫的新拉丁帝国'
+    file: 'pdfs/西马文库/12157847.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 675d05d2fc00a530862887921c94f1aabe293a8360f5df99200662cb2eb83d50
+    page_count: 485
+    metadata_verified: false
+  - key: '交锋地带'
+    volume: 1
+    display_title: '交锋地带'
+    file: 'pdfs/西马文库/12182380.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 7402c4a4869d47fc02c065ba6db6e024424b136acd083cf698f76bc4c9e0bee6
+    page_count: 457
+    metadata_verified: false
+  - key: '理论之后'
+    volume: 1
+    display_title: '理论之后'
+    file: 'pdfs/西马文库/12325172理论之后.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: d3112d34f5cd1048ac7f357952b48655188a99851ea60242fbb190db461f4ba4
+    page_count: 223
+    metadata_verified: false
+  - key: '思想的谱系'
+    volume: 1
+    display_title: '思想的谱系：西方思潮左与右'
+    file: 'pdfs/西马文库/13196503.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 02af74049164d77b136b2800343899a21609ec1ae465e84a1ce36c80ca5d98a1
+    page_count: 476
+    metadata_verified: false
+  - key: '瓦尔特·本雅明或走向革命批评'
+    volume: 1
+    display_title: '瓦尔特·本雅明或走向革命批评'
+    file: 'pdfs/西马文库/13815859_251.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 2c9d864e38707ce28daf41b292110f87dd4b1371249ae48a95434ebf4ad4abd1
+    page_count: 260
+    metadata_verified: false
+  - key: '绝对主义国家的系谱'
+    volume: 1
+    display_title: '绝对主义国家的系谱'
+    file: 'pdfs/西马文库/14018674.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: cd631d2c0d3c6bdb5c65807c872b8ab62eb8723f35ac1dac669e5e45d883bf7c
+    page_count: 469
+    metadata_verified: false
+  - key: '从古代到封建主义的过渡'
+    volume: 1
+    display_title: '从古代到封建主义的过渡'
+    file: 'pdfs/西马文库/14029254.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 58138e2025ed5e4dc80364502e92979580c27c471bd37f21cfbea5d5dc1faded
+    page_count: 264
+    metadata_verified: false
+  - key: '马克思主义与形式'
+    volume: 1
+    display_title: '马克思主义与形式'
+    file: 'pdfs/西马文库/14419481_马克思主义与形式_p407.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 30fe529809e7f6f43ec93147a58acd89789d27e27ce9f11213553c49ffd5502f
+    page_count: 447
+    metadata_verified: false
+  - key: '马克思为什么是对的'
+    volume: 1
+    display_title: '马克思为什么是对的'
+    file: 'pdfs/西马文库/14427881.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: c33930f322d8f4af622af9170d512ed26e0eea61f9baef808c719e56f029f431
+    page_count: 236
+    metadata_verified: false
+  - key: '政治无意识'
+    volume: 1
+    display_title: '政治无意识'
+    file: 'pdfs/西马文库/14452283.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 9b6bd8db90dac5f1675d5e65b36927a5a742e771d34791cb79c55ddb1a9507ba
+    page_count: 367
+    metadata_verified: false
+  - key: '文化'
+    volume: 1
+    display_title: '文化'
+    file: 'pdfs/西马文库/14497119.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 5d0871ab4f44360728a5d9cd661c7cb3cb6ae326e14ab4d3e6b954517f00a52d
+    page_count: 182
+    metadata_verified: false
+  - key: '地理学中的解释'
+    volume: 1
+    display_title: '地理学中的解释'
+    file: 'pdfs/西马文库/14509406.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: e06e4493f5676af998c13259ef2efbbec357e13f16e8fe5a5a285bbc4483afa9
+    page_count: 645
+    metadata_verified: false
+  - key: '论再生产'
+    volume: 1
+    display_title: '论再生产'
+    file: 'pdfs/西马文库/14703570.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: b86da378436943d19f818a54e93f4ae8596db28f9a665e0114d304d210997a01
+    page_count: 597
+    metadata_verified: false
+  - key: '黑格尔导读'
+    volume: 1
+    display_title: '黑格尔导读'
+    file: 'pdfs/西马文库/15001365.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 1b04cda37c8048ccfa195f4a014d4809fc270116a0a929fe642898669ac4a98b
+    page_count: 674
+    metadata_verified: false
+  - key: '论牺牲'
+    volume: 1
+    display_title: '论牺牲'
+    file: 'pdfs/西马文库/15027820.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 660998d5bb8410cdacb125efd89472d458c8fb9002812d96f5bf915a0341860c
+    page_count: 291
+    metadata_verified: false
+  - key: '知觉现象学'
+    volume: 1
+    display_title: '知觉现象学'
+    file: 'pdfs/西马文库/15038883  81.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 7c4112b882b9c2b4874b87bb7efe2efd4ec2339d9166bb846104e47ea6da61e0
+    page_count: 683
+    metadata_verified: false
+  - key: '批评与意识形态'
+    volume: 1
+    display_title: '批评与意识形态'
+    file: 'pdfs/西马文库/15125747.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 00174dbd61548efc6a2bafa9066a9234f36b98ec56ca86b946648992190cdf47
+    page_count: 325
+    metadata_verified: false
+  - key: '唯物主义'
+    volume: 1
+    display_title: '唯物主义'
+    file: 'pdfs/西马文库/15261525.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: a81194e1e15b715d32cdcac551bc689548e18323acdf29c99498fe1c4f2474cf
+    page_count: 194
+    metadata_verified: false
+  - key: '存在与时间'
+    volume: 1
+    display_title: '存在与时间（中文修订第二版）'
+    file: 'pdfs/西马文库/_14608212(2).pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: d3f1bc165f38e49d211bcfc1c2190f45de37b508b36db6cdfb8f28d3857984f1
+    page_count: 638
+    metadata_verified: false
+  - key: '新自由主义简史'
+    volume: 1
+    display_title: '新自由主义简史'
+    file: 'pdfs/西马文库/s  睿文馆  新自由主义简史_13964335.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: deded3f69f86f760802e4af68e6f608e71a476af89d52869f60235b82e54efbb
+    page_count: 271
+    metadata_verified: false
+  - key: '美学与政治'
+    volume: 1
+    display_title: '美学与政治'
+    file: 'pdfs/西马文库/《美学与政治》_15644487.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: da723c2608165430a9f973a8e9e7d6d4635bbbf8cf54b1ee58aca510bea499cb
+    page_count: 392
+    metadata_verified: false
+  - key: '一切坚固的东西都烟消云散了'
+    volume: 1
+    display_title: '一切坚固的东西都烟消云散了：现代性体验'
+    file: 'pdfs/西马文库/一切坚固的东西都烟消云散了  现代性体验_13489362.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: c60f970c8c36fab585cf0e50650ec32f79a43a3e3a781918a8ce61a5f320bb49
+    page_count: 537
+    metadata_verified: false
+  - key: '二十世纪西方文学理论'
+    volume: 1
+    display_title: '二十世纪西方文学理论（纪念版）'
+    file: 'pdfs/西马文库/二十世纪西方文学理论  纪念版=TERRY  EAGLETON  LITERARY  THEORY  AN  INTRODUCTION  ANNIVERSARY  EDITION_14588637.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 87408f47f02ab4e148642f5513c37793375948033eb3b80293242ff1410d6da5
+    page_count: 327
+    metadata_verified: false
+  - key: '当代西方马克思主义'
+    volume: 1
+    display_title: '当代西方马克思主义'
+    file: 'pdfs/西马文库/当代西方马克思主义_10478782.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 2fcf5f81f8669330c0d6d75f94ecf7df8a1032b0738d5d805f4f6f348e921da4
+    page_count: 158
+    metadata_verified: false
+  - key: '后现代主义或晚期资本主义的文化逻辑'
+    volume: 1
+    display_title: '后现代主义或晚期资本主义的文化逻辑'
+    file: 'pdfs/西马文库/后现代主义或晚期资本主义的文化逻辑_10514792.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: c591fd1cd40bfa8086eaf6f32be7dbc2ae49d204e06766e7184c0f26af65c047
+    page_count: 523
+    metadata_verified: false
+  - key: '后现代主义的幻象'
+    volume: 1
+    display_title: '后现代主义的幻象'
+    file: 'pdfs/西马文库/后现代主义的幻象 81_13492822.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 844a2402d227b5ec619dbe17c1a477c8531efcce5e9042ce22b14049bb2e2105
+    page_count: 181
+    metadata_verified: false
+  - key: '后现代的状况'
+    volume: 1
+    display_title: '后现代的状况'
+    file: 'pdfs/西马文库/后现代的状况_13453971.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: c28deab268eabd01c61108dfee9850540c83d75fb9416d7adc92ab960c1f74a0
+    page_count: 500
+    metadata_verified: false
+  - key: '否定辩证法'
+    volume: 1
+    display_title: '否定辩证法'
+    file: 'pdfs/西马文库/否定辩证法14675182.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 8fe4f595a5a82c801d62c89010735b0a2754afce093000d83f103b48408dcba9
+    page_count: 524
+    metadata_verified: false
+  - key: '存在与虚无'
+    volume: 1
+    display_title: '存在与虚无（修订译本）'
+    file: 'pdfs/西马文库/存在与虚无  修订译本_13612339.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: c11ba1989a7f920577213975fc6cc126bb34812f36e1116b484d37df053a87f6
+    page_count: 779
+    metadata_verified: false
+  - key: '存在主义是一种人道主义'
+    volume: 1
+    display_title: '存在主义是一种人道主义'
+    file: 'pdfs/西马文库/存在主义是一种人道主义=EXISTENTIALISME EST UN HUMANISME_13090839.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 759a48a3b76e08ea8e1e19597f71f4faa60f8bb5d8caf7b4e366b487eec098b9
+    page_count: 101
+    metadata_verified: false
+  - key: '希望的空间'
+    volume: 1
+    display_title: '希望的空间'
+    file: 'pdfs/西马文库/希望的空间_11649545.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 91bba7959f504673e59cb03d9627b1c0549d6ea52ca424686ccddc58eecbf93c
+    page_count: 320
+    metadata_verified: false
+  - key: '文学阅读指南'
+    volume: 1
+    display_title: '文学阅读指南'
+    file: 'pdfs/西马文库/文学阅读指南_13827473.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: d1f561417e446b79798f8ecb42f792b3ef3a2573c261301a8636514b9eb39f4d
+    page_count: 263
+    metadata_verified: false
+  - key: '新帝国主义'
+    volume: 1
+    display_title: '新帝国主义'
+    file: 'pdfs/西马文库/新帝国主义_14536023(1).pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 8a43fd014aeb51ef2b095d01671b0d926aaa5cf1c40f4e91df418a20347b9592
+    page_count: 182
+    metadata_verified: false
+  - key: '日常生活批判'
+    volume: 1
+    display_title: '日常生活批判（第一卷：概论）'
+    file: 'pdfs/西马文库/日常生活批判 第一卷 概论_14407722.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 503dec5842a4194738e4da11b4b0925167bdce8d2858b7b828e2a955a5da80aa
+    page_count: 243
+    metadata_verified: false
+  - key: '日常生活批判'
+    volume: 2
+    display_title: '日常生活批判（第二卷：日常生活社会学基础）'
+    file: 'pdfs/西马文库/日常生活批判 第二卷 日常生活社会学基础_14407720.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: e3260659da99e751c36e2156bb273bb2f738614aa198bea4330c200d05261d1e
+    page_count: 314
+    metadata_verified: false
+  - key: '日常生活批判'
+    volume: 3
+    display_title: '日常生活批判（第三卷：从现代化到现代主义）'
+    file: 'pdfs/西马文库/日常生活批判  第三卷  从现代化到现代主义（关于日常生活的哲学）_14407721.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 674ffd8478a1633ede9c3d50dc2c3db2db07e69eee19792b10191481c24292ee
+    page_count: 155
+    metadata_verified: false
+  - key: '景观社会'
+    volume: 1
+    display_title: '景观社会'
+    file: 'pdfs/西马文库/景观社会=La societe du spectacle_14271688.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: bd279d137c56ca09320f668f02e7a77434fec9ae407a9d9d54c9e623f3e36c46
+    page_count: 258
+    metadata_verified: false
+  - key: '社会正义与城市'
+    volume: 1
+    display_title: '社会正义与城市'
+    file: 'pdfs/西马文库/社会正义与城市_15203994.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 5180ed7a288c2c46c247b15de23ddd45955e48134abfedfaf27964c754efeae3
+    page_count: 414
+    metadata_verified: false
+  - key: '读资本论（第2版）'
+    volume: 1
+    display_title: '读《资本论》（第2版）'
+    file: 'pdfs/西马文库/读  资本论  第2版_14228606.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 437622a1453a27aefa1b49481cf2f25d8a6792bb4c6f4670db35f208acd15872
+    page_count: 397
+    metadata_verified: false
+  - key: '资本的城市化'
+    volume: 1
+    display_title: '资本的城市化：资本主义城市化的历史与理论研究'
+    file: 'pdfs/西马文库/资本的城市化  资本主义城市化的历史与理论研究=The urbanization of capital studies in the history and theory of capitalist urbanization_14284932.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 6ecec21c94351b60bf1ab7bea3a76fef89430761ddb5d4af1dea8424a6a91257
+    page_count: 259
+    metadata_verified: false
+  - key: '资本的限度'
+    volume: 1
+    display_title: '资本的限度'
+    file: 'pdfs/西马文库/资本的限度_14289781.pdf'
+    status: metadata_pending
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: "2026-08-20"
+    sha256: 925b2bc20436706f9beac2d5c85c68767c4d439cc0136a4b0f77638aba03b993
+    page_count: 735
+    metadata_verified: false

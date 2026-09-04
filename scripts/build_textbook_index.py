@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sqlite3
 import sys
 import time
@@ -37,6 +38,17 @@ from build_index import (  # noqa: E402
 
 MANIFEST = ROOT / "config" / "manifest.yaml"
 HASH_PATH = BUILD_DB_PATH.with_suffix(BUILD_DB_PATH.suffix + ".sha256")
+
+
+# 私用区（PUA）字形：出版社排版字体把「目录点引线 / 页脚装饰线」这类纯装饰件编在私用码位
+# （实测中央文献出版社 2017—2020 年几种论述摘编用 U+100A87 画点线、U+1001B0 当版权页的点）。
+# 它们不是文字，normalize() 的标点范围也管不到 → 会原样留在 raw_text 里在引文片段中显示成
+# 豆腐块，还会混进 normalized_text 干扰精确匹配。抽取时直接剥掉；正文汉字不在私用区，零误伤。
+_PUA_RE = re.compile("[\ue000-\uf8ff\U000f0000-\U0010fffd]")
+
+
+def strip_pua(raw: str) -> str:
+    return _PUA_RE.sub("", raw)
 
 
 def _looks_per_char(raw: str) -> bool:
@@ -112,6 +124,7 @@ def build_book(book: str) -> int:
                 raw = page.get_text("text")
                 if _looks_per_char(raw):
                     raw = reflow_char_lines(page)
+                raw = strip_pua(raw)
                 printed = detect_printed_page_from_page(page)
                 if printed and not printed.startswith("pre-"):
                     detected += 1

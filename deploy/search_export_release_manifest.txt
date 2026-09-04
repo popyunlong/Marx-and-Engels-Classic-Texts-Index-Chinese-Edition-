@@ -1,0 +1,23 @@
+# Feature-only release manifest.  Build this patch from a verified copy of the
+# current production tree; do not substitute deploy/cloud_patch_files.txt.
+app.py
+citation_assistant.py
+search.py
+search_exports.py
+templates/index.html
+templates/mylib_reader.html
+static/mylib/mylib-reader.js
+scripts/citation_assistant_worker.py
+scripts/build_search_export_patch.py
+scripts/search_export_control.py
+deploy/marx-search-citation-worker.service
+deploy/marx-search.env.example
+deploy/search-export-requirements.txt
+deploy/capture_search_export_preconditions.sh
+deploy/verify_search_export_preconditions.sh
+deploy/zero_downtime_restart.sh
+deploy/SEARCH_EXPORT_DEPLOY.md
+deploy/search_export_release_manifest.txt
+tests/test_search_exports.py
+tests/test_search_exports_app.py
+tests/test_search_export_worker_priority.py

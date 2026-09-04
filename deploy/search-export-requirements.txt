@@ -1,0 +1,3 @@
+# Installed with --target into /opt/marx-search-export-deps.  Never install
+# this feature-only dependency file into the main site's shared virtualenv.
+python-docx==1.2.0

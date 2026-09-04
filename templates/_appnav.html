@@ -1,6 +1,6 @@
 {# =============================================================================
    四页面布局 · 全站统一导航外壳（顶部常驻 + 移动端底部标签栏）
-   由 layout_v2 / layout_page 驱动；layout_page ∈ search|read|ai|more。
+   由 layout_v2 / layout_page 驱动；layout_page ∈ search|read|ai|citation|journal|more。
    仅在新布局（layout_v2=True）下 include，旧首页完全不受影响。
    账户区沿用原 .topbar 的权限判定变量：current_user / is_admin /
    local_console_available / account_center_label / sponsor_enabled / csrf_token。
@@ -9,9 +9,8 @@
 <header class="v2nav">
   <a class="v2brand" href="{{ url_for('layout_search') }}">
     <span class="v2brand-mark">马</span>
-    {# 站名用 app_name。注意别用 site_text("index.topbar_title")——那是旧 topbar 的
-       状态说明文字（「站内账号与会员系统已启用」），不是站名。 #}
-    <span class="v2brand-word">{{ app_name }}</span>
+    {# 与首页大标题共用控制台文案，确保站长修改后新版统一导航同步更新。 #}
+    <span class="v2brand-word">{{ site_text("index.hero_title") }}</span>
   </a>
 
   <nav class="v2tabs-top" aria-label="主导航">
@@ -23,6 +22,12 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>大辞典</a>
     <a class="v2tab {% if _p == 'ai' %}active{% endif %}" href="{{ url_for('layout_ai') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"/></svg>AI研究对话</a>
+    {% if citation_assistant_available %}
+    <a class="v2tab {% if _p == 'citation' %}active{% endif %}" href="{{ url_for('citation_assistant_page') }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>{{ site_text("citation.nav_label") }}</a>
+    {% endif %}
+    <a class="v2tab {% if _p == 'journal' %}active{% endif %}" href="{{ url_for('journal_alerts_latest') }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M8 17h8"/></svg>国外文献精选周刊</a>
     <a class="v2tab {% if _p == 'more' %}active{% endif %}" href="{{ url_for('layout_more') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>会员功能</a>
   </nav>
@@ -74,6 +79,12 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>大辞典</a>
   <a class="{% if _p == 'ai' %}active{% endif %}" href="{{ url_for('layout_ai') }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"/></svg>AI对话</a>
+  {% if citation_assistant_available %}
+  <a class="{% if _p == 'citation' %}active{% endif %}" href="{{ url_for('citation_assistant_page') }}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>{{ site_text("citation.nav_mobile_label") }}</a>
+  {% endif %}
+  <a class="{% if _p == 'journal' %}active{% endif %}" href="{{ url_for('journal_alerts_latest') }}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M8 17h8"/></svg>精选周刊</a>
   <a class="{% if _p == 'more' %}active{% endif %}" href="{{ url_for('layout_more') }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>会员</a>
 </nav>

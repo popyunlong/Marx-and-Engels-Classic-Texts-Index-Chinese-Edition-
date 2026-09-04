@@ -1,0 +1,46 @@
+# Journal reform release allowlist.  Do not replace this with `git diff --name-only`,
+# `git add -A`, a workspace archive, or the repository-wide cloud patch list.
+#
+# FULL: the whole file belongs to this journal release and may be copied from a
+#       reviewed release worktree.
+# PATCH_ONLY: the working-tree file contains other pending work; never upload
+#             it whole. Apply only reviewed journal hunks from a clean base.
+
+FULL journal_storage.py
+FULL journal_taxonomy.py
+FULL journal_fulltext.py
+FULL journal_alerts.py
+FULL journal_review.py
+FULL scripts/journal_alert_worker.py
+FULL scripts/repair_journal_footnotes.py
+FULL scripts/migrate_journal_data.py
+FULL templates/journal_alerts.html
+FULL templates/journal_latest.html
+FULL templates/journal_reader.html
+FULL deploy/prepare_journal_data_disk.sh
+FULL deploy/marx-search-journal-alerts.service
+FULL deploy/marx-search-journal-alerts.timer
+FULL deploy/marx-search-journal-process.service
+FULL deploy/marx-search-journal-process.timer
+FULL deploy/marx-search-journal-send.service
+FULL deploy/marx-search-journal-send.timer
+
+PATCH_ONLY app.py
+PATCH_ONLY feature_access.py
+PATCH_ONLY site_content.py
+PATCH_ONLY templates/_appnav.html
+PATCH_ONLY templates/index.html
+PATCH_ONLY templates/account.html
+PATCH_ONLY templates/control.html
+PATCH_ONLY deploy/bootstrap_ubuntu.sh
+PATCH_ONLY deploy/marx-search.env.example
+PATCH_ONLY deploy/marx-search.service
+PATCH_ONLY deploy/backup.sh
+PATCH_ONLY deploy/marx-search-backup.service
+
+# Verification sources; not required by the production runtime.
+TEST tests/test_journal_pdf.py
+TEST tests/test_journal_reform.py
+TEST tests/test_journal_relay.py
+TEST tests/test_journal_release_cap.py
+TEST tests/test_journal_review.py

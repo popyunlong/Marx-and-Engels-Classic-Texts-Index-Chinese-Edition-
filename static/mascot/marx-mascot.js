@@ -541,8 +541,8 @@
     if (!aiAvailable) { return; }
     var kind = pageKind();
 
-    /* search submit on the home page — covers exact, fuzzy AND associative
-       (all three share #searchForm); fires right as the results land */
+    /* Search-scene AI belongs only to the explicit AI-backed search mode.
+       Exact search shares #searchForm but must remain a local, zero-AI action. */
     var form = document.getElementById('searchForm');
     var q = document.getElementById('q');
     if (form && q) {
@@ -550,9 +550,9 @@
         var v = (q.value || '').trim().slice(0, 40);
         if (!v) { return; }
         var activeTab = document.querySelector('.search-mode-tab.active');
-        if (activeTab && activeTab.dataset && activeTab.dataset.mode === 'associative') {
-          v = '（联想检索）' + v;
-        }
+        var mode = activeTab && activeTab.dataset ? activeTab.dataset.mode : 'standard';
+        if (mode !== 'associative' && mode !== 'research') { return; }
+        v = (mode === 'research' ? '（研究检索）' : '（联想检索）') + v;
         setTimeout(function () { triggerScene('search', v); }, 1200);
       });
     }

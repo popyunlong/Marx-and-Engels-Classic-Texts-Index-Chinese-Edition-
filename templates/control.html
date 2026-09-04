@@ -222,9 +222,31 @@
       line-height: 1.65;
     }
     .coverage-item code { display: block; margin-top: 4px; }
+    .mylib-reviewed-row { display: grid; gap: 9px; }
+    .mylib-inspection { margin-top: 2px; border: 1px solid var(--line); border-radius: 8px; background: #fffdfa; }
+    .mylib-inspection > summary { padding: 10px 12px; color: var(--accent); cursor: pointer; font-weight: 800; }
+    .mylib-inspection[open] > summary { border-bottom: 1px solid var(--line); }
+    .mylib-status { display: inline-flex; margin-left: 7px; padding: 2px 8px; border-radius: 999px; font-size: .76rem; }
+    .mylib-status.pass { color: var(--ok); background: #e7f3eb; }
+    .mylib-status.review { color: var(--warn); background: #fff0cf; }
+    .mylib-check-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px; }
+    .mylib-check-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbf8f2; }
+    .mylib-check-card h5 { margin: 0 0 9px; color: var(--accent-dark); font-size: .96rem; }
+    .mylib-check-meta { display: grid; gap: 5px; color: var(--muted); font-size: .84rem; line-height: 1.65; }
+    .mylib-preview { display: block; margin: 9px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #eee5d9; }
+    .mylib-preview img { display: block; width: 100%; max-height: 360px; object-fit: contain; }
+    .mylib-data-code { margin-top: 8px; padding: 9px; max-height: 190px; overflow: auto; white-space: pre-wrap; word-break: break-word; border-radius: 6px; background: #fff; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .78rem; line-height: 1.65; }
+    .mylib-format { padding: 7px 0; border-top: 1px dashed var(--line); }
+    .mylib-format:first-of-type { border-top: 0; }
+    .mylib-format b { display: block; margin-bottom: 3px; color: var(--ai); font-size: .76rem; text-transform: uppercase; }
+    .mylib-toc-list { max-height: 420px; overflow: auto; border-top: 1px solid var(--line); }
+    .mylib-toc-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 7px 2px; border-bottom: 1px dashed var(--line); font-size: .8rem; line-height: 1.45; }
+    .mylib-toc-item.level-2 span:first-child { padding-left: 14px; color: var(--muted); }
+    .mylib-toc-item a { color: var(--accent); white-space: nowrap; }
+    .mylib-warning-list { margin: 0; padding: 0 28px 12px; color: var(--warn); font-size: .83rem; line-height: 1.7; }
     code { word-break: break-all; color: #4d2b16; }
     @media (max-width: 900px) {
-      .grid, .form-grid, .wide-3 { grid-template-columns: 1fr; }
+      .grid, .form-grid, .wide-3, .mylib-check-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -244,6 +266,7 @@
         <nav class="nav">
           <a class="btn" href="/">返回首页</a>
           <a class="btn" href="{{ url_for('pricing') }}">会员套餐</a>
+          {% if remote_admin and citation_agent_test_enabled|default(false) %}<a class="btn" href="/admin/citation-agent-test">引文 Agent 测试</a>{% endif %}
           <a class="btn" href="{{ url_for('account') if current_user else url_for('login') }}">{{ account_center_label if current_user else "登录" }}</a>
         </nav>
       </div>
@@ -865,7 +888,7 @@
               <div class="field-wide section-note">上方为默认对话通道（DeepSeek），首页随心问、阅读器导学与联想检索都用它。</div>
             </div>
             <h3 style="margin-top:18px">智谱 GLM·联网检索通道（可选）</h3>
-            <p class="section-note">独立于 DeepSeek 的第二通道：填写智谱 API Key 后，拥有「AI 联网（智谱）」权限的用户可在首页随心问、阅读器导学中切换到该模型，选中后<strong>每次提问都强制执行联网检索</strong>——由服务端直调智谱独立检索端点并把结果注入对话（不受平台「Coding套餐 &gt; 资源包 &gt; 余额」抵扣顺序影响，不依赖模型自行判断；每次产生按次检索费，引擎档位价格见智谱开放平台），直查失败时自动退回对话内检索三级降级。Key 留空＝整体关闭该通道。联想检索不走智谱，始终使用上方 DeepSeek。「每日 token 限额/人」是智谱通道子配额的<strong>全局默认值</strong>（默认 30000，约 8~12 次阅读讲解）；「套餐管理」里可按套餐单设「智谱每日限额」覆盖它（已按月 3 万/季 6 万/年 10 万初始化）。超限后用户切回 DeepSeek 即可继续，0＝不限。</p>
+          <p class="section-note">独立于会员模型的<strong>网站管家专用</strong>联网通道：填写智谱 API Key 后，仅管理员可在首页随心问、阅读器导学中切换；普通会员即使历史套餐仍保存 ai_web 字段也不会获得入口。选中后每次提问都会执行联网检索，由服务端直调智谱检索端点并把结果注入对话；直查失败时自动退回对话内检索三级降级。Key 留空＝整体关闭。联想检索固定使用站方承担费用的 DeepSeek Flash 非思考，不走智谱。</p>
             <div class="form-grid">
               <label class="field">智谱模型 <input type="text" name="zhipu_model" value="{{ ai_settings.zhipu_model }}" placeholder="glm-5.1"></label>
               <label class="field">联网引擎
@@ -876,7 +899,7 @@
                 </select>
               </label>
               <label class="field">联网结果条数 <input type="number" name="zhipu_search_count" value="{{ ai_settings.zhipu_search_count }}" min="1" max="20"></label>
-              <label class="field">每日 token 限额/人 <input type="number" name="zhipu_daily_token_limit" value="{{ ai_settings.zhipu_daily_token_limit }}" min="0" step="1000" title="智谱通道每用户每日估算 token 子配额，0＝不限；超限后用户可切回 DeepSeek 继续使用"></label>
+            <label class="field">每日 token 限额/管理员 <input type="number" name="zhipu_daily_token_limit" value="{{ ai_settings.zhipu_daily_token_limit }}" min="0" step="1000" title="智谱管家通道每日估算 token 子配额，0＝不限"></label>
               <label class="field-wide">智谱 Base URL <input type="text" name="zhipu_base_url" value="{{ ai_settings.zhipu_base_url }}" placeholder="https://open.bigmodel.cn/api/paas/v4"></label>
               <label class="field-wide">智谱 API Key <input type="text" name="zhipu_api_key" value="{{ ai_settings.zhipu_api_key }}" placeholder="留空＝关闭智谱联网通道"></label>
             </div>
@@ -1172,8 +1195,8 @@
           </form>
         </section>
         <section class="card" id="registry-geo-editor" style="border:2px solid var(--accent,#7b1f1f)">
-          <h2>注册用户分布卡片</h2>
-          <p class="section-note">公告栏下方「注册用户分布」卡片的开关，以及「注册总数」这一行的显示方式。地图与各省排行不受影响。三种方式：① <strong>实时精确数字</strong>（如 816，带「实时」角标）；② <strong>模糊数字</strong>（以百为整、向下取整，如 800+）；③ <strong>自行编辑内容</strong>（你写一句话或数字，原样显示，此时不显示「实时」角标与「位注册用户」后缀）。</p>
+          <h2>每周读者动态与用户分布</h2>
+          <p class="section-note">首页第一行第二卡只展示每周检索最多的 <strong>6 条词句</strong>，不再显示注册总数或阅读卷册；按北京时间自然周统计，本周不足六条时按上周最终排名依次补足，且不会重复。第一行第三卡恢复注册用户省际分布地图，并在地图上方显示注册总数。这里控制这两张卡片的总开关，以及分布卡「注册总数」的显示方式：① <strong>实时精确数字</strong>（如 816）；② <strong>模糊数字</strong>（以百为整、向下取整，如 800+）；③ <strong>自行编辑内容</strong>（原样显示，不带「位注册用户」后缀）。</p>
           <form method="post" action="{{ control_registry_geo_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
@@ -1321,6 +1344,12 @@
               </div>
               <textarea class="cfmt-tpl" name="citation_tpl_{{ row.key }}" data-default="{{ row.default }}" rows="2" maxlength="240" style="width:100%;margin-top:8px;font-family:inherit;line-height:1.7;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px">{{ row.template }}</textarea>
               <div class="cfmt-preview" style="margin-top:6px;font-size:13px;color:var(--muted,#666)">预览：<span class="cfmt-preview-out"></span></div>
+              {% if row.requires_approval %}
+              <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;padding:10px;background:var(--soft,#f7f5f0);border-radius:8px;line-height:1.55">
+                <input type="checkbox" name="citation_gb2025_approved" value="1" style="margin-top:4px" {% if row.approved %}checked{% endif %}>
+                <span>我已依据 GB/T 7714—2025 正式标准文本建立模板，并使用站长黄金样例完成核对。未勾选时，2025 格式不会向会员开放，也不会出现在前台引文格式选项中。</span>
+              </label>
+              {% endif %}
             </div>
             {% endfor %}
             <div class="actions" style="margin-top:10px">
@@ -1411,9 +1440,132 @@
           </div>
         </section>
 
+        <section class="card" id="corpus-text-review">
+          {% set repair_batch = corpus_repair_status.latest_batch if corpus_repair_status and corpus_repair_status.latest_batch else {} %}
+          <h2>引文文字自动修复{% if corpus_repair_review.total %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ corpus_repair_review.total }} 条待商榷）</span>{% endif %}</h2>
+          <p class="section-note">后台任务只读线上语料，在独立候选库中工作。这里显示 AI 无法确定的局部；你的逐条决定会留痕，只有候选库全部通过验证后才能整批确认上线。</p>
+          <div class="kv">
+            <div>运行状态：<strong>{{ corpus_repair_status.state or '尚未初始化' }}</strong></div>
+            {% if repair_batch %}
+            <div>当前批次：{{ repair_batch.id }}（阶段 {{ repair_batch.phase }}）</div>
+            <div>已扫描：{{ repair_batch.scanned_pages }} / {{ repair_batch.planned_pages }} 页</div>
+            {% if repair_batch.canary_stage < 3 %}<div>试运行：第 {{ repair_batch.canary_stage + 1 }} 档，已完成 {{ repair_batch.canary_progress }} / {{ [100, 500, 1000][repair_batch.canary_stage] }} 页</div>{% else %}<div>试运行：三档均已通过</div>{% endif %}
+            <div>可疑页面：{{ repair_batch.flagged_pages }}；MiMo {{ repair_batch.api_calls_mimo }} 次；DeepSeek {{ repair_batch.api_calls_deepseek }} 次</div>
+            {% if corpus_repair_status.resources and corpus_repair_status.resources.at %}
+            <div>最近资源：可用内存 {{ '%.1f'|format(corpus_repair_status.resources.mem_available_gib or 0) }} GiB；数据盘 {{ '%.1f'|format(corpus_repair_status.resources.data_free_gib or 0) }} GiB；网站响应 {{ '%.0f'|format(corpus_repair_status.resources.web_latency_ms or 0) }} ms</div>
+            {% endif %}
+            {% if repair_batch.paused_reason %}<div style="color:var(--warn)">暂停原因：{{ repair_batch.paused_reason }}</div>{% endif %}
+            {% elif corpus_repair_status.planning and corpus_repair_status.planning.reason %}
+            <div style="color:var(--warn)">规划阶段暂停：{{ corpus_repair_status.planning.reason }}</div>
+            {% endif %}
+          </div>
+          <div class="scroll-box" id="corpus-review-list" style="margin-top:12px">
+            {% for item in corpus_repair_review["items"] %}
+            <section class="item corpus-review-item" data-issue-id="{{ item.id }}">
+              <h3>{{ item.book }} 第{{ item.volume }}卷 <span class="muted">PDF {{ item.pdf_page }}{% if item.printed_page %} / 印刷第{{ item.printed_page }}页{% endif %}</span></h3>
+              <div class="kv">
+                <div>问题类型：{{ item.error_type }}</div>
+                <div>保护/转人工原因：{{ item.protected_reasons | join('；') if item.protected_reasons else '证据未达到自动门槛' }}</div>
+                <div>本地 OCR：{{ item.rapid_value or '未能可靠读取' }}</div>
+                <div>MiMo：{{ item.mimo_value or '未能可靠读取' }}</div>
+                <div>DeepSeek：{{ item.deepseek_decision or '未判定' }}</div>
+              </div>
+              {% if item.evidence_crop %}
+              <a href="{{ url_for('admin_api_corpus_text_review_evidence', issue_id=item.id) }}" target="_blank" rel="noopener">
+                <img src="{{ url_for('admin_api_corpus_text_review_evidence', issue_id=item.id) }}" alt="原书局部证据" loading="lazy" style="display:block;max-width:min(100%,720px);max-height:260px;margin:10px 0;border-radius:8px;border:1px solid var(--line)">
+              </a>
+              {% endif %}
+              <label class="field-wide">原数据库文字
+                <textarea readonly style="min-height:64px">{{ item.before_text }}</textarea>
+              </label>
+              <label class="field-wide">拟采用文字
+                <textarea data-proposed maxlength="500" style="min-height:64px">{{ item.proposed_text }}</textarea>
+              </label>
+              <label class="field-wide">审核说明（可选）
+                <input data-note type="text" maxlength="1000" placeholder="记录判断依据">
+              </label>
+              <div class="actions" style="margin-top:10px">
+                <button type="button" class="btn primary" data-repair-decision="approved">批准此修正</button>
+                <button type="button" class="btn" data-repair-decision="rejected">保留原文</button>
+                <button type="button" class="btn" data-repair-decision="deferred">暂缓商榷</button>
+                <span class="muted" data-repair-result></span>
+              </div>
+            </section>
+            {% else %}
+            <div class="item muted">当前没有需要人工商榷的文字问题。</div>
+            {% endfor %}
+          </div>
+          {% set repair_pages = ((corpus_repair_review.total + corpus_repair_review.per_page - 1) // corpus_repair_review.per_page) if corpus_repair_review.per_page else 1 %}
+          {% if repair_pages > 1 %}
+          <div class="actions" style="margin-top:12px">
+            {% if corpus_repair_review.page > 1 %}<a class="btn" href="{{ request.path }}?repair_page={{ corpus_repair_review.page - 1 }}#corpus-text-review">上一页</a>{% endif %}
+            <span class="muted">第 {{ corpus_repair_review.page }} / {{ repair_pages }} 页</span>
+            {% if corpus_repair_review.page < repair_pages %}<a class="btn" href="{{ request.path }}?repair_page={{ corpus_repair_review.page + 1 }}#corpus-text-review">下一页</a>{% endif %}
+          </div>
+          {% endif %}
+          {% if repair_batch and (repair_batch.state == 'candidate_ready' or (repair_batch.state == 'confirmed' and repair_batch.promotion_status == 'failed')) %}
+          <div class="actions" style="margin-top:12px">
+            <button type="button" class="btn primary" id="corpus-repair-confirm" data-batch-id="{{ repair_batch.id }}">{% if repair_batch.promotion_status == 'failed' %}复核后重新申请无停机上线{% else %}确认整批候选并申请无停机上线{% endif %}</button>
+            <span class="muted" id="corpus-repair-confirm-result">确认前不会触碰线上数据库。</span>
+          </div>
+          {% endif %}
+        </section>
+
+        <script>
+        (() => {
+          const csrf = {{ csrf_token | tojson }};
+          document.querySelectorAll('[data-repair-decision]').forEach((button) => {
+            button.addEventListener('click', async () => {
+              const card = button.closest('.corpus-review-item');
+              const issueId = card && card.dataset.issueId;
+              if (!issueId) return;
+              const decision = button.dataset.repairDecision;
+              const proposed = card.querySelector('[data-proposed]').value;
+              const note = card.querySelector('[data-note]').value;
+              const result = card.querySelector('[data-repair-result]');
+              button.disabled = true;
+              result.textContent = '正在保存…';
+              try {
+                const response = await fetch(`/admin/api/corpus-text-review/${encodeURIComponent(issueId)}/decision`, {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+                  body: JSON.stringify({decision, proposed_text: proposed, note}),
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload.description || payload.error || '保存失败');
+                result.textContent = '已保存';
+                card.style.opacity = '.55';
+                card.querySelectorAll('button,textarea,input').forEach((node) => { node.disabled = true; });
+              } catch (error) {
+                result.textContent = error.message || '保存失败';
+                button.disabled = false;
+              }
+            });
+          });
+          const confirmButton = document.getElementById('corpus-repair-confirm');
+          if (confirmButton) confirmButton.addEventListener('click', async () => {
+            if (!window.confirm('确认整批候选已审核完毕，并申请蓝绿无停机上线？')) return;
+            const result = document.getElementById('corpus-repair-confirm-result');
+            confirmButton.disabled = true;
+            result.textContent = '正在验证确认条件…';
+            try {
+              const response = await fetch(`/admin/api/corpus-text-review/batches/${encodeURIComponent(confirmButton.dataset.batchId)}/confirm`, {
+                method: 'POST', headers: {'X-CSRF-Token': csrf},
+              });
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(payload.description || payload.error || '确认失败');
+              result.textContent = '已确认；安全提升服务将再次校验哈希后处理。';
+            } catch (error) {
+              result.textContent = error.message || '确认失败';
+              confirmButton.disabled = false;
+            }
+          });
+        })();
+        </script>
+
         <section class="card" id="page-errors">
-          <h2>页码报错{% if page_error_open_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ page_error_open_count }} 条待处理）</span>{% endif %}</h2>
-          <p class="section-note">读者在阅读器引文处点「一键报错」上报「此处页码有误」。新报错会发提醒到 {{ feedback_admin_email }}；同一页多人上报只计一条（累加次数）。核对修正后点「标记已处理」。</p>
+          <h2>引文报错{% if page_error_open_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ page_error_open_count }} 条待处理）</span>{% endif %}</h2>
+          <p class="section-note">读者可以上报页码、文字或标点问题。新报错会发提醒到 {{ feedback_admin_email }}；同一页同类问题多人上报只计一条（累加次数）。核对修正后点「标记已处理」。</p>
           <div class="scroll-box">
             {% for r in page_error_reports %}
             <section class="item">
@@ -1422,11 +1574,15 @@
                 <span class="muted">第 {{ r.page or "?" }} 页</span>
               </h3>
               <div class="kv">
-                <div>阅读器：{% if r.reader == "viewer" %}扫描页阅读器{% elif r.reader == "liushi" %}流式阅读{% elif r.reader == "wenku" %}原文文库{% else %}{{ r.reader }}{% endif %}</div>
+                <div>问题：{% if r.issue_type == "text_error" %}文字错误{% elif r.issue_type == "punctuation" %}标点错误{% elif r.issue_type == "other" %}其他问题{% else %}页码错误{% endif %}</div>
+                <div>阅读器：{% if r.reader == "viewer" %}扫描页阅读器{% elif r.reader == "liushi" %}流式阅读{% elif r.reader == "wenku" %}原文文库{% elif r.reader == "search" %}检索结果{% else %}{{ r.reader }}{% endif %}</div>
                 <div>状态：{% if r.status == "resolved" %}<span style="color:var(--muted)">已处理</span>{% else %}<strong style="color:var(--accent)">待处理</strong>{% endif %}{% if r.report_count and r.report_count > 1 %} · 被上报 {{ r.report_count }} 次{% endif %}</div>
                 <div>最近上报：{{ format_datetime(r.last_reported_at or r.created_at) }}</div>
                 {% if r.user_email %}<div>上报用户：{{ r.user_email }}</div>{% endif %}
               </div>
+              {% if r.note %}<div style="margin-top:8px;padding:8px 11px;background:rgba(180,83,9,.08);border-radius:8px;line-height:1.7;word-break:break-word"><strong>读者说明：</strong>{{ r.note }}</div>{% endif %}
+              {% if r.context_snippet %}<div style="margin-top:8px;padding:8px 11px;background:rgba(30,64,175,.06);border-radius:8px;line-height:1.7;word-break:break-word"><strong>定位上下文：</strong>{{ r.context_snippet }}</div>{% endif %}
+              {% if r.query_text %}<div class="muted" style="margin-top:6px;word-break:break-word;font-size:.82em">检索词：{{ r.query_text }}</div>{% endif %}
               {% if r.citation_text %}<div style="margin-top:8px;padding:8px 11px;background:rgba(180,83,9,.06);border-radius:8px;line-height:1.7;word-break:break-word">{{ r.citation_text }}</div>{% endif %}
               {% if r.source_ref %}<div class="muted" style="margin-top:6px;word-break:break-all;font-size:.82em">定位来源：{{ r.source_ref }}</div>{% endif %}
               <div class="pe-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
@@ -1450,6 +1606,282 @@
             {% endfor %}
           </div>
         </section>
+
+        {% if remote_admin %}
+        <section class="card" id="book-recommendations">
+          <h2>用户荐书{% if book_recommendation_pending_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ book_recommendation_pending_count }} 本待下载）</span>{% endif %}</h2>
+          <p class="section-note">注册用户从首页提交的 PDF 会暂存在独立个人文库服务器的荐书专用目录，不进入个人文库、公共书库或检索索引。只有管理员登录后台后可经本站代理下载，浏览器不会接触存储节点地址或令牌。</p>
+          {% if not book_recommendation_storage_enabled %}
+          <div class="item" style="color:var(--warn)">个人文库存储节点尚未配置，首页荐书上传会暂时停用。</div>
+          {% endif %}
+          <div class="scroll-box">
+            {% for r in book_recommendations %}
+            <section class="item">
+              <h3>{{ r.title }}
+                <span class="muted" style="font-size:.72em;font-weight:700">
+                  {% if r.status == 'pending' %}<strong style="color:var(--ok)">已安全暂存</strong>
+                  {% elif r.status == 'storing' %}<strong style="color:var(--warn)">正在转存</strong>
+                  {% elif r.status == 'failed' %}<strong style="color:var(--accent)">转存失败</strong>
+                  {% else %}{{ r.status }}{% endif %}
+                </span>
+              </h3>
+              <div class="kv">
+                <div>提交者：{{ r.user_email or r.user_id }}</div>
+                <div>作者：{{ r.author or '（未填写）' }}</div>
+                <div>文件：{{ r.original_filename }}（{{ (r.byte_size / 1048576) | round(1) }} MB，{{ r.page_count }} 页）</div>
+                {% if r.note %}<div>推荐说明：{{ r.note }}</div>{% endif %}
+                <div>文件指纹：sha256 {{ r.sha256[:16] }}…</div>
+                <div>提交时间：{{ r.created_at }}</div>
+                {% if r.stored_at %}<div>完成转存：{{ r.stored_at }}</div>{% endif %}
+                {% if r.fail_reason %}<div style="color:var(--accent)">失败原因：{{ r.fail_reason }}</div>{% endif %}
+              </div>
+              {% if r.status == 'pending' %}
+              <div class="actions" style="margin-top:10px">
+                <a class="btn primary" href="{{ url_for('admin_book_recommendation_download', recommendation_id=r.id) }}">下载 PDF</a>
+                <form method="post" action="{{ url_for('admin_book_recommendation_archive', recommendation_id=r.id) }}" style="margin:0">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="btn" type="submit">标记已处理</button>
+                </form>
+              </div>
+              {% elif r.status == 'failed' %}
+              <form method="post" action="{{ url_for('admin_book_recommendation_archive', recommendation_id=r.id) }}" class="actions" style="margin-top:10px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn" type="submit">归档失败记录</button>
+              </form>
+              {% endif %}
+            </section>
+            {% else %}
+            <div class="item muted">暂无用户荐书。</div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if control_mylib_enabled %}
+        <section class="card" id="library-uploads">
+          <h2>个人文库审核{% if mylib_pending_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ mylib_pending_count }} 条待处理）</span>{% endif %}</h2>
+          <p class="section-note">会员上传的书进入此队列。<strong>批准只代表授权后台解析，不再等于直接上架</strong>：系统生成文字层、版权页书目、页码映射、目录和引文后，会执行统一数据验收；通过才自动上架，未通过则进入<strong>数据待复核</strong>，避免把缺目录、错页码或缺出版项的数据带入检索。纯扫描件仅在用户已同意时进行忠实 OCR，未同意则按仅可读模式上架。管理员可同时查看版权页、目录来源页和引文锚点原图后人工放行，或重新生成。原件与页图均在独立存储服务器上，仅上传者本人可读；所有操作写入管理审计日志。</p>
+          {% if control_mylib_limits_url %}
+          <form class="item" method="post" action="{{ control_mylib_limits_url }}" style="margin-bottom:14px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">每人可上传册数上限
+                <input type="number" name="max_books_per_user" value="{{ mylib_max_books_per_user }}" min="1" max="1000">
+              </label>
+              <label class="field">OCR 单本页数上限
+                <input type="number" name="ocr_book_cap" value="{{ mylib_ocr_usage.book_cap }}" min="0" max="1000000">
+              </label>
+              <label class="field">OCR 每人每月页数
+                <input type="number" name="ocr_user_month_cap" value="{{ mylib_ocr_usage.user_month_cap }}" min="0" max="1000000">
+              </label>
+              <label class="field">OCR 全站每日页数
+                <input type="number" name="ocr_site_day_cap" value="{{ mylib_ocr_usage.day_cap }}" min="0" max="1000000">
+              </label>
+            </div>
+            <p class="section-note" style="margin:8px 0 10px">全部设置持久保存、即时生效，不需重启。OCR 三道额度取剩余额度的最小值；填 0 表示暂停相应范围。已超出册数新上限的用户不会被强制删书，但无法再新增，直到删到上限以内。</p>
+            <div class="actions">
+              <button class="btn primary" type="submit">保存个人文库额度</button>
+            </div>
+          </form>
+          {% endif %}
+          {% if mylib_ocr_usage %}
+          <div class="stats-grid" style="margin-bottom:14px">
+            <div class="stat"><strong>今日 OCR</strong>{{ mylib_ocr_usage.today_pages }} / {{ mylib_ocr_usage.day_cap }} 页<div class="muted" style="font-size:.8em">全站每日熔断上限</div></div>
+            <div class="stat"><strong>本月 OCR</strong>{{ mylib_ocr_usage.month_pages }} 页<div class="muted" style="font-size:.8em">{{ mylib_ocr_usage.month }} 全站累计</div></div>
+            <div class="stat"><strong>额度设置</strong>单本 ≤{{ mylib_ocr_usage.book_cap }} 页 · 每人每月 ≤{{ mylib_ocr_usage.user_month_cap }} 页<div class="muted" style="font-size:.8em">可在上方直接调整</div></div>
+          </div>
+          {% if mylib_ocr_usage.top_users %}
+          <div class="muted" style="font-size:.82em;margin-bottom:12px">本月用量前列：
+            {% for u in mylib_ocr_usage.top_users %}用户 #{{ u.user_id }} {{ u.pages }} 页{% if not loop.last %}　·　{% endif %}{% endfor %}
+          </div>
+          {% endif %}
+          {% endif %}
+          <div class="scroll-box">
+            {% for s in mylib_queue %}
+            <section class="item" id="mylib-submission-{{ s.id }}">
+              <h3>{{ s.title }}
+                <span class="muted" style="font-size:.72em;font-weight:700">
+                  {% if s.status == 'pending' %}<strong style="color:var(--accent)">待审核</strong>
+                  {% elif s.status == 'quality_review' %}<strong style="color:var(--warn)">数据待复核</strong>
+                  {% elif s.status == 'failed' %}<strong style="color:var(--accent)">解析失败</strong>
+                  {% elif s.status == 'parsing' %}解析中 {{ s.progress_done }}/{{ s.progress_total }} 页
+                  {% else %}待解析{% endif %}
+                </span>
+              </h3>
+              <div class="kv">
+                <div>上传者：{{ s.user_email or s.user_id }}</div>
+                <div>作者：{{ s.author or '（未填写）' }}</div>
+                <div>文件：{{ s.original_filename }}（{{ (s.byte_size / 1048576) | round(1) }} MB，{{ s.page_count }} 页）</div>
+                <div>来源预检：{% if s.source_kind == 'text_layer' %}<span style="color:var(--ok)">抽样发现文字层（解析后再验收）</span>{% else %}<span style="color:var(--warn)">抽样未发现可靠文字层{% if s.ocr_consent %}（已授权本地 OCR）{% else %}（未授权 OCR，仅可读）{% endif %}</span>{% endif %}</div>
+                <div>权利声明：{% if s.license_attested %}<span style="color:var(--ok)">已勾选</span>{% else %}<span style="color:var(--accent)">未勾选</span>{% endif %}</div>
+                <div>指纹：sha256 {{ s.sha256[:16] }}…</div>
+                <div>提交时间：{{ s.created_at }}</div>
+                {% if s.fail_reason %}<div>失败原因：{{ s.fail_reason }}</div>{% endif %}
+              </div>
+              {% if s.status == 'quality_review' %}
+              {% set check = s.inspection %}
+              {% if check.deferred %}
+              <div class="actions" style="margin-top:10px">
+                <a class="btn primary" href="{{ url_for('admin', module='content', mylib_inspect=s.id) }}#mylib-submission-{{ s.id }}">加载验收详情</a>
+                <span class="muted">按需读取该书的版权页、目录和引文，避免后台列表长时间等待。</span>
+              </div>
+              {% else %}
+              <details class="mylib-inspection" open>
+                <summary>上架前数据验收 <span class="mylib-status review">需要人工复核</span></summary>
+                {% if check.available %}
+                <div class="mylib-check-grid">
+                  <section class="mylib-check-card">
+                    <h5>① 版权页 / 书目来源</h5>
+                    {% set bib = check.bibliographic %}
+                    <div class="mylib-check-meta"><div>来源：{{ bib.source or '未识别' }}</div><div>出版项：{{ bib.place or '出版地缺失' }}{% if bib.publisher %}：{{ bib.publisher }}{% endif %}{% if bib.year %}，{{ bib.year }}年{% endif %}</div><div>定位：{% if bib.copyright_pdf_page %}PDF 第 {{ bib.copyright_pdf_page }} 页{% else %}未定位{% endif %}</div></div>
+                    {% if check.copyright_preview_url %}<a class="mylib-preview" href="{{ check.copyright_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.copyright_preview_url }}" loading="lazy" alt="版权页原图"></a>{% endif %}
+                  </section>
+                  <section class="mylib-check-card">
+                    <h5>② 引文锚点页</h5>
+                    <div class="mylib-check-meta"><div>PDF 第 {{ check.citation_pdf_page }} 页{% if check.citation_printed_page %} · 书内第 {{ check.citation_printed_page }} 页{% endif %}</div><div>索引：{{ check.indexed_pages }} / {{ s.page_count }} 页</div></div>
+                    {% if check.citation_preview_url %}<a class="mylib-preview" href="{{ check.citation_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.citation_preview_url }}" loading="lazy" alt="引文锚点原图"></a>{% endif %}
+                    <div class="mylib-data-code">{{ check.citation or '尚无引文示例。' }}</div>
+                  </section>
+                  <section class="mylib-check-card">
+                    <h5>③ 目录来源页</h5>
+                    <div class="mylib-check-meta"><div>{{ check.toc_count }} 条 · {{ check.quality.toc_source or '无来源' }}</div>{% if check.quality.toc_confidence %}<div>置信度 {{ (check.quality.toc_confidence * 100) | round(1) }}%</div>{% endif %}</div>
+                    {% if check.toc_preview_url %}<a class="mylib-preview" href="{{ check.toc_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.toc_preview_url }}" loading="lazy" alt="目录来源页原图"></a>{% endif %}
+                  </section>
+                </div>
+                {% endif %}
+                {% if check.warnings %}<ul class="mylib-warning-list">{% for warning in check.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+                {% set edit_bib = check.bibliographic %}
+                <details style="margin:10px 12px 12px"><summary style="cursor:pointer;font-weight:800">对照版权页人工校正书目</summary>
+                  <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" style="margin-top:10px">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="action" value="save_bibliographic">
+                    <div class="form-grid">
+                      <label class="field">书名<input name="bib_title" value="{{ edit_bib.title or s.title }}" required></label>
+                      <label class="field">作者（多人用顿号分隔）<input name="bib_authors" value="{{ edit_bib.authors | join('、') if edit_bib.authors else s.author }}"></label>
+                      <label class="field">主编（多人用顿号分隔）<input name="bib_editors" value="{{ edit_bib.editors | join('、') if edit_bib.editors else '' }}"></label>
+                      <label class="field">译者（多人用顿号分隔）<input name="bib_translators" value="{{ edit_bib.translators | join('、') if edit_bib.translators else '' }}"></label>
+                      <label class="field">版本类型<select name="bib_document_type"><option value="published" {% if edit_bib.document_type not in ['translation_manuscript','compilation'] %}selected{% endif %}>正式出版物</option><option value="translation_manuscript" {% if edit_bib.document_type == 'translation_manuscript' %}selected{% endif %}>未出版译稿</option><option value="compilation" {% if edit_bib.document_type == 'compilation' %}selected{% endif %}>未出版汇编</option></select></label>
+                      <label class="field">出版社<input name="bib_publisher" value="{{ edit_bib.publisher or '' }}"></label>
+                      <label class="field">出版地<input name="bib_place" value="{{ edit_bib.place or '' }}"></label>
+                      <label class="field">出版年<input name="bib_year" inputmode="numeric" maxlength="4" value="{{ edit_bib.year or '' }}"></label>
+                      <label class="field">ISBN<input name="bib_isbn" value="{{ edit_bib.isbn or '' }}"></label>
+                      <label class="field">统一书号（旧版书）<input name="bib_standard_number" value="{{ edit_bib.standard_number or '' }}"></label>
+                      <label class="field">版权页所在 PDF 页<input type="number" name="bib_copyright_page" min="0" max="{{ s.page_count }}" value="{{ edit_bib.copyright_pdf_page or '' }}"></label>
+                    </div>
+                    <p class="section-note" style="margin:8px 0">保存后立即重新验收；人工确认值不会被后续 OCR 或回填覆盖。ISBN 会先校验校验位；1987 年前后没有 ISBN 的旧书可填写版权页“统一书号”。</p>
+                    <button class="btn primary" type="submit">保存书目并重新验收</button>
+                  </form>
+                </details>
+              </details>
+              {% endif %}
+              {% endif %}
+              <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" class="actions" style="margin-top:10px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if s.status == 'pending' %}
+                <button class="btn primary" type="submit" name="action" value="approve">批准</button>
+                <input type="text" name="reason" placeholder="退回原因（退回时必填）" style="min-width:200px">
+                <button class="btn" type="submit" name="action" value="reject">退回</button>
+                {% elif s.status == 'failed' %}
+                <button class="btn primary" type="submit" name="action" value="retry">重试解析</button>
+                <button class="btn danger" type="submit" name="action" value="purge">下架删除</button>
+                {% elif s.status == 'quality_review' %}
+                {% if not check.deferred %}
+                <button class="btn primary" type="submit" name="action" value="publish">核对三类原图后上架</button>
+                {% endif %}
+                <button class="btn" type="submit" name="action" value="recheck">重新执行验收</button>
+                <button class="btn" type="submit" name="action" value="retry">重新生成数据</button>
+                <button class="btn danger" type="submit" name="action" value="purge">下架删除</button>
+                {% else %}
+                <button class="btn" type="submit" name="action" value="retry">重新排队</button>
+                {% endif %}
+              </form>
+            </section>
+            {% else %}
+            <div class="item muted">暂无待审核、待解析或数据待复核的个人文库上传。</div>
+            {% endfor %}
+          </div>
+
+          {% if mylib_reviewed %}
+          <h4 style="margin-top:14px">最近已处理</h4>
+          <div class="table-list">
+            {% for s in mylib_reviewed %}
+            <div class="table-row mylib-reviewed-row" id="mylib-submission-{{ s.id }}">
+              <strong>{{ s.title }}</strong>
+              <span class="muted" style="font-size:.85em">
+                {% if s.status == 'ready' %}已上架{% if s.searchable %} · 可检索{% else %} · 仅可读{% endif %}
+                {% else %}已退回{% if s.reject_reason %}（{{ s.reject_reason }}）{% endif %}{% endif %}
+                · {{ s.user_email or s.user_id }} · {{ s.reviewed_at }}
+              </span>
+              {% set check = s.inspection %}
+              {% if check.deferred %}
+              <div class="actions" style="margin-top:8px">
+                <a class="btn mini" href="{{ url_for('admin', module='content', mylib_inspect=s.id) }}#mylib-submission-{{ s.id }}">加载验收详情</a>
+              </div>
+              {% else %}
+              <details class="mylib-inspection">
+                <summary>数据验收：版权页 · 引文 · 目录 <span class="mylib-status {{ check.overall }}">{% if check.acceptance.status == 'manual_pass' %}人工复核通过{% elif check.overall == 'pass' %}自动检查通过{% else %}需要人工复核{% endif %}</span></summary>
+                {% if check.available %}
+                <div class="mylib-check-grid">
+                  <section class="mylib-check-card">
+                    <h5>① 版权页与书目数据</h5>{% set bib = check.bibliographic %}
+                    <div class="mylib-check-meta"><div>来源：{% if bib.source == 'manual_verified' %}<b style="color:var(--ok)">人工对照版权页确认</b>{% elif bib.source == 'copyright_page' %}<b style="color:var(--ok)">版权页识别成功</b>{% elif bib.source == 'institutional_compilation' %}<b style="color:var(--ok)">机构汇编说明识别成功</b>{% elif bib.source == 'translation_manuscript' %}<b style="color:var(--ok)">未出版译稿已识别</b>{% elif bib.source == 'front_matter' %}<b style="color:var(--warn)">仅封面/扉页责任说明</b>{% else %}<b style="color:var(--warn)">上传信息回退</b>{% endif %}{% if bib.confidence %} · 置信度 {{ (bib.confidence * 100) | round(1) }}%{% endif %}</div><div>书名：{{ bib.title or '未识别' }}</div><div>{{ '编者' if bib.document_type == 'compilation' or bib.responsibility_role == 'editor' else '作者' }}：{{ bib.authors | join('、') if bib.authors else '未识别' }}</div><div>译者：{{ bib.translators | join('、') if bib.translators else '无/未识别' }}</div><div>当前版本：{% if bib.document_type == 'compilation' %}未出版机构汇编{% if bib.year %}，{{ bib.year }}年{% endif %}{% elif bib.document_type == 'translation_manuscript' %}未出版译稿{% else %}{{ bib.place or '未识别' }}{% if bib.publisher %}：{{ bib.publisher }}{% endif %}{% if bib.year %}，{{ bib.year }}年{% endif %}{% endif %}</div><div>书号：{% if bib.document_type == 'compilation' or bib.document_type == 'translation_manuscript' %}当前版本不适用{% elif bib.isbn %}ISBN {{ bib.isbn }}{% elif bib.standard_number %}{{ bib.standard_number_type or '统一书号' }} {{ bib.standard_number }}{% else %}未识别{% endif %}</div>{% if bib.original_edition %}<div>联网匹配原版：{{ bib.original_edition.authors | join('、') if bib.original_edition.authors else '' }}{% if bib.original_edition.title %}《{{ bib.original_edition.title }}》{% endif %}{% if bib.original_edition.publisher %}，{{ bib.original_edition.publisher }}{% endif %}{% if bib.original_edition.year %}，{{ bib.original_edition.year }}年{% endif %}{% if bib.original_edition.isbn %}，ISBN {{ bib.original_edition.isbn }}{% endif %}{% if bib.original_edition.source_url %} · <a href="{{ bib.original_edition.source_url }}" target="_blank" rel="noopener">核验来源</a>{% endif %}</div>{% endif %}<div>来源页：{% if bib.copyright_pdf_page %}PDF 第 {{ bib.copyright_pdf_page }} 页{% else %}未定位{% endif %}</div></div>
+                    {% if check.copyright_preview_url %}<a class="mylib-preview" href="{{ check.copyright_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.copyright_preview_url }}" loading="lazy" alt="版权页原图"></a>{% endif %}
+                    <details><summary class="muted" style="cursor:pointer;font-size:.8rem">查看书目来源原文</summary><div class="mylib-data-code">{{ check.copyright_text or '没有可显示的书目来源文字。' }}</div></details>
+                  </section>
+                  <section class="mylib-check-card">
+                    <h5>② 引文数据</h5><div class="mylib-check-meta"><div>状态：{% if check.citation %}<b style="color:var(--ok)">已生成</b>{% else %}<b style="color:var(--warn)">未生成</b>{% endif %}</div><div>抽样页：PDF 第 {{ check.citation_pdf_page }} 页{% if check.citation_printed_page %} · 原书第 {{ check.citation_printed_page }} 页{% endif %}</div><div>全文索引：{{ check.indexed_pages }} / {{ s.page_count }} 页</div>{% if check.quality.page_confidence %}<div>页码校准置信度：{{ (check.quality.page_confidence * 100) | round(1) }}%</div>{% endif %}</div>
+                    {% if check.citation_preview_url %}<a class="mylib-preview" href="{{ check.citation_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.citation_preview_url }}" loading="lazy" alt="引文锚点原图"></a>{% endif %}
+                    <div class="mylib-data-code">{{ check.citation or '尚无引文示例。' }}</div>{% for format_key, format_value in check.citations.items() %}<div class="mylib-format"><b>{{ format_key }}</b><div>{{ format_value }}</div></div>{% endfor %}
+                  </section>
+                  <section class="mylib-check-card">
+                    <h5>③ 目录数据</h5><div class="mylib-check-meta" style="margin-bottom:8px"><div>状态：{% if check.toc_count %}<b style="color:var(--ok)">已生成 {{ check.toc_count }} 条</b>{% else %}<b style="color:var(--warn)">未生成</b>{% endif %}</div><div>来源：{{ check.quality.toc_source or '未知' }}{% if check.quality.toc_confidence %} · 置信度 {{ (check.quality.toc_confidence * 100) | round(1) }}%{% endif %}</div></div>
+                    {% if check.toc_preview_url %}<a class="mylib-preview" href="{{ check.toc_preview_url }}" target="_blank" rel="noopener"><img src="{{ check.toc_preview_url }}" loading="lazy" alt="目录来源页原图"></a>{% endif %}
+                    <div class="mylib-toc-list">{% for entry in check.toc %}<div class="mylib-toc-item level-{{ entry.level or 1 }}"><span>{{ entry.title }}</span><a href="{{ url_for('admin_mylib_page_image', submission_id=s.id, page=entry.pdf_page) }}" target="_blank" rel="noopener">PDF {{ entry.pdf_page }}{% if entry.printed_page %} / 第{{ entry.printed_page }}页{% endif %}</a></div>{% else %}<div class="muted" style="padding:10px 2px">暂无目录条目。</div>{% endfor %}</div>
+                  </section>
+                </div>{% else %}<p class="section-note" style="padding:0 12px">尚无可验收数据。</p>{% endif %}
+                {% if check.warnings %}<ul class="mylib-warning-list">{% for warning in check.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}
+              </details>
+              {% if s.status == 'ready' %}
+              {% set edit_bib = check.bibliographic %}
+              <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">校正书目</summary>
+                <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" style="margin-top:10px">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="action" value="save_bibliographic">
+                  <div class="form-grid">
+                    <label class="field">书名<input name="bib_title" value="{{ edit_bib.title or s.title }}" required></label>
+                    <label class="field">作者（顿号分隔）<input name="bib_authors" value="{{ edit_bib.authors | join('、') if edit_bib.authors else s.author }}"></label>
+                    <label class="field">主编（顿号分隔）<input name="bib_editors" value="{{ edit_bib.editors | join('、') if edit_bib.editors else '' }}"></label>
+                    <label class="field">译者（顿号分隔）<input name="bib_translators" value="{{ edit_bib.translators | join('、') if edit_bib.translators else '' }}"></label>
+                    <label class="field">版本类型<select name="bib_document_type"><option value="published" {% if edit_bib.document_type not in ['translation_manuscript','compilation'] %}selected{% endif %}>正式出版物</option><option value="translation_manuscript" {% if edit_bib.document_type == 'translation_manuscript' %}selected{% endif %}>未出版译稿</option><option value="compilation" {% if edit_bib.document_type == 'compilation' %}selected{% endif %}>未出版汇编</option></select></label>
+                    <label class="field">出版社<input name="bib_publisher" value="{{ edit_bib.publisher or '' }}"></label>
+                    <label class="field">出版地<input name="bib_place" value="{{ edit_bib.place or '' }}"></label>
+                    <label class="field">出版年<input name="bib_year" inputmode="numeric" maxlength="4" value="{{ edit_bib.year or '' }}"></label>
+                    <label class="field">ISBN<input name="bib_isbn" value="{{ edit_bib.isbn or '' }}"></label>
+                    <label class="field">统一书号（旧版书）<input name="bib_standard_number" value="{{ edit_bib.standard_number or '' }}"></label>
+                    <label class="field">版权页 PDF 页<input type="number" name="bib_copyright_page" min="0" max="{{ s.page_count }}" value="{{ edit_bib.copyright_pdf_page or '' }}"></label>
+                  </div>
+                  <button class="btn primary mini" type="submit">保存并重新验收</button>
+                </form>
+              </details>
+              {% endif %}
+              {% endif %}
+              <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" class="actions" style="margin-top:8px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if s.status == 'ready' %}
+                <button class="btn mini" type="submit" name="action" value="recheck">重新验收</button>
+                {% if s.source_kind == 'scanned' and s.ocr_consent %}<button class="btn mini" type="submit" name="action" value="reocr">重建文字层</button>{% endif %}
+                <button class="btn mini" type="submit" name="action" value="reopen">退回待审</button>
+                <button class="btn mini danger" type="submit" name="action" value="purge">下架删除</button>
+                {% else %}
+                <button class="btn mini" type="submit" name="action" value="reopen">恢复待审</button>
+                {% endif %}
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </section>
+        {% endif %}
 
         <section class="card" id="copy">
           <h2>站点文案</h2>
@@ -1533,15 +1965,55 @@
         {% if admin_module == "journal" %}
         <div class="admin-category">期刊订阅</div>
         <section class="card" id="journal-alerts">
-          <h2>期刊订阅与邮件提醒</h2>
+          <h2>国外文献精选周刊自动化</h2>
           {% set freqmap = {"daily":"每天","weekly":"每周","biweekly":"每两周","monthly":"每月"} %}
           {% set wdnames = ["周一","周二","周三","周四","周五","周六","周日"] %}
-          <p class="section-note">运行流程：系统每天按「抓取时间范围」收录各期刊新文 → 可信来源自动入队、其余进入待审 → 按「发送频率」把摘要发给已确认的订阅邮箱。下面依次为：状态总览 · 发送设置 · 运行与测试 · 期刊来源 · 文章审核 · 运行记录。用户页只负责邮箱确认与退订。</p>
+          <p class="section-note">运行流程：每周在出刊日前一天 19:00 由服务器从 45 本英文期刊发现新文 → 本机全文中继补抓出版社公开 PDF → 服务器验证全文，以免费 GLM-4 识别结构、PaddleOCR 抽样复核/失败兜底，并用 MiMo V2.5 逐段翻译 → 自动更新网站目录与待发送邮件 → 您只需最终核对并选择“批准定时发送”或“重新推进”。中文来源与不完整文章均不公开。</p>
+          <style>
+            .journal-flow-card { margin:14px 0 18px; padding:16px; border:1px solid #decfbd; border-radius:12px; background:#fffdf8; }
+            .journal-flow-steps { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; margin:12px 0; }
+            .journal-flow-step { padding:9px 7px; border-radius:9px; text-align:center; background:#eee8df; color:#75695d; font-size:.84rem; }
+            .journal-flow-step.done { background:#e8f5ec; color:#22543d; }
+            .journal-flow-step.current { background:#8f1d1d; color:#fff; font-weight:800; }
+            .journal-flow-summary { display:flex; flex-wrap:wrap; gap:8px 16px; margin:10px 0; color:#51483f; }
+            @media (max-width:760px) { .journal-flow-steps { grid-template-columns:1fr; } .journal-flow-step { text-align:left; } }
+          </style>
+          <section class="journal-flow-card" aria-label="本期操作指引">
+            <strong>{% if journal_workflow.issue_key %}当前 {{ journal_workflow.issue_key }}{% else %}当前尚未建期{% endif %}</strong>
+            <div class="journal-flow-steps">
+              {% for step in ["服务器采题录","本机补全文","双语成刊","人工核对","发布发送"] %}
+              <div class="journal-flow-step {% if loop.index < journal_workflow.phase_index %}done{% elif loop.index == journal_workflow.phase_index %}current{% endif %}">{{ loop.index }}. {{ step }}</div>
+              {% endfor %}
+            </div>
+            {% if journal_workflow.total %}
+            <div class="journal-flow-summary">
+              <span>本期题录 <strong>{{ journal_workflow.total }}</strong></span>
+              <span>未处理 <strong>{{ journal_workflow.fresh }}</strong></span>
+              <span>处理中 <strong>{{ journal_workflow.processing }}</strong></span>
+              <span>完整双语 <strong>{{ journal_workflow.ready }}</strong></span>
+              <span>无公开全文 <strong>{{ journal_workflow.unavailable }}</strong></span>
+              <span>失败待重试 <strong>{{ journal_workflow.failed }}</strong></span>
+            </div>
+            {% endif %}
+            <p class="section-note" style="margin:8px 0">{{ journal_workflow.next_hint }}</p>
+            <form method="post" action="{{ control_journal_run_url }}" class="actions" style="margin-top:10px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              {% if journal_workflow.busy %}
+              <button class="btn primary" type="button" disabled>{{ journal_workflow.next_label }}</button>
+              {% elif journal_workflow.can_advance %}
+              <button class="btn primary" type="submit" name="action" value="advance">{{ journal_workflow.next_label }}</button>
+              {% else %}
+              <a class="btn primary" href="#journal-issue-review">{{ journal_workflow.next_label }}</a>
+              {% endif %}
+              <a class="btn" href="{{ url_for('journal_alerts_latest') }}" target="_blank" rel="noopener">查看网页端期刊</a>
+            </form>
+            <p class="section-note" style="margin-top:10px">题录由网站服务器采集；出版社公开全文由<strong>本机全文中继</strong>自动补齐，再交回服务器校验、翻译与成刊。日常只需保持本机已开机且网络可用，并在最后人工核对后发送。</p>
+          </section>
           <div class="stats-grid">
             <div class="stat"><strong>全站发信邮箱</strong>{{ "已配置" if journal_smtp_enabled else "未配置" }}{% if smtp_config.from_email %}<br><span class="muted" style="font-weight:400">{{ smtp_config.from_email }}</span>{% endif %}</div>
             <div class="stat"><strong>发送频率</strong>{{ freqmap.get(journal_alert_settings.send_frequency, "每周") }}{% if journal_alert_settings.send_frequency in ["weekly","biweekly"] %} · {{ wdnames[journal_alert_settings.send_weekday] }}{% endif %}</div>
             <div class="stat"><strong>抓取时间范围</strong>近 {{ journal_alert_settings.lookback_days }} 天</div>
-            <div class="stat"><strong>全局自动发送</strong>{{ "开启" if journal_alert_settings.auto_publish_all else "关闭（需审核）" }}</div>
+            <div class="stat"><strong>邮件门槛</strong>最终人工确认</div>
             <div class="stat"><strong>订阅邮箱</strong>{{ dashboard_metrics.journal_subscriptions or 0 }}</div>
             <div class="stat"><strong>待审文章</strong>{{ dashboard_metrics.journal_pending_articles or 0 }}</div>
             <div class="stat"><strong>待发送</strong>{{ dashboard_metrics.journal_ready_articles or 0 }}</div>
@@ -1549,52 +2021,40 @@
               <strong>顺延待办</strong>{{ journal_deferred_count or 0 }} 篇{% if journal_deferred_count %} · 后续逐周释放{% endif %}
             </div>
             <div class="stat"><strong>近期发送</strong>{{ dashboard_metrics.journal_recent_sends or 0 }}</div>
-            <div class="stat"><strong>中文摘要覆盖</strong>{{ journal_abstract_coverage.cn_with_abstract or 0 }}/{{ journal_abstract_coverage.cn_total or 0 }}</div>
+            <div class="stat"><strong>全文数据盘</strong>{{ journal_fulltext_storage.files or 0 }} 文件 / {{ ((journal_fulltext_storage.bytes or 0) / 1048576)|round(1) }} MB</div>
             <div class="stat"><strong>摘要总覆盖</strong>{{ journal_abstract_coverage.with_abstract or 0 }}/{{ journal_abstract_coverage.total or 0 }}</div>
-            {% set relay = journal_relay_status or {} %}
-            <div class="stat" title="中文刊采集数据由站内每周同步；过期时中文刊本期将缺席">
-              <strong>中文源数据</strong>
-              {% if relay.present and not relay.expired %}{{ relay.source_count }} 刊 {{ relay.article_count }} 篇 · {{ '%.1f'|format(relay.age_days or 0) }} 天前{% if relay.stale %} ⚠{% endif %}
-              {% else %}<span style="color:#c0392b">未就绪</span>{% endif %}
-            </div>
+            <div class="stat"><strong>英文来源</strong>{{ journal_source_catalog.total or 0 }} / 45</div>
           </div>
 
-          <h3 style="margin-top:18px">发送设置</h3>
+          <details class="item" style="margin-top:18px">
+          <summary style="cursor:pointer;font-weight:800">高级：周刊与邮件设置</summary>
           <form class="item" method="post" action="{{ url_for('admin_journal_alert_settings') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-grid wide-3">
               <label class="field">发送频率
-                <select name="send_frequency">
-                  <option value="daily" {% if journal_alert_settings.send_frequency == "daily" %}selected{% endif %}>每天</option>
-                  <option value="weekly" {% if journal_alert_settings.send_frequency == "weekly" %}selected{% endif %}>每周</option>
-                  <option value="biweekly" {% if journal_alert_settings.send_frequency == "biweekly" %}selected{% endif %}>每两周</option>
-                  <option value="monthly" {% if journal_alert_settings.send_frequency == "monthly" %}selected{% endif %}>每月</option>
-                </select>
+                <select name="send_frequency"><option value="weekly" selected>每周（固定）</option></select>
               </label>
-              <label class="field">每周几发送（每周/每两周时生效）
+              <label class="field">每周出刊日
                 <select name="send_weekday">
                   {% for i in range(7) %}
                   <option value="{{ i }}" {% if journal_alert_settings.send_weekday == i %}selected{% endif %}>{{ wdnames[i] }}</option>
                   {% endfor %}
                 </select>
               </label>
-              <label class="field">抓取时间范围（天）
-                <input type="number" name="lookback_days" value="{{ journal_alert_settings.lookback_days }}" min="1" max="365">
+              <label class="field">本期覆盖范围
+                <input type="number" name="lookback_days" value="7" readonly>
               </label>
-              <label class="field" title="每期综述最多纳入多少篇文章（中英搭配）。超出的转入「顺延待办」，由后续各期按此上限逐周释放，不会丢弃。0=不限。避免一次性涌入压垮综述生成。">单期发布上限（篇，0=不限）
-                <input type="number" name="weekly_release_cap" value="{{ journal_alert_settings.weekly_release_cap }}" min="0" max="1000">
+              <label class="field" title="完整合格文章最多 45 篇，超出顺延。">单期发布上限
+                <input type="number" name="weekly_release_cap" value="45" readonly>
               </label>
-              <label class="field">发送时间（北京时间 HH:MM）
-                <input type="text" name="send_time" value="{{ journal_alert_settings.send_time }}" placeholder="08:00">
-              </label>
-              <label class="field">定时自动发送默认受众
+              <input type="hidden" name="send_time" value="{{ journal_alert_settings.send_time }}">
+              <label class="field">人工发送默认受众
                 <select name="send_audience">
                   <option value="subscribers" {% if journal_alert_settings.send_audience == "subscribers" %}selected{% endif %}>邮箱订阅者（按权限）</option>
                   <option value="members" {% if journal_alert_settings.send_audience == "members" %}selected{% endif %}>付费会员（按套餐）</option>
-                  <option value="registered" {% if journal_alert_settings.send_audience == "registered" %}selected{% endif %}>全部注册用户</option>
                 </select>
               </label>
-              <div class="field-wide">自动发送限定套餐（仅「付费会员」受众时生效；不勾=全部有效会员）
+              <div class="field-wide">默认限定套餐（仅「付费会员」受众时生效；不勾=全部有效会员）
                 <div class="actions" style="margin-top:6px">
                   {% for plan in plans_all %}
                   {% if plan.is_active %}
@@ -1604,7 +2064,7 @@
                 </div>
               </div>
             </div>
-            <p class="section-note">采集在「发送日的前一天 19:00（北京时间）」自动进行，抓取「抓取时间范围」内各来源公开发表的全部文章；随后按下方自动化档位生成综述、审核，并在发送日的「发送时间」群发。「抓取时间范围」只收录最近 N 天发表的文章（对 OpenAlex/Crossref 生效，越小越时效）。管理员的手动按钮不受频率限制。</p>
+            <p class="section-note">系统在出刊日前一天 19:00 自动采集此前 7 天的英文题录，全文处理器随后每小时获取公开 PDF、校验完整性、用免费 GLM-4 识别正文、以 PaddleOCR 独立复核/兜底，再用 MiMo 逐段翻译；完整文章会自动进入网站目录和邮件预览。只有您点击“批准定时发送”后，定时任务才有权发信。</p>
             <div class="form-grid" style="margin-top:12px">
               <label class="field-wide">邮件标题前缀
                 <input type="text" name="subject_prefix" value="{{ journal_alert_settings.subject_prefix }}" required>
@@ -1622,29 +2082,19 @@
               <label class="checkbox"><input type="checkbox" name="include_citation" value="1" {% if journal_alert_settings.include_citation %}checked{% endif %}>GB/T 7714 引文</label>
               <label class="checkbox"><input type="checkbox" name="include_url" value="1" {% if journal_alert_settings.include_url %}checked{% endif %}>来源链接</label>
             </div>
-            <p class="section-note" style="margin-top:14px">上面的「邮件字段」勾选项用于旧版逐篇摘要邮件（降级备用）。现行邮件正文为下方生成的「文献综述」。</p>
-            <h4 style="margin-top:14px">自动化档位（每一步都可保留人工干预）</h4>
-            <div class="form-grid" style="margin-top:8px">
-              <label class="checkbox"><input type="checkbox" name="auto_approve_articles" value="1" {% if journal_alert_settings.auto_approve_articles %}checked{% endif %}>① 自动批准抓取的文章（跳过人工审核）</label>
-              <label class="checkbox"><input type="checkbox" name="auto_generate_review" value="1" {% if journal_alert_settings.auto_generate_review %}checked{% endif %}>② 采集后自动生成文献综述</label>
-              <label class="checkbox"><input type="checkbox" name="auto_send" value="1" {% if journal_alert_settings.auto_send %}checked{% endif %}>③ 自动批准综述并在发送日自动群发（全流程自动化）</label>
-              <label class="checkbox"><input type="checkbox" name="hard_delete_archived" value="1" {% if journal_alert_settings.hard_delete_archived %}checked{% endif %}>归档旧批次时直接硬删除（默认仅归档保留）</label>
-            </div>
+            <p class="section-note" style="margin-top:14px">邮件固定包含中英题名、期刊、作者、摘要，以及 GB/T 7714—2015 与《马克思主义研究》两种英文原始引文，并附流式阅读和公开 PDF 来源链接。</p>
             <div class="item" style="margin-top:12px;border:1px solid #d9534f55;border-radius:8px;padding:10px">
-              <label class="checkbox"><input type="checkbox" name="automation_paused" value="1" {% if journal_alert_settings.automation_paused %}checked{% endif %}><strong>⏸ 暂停自动化（总闸）</strong>：开启后采集 / 生成综述 / 发送各阶段一律暂停，手动按钮仍可用，便于随时干预。</label>
+              <label class="checkbox"><input type="checkbox" name="automation_paused" value="1" {% if journal_alert_settings.automation_paused %}checked{% endif %}><strong>⏸ 暂停自动化（总闸）</strong>：暂停采集与全文处理；人工邮件发送不受影响。</label>
             </div>
-            <div class="form-grid" style="margin-top:12px">
-              <label class="field-wide">综述专用模型（留空＝沿用当前生效模型）
-                <input type="text" name="review_model" value="{{ journal_alert_settings.review_model }}" placeholder="如 deepseek-v4-pro，留空则用 {{ journal_ai_model }}">
-              </label>
-            </div>
-            <p class="section-note">当前生效 AI 模型：<strong>{{ journal_ai_model or "（未配置）" }}</strong>（{{ "已启用" if journal_ai_enabled else "未启用，将生成降级综述" }}）。兼容旧设置：<label class="checkbox" style="display:inline-flex"><input type="checkbox" name="auto_publish_all" value="1" {% if journal_alert_settings.auto_publish_all %}checked{% endif %}>旧版全局自动发送</label></p>
+            <p class="section-note">识别模型：<strong>glm-4-flash-250414 / glm-4v-flash（免费）</strong>；OCR 复核与兜底：<strong>PaddleOCR-VL-1.6</strong>；正文翻译：<strong>mimo-v2.5</strong>（思考关闭）。三路调用均由站方处理，不扣会员额度。</p>
             <div class="actions" style="margin-top:12px">
-              <button class="btn primary" type="submit">保存发送设置</button>
+              <button class="btn primary" type="submit">保存周刊设置</button>
             </div>
           </form>
+          </details>
 
-          <h3 style="margin-top:18px">运行与测试</h3>
+          <details class="item" style="margin-top:18px">
+          <summary style="cursor:pointer;font-weight:800">手动补救与邮件测试（通常不必操作）</summary>
           <form method="post" action="{{ control_email_test_url }}" style="margin-top:8px">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-grid">
@@ -1658,27 +2108,16 @@
           </form>
           <form method="post" action="{{ control_journal_run_url }}" style="margin-top:14px">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn primary" type="submit" name="action" value="collect">① 立即采集本期（开新批次）</button>
-            <button class="btn" type="submit" name="action" value="generate_review">② 生成本期文献综述</button>
-            <button class="btn" type="submit" name="action" value="send_batch" {% if not journal_smtp_enabled %}disabled{% endif %}>③ 立即发送本期综述</button>
+            <button class="btn primary" type="submit" name="action" value="collect">① 采集英文题录</button>
+            <button class="btn" type="submit" name="action" value="process_fulltext">② 处理公开 PDF（每次 5 篇）</button>
+            <button class="btn" type="submit" name="action" value="generate_review">③ 刷新整期目录预览</button>
           </form>
-          <p class="section-note">完整顺序：① 采集 → 在「文章审核」批准 → ② 生成综述 → 在「综述审核」批准 → ③ 发送。开启自动化档位后这些步骤可自动衔接，但你随时可手动介入。中英文期刊在同一批次里统一采集、统一发送：英文刊由服务器直采（OpenAlex/Crossref），中文刊取用下方「中文源同步数据」（国内网络定时抓取后同步到服务器，绕开 NCPSSD 对境外服务器的访问拦截）。</p>
+          <p class="section-note">自动顺序：采集 → 反复查找并验证公开 PDF → 正文完整性检查 → GLM-4 结构/视觉识别 → PaddleOCR 抽样复核或兜底 → MiMo 逐段双语处理 → 自动刷新网站目录与邮件草稿。失败任务每 3 小时重试；不完整文章不会进入网站或邮件。唯一人工环节是下方最终核对。</p>
+          </details>
 
-          {% set relay = journal_relay_status or {} %}
-          <div class="item" style="margin-top:12px;border:1px solid {% if relay.present and not relay.expired and not relay.uncovered %}#2e7d3255{% elif relay.present and not relay.expired %}#e6950055{% else %}#d9534f88{% endif %};border-radius:8px;padding:10px 12px">
-            <strong>中文源同步数据</strong>
-            {% if relay.present and not relay.expired %}
-              ：<span style="color:#2e7d32">{{ relay.source_count }} 刊 / {{ relay.article_count }} 篇</span>，
-              {{ '%.1f'|format(relay.age_days or 0) }} 天前更新（{{ relay.generated_at[:16] }} UTC）。
-              {% if relay.stale %}<span style="color:#8a5b00">已超过 {{ relay.stale_warn_days }} 天未更新——请确认本机每周日 10:00 的同步任务在跑（MarxJournalRelayPush），或手动运行项目根目录 run_journal_relay.ps1。</span>{% endif %}
-              {% if relay.uncovered %}<br><span style="color:#c0392b">以下已启用的中文刊本期缺同步数据（采集时将直抓失败）：{{ relay.uncovered|join('、') }}</span>{% endif %}
-            {% else %}
-              ：<span style="color:#c0392b">未就绪或已过期（超过 {{ relay.max_age_days or 10 }} 天）</span>——中文刊将在采集时回退直抓，境外服务器上必失败、本期只会有英文文章。请在站长本机运行 run_journal_relay.ps1 重新同步。
-            {% endif %}
-          </div>
-
-          <h3 style="margin-top:18px">期刊来源（共 {{ journal_sources|length }} 个，{{ journal_source_catalog.auto_count or 0 }} 个可自动抓取）</h3>
-          <p class="section-note">英文刊选 OpenAlex/Crossref 并填 ISSN；中文刊选「国哲社期刊页」并填刊号 gch（在 ncpssd.cn 期刊页地址 details?gch=… 中可见）；提供 RSS 的可选 RSS。默认网页抓取需人工审核，确认稳定后勾选「可信来源」即可自动发送。常用项直接可见，其余在每条的「高级设置」里。</p>
+          <details class="item" style="margin-top:18px">
+          <summary style="cursor:pointer;font-weight:800">高级：期刊来源（共 {{ journal_sources|length }} 个，{{ journal_source_catalog.auto_count or 0 }} 个可自动抓取）</summary>
+          <p class="section-note">固定 45 本英文来源，以 OpenAlex/Crossref ISSN 发现题录；只有后续找到并验证公开 PDF 的文章才可发布。历史中文来源仅在数据库中保留审计记录，不在此目录启用。</p>
           <form method="post" action="{{ control_journal_backfill_url }}" style="margin:12px 0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn" type="submit">补齐默认来源参数</button>
@@ -1688,10 +2127,9 @@
             <form method="post" action="{{ control_journal_source_add_url }}" style="margin-top:12px">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <div class="form-grid">
-                <label class="field-wide">期刊名称 <input type="text" name="name" required placeholder="如 马克思主义研究"></label>
+                <label class="field-wide">期刊名称 <input type="text" name="name" required placeholder="English journal title"></label>
                 <label class="field">语言
                   <select name="language">
-                    <option value="zh">中文</option>
                     <option value="en">英文</option>
                   </select>
                 </label>
@@ -1705,12 +2143,10 @@
                   </select>
                 </label>
                 <label class="field">ISSN <input type="text" name="issn" placeholder="英文刊填写"></label>
-                <label class="field">国哲社刊号 gch <input type="text" name="gch" placeholder="中文刊填写，如 80453X"></label>
                 <label class="field-wide">来源 / 入口 URL <input type="url" name="source_url" placeholder="RSS / 网页目录地址"></label>
                 <label class="field-wide">入口 URL（可选） <input type="url" name="entry_url"></label>
               </div>
               <div class="actions" style="margin-top:10px">
-                <label class="checkbox"><input type="checkbox" name="auto_publish" value="1">可信来源（抓到即自动发送）</label>
                 <button class="btn primary" type="submit">新增来源</button>
               </div>
             </form>
@@ -1736,16 +2172,12 @@
                   </select>
                 </label>
                 <label class="field">ISSN <input type="text" name="issn" value="{{ source.issn }}"></label>
-                <label class="field">国哲社刊号 gch <input type="text" name="gch" value="{{ source.config.gch or '' }}" placeholder="如 80453X"></label>
                 <details class="field-wide">
                   <summary style="cursor:pointer;font-weight:700">高级设置（解析器 / 来源地址 / 备用地址）</summary>
                   <div class="form-grid" style="margin-top:10px">
                     <label class="field">解析器
                       <select name="parser">
                         <option value="" {% if not source.config.parser %}selected{% endif %}>自动</option>
-                        <option value="ncpssd_journal" {% if source.config.parser == "ncpssd_journal" %}selected{% endif %}>国哲社期刊页（按 gch）</option>
-                        <option value="qstheory_list" {% if source.config.parser == "qstheory_list" %}selected{% endif %}>求是网列表</option>
-                        <option value="ncssd_cnki_list" {% if source.config.parser == "ncssd_cnki_list" %}selected{% endif %}>国哲社/知网页面（旧）</option>
                         <option value="generic" {% if source.config.parser == "generic" %}selected{% endif %}>通用网页列表</option>
                       </select>
                     </label>
@@ -1759,62 +2191,75 @@
                   </div>
                 </details>
                 <label class="checkbox"><input type="checkbox" name="is_enabled" value="1" {% if source.is_enabled %}checked{% endif %}>启用</label>
-                <label class="checkbox"><input type="checkbox" name="auto_publish" value="1" {% if source.config.auto_publish %}checked{% endif %}>可信来源（抓到即自动发送，不经人工审核）</label>
+                <span class="section-note">题录只进入处理队列；不存在按来源自动发布，所有期次均须整期人工批准。</span>
               </div>
               <div class="actions"><button class="btn" type="submit">保存来源</button></div>
             </form>
             {% endfor %}
           </div>
+          </details>
 
-          <h3 style="margin-top:18px">文章审核（当前批次）</h3>
+          <h3 style="margin-top:18px">全文处理与整期审核</h3>
           {% if journal_current_batch %}
           <p class="section-note">
             当前批次 #{{ journal_current_batch.id }} · 状态 {{ journal_current_batch.status }} · 抓取窗口
             {{ format_datetime(journal_current_batch.period_start) if journal_current_batch.period_start else "—" }}
             ~ {{ format_datetime(journal_current_batch.period_end) if journal_current_batch.period_end else "—" }}。
-            只显示本批次文章；上一批未处理文章已自动归档，不再堆积。
+            只有状态为 ready、PDF 已验证且译文覆盖完整的文章才进入整期目录。
           </p>
           <form method="post" action="{{ control_journal_archive_url }}" style="display:inline-block;margin:6px 6px 6px 0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn" type="submit">归档旧批次未处理文章</button>
           </form>
-          <form method="post" action="{{ control_journal_purge_url }}" style="display:inline-block;margin:6px 0" onsubmit="return confirm('确认硬删除所有已归档文章？此操作不可恢复。');">
+          <form method="post" action="{{ control_journal_purge_url }}" style="display:inline-block;margin:6px 0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn" type="submit">硬删除已归档文章</button>
+            <button class="btn" type="submit">执行“源 PDF 仅留 12 期”清理</button>
           </form>
           {% else %}
           <p class="section-note">当前没有批次。点击上方「① 立即采集本期」开始，或等待发送日前一天 19:00 自动采集。</p>
           {% endif %}
 
-          <h4 style="margin-top:14px">待审核（{{ journal_batch_pending_articles|length }} 篇）</h4>
-          {% if journal_batch_pending_articles %}
-          <form method="post" action="{{ control_journal_approve_all_url }}" style="margin:8px 0">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="btn primary" type="submit">一键批准全部待审</button>
-          </form>
-          {% endif %}
+          <h4 style="margin-top:14px">全文识别、复核与翻译队列（{{ journal_processing_states|length }} 项）</h4>
+          <div class="table-list">
+            {% for item in journal_processing_states %}
+            <div class="table-row">
+              <strong>{{ item.title_zh or item.title }}</strong>
+              <div class="kv">
+                <div>状态：{{ item.status }} · PDF {{ item.page_count or 0 }} 页 · 段落 {{ item.translated or 0 }}/{{ item.required_translations or 0 }}</div>
+                <div>翻译：{{ item.provider }}/{{ item.model }} · 识别：GLM-4 Flash / GLM-4V Flash · 复核：PaddleOCR-VL-1.6</div>
+                {% if item.recognition_qa_status %}
+                <div>Paddle 复核：{% if item.recognition_qa_status == 'passed' %}通过{% elif item.recognition_qa_status == 'warning' %}需人工留意{% elif item.recognition_qa_status == 'fallback' %}已启用兜底{% elif item.recognition_qa_status == 'unavailable' %}本次暂不可用{% else %}{{ item.recognition_qa_status }}{% endif %}{% if item.recognition_qa_similarity is not none %} · 一致度 {{ '%.1f'|format(item.recognition_qa_similarity * 100) }}%{% endif %}{% if item.recognition_qa_page %} · 抽查第 {{ item.recognition_qa_page }} 页{% endif %}{% if item.recognition_paddle_fallback_pages %} · 兜底 {{ item.recognition_paddle_fallback_pages }} 页{% endif %}</div>
+                {% endif %}
+                {% if item.next_retry_at %}<div>下次重试：{{ format_datetime(item.next_retry_at) }}</div>{% endif %}
+                {% if item.error %}<div style="color:#b42318">{{ item.error }}</div>{% endif %}
+              </div>
+            </div>
+            {% else %}<div class="item muted">当前还没有全文处理记录。</div>{% endfor %}
+          </div>
+
+          <h4 style="margin-top:14px">本期尚未通过全文门槛（{{ journal_batch_pending_articles|length }} 篇）</h4>
           <div class="table-list">
             {% for article in journal_batch_pending_articles %}
             <div class="table-row">
-              <strong>{{ article.title }}</strong>
+              <strong>{{ article.title_zh or article.title }}{% if article.title_zh %}<br><small>{{ article.title }}</small>{% endif %}</strong>
               <div class="kv">
                 {% if article.ai_discipline %}<div>学科：{{ article.ai_discipline }}{% if article.ai_problem_type %} · {{ article.ai_problem_type }}{% endif %}</div>{% endif %}
-                <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }} / {{ article.url or "链接暂缺" }}</div>
+                <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }} / 状态：{% if article.status == 'translation_pending' %}尚未处理{% elif article.status == 'fulltext_unavailable' %}暂未取得公开完整 PDF{% elif article.status == 'processing_failed' %}处理失败待重试{% else %}{{ article.status }}{% endif %}</div>
+                {% if article.url %}<div><a href="{{ article.url }}" target="_blank" rel="noopener">查看来源页</a></div>{% endif %}
                 {% if article.abstract %}<div>{{ article.abstract|truncate(200, true) }}</div>{% endif %}
                 <div>{{ article.citation_gb2015 }}</div>
               </div>
               <form method="post" action="{{ url_for(control_journal_article_review_endpoint, article_id=article.id) }}" class="actions" style="margin-top:10px">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="btn primary" type="submit" name="action" value="approve">批准</button>
                 <button class="btn" type="submit" name="action" value="ignore">忽略</button>
               </form>
             </div>
             {% else %}
-            <div class="item muted">本批次暂无待审核文章。</div>
+            <div class="item muted">本期暂无等待全文处理的文章。</div>
             {% endfor %}
           </div>
 
-          <h4 style="margin-top:14px">已批准待发送（{{ journal_batch_ready_articles|length }} 篇）</h4>
+          <h4 style="margin-top:14px">已完成双语处理，等待整期批准（{{ journal_batch_ready_articles|length }} 篇）</h4>
           <div class="table-list">
             {% for article in journal_batch_ready_articles %}
             <div class="table-row">
@@ -1827,14 +2272,15 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="btn" type="submit" name="action" value="reopen">退回待审核</button>
                 <button class="btn" type="submit" name="action" value="ignore">忽略</button>
+                <button class="btn danger" type="submit" name="action" value="takedown">紧急下架</button>
               </form>
             </div>
             {% else %}
-            <div class="item muted">本批次暂无已批准待发送文章。</div>
+            <div class="item muted">本期暂无完成全部门槛的文章。</div>
             {% endfor %}
           </div>
 
-          <h3 style="margin-top:18px">综述审核</h3>
+          <h3 style="margin-top:18px" id="journal-issue-review">整期目录审核</h3>
           <style>
             .journal-review-preview { line-height: 1.85; color: #231d17; }
             .journal-review-preview h1 { font-size: 1.3rem; color: #5f1717; border-bottom: 2px solid #f5e2dc; padding-bottom: 6px; }
@@ -1854,39 +2300,48 @@
           {% endif %}
           {% if journal_current_batch %}
           <p class="section-note">
-            综述状态：<strong>{{ journal_current_batch.review_status }}</strong>
-            {% if journal_current_batch.review_model %} · 生成模型 {{ journal_current_batch.review_model }}{% endif %}
-            {% if journal_current_batch.review_generated_at %} · 生成于 {{ format_datetime(journal_current_batch.review_generated_at) }}{% endif %}。
-            综述按学科领域 + 经典/前沿分类，文末附 GB2015 引文，覆盖本批全部文章。可直接编辑后批准。
+            整期状态：<strong>{{ journal_current_batch.review_status }}</strong>
+            {% if journal_current_batch.review_generated_at %} · 目录刷新于 {{ format_datetime(journal_current_batch.review_generated_at) }}{% endif %}。
+            目录只统计完整双语文章；达到门槛后自动在会员网站显示，邮件仍由您最终确认。
           </p>
           <form method="post" action="{{ url_for(control_journal_review_endpoint, digest_id=journal_current_batch.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label class="field-wide">综述正文（Markdown）
-              <textarea name="review_md" rows="16" style="font-family:ui-monospace,Consolas,monospace">{{ journal_current_batch.review_md }}</textarea>
+            <label class="field-wide">整期目录预览（Markdown，仅后台）
+              <textarea name="review_md" rows="12" style="font-family:ui-monospace,Consolas,monospace" readonly>{{ journal_current_batch.review_md }}</textarea>
             </label>
             <div class="actions" style="margin-top:10px">
-              <button class="btn" type="submit" name="action" value="save">保存草稿</button>
-              <button class="btn" type="submit" name="action" value="regenerate">重新生成</button>
-              <button class="btn primary" type="submit" name="action" value="approve">保存并批准</button>
-              <button class="btn" type="submit" name="action" value="reject">退回</button>
+              <button class="btn" type="submit" name="action" value="regenerate">刷新目录</button>
+              {% if journal_current_batch.review_status != "approved" %}
+              <button class="btn" type="submit" name="action" value="reprocess">重新推进全文与复核流程</button>
+              <button class="btn primary" type="submit" name="action" value="approve_schedule">一键批准并定时发送</button>
+              {% endif %}
             </div>
           </form>
           {% if journal_current_batch.review_html %}
           <details class="item" style="margin-top:12px" open>
-            <summary style="cursor:pointer;font-weight:700">渲染预览（与邮件/首页一致的排版）</summary>
+            <summary style="cursor:pointer;font-weight:700">后台整期目录渲染预览</summary>
             <div class="journal-review-preview">{{ journal_current_batch.review_html|safe }}</div>
           </details>
           {% endif %}
+          {% if journal_email_preview_html %}
+          <details class="item" style="margin-top:12px" open>
+            <summary style="cursor:pointer;font-weight:800">待发送邮件完整预览（实际群发样式）</summary>
+            {% if journal_email_preview_subject %}<p class="section-note"><strong>主题：</strong>{{ journal_email_preview_subject }}</p>{% endif %}
+            <div style="margin-top:10px;padding:12px;border:1px solid #decfbd;border-radius:8px;background:#fff">
+              {{ journal_email_preview_html|safe }}
+            </div>
+          </details>
+          {% endif %}
+          <details class="item" style="margin-top:12px">
+          <summary style="cursor:pointer;font-weight:700">高级：更改本次受众或立即发送</summary>
           <form method="post" action="{{ url_for(control_journal_digest_send_endpoint, digest_id=journal_current_batch.id) }}" style="margin-top:12px">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <h4 style="margin:6px 0">发送对象</h4>
             <div class="form-grid">
               <label class="field">受众
                 <select name="recipient_mode" id="journal-recipient-mode">
-                  <option value="subscribers">邮箱订阅者（按权限）</option>
-                  <option value="members">付费会员（按套餐）</option>
-                  <option value="registered">全部注册用户</option>
-                  <option value="specific">特定邮箱（手填）</option>
+                  <option value="subscribers" {% if journal_alert_settings.send_audience == "subscribers" %}selected{% endif %}>邮箱订阅者（按权限）</option>
+                  <option value="members" {% if journal_alert_settings.send_audience == "members" %}selected{% endif %}>付费会员（按套餐）</option>
                 </select>
               </label>
             </div>
@@ -1901,14 +2356,16 @@
                 </div>
               </div>
             </div>
-            <label class="field-wide" data-recipient="specific" style="margin-top:8px">特定邮箱（每行一个）
-              <textarea name="recipient_emails" rows="4" placeholder="someone@example.com"></textarea>
+            <p class="section-note">仅可发送给全部有效会员，或已确认订阅且发送时仍为有效会员的邮箱；同一期按邮箱去重，重复操作不会重复收取。</p>
+            <label class="checkbox" style="margin-top:10px;padding:10px;border:1px solid #d7b4aa;border-radius:8px;background:#fffaf7">
+              <input type="checkbox" name="confirm_final" value="send-{{ journal_current_batch.id }}" required>
+              <strong>我已核对本期目录、文章卡片与收件范围，确认锁定本期并开始发送。</strong>
             </label>
-            <p class="section-note">选「付费会员/全部注册用户/特定邮箱」时为管理员强制群发，忽略「期刊提醒」权限；选「邮箱订阅者」时仍按控制台权限发送。同一批次按邮箱去重，重复发不会重收。</p>
             <div class="actions" style="margin-top:8px">
-              <button class="btn primary" type="submit" {% if not journal_smtp_enabled %}disabled{% endif %}>发送本期综述邮件</button>
+              <button class="btn primary" type="submit" {% if not journal_smtp_enabled %}disabled{% endif %}>最终确认并立即发送本期邮件</button>
             </div>
           </form>
+          </details>
           <script>
             (function () {
               var sel = document.getElementById('journal-recipient-mode');
@@ -1924,7 +2381,7 @@
             })();
           </script>
           {% else %}
-          <div class="item muted">暂无批次可生成综述。</div>
+          <div class="item muted">暂无期次可生成整期目录。</div>
           {% endif %}
 
           <h3 style="margin-top:18px">订阅概览</h3>
@@ -1969,6 +2426,12 @@
                 <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }} / {{ article.status }}</div>
                 <div>{{ article.citation_gb2015 }}</div>
               </div>
+              <form method="post" action="{{ url_for(control_journal_article_review_endpoint, article_id=article.id) }}" class="actions" style="margin-top:8px">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="text" name="reason" placeholder="下架原因（可选）" style="max-width:260px">
+                <button class="btn mini danger" type="submit" name="action" value="takedown">紧急下架</button>
+                <button class="btn mini" type="submit" name="action" value="restore">恢复公开</button>
+              </form>
             </div>
             {% else %}
             <div class="item muted">暂无文章记录。</div>
@@ -2012,7 +2475,6 @@
                 <label class="field">币种 <input type="text" name="currency" value="{{ plan.currency }}"></label>
                 <label class="field">周期月 <input type="number" name="interval_months" value="{{ plan.interval_months }}" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="{{ plan.sort_order }}"></label>
-                <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" value="{{ plan.daily_ai_token_limit if plan.daily_ai_token_limit is not none else '' }}" min="0" placeholder="留空不限额"></label>
                 <label class="field" title="智谱 GLM 联网通道的每日 token 子配额：留空＝跟随智能服务里的全局默认，0＝不限">智谱每日限额 <input type="number" name="daily_zhipu_token_limit" value="{{ plan.daily_zhipu_token_limit if plan.daily_zhipu_token_limit is not none else '' }}" min="0" step="1000" placeholder="留空跟随全局默认"></label>
                 <label class="field">角标/促销标签 <input type="text" name="badge" value="{{ plan.badge | default('', true) }}" placeholder="如「最受欢迎」，留空不显示"></label>
                 <label class="field" title="membership=按月会员；credit_pack=一次性购买的次数资源包（不开会员，付款记入次数台账）">类型
@@ -2043,7 +2505,6 @@
                 <label class="field">币种 <input type="text" name="currency" value="CNY"></label>
                 <label class="field">周期月 <input type="number" name="interval_months" value="1" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="50"></label>
-                <label class="field">每日 AI token 限额 <input type="number" name="daily_ai_token_limit" min="0" placeholder="留空不限额"></label>
                 <label class="field" title="智谱 GLM 联网通道的每日 token 子配额：留空＝跟随智能服务里的全局默认，0＝不限">智谱每日限额 <input type="number" name="daily_zhipu_token_limit" min="0" step="1000" placeholder="留空跟随全局默认"></label>
                 <label class="field">角标/促销标签 <input type="text" name="badge" placeholder="如「最受欢迎」，留空不显示"></label>
                 <label class="field" title="membership=按月会员；credit_pack=一次性购买的次数资源包">类型
@@ -2118,22 +2579,137 @@
         </section>
         {% endif %}
 
-        {% if control_ai_token_quota_url %}
-        <section class="card" id="ai-token-quota">
-          <h2>AI 每日 token 额度（DeepSeek 主通道）</h2>
-          <p class="section-note">这里填的是<strong>每日</strong>参考额度；真正的硬上限是<strong>本周＝每日×7</strong>（弹性：某天集中做多次研究综述等可借用本周池，避免长文被截断；本周累计封顶后暂停，下周一恢复，成本与按日封顶天天用满一致）。统计口径＝随心问 / 联想检索 / 研究综述 / 阅读导学 / 文库翻译与导读等所有 DeepSeek 调用（标准精确·模糊检索是本地匹配，不耗 AI，不计入）。持有资源包次数者用尽后仍可继续。0＝该群体不开放上述付费主通道 AI。<strong>右下角马克思形象是独立「无限量」基础服务（走 deepseek-v4-flash），不计入此额度</strong>，故访客设 0 不影响其互动。会员可在「套餐管理」里单独设「每日 AI token 限额」覆盖此默认；管理员、桌面版不受限。</p>
-          <form class="item" method="post" action="{{ control_ai_token_quota_url }}">
+        {% if remote_admin and ai_cost_metrics %}
+        <section class="card" id="ai-real-costs">
+          <h2>AI 真实成本（近 30 天）</h2>
+          <p class="section-note">按上游最终 usage、调用发生时价格版本和北京时间峰谷计算。站方免费的马克思形象也计入；用户钱包只扣有权调用的付费功能。</p>
+          <div class="item">
+            <strong>合计：¥{{ '%.4f'|format((ai_cost_metrics.total_cost_micros | default(0, true)) / 1000000) }}</strong>
+            <span>· 同期套餐实收 ¥{{ '%.2f'|format((ai_cost_metrics.paid_revenue_micros | default(0, true)) / 1000000) }}</span>
+            <span>· 收入/上游成本 {{ ('%.2f×'|format(ai_cost_metrics.income_cost_ratio)) if ai_cost_metrics.income_cost_ratio is not none else '暂无成本' }}</span>
+          </div>
+          <div class="coverage-list" style="margin-top:10px">
+            {% for row in ai_cost_metrics.by_model %}
+            <div class="coverage-item">
+              <strong>{{ row.provider }} / {{ row.model }}</strong>
+              <span>{{ row.calls }} 次 · ¥{{ '%.4f'|format((row.cost_micros | default(0, true)) / 1000000) }}</span>
+              <small>缓存率 {{ '%.1f'|format(100 * (row.cached_tokens | default(0, true)) / (row.prompt_tokens if row.prompt_tokens else 1)) }}% · 推理占输出 {{ '%.1f'|format(100 * (row.reasoning_tokens | default(0, true)) / (row.completion_tokens if row.completion_tokens else 1)) }}% · 错误 {{ row.errors }} · P50 {{ row.p50_latency_ms }}ms / P95 {{ row.p95_latency_ms }}ms</small>
+            </div>
+            {% else %}
+            <div class="item muted">尚无真实 usage 记录；迁移前的历史 ai_usage 仍保留为逻辑请求统计。</div>
+            {% endfor %}
+          </div>
+          <h3 style="margin-top:14px">套餐实际消耗</h3>
+          <div class="coverage-list">
+            {% for row in ai_cost_metrics.by_plan %}
+            <div class="coverage-item"><strong>{{ row.plan_code }}</strong><span>¥{{ '%.4f'|format((row.cost_micros | default(0, true)) / 1000000) }}</span></div>
+            {% else %}<div class="item muted">暂无套餐成本分摊。</div>{% endfor %}
+          </div>
+          <h3 style="margin-top:14px">当前钱包利用率</h3>
+          <div class="coverage-list">
+            {% for row in ai_cost_metrics.wallets %}
+            <div class="coverage-item">
+              <strong>{{ row.plan_code }} · {{ row.wallets }} 个</strong>
+              <span>已用 ¥{{ '%.3f'|format((row.spent_micros | default(0, true)) / 1000000) }} / 已释放 ¥{{ '%.3f'|format((row.released_micros | default(0, true)) / 1000000) }}</span>
+              <small>利用率 {{ '%.1f'|format(100 * (row.utilization_rate | default(0, true))) }}%</small>
+            </div>
+            {% else %}<div class="item muted">暂无有效 AI 钱包。</div>{% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if remote_admin and control_ai_price_schedule_url %}
+        <section class="card" id="ai-price-versions">
+          <h2>AI 价格版本与审计</h2>
+          <p class="section-note">价格单位为“元 / 百万 token”。生效时间按北京时间填写，保存后转成 UTC；历史版本不删除。DeepSeek 峰段为北京时间 09:00–12:00、14:00–18:00，其余为谷段。</p>
+          <form class="item" method="post" action="{{ control_ai_price_schedule_url }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-grid">
-              {% for key, label in ai_token_quota_labels.items() %}
-              <label class="field">{{ label }}每日 token
-                <input type="number" name="ai_token_{{ key }}" value="{{ ai_token_quota_settings[key] }}" min="0" step="1000">
+              <label class="field">Provider
+                <select name="provider" required>
+                  <option value="deepseek">DeepSeek</option>
+                </select>
               </label>
+              <label class="field">模型
+                <select name="model" required>
+                  <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                </select>
+              </label>
+              <label class="field">时段
+                <select name="time_band" required>
+                  <option value="all">all（全天）</option>
+                  <option value="offpeak">offpeak（谷段）</option>
+                  <option value="peak">peak（峰段）</option>
+                </select>
+              </label>
+              <label class="field">北京时间生效 <input type="datetime-local" name="effective_from" required></label>
+              <label class="field">缓存输入价 <input type="number" name="cache_input_price" min="0" step="0.000001" required></label>
+              <label class="field">未缓存输入价 <input type="number" name="input_price" min="0" step="0.000001" required></label>
+              <label class="field">输出价 <input type="number" name="output_price" min="0" step="0.000001" required></label>
+              <label class="field-wide">变更备注 <input type="text" name="note" maxlength="300" placeholder="如：官方 2026-08-17 调价"></label>
+            </div>
+            <div class="actions"><button class="btn primary" type="submit">安排新价格版本</button></div>
+          </form>
+          <div class="coverage-list" style="margin-top:12px">
+            {% for row in ai_price_versions %}
+            <div class="coverage-item">
+              <strong>{{ row.provider }} / {{ row.model }} · {{ row.time_band }}</strong>
+              <span>缓存 ¥{{ '%.6f'|format(row.cache_input_per_million_micros / 1000000) }} · 输入 ¥{{ '%.6f'|format(row.input_per_million_micros / 1000000) }} · 输出 ¥{{ '%.6f'|format(row.output_per_million_micros / 1000000) }}</span>
+              <small>生效 {{ format_datetime(row.effective_from) }}{% if row.effective_to %} · 结束 {{ format_datetime(row.effective_to) }}{% endif %}{% if row.audited_at %} · 已审计{% endif %}</small>
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+
+        {% if control_plan_weekly_token_url %}
+        <section class="card" id="ai-token-quota">
+          <h2>会员 DeepSeek token 额度</h2>
+          <p class="section-note">这里直接设置每个新、旧会员套餐的<strong>每周硬上限</strong>。新套餐只提升 DeepSeek 使用额度，不解锁额外模型：快速回答和 AI 导读固定使用 Flash，研究级检索固定使用 Pro。填 0 表示不设周 token 上限，但仍受该套餐 AI 金额钱包硬帽保护；旧会员与一个新套餐并行时，两边的非零周额度相加。</p>
+          <form class="item" method="post" action="{{ control_plan_weekly_token_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <h3>旧会员</h3>
+            <div class="form-grid">
+              {% for plan in plan_weekly_token_groups.legacy %}
+              <label class="field">{{ plan.name }}（{{ plan.code }}）每周 token
+                <input type="number" name="weekly_token_{{ plan.code }}" value="{{ plan.weekly_token_limit | default(0, true) }}" min="0" step="1">
+              </label>
+              {% else %}
+              <div class="muted">暂无旧会员套餐。</div>
+              {% endfor %}
+            </div>
+            <h3 style="margin-top:14px">新会员</h3>
+            <div class="form-grid">
+              {% for plan in plan_weekly_token_groups.new %}
+              <label class="field">{{ plan.name }}（{{ plan.code }}）每周 token
+                <input type="number" name="weekly_token_{{ plan.code }}" value="{{ plan.weekly_token_limit | default(0, true) }}" min="0" step="1">
+              </label>
+              {% else %}
+              <div class="muted">暂无新会员套餐。</div>
               {% endfor %}
             </div>
             <div class="actions">
-              <button class="btn primary" type="submit">保存 AI 每日额度</button>
+              <button class="btn primary" type="submit">保存新老会员每周额度</button>
             </div>
+          </form>
+        </section>
+        {% endif %}
+
+        {% if control_ai_token_quota_url %}
+        <section class="card" id="ai-token-fallback-quota">
+          <h2>非会员与历史额度兜底</h2>
+          <p class="section-note">这里保留未登录访客、已登录非会员及旧数据兼容所用的<strong>每日参考额度</strong>；实际硬上限为每日×7。会员套餐请统一在上方按周设置，不再在“套餐管理”里混用每日额度。</p>
+          <form class="item" method="post" action="{{ control_ai_token_quota_url }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              {% for key in ['guest', 'registered'] %}
+              <label class="field">{{ ai_token_quota_labels[key] }}每日 token
+                <input type="number" name="ai_token_{{ key }}" value="{{ ai_token_quota_settings[key] }}" min="0" step="1">
+              </label>
+              {% endfor %}
+            </div>
+            <div class="actions"><button class="btn" type="submit">保存非会员每日额度</button></div>
           </form>
         </section>
         {% endif %}
@@ -2149,7 +2725,7 @@
                 <select name="scope" required>
                   <option value="user">指定用户（按邮箱，可多个）</option>
                   <option value="registered_all">全部注册用户（含会员）</option>
-                  <option value="members">全部会员用户（月 / 季 / 年）</option>
+                  <option value="members">全部会员用户（含新旧套餐）</option>
                   <option value="registered">仅登录用户（未开通会员）</option>
                   <option value="monthly">月度会员</option>
                   <option value="quarterly">季度会员</option>
@@ -2263,6 +2839,19 @@
             <div class="actions" style="margin-top:10px">
               <button class="btn" type="submit">清理待支付订单</button>
             </div>
+          </form>
+
+          <h3 style="margin-top:18px">退款权益冲正</h3>
+          <p class="section-note">仅在支付平台确认退款后使用。冲正会立即停止该订单的后续权益、收回未使用金额；已结算的真实上游成本不会被抹除。进行中的 AI 请求会阻止冲正，等请求结束后重试。</p>
+          <form method="post" action="{{ control_payment_refund_url }}" class="item"
+                onsubmit="return confirm('确认支付平台已退款，并冲正该订单的会员与 AI 权益？');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="form-grid">
+              <label class="field">订单号<input name="order_no" required maxlength="40"></label>
+              <label class="field">退款流水号（可选）<input name="refund_reference" maxlength="100"></label>
+              <label class="field-wide">退款原因<input name="reason" required maxlength="300"></label>
+            </div>
+            <div class="actions" style="margin-top:10px"><button class="btn danger" type="submit">确认冲正</button></div>
           </form>
 
           <h3 style="margin-top:18px">出码自测（找可用金额）</h3>
@@ -2526,8 +3115,8 @@
                   </select>
                 </label>
                 <label class="checkbox"><input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %}>允许登录</label>
-                <label class="field">用户每日 AI token 覆盖
-                  <input type="number" name="daily_ai_token_limit_override" value="{{ user.daily_ai_token_limit_override if user.daily_ai_token_limit_override is not none else '' }}" min="0" placeholder="留空继承套餐">
+                <label class="field">用户每日 AI token 覆盖（每周＝×7）
+                  <input type="number" name="daily_ai_token_limit_override" value="{{ user.daily_ai_token_limit_override if user.daily_ai_token_limit_override is not none else '' }}" min="0" placeholder="留空继承当前新/旧套餐">
                 </label>
               </div>
               <div class="actions"><button class="btn" type="submit">保存用户</button></div>

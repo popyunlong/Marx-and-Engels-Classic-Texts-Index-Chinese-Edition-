@@ -1,0 +1,35 @@
+version: 1
+
+# PDF 原页视觉核验后的精确覆盖。只在内存加载期替换页码标签或隔离错装页，不改 corpus.sqlite；
+# 可用 MARX_PAGE_LABEL_OVERRIDES_ENABLED=0 整体关闭并立即回退到底库值。
+overrides:
+  - source_file: pdfs/全集/马克思恩格斯全集 第1卷(OCR).pdf
+    pdf_page: 10
+    printed_page: pre-vii
+    feedback_ids: [15]
+    reason: 扫描页右上角为罗马页码 VII，原 OCR 漏识后错误降级为 PDF 页码。
+
+  - source_file: pdfs/文集/马克思恩格斯文集[第2卷]马克思恩格斯1848-1859年著作.pdf
+    pdf_page: 4
+    printed_page: null
+    feedback_ids: [14]
+    reason: 封面大字 2 是卷号而非页码；清除后，同卷印刷页 2 不再错误跳到封面。
+
+  - source_file: pdfs/《毛泽东文集》/2.pdf
+    pdf_page: 6
+    printed_page: "3"
+    feedback_ids: [11]
+    reason: 目录页页眉明确印有 3；原 OCR 把目录末项的目标页 99 当成了本页页码。
+
+  - source_file: pdfs/《治国理政》/《治国理政》第五卷.pdf
+    pdf_page: 70
+    printed_page: "55"
+    feedback_ids: [7]
+    reason: 页脚明确印有 55；原 OCR 把正文年份 2012 当成了页码。
+
+  - source_file: pdfs/马克思恩格斯全集（第二版）/马克思恩格斯全集（第二版）第10卷（1849年8月-1851年6月）.pdf
+    pdf_page: 296
+    printed_page: null
+    suppress_text: true
+    feedback_ids: [5]
+    reason: 该物理页为扫描错装页，页脚 25 不属于本卷；在补得正确原页前禁止标成原书第 270 页并隔离其错误正文。

@@ -10,6 +10,7 @@ from runtime_env import CONFIG_DIR
 
 
 BOOKS_CONFIG_PATH = CONFIG_DIR / "books.yaml"
+WESTERN_REVIEWED_CONFIG_PATH = CONFIG_DIR / "western_marxism_reviewed.yaml"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,9 @@ class BookConfig:
     # 注意：后台自定义引文模板里写死了「第{volume}卷」，故非「卷」的书库会绕过模板走
     # 程序化权威串（同 single_volume 的处理），避免模板把「册」错标成「卷」。
     volume_unit: str = "卷"
+    # 个别多卷本使用「上卷 / 下卷」「第三卷（上）/ 第三卷（下）」等非数字卷标。
+    # 这里保存 (volume, label) 对；引文层直接使用 label，避免机械生成错误的「第4卷」。
+    volume_labels: tuple[tuple[int, str], ...] = ()
 
 
 DEFAULT_BOOK_CONFIGS: tuple[BookConfig, ...] = (
@@ -142,8 +146,46 @@ def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
                 ),
                 collection=str(item.get("collection") or "").strip(),
                 volume_unit=str(item.get("volume_unit") or "卷").strip() or "卷",
+                volume_labels=tuple(
+                    (int(k), str(v).strip())
+                    for k, v in (item.get("volume_labels") or {}).items()
+                    if str(k).strip().lstrip("-").isdigit() and str(v).strip()
+                ),
             )
         )
+    # 西马增量的逐卷证据与书目元数据集中保存在独立复核表中。运行时按 key 合并为
+    # 41 个书目（《日常生活批判》三卷只生成一个 BookConfig），避免三卷被误当三本书。
+    reviewed_path = path.parent / WESTERN_REVIEWED_CONFIG_PATH.name
+    if reviewed_path.exists():
+        reviewed_payload = yaml.safe_load(reviewed_path.read_text(encoding="utf-8")) or {}
+        existing = {cfg.key for cfg in configs}
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in reviewed_payload.get("records") or []:
+            if isinstance(row, dict) and str(row.get("key") or "").strip():
+                grouped.setdefault(str(row["key"]).strip(), []).append(row)
+        # 210—250 is reserved for this increment; 167—192 are already used by
+        # Hegel/Kant/Feuerbach and must not be silently reordered.
+        for offset, (key, rows) in enumerate(grouped.items(), start=210):
+            if key in existing:
+                continue
+            first = rows[0]
+            citation_title = str(first.get("citation_title") or key).strip()
+            configs.append(BookConfig(
+                key=key,
+                title=f"《{citation_title}》",
+                short_title=f"《{citation_title}》",
+                citation_title=citation_title,
+                folder="pdfs/西马文库",
+                sort_order=offset,
+                publisher=str(first.get("publisher") or "").strip(),
+                place=str(first.get("place") or "").strip(),
+                tag_class="western-marxism expanded",
+                available=True,
+                single_volume=len(rows) == 1,
+                authors=tuple(str(v).strip() for v in first.get("authors") or [] if str(v).strip()),
+                translators=tuple(str(v).strip() for v in first.get("translators") or [] if str(v).strip()),
+                collection="western_marxism",
+            ))
     return configs or list(DEFAULT_BOOK_CONFIGS)
 
 

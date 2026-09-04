@@ -1,0 +1,62 @@
+# 人工复核后的西马文库增量书目。来源证据保存在 data/western_marxism/*.metadata.json；
+# 该表以中文题名页/CIP/版权页为准，纠正视觉模型把原版信息、丛书信息或校者误并入的情况。
+reviewed_at: "2026-08-20"
+records:
+  - {key: 公共领域的结构转型, volume: 1, authors: [〔德〕尤尔根·哈贝马斯], translators: [曹卫东, 王晓珏, 刘北成, 宋伟杰], publisher: 学林出版社, place: 上海, year: 1999, edition: 第1版, isbn: 7-80616-600-9/B·49}
+  - {key: 西方左派图绘, volume: 1, authors: [〔英〕佩里·安德森, 〔英〕帕屈克·卡米勒], translators: [张亮, 吴勇立], publisher: 江苏人民出版社, place: 南京, year: 2002, edition: 第1版, isbn: 7-214-03039-X/D·479}
+  - {key: 科耶夫的新拉丁帝国, volume: 1, authors: [〔法〕亚历山大·科耶夫], translators: [邱立波], publisher: 华夏出版社, place: 北京, year: 2008, edition: 第1版, isbn: 978-7-5080-4786-7, reviewed_short_pages: [26, 238]}
+  - {key: 交锋地带, volume: 1, authors: [〔英〕佩里·安德森], translators: [郭英剑, 郝素玲], publisher: 中国社会科学出版社, place: 北京, year: 2008, edition: 第1版, isbn: 978-7-5004-6246-0, fallback_ocr_pages: [78, 98, 351, 408, 421, 431], reviewed_ocr_fallback_pages: [78, 98, 351, 408, 421, 431], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 理论之后, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [商正, 欣展], publisher: 商务印书馆, place: 北京, year: 2009, edition: 第1版, isbn: 978-7-100-06491-0}
+  - {key: 思想的谱系, volume: 1, citation_title: 思想的谱系：西方思潮左与右, authors: [〔英〕佩里·安德森], translators: [袁银传, 曹荣湘], publisher: 社会科学文献出版社, place: 北京, year: 2012, edition: 第2版, isbn: 978-7-5097-3885-6, reviewed_short_pages: [19, 149, 229, 397, 475], fallback_ocr_pages: [100, 120, 121, 122, 332, 386], reviewed_ocr_fallback_pages: [100, 120, 121, 122, 332, 386], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 瓦尔特·本雅明或走向革命批评, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [郭国良, 陆汉臻], publisher: 商务印书馆, place: 北京, year: 2015, edition: 第1版, isbn: 978-7-100-11148-5, reviewed_short_pages: [9, 113]}
+  - {key: 绝对主义国家的系谱, volume: 1, authors: [〔英〕佩里·安德森], translators: [刘北成, 龚晓庄], publisher: 上海人民出版社, place: 上海, year: 2016, edition: 第1版, isbn: 978-7-208-13836-0, reviewed_short_pages: [17, 157, 313, 343]}
+  - {key: 从古代到封建主义的过渡, volume: 1, authors: [〔英〕佩里·安德森], translators: [郭方, 刘健], publisher: 上海人民出版社, place: 上海, year: 2016, edition: 第1版, isbn: 978-7-208-13852-0/K·2515, reviewed_short_pages: [16, 120]}
+  - {key: 马克思主义与形式, volume: 1, authors: [〔美〕弗雷德里克·詹姆逊], translators: [李自修], publisher: 中国人民大学出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-300-21611-9, fallback_ocr_pages: [137], reviewed_ocr_fallback_pages: [137], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 马克思为什么是对的, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [李杨, 任文科, 郑义, 张兵一], publisher: 重庆出版社, place: 重庆, year: 2018, edition: 第1版, isbn: 978-7-229-12434-2, reviewed_short_pages: [9]}
+  - {key: 政治无意识, volume: 1, authors: [〔美〕弗雷德里克·詹姆逊], translators: [王逢振, 陈永国], publisher: 中国人民大学出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-300-21610-2, reviewed_short_pages: [219], fallback_ocr_pages: [129], reviewed_ocr_fallback_pages: [129], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 文化, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [张舒语], publisher: 中信出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-5086-6917-5, fallback_ocr_pages: [44, 56], reviewed_ocr_fallback_pages: [44, 56], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 地理学中的解释, volume: 1, authors: [〔英〕戴维·哈维], translators: [高泳源, 刘立华, 蔡运龙], publisher: 商务印书馆, place: 北京, year: 2017, edition: 120年纪念版, isbn: 978-7-100-13384-5}
+  - {key: 论再生产, volume: 1, authors: [〔法〕路易·阿尔都塞], translators: [吴子枫], publisher: 西北大学出版社, place: 西安, year: 2019, edition: 第1版, isbn: 978-7-5604-4396-6, reviewed_short_pages: [9]}
+  - {key: 黑格尔导读, volume: 1, authors: [〔法〕亚历山大·科耶夫], translators: [姜志辉], publisher: 译林出版社, place: 南京, year: 2021, edition: 第1版, isbn: 978-7-5447-8785-7, reviewed_short_pages: [495]}
+  - {key: 论牺牲, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [林云柯], publisher: 上海人民出版社, place: 上海, year: 2020, edition: 第1版, isbn: 978-7-208-16649-3}
+  - {key: 知觉现象学, volume: 1, authors: [〔法〕莫里斯·梅洛-庞蒂], translators: [杨大春, 张尧均, 关群德], publisher: 商务印书馆, place: 北京, year: 2021, edition: 第1版, isbn: 978-7-100-20096-7, reviewed_short_pages: [116]}
+  - {key: 批评与意识形态, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [段吉方, 穆宝清], publisher: 北京出版社, place: 北京, year: 2021, edition: 第1版, isbn: 978-7-200-15148-0}
+  - {key: 唯物主义, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [吴文权], publisher: 上海文艺出版社, place: 上海, year: 2023, edition: 第1版, isbn: 978-7-5321-8336-4}
+  - {key: 存在与时间, volume: 1, authors: [〔德〕马丁·海德格尔], translators: [陈嘉映, 王庆节], publisher: 商务印书馆, place: 北京, year: 2019, edition: 第2版, isbn: 978-7-100-16354-5}
+  - {key: 新自由主义简史, volume: 1, authors: [〔英〕戴维·哈维], translators: [王钦], publisher: 上海译文出版社, place: 上海, year: 2016, edition: 第1版, isbn: 978-7-5327-7059-5, fallback_ocr_pages: [103, 151, 155, 184, 254, 265], reviewed_ocr_fallback_pages: [103, 151, 155, 184, 254, 265], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 美学与政治, volume: 1, authors: [〔德〕西奥多·阿多诺, 〔德〕瓦尔特·本雅明, 〔德〕恩斯特·布洛赫, 〔德〕贝托尔特·布莱希特, 〔匈〕格奥尔格·卢卡奇], translators: [谢俊, 李轶男], publisher: 西北大学出版社, place: 西安, year: 2024, edition: 第1版, isbn: 978-7-5604-5524-2, reviewed_short_pages: [4, 5, 6]}
+  - {key: 一切坚固的东西都烟消云散了, volume: 1, citation_title: 一切坚固的东西都烟消云散了：现代性体验, authors: [〔美〕马歇尔·伯曼], translators: [徐大建, 张钢], publisher: 商务印书馆, place: 北京, year: 2013, edition: 第1版, isbn: 978-7-100-09562-4, fallback_ocr_pages: [430], reviewed_ocr_fallback_pages: [430], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 二十世纪西方文学理论, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [伍晓明], publisher: 北京大学出版社, place: 北京, year: 2018, edition: 第2版, isbn: 978-7-301-29291-4}
+  - {key: 当代西方马克思主义, volume: 1, authors: [〔英〕佩里·安德森], translators: [余文烈], publisher: 东方出版社, place: 北京, year: 1989, edition: 第1版, isbn: 7-5060-0090-3/G·4, fallback_ocr_pages: [109], reviewed_ocr_fallback_pages: [109], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 后现代主义或晚期资本主义的文化逻辑, volume: 1, authors: [〔美〕弗雷德里克·詹姆逊], translators: [吴美真], publisher: 时报文化出版企业股份有限公司, place: 台北, year: 1998, edition: 初版一刷, isbn: 957-13-2470-1, evidence_pdf_pages: [1, 2, 3], review_note: 第3页版权页原图人工复核；视觉初稿曾把一九九八误读为一九九二并把吴美真误读为吴美良}
+  - {key: 后现代主义的幻象, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [华明], publisher: 商务印书馆, place: 北京, year: 2014, edition: 第1版, isbn: 978-7-100-09793-2}
+  - {key: 后现代的状况, volume: 1, authors: [〔英〕戴维·哈维], translators: [阎嘉], publisher: 商务印书馆, place: 北京, year: 2013, edition: 第1版, isbn: 978-7-100-09553-2, fallback_ocr_pages: [428, 460], reviewed_ocr_fallback_pages: [428, 460], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 否定辩证法, volume: 1, authors: [〔德〕西奥多·阿多诺], translators: [王凤才], publisher: 商务印书馆, place: 北京, year: 2019, edition: 第1版, isbn: 978-7-100-17071-0, reviewed_short_pages: [264]}
+  - {key: 存在与虚无, volume: 1, authors: [〔法〕让-保尔·萨特], translators: [陈宜良, 杜小真], publisher: 生活·读书·新知三联书店, place: 北京, year: 2014, edition: 第1版, isbn: 978-7-108-05098-4}
+  - key: 存在主义是一种人道主义
+    volume: 1
+    authors: [〔法〕让-保罗·萨特]
+    translators: [周煦良, 汤永宽]
+    publisher: 上海译文出版社
+    place: 上海
+    year: 1988
+    edition: 第1版
+    isbn: 7-5327-0004-6
+    evidence_pdf_pages: [1]
+    review_note: 源PDF仅保留封面责任者与出版社；出版年和ISBN以馆藏MARC复核；全书无印刷目录，目录由GLM正文标题逐页回查核定
+    body_toc:
+      - {title: 译者序一, pdf_page: 2, level: 1}
+      - {title: 译者序二, pdf_page: 9, level: 1}
+      - {title: 存在主义是一种人道主义, pdf_page: 12, level: 1}
+      - {title: 今天的希望：与萨特的谈话, pdf_page: 42, level: 1}
+  - {key: 希望的空间, volume: 1, authors: [〔英〕戴维·哈维], translators: [胡大平], publisher: 南京大学出版社, place: 南京, year: 2005, edition: 第1版, isbn: 7-305-03861-X, reviewed_short_pages: [29], fallback_ocr_pages: [27, 33], reviewed_ocr_fallback_pages: [27, 33], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 文学阅读指南, volume: 1, authors: [〔英〕特里·伊格尔顿], translators: [范浩], publisher: 河南大学出版社, place: 郑州, year: 2015, edition: 第1版, isbn: 978-7-5649-1787-6, reviewed_short_pages: [4], fallback_ocr_pages: [140, 241], reviewed_ocr_fallback_pages: [140, 241], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 新帝国主义, volume: 1, authors: [〔英〕戴维·哈维], translators: [付克新], publisher: 中国人民大学出版社, place: 北京, year: 2019, edition: 典藏版, isbn: 978-7-300-23905-7, fallback_ocr_pages: [88, 107], reviewed_ocr_fallback_pages: [88, 107], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 日常生活批判, volume: 1, display_title: 日常生活批判（第一卷）, authors: [〔法〕亨利·列斐伏尔], translators: [叶齐茂, 倪晓晖], publisher: 社会科学文献出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-5201-0891-1, fallback_ocr_pages: [187], reviewed_ocr_fallback_pages: [187], ocr_fallback_authorization: user-approved-2026-08-20}
+  - {key: 日常生活批判, volume: 2, display_title: 日常生活批判（第二卷）, authors: [〔法〕亨利·列斐伏尔], translators: [叶齐茂, 倪晓晖], publisher: 社会科学文献出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-5201-0891-1}
+  - {key: 日常生活批判, volume: 3, display_title: 日常生活批判（第三卷）, authors: [〔法〕亨利·列斐伏尔], translators: [叶齐茂, 倪晓晖], publisher: 社会科学文献出版社, place: 北京, year: 2018, edition: 第1版, isbn: 978-7-5201-0891-1}
+  - {key: 景观社会, volume: 1, authors: [〔法〕居伊·德波], translators: [张新木], publisher: 南京大学出版社, place: 南京, year: 2017, edition: 第1版, isbn: 978-7-305-17529-9}
+  - {key: 社会正义与城市, volume: 1, authors: [〔英〕戴维·哈维], translators: [叶超, 张林, 张顺生], publisher: 商务印书馆, place: 北京, year: 2022, edition: 第1版, isbn: 978-7-100-21776-7, reviewed_short_pages: [317]}
+  - {key: 读资本论（第2版）, volume: 1, citation_title: 读《资本论》（第2版）, authors: [〔法〕路易·阿尔都塞, 〔法〕艾蒂安·巴里巴尔], translators: [李其庆, 冯文光], publisher: 中央编译出版社, place: 北京, year: 2017, edition: 第2版, isbn: 978-7-5117-3289-7}
+  - {key: 资本的城市化, volume: 1, authors: [〔英〕戴维·哈维], translators: [董慧], publisher: 苏州大学出版社, place: 苏州, year: 2017, edition: 第1版, isbn: 978-7-5672-1833-8}
+  - {key: 资本的限度, volume: 1, authors: [〔英〕戴维·哈维], translators: [张寅], publisher: 中信出版社, place: 北京, year: 2017, edition: 第1版, isbn: 978-7-5086-7316-5}

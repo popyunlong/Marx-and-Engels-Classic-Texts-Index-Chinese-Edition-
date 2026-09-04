@@ -1,4 +1,9 @@
 app.py
+citation_assistant.py
+citation_agent_shadow.py
+corpus_repair_store.py
+page_label_overrides.py
+search_exports.py
 admin_store.py
 ai.py
 book_config.py
@@ -26,6 +31,8 @@ scripts/build_mao_index.py
 scripts/build_textbook_index.py
 scripts/build_maowenji_vol6.py
 scripts/build_scan_volumes.py
+scripts/ocr_hegel_mimo.py
+scripts/build_hegel_toc.py
 scripts/build_zgl_toc.py
 scripts/build_xi_econ_toc.py
 scripts/build_xuanbian_toc.py
@@ -36,7 +43,13 @@ scripts/inject_quanji_reocr.py
 scripts/build_dictionary_index.py
 scripts/check_inline_js.py
 scripts/deployment_smoke.py
+scripts/predeploy_membership_migration.py
+scripts/mimo_quality_gate.py
 scripts/journal_alert_worker.py
+scripts/citation_assistant_worker.py
+scripts/citation_production_acceptance.py
+scripts/citation_production_isolated_suite.py
+scripts/citation_recall_benchmark.py
 scripts/build_party_toc.py
 scripts/build_western_marxism.py
 geoip.py

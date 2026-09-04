@@ -75,11 +75,17 @@ from ai import (
     AIServiceError,
     ZAIClient,
     load_ai_config,
+    configure_ai_call_sink,
+    ai_call_context,
     research_ai_http_context,
     reset_ai_overrides,
     save_ai_overrides,
 )
 from build_index import normalize
+from build_index import DB_PATH as CORPUS_INDEX_DB_PATH
+import citation_assistant as citation_tasks
+import citation_agent_shadow
+import search_exports as search_export_tasks
 from membership import (
     clear_pending_orders,
     consume_account_email_token,
@@ -106,9 +112,23 @@ from membership import (
     count_ai_usage_requests,
     count_registered_users,
     capture_user_ip_if_missing,
+    get_community_weekly_trends,
     get_user_ip_counts,
     get_ai_credit_balances,
     get_ai_credit_balance,
+    get_ai_entitlements,
+    get_user_flash_equivalent_usage,
+    get_user_weekly_token_entitlement,
+    authorize_ai_selection,
+    reserve_ai_budget,
+    release_ai_reservation,
+    record_ai_provider_call,
+    reconcile_stale_ai_reservations,
+    get_ai_cost_metrics,
+    list_ai_price_versions,
+    price_yuan_to_micros,
+    schedule_ai_price_version,
+    link_ai_provider_calls,
     consume_ai_credit,
     get_user_zhipu_limit,
     get_plan,
@@ -121,6 +141,7 @@ from membership import (
     list_reader_access_events,
     list_payment_events,
     list_plans,
+    update_plan_weekly_token_limits,
     list_reader_anomaly_visitors,
     list_reader_ip_pool_burst_candidates,
     list_recent_orders,
@@ -130,13 +151,17 @@ from membership import (
     list_users,
     load_session_secret,
     normalize_email,
+    MEMBERSHIP_REFORM_CUTOFF,
     china_day_text,
     get_online_presence_series,
     prune_online_presence,
+    prune_community_trend_events,
     prune_reader_access_events,
+    record_community_trend_event,
     record_ai_usage,
     record_online_presence,
     record_payment_event,
+    reverse_paid_order,
     record_reader_access_event,
     record_site_activity,
     mark_order_paid,
@@ -191,6 +216,18 @@ from feedback import (
     set_page_error_report_status,
     update_message_email_status as update_feedback_message_email_status,
 )
+from corpus_repair_store import (
+    confirm_batch as confirm_corpus_repair_batch,
+    decide_issue as decide_corpus_repair_issue,
+    get_issue as get_corpus_repair_issue,
+    list_issues as list_corpus_repair_issues,
+    repair_root as corpus_repair_root,
+    review_db_path as corpus_repair_db_path,
+    status_snapshot as corpus_repair_status_snapshot,
+)
+import personal_corpus as mylib_corpus
+import personal_library as mylib
+import personal_library_store as mylib_store
 from notes import (
     count_notes as count_user_notes,
     create_note as create_user_note,
@@ -208,6 +245,8 @@ from journal_alerts import (
     archive_previous_batches,
     backfill_default_journal_sources,
     batch_articles,
+    clear_article_takedown as clear_journal_article_takedown,
+    public_batch_articles,
     collect_batch,
     confirm_subscription,
     count_deferred_articles as count_deferred_journal_articles,
@@ -217,6 +256,7 @@ from journal_alerts import (
     generate_batch_review,
     get_batch,
     get_public_article as get_public_journal_article,
+    get_issue_neighbors as get_journal_issue_neighbors,
     _ncpssd_opener as journal_ncpssd_opener,
     latest_public_batch,
     ncpssd_detail_probe,
@@ -240,16 +280,29 @@ from journal_alerts import (
     purge_archived_articles,
     relay_status as journal_relay_status,
     resolve_recipients as resolve_journal_recipients,
+    render_review_email as render_journal_review_email,
     run_journal_alerts_once,
     send_batch as send_journal_batch,
     send_confirmation_email,
     send_email,
+    save_alert_settings as save_journal_alert_settings,
+    set_article_takedown as set_journal_article_takedown,
     unsubscribe_by_id as journal_unsubscribe_by_id,
     unsubscribe_by_token as journal_unsubscribe_by_token,
     update_article_review_status as update_journal_article_review_status,
     update_batch_review,
     update_journal_source,
 )
+from journal_fulltext import (
+    load_document as load_journal_document,
+    list_processing_states as list_journal_processing_states,
+    process_batch_fulltext as process_journal_fulltext,
+    purge_source_pdfs as purge_old_journal_source_pdfs,
+    write_issue_snapshot as write_journal_issue_snapshot,
+    storage_usage as journal_fulltext_storage_usage,
+)
+from journal_taxonomy import DISCIPLINES as JOURNAL_DISCIPLINES
+from journal_storage import JOURNAL_TMP_DIR
 from broadcast_email import (
     BROADCAST_SCOPES,
     count_recipients as count_broadcast_recipients,
@@ -285,7 +338,7 @@ from static_library_web import (
     load_books as load_static_library_books,
 )
 import wenku_translate
-from search import CHAPTER_HITS_PAGE_SIZE, Corpus, DEFAULT_CITATION_TEMPLATES
+from search import ASSOC_CANDIDATE_CAP, CHAPTER_HITS_PAGE_SIZE, Corpus, DEFAULT_CITATION_TEMPLATES
 from site_content import (
     SITE_TEXT_OVERRIDES_PATH,
     AutoSiteTextExtension,
@@ -322,6 +375,9 @@ JOURNAL_ALERTS_DB_PATH = init_journal_alerts_db()
 init_broadcast_db()
 FEEDBACK_DB_PATH = init_feedback_db()
 NOTES_DB_PATH = init_notes_db()
+# 个人文库：元数据库常在（与笔记同规格落数据盘）；原始 PDF 与页图在另一台存储服务器上。
+PERSONAL_LIBRARY_DB_PATH = mylib.init_personal_library_db()
+CITATION_ASSISTANT_DB_PATH = citation_tasks.init_db()
 FEEDBACK_ADMIN_EMAIL = "popyunlong@163.com"
 FEEDBACK_IMAGE_DIR = APPDATA_DIR / "feedback_images"
 FEEDBACK_IMAGE_MIME = {
@@ -427,8 +483,21 @@ PAYMENT_CLIENT = ZPayClient(PAYMENT_CONFIG)
 ALLOWED_SOURCE_FILES = load_allowed_source_files()
 PAGE_IMAGE_CACHE_DIR = APPDATA_DIR / "page_images"
 # 期刊文献 PDF 的按需镜像缓存（点击下载时首次拉取并落盘，之后本地直发）。
-JOURNAL_PDF_CACHE_DIR = APPDATA_DIR / "journal_pdfs"
+JOURNAL_PDF_CACHE_DIR = JOURNAL_TMP_DIR / "legacy-pdf-cache"
 corpus = Corpus.load_default() if BASE_RUNTIME.can_search else None
+CITATION_INLINE_WORKER = str(
+    os.environ.get("CITATION_ASSISTANT_INLINE_WORKER", "0" if DEPLOYMENT.is_server else "1")
+).strip().lower() in {"1", "true", "yes", "on"}
+CITATION_AGENT_SHADOW_ENABLED = str(
+    os.environ.get("CITATION_ASSISTANT_AGENT_SHADOW", "0")
+).strip().lower() in {"1", "true", "yes", "on"}
+try:
+    CITATION_AGENT_SHADOW_TIMEOUT_SECONDS = max(
+        10.0,
+        min(float(os.environ.get("CITATION_ASSISTANT_AGENT_SHADOW_TIMEOUT_SECONDS", "45") or "45"), 120.0),
+    )
+except (TypeError, ValueError):
+    CITATION_AGENT_SHADOW_TIMEOUT_SECONDS = 45.0
 if corpus is not None:
     # 后台预热篇章分段缓存：避免首个短词海量检索因一次性构建分段而出现卡顿。
     def _warm_search_caches() -> None:
@@ -567,6 +636,9 @@ RATE_LIMITS = {
     "search_guest": (10, 60),
     "search_user": (60, 60),
     "ai_user": (30, 60),
+    # 站方出资的模糊/联想检索使用独立桶：它不得消耗 AI 研究对话或阅读器
+    # 文本解读的频率额度。阈值仍保持克制，防止站方 AI 成本被滞用。
+    "associative_user": (30, 60),
     "feedback_user": (10, 600),
     "journal_user": (5, 3600),
     # 书页图像防爬（P3）：刻意放宽，正常翻页/预取（每翻一页约 1~3 次请求）远低于此阈值，
@@ -607,17 +679,21 @@ RESEARCH_COUNT_LIMIT_ENABLED_SETTING_KEY = "research_count_limit_enabled"
 RESEARCH_QUOTA_RESETS_SETTING_KEY = "research_quota_resets"
 RESEARCH_QUOTA_RESET_SCOPES = ("all", "registered", "monthly", "quarterly", "yearly", "user")
 # DeepSeek 主通道「每日 AI token 额度」分档默认值（这里是每日参考；硬上限＝本周＝每日×AI_TOKEN_WEEKLY_FACTOR）。
-# 取舍依据：DeepSeek 价格（约 ¥2/1M 输入、¥8/1M 输出，混合约 ¥4-5/1M）与会员定价（月 ¥9 / 季 ¥24 / 年 ¥88）
+# 历史分档口径：旧会员实收 ¥9/30天、¥24/90天、¥44/180天、¥69或¥88/360天。改革后会员按钱包与
+# DeepSeek Flash 等值周额度双重封顶；下列值只服务于无金额钱包的兼容路径。
 # 并兼顾 GLM 智谱日额 30k/60k/100k。给的是「封顶值」防滥用，真实用量通常远低于此；会员体验留足头寸。
 # 解析优先级：用户级 override > 套餐级 daily_ai_token_limit（套餐管理可单设）> 本分档默认 > 内置兜底。
 # 管理员/桌面不受限。值＝每日 token 参考；0＝该群体不开放付费主通道 AI（仍可用资源包次数）。可在后台改。
 AI_TOKEN_DAILY_SETTING_KEY = "ai_token_daily_limits"
+REGISTERED_FREE_AI_WEEKLY_LIMIT = 20_000
 AI_TOKEN_DAILY_DEFAULTS = {
     # 马克思形象（吉祥物）AI 已独立成「无限量基础服务」(走 deepseek-v4-flash)，不计入此额度，
     # 故 guest 在此处＝0：游客除吉祥物外不调用付费主通道 AI（随心问/导学本就需登录+权限）。
     "guest": 0,
-    "registered": 10000,
-    # 会员档（定价 ¥9/¥24/¥88 + 兼顾 GLM 智谱日额 30k/60k/100k 统筹）：DeepSeek 主通道更便宜，
+    # 登录非会员的体验池固定为每周 2 万 Flash token；这里仅保留日均展示值，
+    # 真正的硬上限在 _effective_ai_limit_info 中直接使用上述周额，避免除以 7 的取整误差。
+    "registered": REGISTERED_FREE_AI_WEEKLY_LIMIT // 7,
+    # 会员档（历史实付金额按各自有效期通约 + 兼顾 GLM 智谱日额 30k/60k/100k 统筹）：
     # 给约 1.1–1.5× 于 GLM 的日额。研究综述按「完整 token（含注入原文）」计入本额度，故封顶须容下
     # 研究周次数(5/15/20/25)摊到每日的量 + 随心问/导学；这是防滥用封顶，真实用量通常远低于此。
     "monthly": 40000,
@@ -626,7 +702,14 @@ AI_TOKEN_DAILY_DEFAULTS = {
 }
 # 马克思形象（吉祥物）专用模型：固定走更轻量/更省的 deepseek-v4-flash，且不计日额度（基础服务）。
 # 模型名可经环境变量覆盖，以适配线上中转网关的实际模型命名。
-MASCOT_AI_MODEL = os.environ.get("MASCOT_AI_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
+MASCOT_AI_PROVIDER_OVERRIDE = str(os.environ.get("MASCOT_AI_PROVIDER") or "").strip().lower()
+MASCOT_AI_MODEL_OVERRIDE = str(os.environ.get("MASCOT_AI_MODEL") or "").strip().lower()
+# Compatibility name for older extensions/tests. Runtime routing is intentionally dynamic in
+# ``_mascot_ai_selection`` so a process spanning the 8·15 boundary cannot switch early or late.
+MASCOT_AI_MODEL = MASCOT_AI_MODEL_OVERRIDE or "deepseek-v4-flash"
+_MASCOT_CIRCUIT_LOCK = threading.Lock()
+_MASCOT_FAILURE_TIMES: list[float] = []
+_MASCOT_CIRCUIT_OPEN_UNTIL = [0.0]
 AI_TOKEN_DAILY_LABELS = {
     "guest": "访客（未登录）",
     "registered": "登录用户（未开通会员）",
@@ -636,8 +719,14 @@ AI_TOKEN_DAILY_LABELS = {
 }
 # 「无限量基础服务」的 feature：这些调用照常写入 ai_usage（后台用量总览/审计仍统计全部），
 # 但不占用用户的 AI 额度池——否则「不限量」只是不被拦，实际仍在吃随心问/研究/导学共用的周额度。
-# 目前只有马克思形象（吉祥物，固定走 deepseek-v4-flash，见 MASCOT_AI_MODEL）。
-AI_QUOTA_EXEMPT_FEATURES = ("mascot",)
+# 站方承担的基础服务：供应商调用仍完整记账，但不挤占用户周额度。
+# associative / associative_internal 既覆盖首页“模糊检索”，也覆盖随心问内部的接地检索步骤；
+# 它们固定走站方 Flash、charge_user=False，必须与用户回答/研究综述的额度彻底隔离。
+# 把它们放进统一排除表还会追溯修正本周既有 ai_usage：不删审计行，只从额度统计中扣除，
+# 因此此前误计的额度会自动、等额退回用户。
+AI_QUOTA_EXEMPT_FEATURES = (
+    "mascot", "wenku_translate", "associative", "associative_internal",
+)
 # 余额提示阈值：剩余占比 ≤ 此值时前端给出「即将耗尽」预警。
 AI_TOKEN_LOW_RATIO = 0.15
 # 弹性额度：每日额度是「软上限/参考配速」，真正的硬上限是「本周＝每日×此系数」。
@@ -752,6 +841,17 @@ _COLLECTION_LABELS = {
     # 年谱是编年体生平记录，与「著作」体裁不同，故单列一组而非塞进领袖著作组。
     "leader_chronicles": "领袖年谱",
     "western_marxism": "西马文库",
+    "kant_works": "康德著作集",
+    "hegel_works": "黑格尔著作集",
+    "feuerbach_works": "费尔巴哈著作集",
+}
+
+# 仅控制「阅读」页专题栏目的陈列次序，不改变书目、检索结果或引文的全局 sort_order。
+# 黑格尔是马克思主义经典著作的直接哲学背景，故在阅读栏目中紧排其上。
+_COLLECTION_LIBRARY_SORT_ORDERS = {
+    "kant_works": 4,
+    "hegel_works": 5,
+    "feuerbach_works": 6,
 }
 
 _COLLECTION_DESCRIPTIONS = {
@@ -760,7 +860,10 @@ _COLLECTION_DESCRIPTIONS = {
     "xi_thought": "习近平新时代中国特色社会主义思想权威著作与学习读物 · 各部著作独立编目，可按目录阅读、检索原文并生成规范引文",
     "party_state_documents": "历次党代会报告、全会公报、重要文献选编与五年规划纲要 · 各部文献独立编目，可按目录阅读、检索原文并生成规范引文",
     "leader_chronicles": "马克思主义者的编年体生平记录 · 可按年份查考某日言行并检索原文",
-    "western_marxism": "西方马克思主义经典著作 · 七部著作独立编目，可按目录阅读、检索原文并生成规范引文",
+    "western_marxism": "西方马克思主义经典著作 · 48 个书目、50 个卷册独立编目，可按目录阅读、检索原文并生成规范引文",
+    "kant_works": "康德《著作全集》现有七部八册（原第 1—5、7—9 卷） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
+    "hegel_works": "黑格尔八部主要著作（16 册） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
+    "feuerbach_works": "商务印书馆《费尔巴哈文集》十一部著作 · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
 }
 
 
@@ -817,9 +920,10 @@ def _public_ai_runtime_payload(*, allow_details: bool | None = None) -> dict:
         model = str(payload.get("model") or "")
         problems = list(payload.get("problems") or [])
     else:
-        enabled = bool(AI_CONFIG.enabled)
-        model = str(AI_CONFIG.model or "")
-        problems = list(AI_CONFIG.problems)
+        mimo_live = bool(_mimo_migration_enabled() and AI_CONFIG.mimo_enabled)
+        enabled = bool(AI_CONFIG.enabled or mimo_live)
+        model = str(AI_CONFIG.mimo_model if mimo_live else AI_CONFIG.model or "")
+        problems = [] if mimo_live else list(AI_CONFIG.problems)
 
     if allow_details is None:
         allow_details = bool(_feature_is_available("ai") and _feature_effective_for_user("ai"))
@@ -1098,6 +1202,8 @@ def _ai_token_daily_settings() -> dict[str, int]:
             out[key] = max(0, int(raw.get(key, default)))
         except (TypeError, ValueError):
             out[key] = int(default)
+    # 登录非会员是明确的每周 2 万体验政策，不沿用旧管理值中可能残留的 1 万/日。
+    out["registered"] = REGISTERED_FREE_AI_WEEKLY_LIMIT // AI_TOKEN_WEEKLY_FACTOR
     return out
 
 
@@ -1118,13 +1224,47 @@ def _effective_ai_limit_info(user: dict | None) -> dict:
         return {"daily_limit": None, "weekly_limit": None, "bucket": "desktop", "label": "桌面版", "source": "desktop"}
     if _is_admin_user(user):
         return {"daily_limit": None, "weekly_limit": None, "bucket": "admin", "label": "管理员", "source": "admin"}
+    base = get_user_ai_limit(int(user["id"])) if user and user.get("id") else get_user_ai_limit(None)
+    # 个人覆盖始终拥有最高优先级，包括新套餐钱包用户；此前钱包分支提前 return，导致后台的
+    # “用户每日 AI token 覆盖”对新会员实际上不生效。
+    if base.get("user_override") is not None:
+        daily = int(base["user_override"])
+        return {
+            "daily_limit": daily,
+            "weekly_limit": daily * AI_TOKEN_WEEKLY_FACTOR,
+            "bucket": _ai_token_bucket_for_user(user),
+            "label": "个人额度覆盖",
+            "source": "user",
+        }
+    if user and utc_now_text() >= MEMBERSHIP_REFORM_CUTOFF:
+        monetary = get_ai_entitlements(int(user["id"]))
+        if monetary.get("wallets"):
+            weekly_info = get_user_weekly_token_entitlement(int(user["id"]))
+            weekly = weekly_info.get("weekly_limit")
+            return {
+                "daily_limit": None if weekly is None else int(weekly) // AI_TOKEN_WEEKLY_FACTOR,
+                "weekly_limit": None if weekly is None else int(weekly),
+                # 重置标记仍按用户所属会员档位归类；若改成 monetary_wallet，后台“全部会员/全部注册用户”
+                # 写下的 monthly/quarterly/yearly 标记就永远匹配不到新套餐用户。
+                "bucket": _ai_token_bucket_for_user(user),
+                "label": "会员套餐额度",
+                "source": str(weekly_info.get("source") or "plan"),
+                "quota_basis": "flash_equivalent",
+            }
     bucket = _ai_token_bucket_for_user(user)
     label = AI_TOKEN_DAILY_LABELS.get(bucket, bucket)
-    base = get_user_ai_limit(int(user["id"])) if user and user.get("id") else get_user_ai_limit(None)
-    if base.get("user_override") is not None:
-        daily = int(base["user_override"]); source = "user"
-    elif base.get("plan_limit") is not None:
+    if base.get("plan_limit") is not None:
         daily = int(base["plan_limit"]); source = "plan"
+    elif bucket == "registered":
+        # 无金额钱包的登录用户只使用站方承担成本的 Flash 非思考体验池。
+        # daily_limit 只作界面配速参考；weekly_limit 是精确的 20,000 硬上限。
+        return {
+            "daily_limit": REGISTERED_FREE_AI_WEEKLY_LIMIT // AI_TOKEN_WEEKLY_FACTOR,
+            "weekly_limit": REGISTERED_FREE_AI_WEEKLY_LIMIT,
+            "bucket": bucket,
+            "label": label,
+            "source": "registered_free",
+        }
     else:
         daily = int(_ai_token_daily_settings().get(bucket, 0)); source = "default"
     weekly = daily * AI_TOKEN_WEEKLY_FACTOR
@@ -1132,14 +1272,14 @@ def _effective_ai_limit_info(user: dict | None) -> dict:
 
 
 def _ai_token_quota_payload(user: dict | None = None) -> dict:
-    """前端余额提示用：本周 DeepSeek 额度剩余（硬上限）+ 今日已用（参考）+ 预警/耗尽 + 周一恢复。"""
+    """前端余额提示：金额钱包会员统一显示 Flash 等值，其他用户保留原 token 口径。"""
     if user is None and has_request_context():
         user = getattr(g, "current_user", None)
     info = _effective_ai_limit_info(user)
     weekly_limit = info["weekly_limit"]
     daily_limit = info["daily_limit"]
     week = _research_quota_week_window()
-    day, _, _, _ = _beijing_day_bounds()
+    day, day_start_utc, day_end_utc, _ = _beijing_day_bounds()
     uid = int(user["id"]) if user and user.get("id") else None
     skey = _visitor_session_key() if has_request_context() else ""
     today_used = 0
@@ -1148,20 +1288,32 @@ def _ai_token_quota_payload(user: dict | None = None) -> dict:
         # 与额度闸门 _require_ai_quota_or_raise 同口径：都排除「无限量基础服务」、都认同一个
         # 「重置」标记，否则徽章显示的已用量会与真正拦人的那个数对不上。
         reset_since = _ai_token_quota_reset_at(user, info["bucket"])
-        today_used = get_ai_token_usage(
-            day=day, user_id=uid, session_key=skey, exclude_features=AI_QUOTA_EXEMPT_FEATURES,
-            since_created_at=reset_since,
-        )
-        weekly_used = get_ai_token_usage_range(
-            start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=skey,
-            exclude_features=AI_QUOTA_EXEMPT_FEATURES, since_created_at=reset_since,
-        )
+        if uid and info.get("quota_basis") == "flash_equivalent":
+            week_start = datetime.fromisoformat(f"{week['start_day']}T00:00:00+08:00").astimezone(timezone.utc)
+            week_end = (datetime.fromisoformat(f"{week['end_day']}T00:00:00+08:00") + timedelta(days=1)).astimezone(timezone.utc)
+            today_used = int(get_user_flash_equivalent_usage(
+                uid, start_at=day_start_utc, end_at=day_end_utc, since_at=reset_since,
+            )["total_tokens"])
+            weekly_used = int(get_user_flash_equivalent_usage(
+                uid, start_at=week_start.isoformat(timespec="seconds"),
+                end_at=week_end.isoformat(timespec="seconds"), since_at=reset_since,
+            )["total_tokens"])
+        else:
+            today_used = get_ai_token_usage(
+                day=day, user_id=uid, session_key=skey, exclude_features=AI_QUOTA_EXEMPT_FEATURES,
+                since_created_at=reset_since,
+            )
+            weekly_used = get_ai_token_usage_range(
+                start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=skey,
+                exclude_features=AI_QUOTA_EXEMPT_FEATURES, since_created_at=reset_since,
+            )
     if weekly_limit is None:
         return {
             "unlimited": True, "limit": None, "used": weekly_used, "remaining": None,
             "ratio": 1.0, "low": False, "exhausted": False, "reset_at": week["reset_at"],
             "daily_limit": None, "today_used": today_used,
             "bucket": info["bucket"], "label": info["label"], "message": "AI 额度不限",
+            "unit": info.get("quota_basis", "token"),
         }
     weekly_limit = int(weekly_limit)
     remaining = max(0, weekly_limit - weekly_used)
@@ -1180,6 +1332,88 @@ def _ai_token_quota_payload(user: dict | None = None) -> dict:
         "ratio": round(ratio, 4), "low": low, "exhausted": exhausted, "reset_at": week["reset_at"],
         "daily_limit": daily_limit, "today_used": today_used,
         "bucket": info["bucket"], "label": info["label"], "message": message,
+        "unit": info.get("quota_basis", "token"),
+    }
+
+
+_ADMIN_AI_MODEL_ENTITLEMENTS = {
+    "mimo-v2.5": ["off"],
+    "mimo-v2.5-pro": ["on"],
+    "deepseek-v4-flash": ["off", "high"],
+    "deepseek-v4-pro": ["high"],
+    "glm-5.1": ["off"],
+}
+_ADMIN_AI_MODEL_DEFAULTS = {
+    "quick": {"provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off"},
+    "research": {"provider": "deepseek", "model": "deepseek-v4-pro", "reasoning_effort": "high"},
+    "reader": {"provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off"},
+}
+_FREE_AI_MODEL_DEFAULTS = {
+    bucket: {"provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off"}
+    for bucket in ("quick", "research", "reader")
+}
+
+
+def _ai_entitlements_payload(user: dict | None = None) -> dict:
+    if user is None and has_request_context():
+        user = getattr(g, "current_user", None)
+    entitlements = get_ai_entitlements(int(user["id"]) if user and user.get("id") else None)
+    plan_names = {
+        "monthly": "旧月度会员",
+        "quarter": "旧季度会员",
+        "quarterly": "旧季度会员",
+        "yearly": "旧长期会员",
+        "support_basic": "基础会员",
+        "support_plus": "AI研学支持 Plus",
+        "support_pro": "AI研学支持 Pro",
+        "support_max": "AI研学支持 Max",
+        "research_pack": "AI研究资源包",
+    }
+
+    def _percent(numerator: int, denominator: int) -> int:
+        if denominator <= 0:
+            return 0
+        return max(0, min(100, round(numerator * 100 / denominator)))
+
+    wallets = []
+    for raw in entitlements.get("wallets") or []:
+        budget = max(0, int(raw.get("budget_micros") or 0))
+        released = max(0, int(raw.get("released_micros") or 0))
+        remaining = max(0, int(raw.get("remaining_micros") or 0))
+        plan_code = str(raw.get("plan_code") or "")
+        wallets.append({
+            "id": raw.get("id"), "plan_code": plan_code,
+            "plan_name": plan_names.get(plan_code, plan_code or "AI 研学额度"),
+            "source_type": raw.get("source_type"),
+            "released_percent": _percent(released, budget),
+            "remaining_percent": _percent(remaining, released),
+            "has_remaining": remaining > 0,
+            "second_release_at": raw.get("second_release_at"), "starts_at": raw.get("starts_at"),
+            "expires_at": raw.get("expires_at"),
+        })
+    total_budget = sum(max(0, int(raw.get("budget_micros") or 0)) for raw in entitlements.get("wallets") or [])
+    total_released = sum(max(0, int(raw.get("released_micros") or 0)) for raw in entitlements.get("wallets") or [])
+    total_remaining = sum(max(0, int(raw.get("remaining_micros") or 0)) for raw in entitlements.get("wallets") or [])
+    models = entitlements.get("models") or {}
+    defaults = entitlements.get("defaults") or {}
+    # 管理员承担 MiMo 质量盲评与灰度验收，不应为了看见测试模型而购买会员。
+    # 这里只补充可见/可请求的模型矩阵；管理员调用仍由调用账本记为站方成本，
+    # 不创建用户钱包，也不向普通用户泄露未购买套餐的模型权限。
+    if user and _is_admin_user(user) and (_mimo_admin_gray_enabled() or _mimo_migration_enabled()):
+        models = {model: list(efforts) for model, efforts in _ADMIN_AI_MODEL_ENTITLEMENTS.items()}
+        defaults = {bucket: dict(selection) for bucket, selection in _ADMIN_AI_MODEL_DEFAULTS.items()}
+    elif user and not models and utc_now_text() >= MEMBERSHIP_REFORM_CUTOFF:
+        # 登录非会员保留每周 2 万 token 体验，固定 DeepSeek Flash 非思考；
+        # 该权益没有金额钱包，上游成本由网站承担。
+        models = {"deepseek-v4-flash": ["off"]}
+        defaults = {bucket: dict(selection) for bucket, selection in _FREE_AI_MODEL_DEFAULTS.items()}
+    return {
+        "models": models,
+        "defaults": defaults,
+        "wallets": wallets,
+        "released_percent": _percent(total_released, total_budget),
+        "remaining_percent": _percent(total_remaining, total_released),
+        "has_remaining": total_remaining > 0,
     }
 
 
@@ -1197,7 +1431,11 @@ def current_view_state() -> dict:
         DEPLOYMENT.is_desktop or _is_admin_user(getattr(g, "current_user", None))
     )
     feature_access = {
-        key: (_feature_effective_for_user(key) if has_request_context() else True)
+        key: (
+            _citation_assistant_enabled_for_user()
+            if has_request_context() and key == "citation_assistant"
+            else (_feature_effective_for_user(key) if has_request_context() else True)
+        )
         for key in FEATURE_ACCESS_KEYS
     }
     ai_runtime = _public_ai_runtime_payload(allow_details=bool(feature_access.get("ai", True)))
@@ -1232,6 +1470,7 @@ def current_view_state() -> dict:
         "feature_access": feature_access,
         "research_quota": _research_quota_payload() if has_request_context() else {},
         "ai_token_quota": _ai_token_quota_payload() if has_request_context() else {},
+        "ai_entitlements": _ai_entitlements_payload() if has_request_context() else {},
         "ai_credits": (
             get_ai_credit_balances(int(getattr(g, "current_user", None)["id"]))
             if has_request_context() and getattr(g, "current_user", None)
@@ -1706,9 +1945,12 @@ def _feature_is_available(feature: str) -> bool:
         return bool(BASE_RUNTIME.full_resources_ready)
     if feature == "dictionary":
         return dictionary_available()
-    if feature in {"ai", "associative"}:
-        # 联想检索与 AI 导学共用同一个对话模型：模型未配置则二者都不可用。
+    if feature == "ai":
         return bool(AI_CONFIG.enabled)
+    if feature == "associative":
+        # 模糊检索的主层是本地文本近似检索，不依赖 AI 开关；AI 只是不足时的
+        # 站方语义补充。因此上游暂停时仍保留本地兜底能力。
+        return bool(BASE_RUNTIME.can_search)
     if feature == "ai_web":
         # 智谱联网通道随基础 AI 一起开关：基础 AI 不可用或智谱未配 Key 时整体不可用。
         return bool(AI_CONFIG.enabled and AI_CONFIG.zhipu_enabled)
@@ -1718,7 +1960,46 @@ def _feature_is_available(feature: str) -> bool:
     if feature == "stream_reading":
         # 「流式阅读」：本地确有《文集》网页适配内容（stream_library/wenji-zh/）才算可用。
         return stream_reading_has_content()
+    if feature == "personal_library":
+        # 「个人文库」：存储节点（另一台服务器）配置就绪才算可用。未配置时整体下线入口，
+        # 避免用户传了书却无处安放、也避免上传后卡在解析。
+        return mylib_store.configured()
     return True
+
+
+def _citation_assistant_rollout_enabled() -> bool:
+    """论文插注校注已上线；控制台仍可显式关闭作紧急熔断。"""
+    policy = _load_access_policy()
+    return bool((policy.get("global") or {}).get("citation_assistant", True))
+
+
+def _citation_assistant_admin_preview(user: dict | None = None) -> bool:
+    target = user if user is not None else getattr(g, "current_user", None)
+    return _is_admin_user(target)
+
+
+def _citation_assistant_enabled_for_user(user: dict | None = None) -> bool:
+    """管理员始终可维护；其他用户按已上线会员功能权限判断。"""
+    if not _feature_is_available("citation_assistant"):
+        return False
+    target = user if user is not None else getattr(g, "current_user", None)
+    if _citation_assistant_admin_preview(target):
+        return True
+    return bool(
+        _citation_assistant_rollout_enabled()
+        and _feature_effective_for_user("citation_assistant", target)
+    )
+
+
+def _citation_assistant_entry_visible(user: dict | None = None) -> bool:
+    """已上线时显示导航入口；紧急熔断后仅管理员保留维护入口。"""
+    if not _feature_is_available("citation_assistant"):
+        return False
+    target = user if user is not None else getattr(g, "current_user", None)
+    return bool(
+        _citation_assistant_admin_preview(target)
+        or _citation_assistant_rollout_enabled()
+    )
 
 
 def _feature_available_to_registered(feature: str) -> bool:
@@ -1736,13 +2017,15 @@ def _notes_access_enabled() -> bool:
     return bool(_feature_is_available("notes") and _feature_effective_for_user("notes"))
 
 
+def _personal_library_enabled() -> bool:
+    """个人文库为会员专属功能：需存储节点已配置 + 用户权限位。"""
+    return bool(_feature_is_available("personal_library")
+                and _feature_effective_for_user("personal_library"))
+
+
 def _ai_web_access_enabled() -> bool:
-    """当前请求者是否可使用智谱联网通道：管理员始终可用（便于验证），其余按 ai_web 权限位。"""
-    if not _feature_is_available("ai_web"):
-        return False
-    if _is_admin_user(getattr(g, "current_user", None)):
-        return True
-    return _feature_effective_for_user("ai_web")
+    """GLM-5.1 仅作为网站管家的诊断通道，不向任何会员套餐开放。"""
+    return bool(_feature_is_available("ai_web") and _is_admin_user(getattr(g, "current_user", None)))
 
 
 def _policy_allows_all(policy: dict, features: list[str], user: dict | None) -> bool:
@@ -1888,12 +2171,17 @@ def _get_feature_tags() -> dict[str, list[dict]]:
 # 「卷·页」型标准著作的多格式引文（hit.citations）；公文/选编等特殊体例不套模板。设置项只存「改过且
 # 与默认不同」的格式，空＝全用 search.DEFAULT_CITATION_TEMPLATES。保存后即时注入 corpus、当场生效。
 _CITATION_FORMAT_LABELS = {
+    "gb2025": "国标 GB/T 7714—2025",
     "gb2015": "国标 GB/T 7714—2015",
     "zgshkx": "《中国社会科学》",
     "mkszyj": "《马克思主义研究》",
 }
-_CITATION_FORMAT_KEYS = ("gb2015", "zgshkx", "mkszyj")
+_CITATION_FORMAT_KEYS = ("gb2025", "gb2015", "zgshkx", "mkszyj")
 _CITATION_TEMPLATE_MAXLEN = 240
+
+
+def _gb2025_template_approved() -> bool:
+    return bool(get_setting("citation_gb2025_approved", False))
 
 
 def _load_citation_formats() -> dict[str, str]:
@@ -1923,6 +2211,8 @@ def _citation_formats_editor() -> list[dict]:
             "template": customs.get(key, default_tpl),
             "default": default_tpl,
             "is_custom": key in customs,
+            "requires_approval": key == "gb2025",
+            "approved": _gb2025_template_approved() if key == "gb2025" else True,
         })
     return rows
 
@@ -2306,9 +2596,29 @@ def _dispatch_admin_2fa_code(email: str, errors: list) -> None:
 def _management_actor_label(remote_admin: bool) -> str:
     if remote_admin:
         user = getattr(g, "current_user", None) or {}
-        return str(user.get("email") or user.get("id") or "admin")
+        return f"user:{user.get('id')}" if user.get("id") else "admin"
     remote = (request.remote_addr or "").strip() or "local"
     return f"local-console:{remote}"
+
+
+def _private_log_fingerprint(value: object) -> str:
+    normalized = " ".join(str(value or "").split())
+    digest = sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return f"sha256:{digest}/len:{len(normalized)}"
+
+
+def _redact_management_log_value(value: object, *, key: str = "") -> object:
+    if isinstance(value, dict):
+        return {
+            str(item_key): _redact_management_log_value(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_management_log_value(item, key=key) for item in value]
+    text = str(value or "") if value is not None else ""
+    if "email" in key.lower() or "@" in text:
+        return _private_log_fingerprint(text)
+    return value
 
 
 def _log_management_action(
@@ -2323,11 +2633,11 @@ def _log_management_action(
         "scope": "admin" if remote_admin else "control",
         "actor": _management_actor_label(remote_admin),
         "action": action,
-        "target": target,
+        "target": _redact_management_log_value(target, key="target"),
         "result": result,
     }
     if details:
-        payload["details"] = details
+        payload["details"] = _redact_management_log_value(details)
     LOGGER.info("management_action %s", json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
 
@@ -2423,7 +2733,7 @@ def _require_full_mode() -> None:
 
 def _require_ai() -> None:
     _refresh_ai_runtime_if_needed()
-    if not AI_CONFIG.enabled:
+    if not (AI_CONFIG.enabled or (_mimo_migration_enabled() and AI_CONFIG.mimo_enabled)):
         abort(
             503,
             description="AI 对话功能暂时不可用，请稍后再试。",
@@ -3064,6 +3374,38 @@ def _online_presence_dedup_key(session_key: str) -> str:
     return f"ip:{ip}" if ip and ip != "unknown" else (session_key or "anonymous")
 
 
+def _record_community_trend(kind: str, text: str) -> None:
+    """异步记录公开周榜样本；身份只以不可逆摘要落库。"""
+    value = " ".join(str(text or "").split())
+    if not value or _is_monitoring_request() or _is_blocked_bot_request():
+        return
+    user = getattr(g, "current_user", None)
+    session_key = _visitor_session_key()
+    actor_key = f"user:{int(user['id'])}" if user else _online_presence_dedup_key(session_key)
+    actor_hash = sha256(f"community:{actor_key}".encode("utf-8")).hexdigest()
+    _enqueue_audit_write(
+        "community",
+        {"kind": kind, "text": value, "actor_hash": actor_hash},
+    )
+
+
+def _community_volume_title(volume) -> str:
+    """周榜卷册名：多卷本细分到具体卷，单卷本保持正式书名。"""
+    book_key = str(getattr(volume, "book", "") or "")
+    cfg = BOOK_CONFIG_BY_KEY.get(book_key)
+    title = cfg.title if cfg else f"《{book_key}》"
+    try:
+        volume_number = int(getattr(volume, "volume", 0) or 0)
+    except (TypeError, ValueError):
+        volume_number = 0
+    if not volume_number or (cfg and (
+        cfg.single_volume or volume_number in set(cfg.unnumbered_volumes)
+    )):
+        return title
+    unit = cfg.volume_unit if cfg else "卷"
+    return f"{title}第{volume_number}{unit}"
+
+
 def _reset_session_preserving_visitor() -> None:
     """登录/注册成功时清空会话以防会话固定，但保留访客分析标识 _visitor_key。
 
@@ -3125,6 +3467,7 @@ _ASYNC_AUDIT_WRITERS: dict = {
     "activity": lambda p: record_site_activity(**p),
     "online": lambda p: record_online_presence(**p),
     "capture_ip": lambda p: capture_user_ip_if_missing(**p),
+    "community": lambda p: record_community_trend_event(**p),
 }
 
 # 「登录态活跃即补 IP」：进程内按 user_id 去重，每用户每进程至多投递一次「补 IP」（落库为
@@ -3235,6 +3578,7 @@ def _prune_reader_audit_if_due() -> None:
     _last_reader_audit_prune[0] = now
     try:
         prune_reader_access_events(keep_days=READER_AUDIT_KEEP_DAYS)
+        prune_community_trend_events(keep_days=35)
     except Exception as exc:
         LOGGER.debug("Reader access pruning failed: %s", exc)
 
@@ -3637,7 +3981,7 @@ def _require_ai_quota_or_raise(credit_kind: str = "") -> dict:
     """
     user = getattr(g, "current_user", None)
     session_key = _visitor_session_key()
-    day, _, _, _ = _beijing_day_bounds()
+    day, day_start_utc, day_end_utc, _ = _beijing_day_bounds()
     week = _research_quota_week_window()
     reset_at = week["reset_at"]
     # 有效额度：用户级 override > 套餐级 > 分档默认（含登录用户/访客）；管理员/桌面不限。
@@ -3648,14 +3992,25 @@ def _require_ai_quota_or_raise(credit_kind: str = "") -> dict:
     # 随心问/研究综述/导学的共用周额度吃掉——「不限量」就成了只对它自己成立。
     # 后台「重置本周 AI 额度」写下的标记在此生效：只统计标记时刻之后的用量＝已用归零。
     reset_since = _ai_token_quota_reset_at(user, eff["bucket"])
-    today_used = get_ai_token_usage(
-        day=day, user_id=uid, session_key=session_key, exclude_features=AI_QUOTA_EXEMPT_FEATURES,
-        since_created_at=reset_since,
-    )
-    weekly_used = get_ai_token_usage_range(
-        start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=session_key,
-        exclude_features=AI_QUOTA_EXEMPT_FEATURES, since_created_at=reset_since,
-    )
+    if uid and eff.get("quota_basis") == "flash_equivalent":
+        week_start = datetime.fromisoformat(f"{week['start_day']}T00:00:00+08:00").astimezone(timezone.utc)
+        week_end = (datetime.fromisoformat(f"{week['end_day']}T00:00:00+08:00") + timedelta(days=1)).astimezone(timezone.utc)
+        today_used = int(get_user_flash_equivalent_usage(
+            uid, start_at=day_start_utc, end_at=day_end_utc, since_at=reset_since,
+        )["total_tokens"])
+        weekly_used = int(get_user_flash_equivalent_usage(
+            uid, start_at=week_start.isoformat(timespec="seconds"),
+            end_at=week_end.isoformat(timespec="seconds"), since_at=reset_since,
+        )["total_tokens"])
+    else:
+        today_used = get_ai_token_usage(
+            day=day, user_id=uid, session_key=session_key, exclude_features=AI_QUOTA_EXEMPT_FEATURES,
+            since_created_at=reset_since,
+        )
+        weekly_used = get_ai_token_usage_range(
+            start_day=week["start_day"], end_day=week["end_day"], user_id=uid, session_key=session_key,
+            exclude_features=AI_QUOTA_EXEMPT_FEATURES, since_created_at=reset_since,
+        )
     over_free_limit = weekly_limit is not None and weekly_used >= int(weekly_limit)
     credit_kind = str(credit_kind or "").strip().lower()
     credit_balance = (
@@ -3757,6 +4112,7 @@ def _record_ai_usage(
     model: str = "",
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    provider_call_ids: list[int] | tuple[int, ...] | None = None,
 ) -> None:
     # 豁免的监控程序：其 AI 调用不计入 ai_usage(总览 AI 请求/token/高用量名单)。
     if has_request_context() and _is_monitoring_request():
@@ -3781,11 +4137,15 @@ def _record_ai_usage(
         client_ip = _client_ip() if has_request_context() else ""
         if provider == "zhipu":
             usage_provider, usage_model = "zhipu", AI_CONFIG.zhipu_model
+        elif provider == "mimo" or str(model or "").startswith("mimo-"):
+            usage_provider, usage_model = "mimo", AI_CONFIG.mimo_model
+        elif provider == "deepseek" or str(model or "").startswith("deepseek-"):
+            usage_provider, usage_model = "deepseek", AI_CONFIG.model
         else:
             usage_provider, usage_model = AI_CONFIG.provider, AI_CONFIG.model
         if model:
             usage_model = model  # 调用方指定的模型（如马克思形象固定 deepseek-v4-flash）
-        record_ai_usage(
+        usage_id = record_ai_usage(
             user_id=int(user["id"]) if user else None,
             session_key=str((quota or {}).get("session_key") or _visitor_session_key()),
             day=str((quota or {}).get("day") or china_day_text()),
@@ -3802,8 +4162,93 @@ def _record_ai_usage(
             client_ip=client_ip,
             source_ref=source_ref,
         )
+        call_ids = list(provider_call_ids or [])
+        if has_request_context():
+            call_ids.extend(list(getattr(g, "_ai_provider_call_ids", []) or []))
+            g._ai_provider_call_ids = []
+        if call_ids:
+            link_ai_provider_calls(call_ids, usage_id)
     except Exception as exc:
         LOGGER.debug("AI usage recording failed: %s", exc)
+
+
+def _ai_provider_call_sink(event: dict) -> dict | None:
+    """Bridge ai.py's per-upstream-call events to persistent preauthorization and actual-cost accounting."""
+    provider = str(event.get("provider") or "").strip().lower()
+    model = str(event.get("model") or "").strip().lower()
+    if provider not in {"mimo", "deepseek", "zhipu"} or model not in {
+        "mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "glm-5.1",
+    }:
+        return None
+    user = getattr(g, "current_user", None) if has_request_context() else None
+    user_id = int(event.get("user_id") or (user["id"] if user else 0)) or None
+    feature = str(event.get("feature") or (request.endpoint if has_request_context() else "internal") or "internal")
+    feature = {
+        "api_ai_search_chat": "search-chat",
+        "api_ai_mascot_chat": "mascot",
+        "api_ai_pdf_chat": "pdf-chat",
+        "api_ai_pdf_chat_stream": "pdf-chat-stream",
+    }.get(feature, feature)
+    explicit_charge_user = event.get("charge_user")
+    if explicit_charge_user is None:
+        billing_user = user
+        if billing_user is None and user_id:
+            # SSE/慢任务在线程中执行时没有 Flask 请求上下文；此时仍须从持久身份识别
+            # 管理员，不能把站方灰度测试误扣到一个不存在的个人钱包。
+            billing_user = get_user_by_id(int(user_id))
+        charge_user = bool(user_id and feature != "mascot" and not _is_admin_user(billing_user))
+    else:
+        charge_user = bool(user_id and feature != "mascot" and explicit_charge_user)
+    if str(event.get("phase")) == "before":
+        occurred_at = utc_now_text()
+        reservation = None
+        if charge_user and occurred_at >= MEMBERSHIP_REFORM_CUTOFF:
+            try:
+                reservation = reserve_ai_budget(
+                    user_id=int(user_id), provider=provider, model=model,
+                    reasoning_effort=str(event.get("reasoning_effort") or "off"), feature=feature,
+                    estimated_prompt_tokens=int(event.get("estimated_prompt_tokens") or 0),
+                    max_completion_tokens=int(event.get("max_completion_tokens") or 0),
+                    request_id=str(event.get("request_id") or ""), occurred_at=occurred_at,
+                )
+            except ValueError as exc:
+                raise AIServiceError(str(exc)) from exc
+        return {"reservation_id": int(reservation["id"]) if reservation else None, "occurred_at": occurred_at}
+
+    preflight = event.get("preflight") if isinstance(event.get("preflight"), dict) else {}
+    reservation_id = preflight.get("reservation_id")
+    try:
+        result = record_ai_provider_call(
+            request_id=str(event.get("request_id") or ""), reservation_id=reservation_id,
+            user_id=user_id, feature=feature, provider=provider, model=model,
+            reasoning_effort=str(event.get("reasoning_effort") or "off"),
+            prompt_tokens=int(event.get("prompt_tokens") or 0),
+            cached_prompt_tokens=int(event.get("cached_prompt_tokens") or 0),
+            completion_tokens=int(event.get("completion_tokens") or 0),
+            reasoning_tokens=int(event.get("reasoning_tokens") or 0),
+            success=bool(event.get("success")), error=str(event.get("error") or ""),
+            latency_ms=int(event.get("latency_ms") or 0),
+            occurred_at=str(preflight.get("occurred_at") or utc_now_text()),
+        )
+        collector = event.get("provider_call_ids")
+        if isinstance(collector, list):
+            collector.append(int(result["id"]))
+        elif has_request_context():
+            call_ids = list(getattr(g, "_ai_provider_call_ids", []) or [])
+            call_ids.append(int(result["id"]))
+            g._ai_provider_call_ids = call_ids
+        return result
+    except Exception:
+        if reservation_id:
+            try:
+                release_ai_reservation(int(reservation_id), reason="provider_call_record_failed")
+            except Exception:
+                pass
+        LOGGER.exception("AI provider call accounting failed")
+        return None
+
+
+configure_ai_call_sink(_ai_provider_call_sink)
 
 
 def _ensure_csrf_token() -> str:
@@ -3911,6 +4356,20 @@ def _rate_limit_ai_or_abort() -> None:
         limit=RATE_LIMITS["ai_user"][0],
         window_seconds=RATE_LIMITS["ai_user"][1],
         message="AI 请求过于频繁，请稍后再试。",
+    )
+
+
+def _rate_limit_associative_or_abort() -> None:
+    """站方出资的模糊检索独立限流，不与用户付费 AI 场景共用桶。"""
+    user = getattr(g, "current_user", None)
+    if _is_admin_user(user):
+        return
+    actor = f"user:{user['id']}" if user else f"ip:{_client_ip()}"
+    _rate_limit_or_abort(
+        f"associative:{actor}",
+        limit=RATE_LIMITS["associative_user"][0],
+        window_seconds=RATE_LIMITS["associative_user"][1],
+        message="模糊检索请求过于频繁，请稍后再试。",
     )
 
 
@@ -4234,26 +4693,39 @@ def _send_feedback_admin_notice(thread: dict, message: dict) -> tuple[bool, str]
     return True, ""
 
 
-_READER_LABELS = {"viewer": "扫描页阅读器", "liushi": "流式阅读", "wenku": "原文文库"}
+_READER_LABELS = {
+    "viewer": "扫描页阅读器", "liushi": "流式阅读", "wenku": "原文文库",
+    "mylib": "个人文库", "search": "检索结果",
+}
+_PAGE_ERROR_TYPE_LABELS = {
+    "page_number": "页码问题", "text_error": "错字/乱码", "punctuation": "标点问题", "other": "其它文字问题",
+}
 
 
 def _send_page_error_admin_notice(report: dict) -> tuple[bool, str]:
-    """页码报错管理员邮件提醒（仿留言提醒；仅在「新报告」时调用，同页重复报错不重发）。"""
+    """引文文字报错提醒；同一定位和问题类型的重复报告不重复发信。"""
     reader_label = _READER_LABELS.get(str(report.get("reader") or ""), str(report.get("reader") or ""))
+    issue_label = _PAGE_ERROR_TYPE_LABELS.get(
+        str(report.get("issue_type") or "page_number"), "其它文字问题",
+    )
     body = (
         "管理员您好：\n\n"
-        "有读者反馈某处引文页码可能有误。\n\n"
+        f"有读者反馈某处引文可能存在{issue_label}。\n\n"
+        f"问题类型：{issue_label}\n"
         f"阅读器：{reader_label}\n"
         f"书目：{report.get('book_title') or ''} {report.get('volume_label') or ''}\n"
-        f"报错页码：第 {report.get('page') or '（未知）'} 页\n"
+        f"定位页码：第 {report.get('page') or '（未知）'} 页\n"
+        f"检索词：{report.get('query_text') or ''}\n"
+        f"上下文：{report.get('context_snippet') or ''}\n"
         f"引文原文：{report.get('citation_text') or ''}\n"
+        f"读者说明：{report.get('note') or ''}\n"
         f"定位来源：{report.get('source_ref') or ''}\n"
         f"上报用户：{report.get('user_email') or '（未登录/匿名）'}\n"
         f"时间：{report.get('created_at') or ''}\n\n"
         f"请登录后台内容运营页查看并处理：{_feedback_public_base_url()}/admin/content"
     )
     try:
-        _send_account_email(FEEDBACK_ADMIN_EMAIL, "网站页码报错提醒", body)
+        _send_account_email(FEEDBACK_ADMIN_EMAIL, f"网站引文{issue_label}提醒", body)
     except Exception as exc:
         LOGGER.warning("Failed to send page-error admin notice: %s", exc)
         return False, str(exc)
@@ -4297,7 +4769,20 @@ def _augment_page_error_jump_urls(reports: list[dict]) -> list[dict]:
         volume = corpus.get_volume_by_source_file(source_ref)
         if volume is None:   # 书目未在当前语料中（或来源无效）→ 不给按钮，避免坏链接
             continue
-        pdf_page = _resolve_viewer_pdf_page(volume, r.get("page"))
+        pdf_page = None
+        try:
+            corpus_page_id = int(r.get("corpus_page_id") or 0)
+        except (TypeError, ValueError):
+            corpus_page_id = 0
+        if corpus_page_id:
+            exact_page = next(
+                (page for page in volume.pages if int(getattr(page, "id", 0) or 0) == corpus_page_id),
+                None,
+            )
+            if exact_page is not None:
+                pdf_page = int(exact_page.pdf_page)
+        if pdf_page is None:
+            pdf_page = _resolve_viewer_pdf_page(volume, r.get("page"))
         r["jump_url"] = url_for("pdf_viewer", file=source_ref, page=pdf_page or 1)
         r["jump_exact"] = pdf_page is not None
     return reports
@@ -4366,11 +4851,14 @@ def _sweep_expired_orders_if_due() -> None:
         count = expire_pending_orders(older_than_hours=24)
         # 顺带做一次「同用户同套餐仅保留最新待支付单」的全局去重（原先挂在每次订单列表读上，现移到这里）。
         prune_duplicate_pending_orders_for_user()
+        released_reservations = reconcile_stale_ai_reservations()
     except Exception as exc:
         LOGGER.warning("Expired-order sweep failed: %s", exc)
         return
     if count:
         LOGGER.info("Expired %s stale pending orders.", count)
+    if released_reservations:
+        LOGGER.info("Released %s stale AI budget reservations.", released_reservations)
 
 
 def _site_text_form_values() -> dict[str, str]:
@@ -4485,6 +4973,7 @@ def _control_context() -> dict:
         "control_payment_qr_url": url_for("admin_payment_qr_settings"),
         "control_payment_test_qr_url": url_for("admin_payment_test_qr"),
         "control_payment_clear_pending_url": url_for("admin_payment_clear_pending"),
+        "control_payment_refund_url": url_for("admin_payment_refund_reversal"),
         "membership_db_path": str(MEMBERSHIP_DB_PATH),
     }
 
@@ -4496,9 +4985,397 @@ def _management_redirect(remote_admin: bool, section: str, **params: object):
     return redirect(url_for("control", section=section, **params))
 
 
+MYLIB_ACCEPTANCE_GATE_VERSION = 3
+
+
+def _mylib_derivative_acceptance(row: dict) -> dict:
+    """Evaluate whether parsed derivatives may be published without human review."""
+    sid, uid = int(row.get("id") or 0), int(row.get("user_id") or 0)
+    bibliography = mylib.submission_bibliographic(row)
+    quality = mylib.submission_quality(row)
+    stats = mylib_corpus.book_derivative_stats(uid, sid)
+    toc = mylib_corpus.get_book_toc(uid, sid)
+    pages = mylib_corpus.read_book_pages(uid, sid)
+    total_pages = int(row.get("page_count") or 0)
+    indexed_pages = int(stats.get("pages") or 0)
+    coverage = indexed_pages / total_pages if total_pages else (1.0 if indexed_pages else 0.0)
+    sample_item = next((item for item in toc if item.get("printed_page")), None)
+    if sample_item is None:
+        sample_item = next((item for item in pages if item.get("printed_page")), pages[0] if pages else None)
+    sample_pdf_page = int((sample_item or {}).get("pdf_page") or (sample_item or {}).get("page") or 1)
+    sample = mylib_corpus.get_book_page(
+        uid, sid, sample_pdf_page, include_unpublished=True
+    ) or {}
+    blocking: list[str] = []
+    warnings: list[str] = []
+    dimensions = {
+        "text": {"status": "pass", "messages": []},
+        "bibliographic": {"status": "pass", "messages": []},
+        "toc": {"status": "pass", "messages": []},
+        "pagination": {"status": "pass", "messages": []},
+        "visual": {"status": "pass", "messages": []},
+    }
+
+    def block(dimension: str, message: str) -> None:
+        blocking.append(message)
+        dimensions[dimension]["status"] = "review"
+        dimensions[dimension]["messages"].append(message)
+
+    def warn(dimension: str, message: str) -> None:
+        warnings.append(message)
+        if dimensions[dimension]["status"] == "pass":
+            dimensions[dimension]["status"] = "warning"
+        dimensions[dimension]["messages"].append(message)
+    is_compilation = bibliography.get("document_type") == "compilation"
+    is_translation = bibliography.get("document_type") == "translation_manuscript"
+    readonly_authorized = (
+        row.get("source_kind") == "scanned" and not row.get("ocr_consent") and indexed_pages == 0
+    )
+    text_quality = quality.get("text_layer") if isinstance(
+        quality.get("text_layer"), dict
+    ) else {}
+
+    if readonly_authorized:
+        status = "readonly"
+        warn("text", "用户未授权 OCR；本书仅上架原始 PDF，不宣称可检索、可引文或已有目录。")
+    else:
+        if indexed_pages <= 0:
+            block("text", "未生成可检索文字层。")
+        elif total_pages and coverage < 0.85:
+            block("text", f"全文索引覆盖率仅 {coverage:.1%}，低于 85%。")
+        if text_quality.get("requires_ocr"):
+            block("text", "原 PDF 隐藏文字层疑似大面积乱码，需用忠实 OCR 重建。")
+        if indexed_pages and not sample.get("citation"):
+            block("text", "未生成可核验的页级引文。")
+        if total_pages >= 30 and not toc:
+            block("toc", "长篇 PDF 未生成目录数据。")
+        if toc and float(quality.get("toc_confidence") or 0.0) < 0.70:
+            block("toc", "目录结构或跳转置信度低于 70%。")
+        toc_candidates = quality.get("toc_candidates") if isinstance(
+            quality.get("toc_candidates"), dict
+        ) else {}
+        chosen_candidate = toc_candidates.get(str(quality.get("toc_source") or ""))
+        if isinstance(chosen_candidate, dict) and float(
+            chosen_candidate.get("suspicious_ratio") or 0.0
+        ) > 0.05:
+            block("toc", "目录中疑似 OCR 残片比例过高，需重建目录页文字层。")
+
+        original = bibliography.get("original_edition") if isinstance(
+            bibliography.get("original_edition"), dict
+        ) else {}
+        if is_compilation:
+            required = ("title", "authors", "year")
+        elif is_translation:
+            required = ("title", "authors")
+            if not all(original.get(key) for key in ("title", "publisher", "year")):
+                block("bibliographic", "未出版译稿尚未可靠匹配原版书名、出版社和年份。")
+        else:
+            required = ("title", "authors", "publisher", "place", "year")
+            if bibliography.get("source") not in {"copyright_page", "manual_verified"}:
+                block("bibliographic", "尚未从可靠版权页确认当前版本出版信息。")
+        missing = [key for key in required if not bibliography.get(key)]
+        if missing:
+            block("bibliographic", "书目信息缺失：" + "、".join(missing) + "。")
+        if bibliography.get("isbn") and bibliography.get("isbn_valid") is False:
+            warn("bibliographic", "版权页 ISBN 的校验位未通过，已保留原文但需要抽查。")
+
+        if (
+            indexed_pages and total_pages >= 30 and not is_compilation
+            and not quality.get("page_segments")
+            and float(quality.get("page_confidence") or 0.0) < 0.70
+        ):
+            block("pagination", "未形成可靠的 PDF 页与书内页码映射。")
+        for message in quality.get("warnings") or []:
+            warn("pagination", str(message))
+        source_profile = quality.get("source_profile") if isinstance(
+            quality.get("source_profile"), dict
+        ) else {}
+        visual = source_profile.get("visual") if isinstance(
+            source_profile.get("visual"), dict
+        ) else {}
+        if visual.get("status") == "low":
+            warn("visual", "原始扫描图像清晰度偏低；文字层已单独验收，建议阅读时抽查原图。")
+        status = "review" if blocking else "pass"
+
+    return {
+        "gate_version": MYLIB_ACCEPTANCE_GATE_VERSION,
+        "status": status,
+        "blocking": blocking,
+        "warnings": warnings,
+        "dimensions": dimensions,
+        "checks": {
+            "indexed_pages": indexed_pages,
+            "total_pages": total_pages,
+            "coverage": round(coverage, 4),
+            "toc_count": len(toc),
+            "toc_confidence": float(quality.get("toc_confidence") or 0.0),
+            "page_confidence": float(quality.get("page_confidence") or 0.0),
+            "citation_ready": bool(sample.get("citation")),
+            "bibliographic_source": str(bibliography.get("source") or ""),
+        },
+        "sample_pdf_page": sample_pdf_page,
+        "sample_printed_page": str(sample.get("printed_page") or ""),
+        "sample_citation": str(sample.get("citation") or ""),
+        "pipeline_version": int(stats.get("version") or 0),
+    }
+
+
+def _mylib_finalize_derivatives(submission_id: int, written: int) -> dict:
+    """Persist acceptance and transition to ready only when the gate passes."""
+    sid = int(submission_id)
+    row = mylib.get_submission(sid)
+    if not row:
+        return {"status": "missing", "blocking": ["提交记录不存在。"]}
+    report = _mylib_derivative_acceptance(row)
+    mylib.set_derivative_acceptance(sid, report, status=str(report.get("status") or ""))
+    if report.get("status") in {"pass", "readonly"}:
+        searchable = bool(written > 0 and report.get("status") == "pass")
+        mylib.set_status(sid, "ready", searchable=searchable, fail_reason="", parsed=True)
+        _mylib_notify_user(sid, ready=True, searchable=searchable)
+    else:
+        reason = "数据验收未通过：" + "；".join(report.get("blocking") or ["需要人工复核"])
+        mylib.set_status(
+            sid, "quality_review", searchable=False, fail_reason=reason[:500], parsed=True,
+        )
+        threading.Thread(
+            target=_mylib_notify_admin_quality_review,
+            args=(sid, report),
+            name=f"mylib-quality-review-{sid}", daemon=True,
+        ).start()
+    return report
+
+
+def _mylib_admin_inspection_rows(
+    rows: list[dict], *, inspect_submission_id: int | None = None
+) -> list[dict]:
+    """Attach read-only derivative evidence for console acceptance checks."""
+    inspected = []
+    for source_row in rows:
+        row = dict(source_row)
+        sid = int(row.get("id") or 0)
+        uid = int(row.get("user_id") or 0)
+        evidence = {
+            "available": False, "deferred": False, "overall": "review", "warnings": [], "acceptance": {},
+            "bibliographic": {}, "copyright_text": "", "copyright_preview_url": "",
+            "toc_preview_url": "", "citation_preview_url": "",
+            "toc": [], "toc_count": 0, "citation": "", "citations": {},
+            "citation_pdf_page": 0, "citation_printed_page": "", "quality": {},
+            "indexed_pages": 0,
+        }
+        if row.get("status") not in {"ready", "quality_review"} or not sid or not uid:
+            evidence["warnings"].append("书籍尚未完成解析，暂无可验收的派生数据。")
+            row["inspection"] = evidence
+            inspected.append(row)
+            continue
+        if inspect_submission_id is not None and sid != inspect_submission_id:
+            evidence["deferred"] = True
+            row["inspection"] = evidence
+            inspected.append(row)
+            continue
+        try:
+            bibliography = mylib.submission_bibliographic(row)
+            acceptance = mylib.submission_acceptance(row)
+            quality = mylib.submission_quality(row)
+            toc = mylib_corpus.get_book_toc(uid, sid)
+            stats = mylib_corpus.book_derivative_stats(uid, sid)
+            copyright_page = int(bibliography.get("copyright_pdf_page") or 0)
+            copyright_data = (
+                mylib_corpus.get_book_page(
+                    uid, sid, copyright_page, include_unpublished=True
+                )
+                if copyright_page > 0 else None
+            )
+            pages = mylib_corpus.read_book_pages(uid, sid)
+            sample_item = next((item for item in toc if item.get("printed_page")), None)
+            if sample_item is None:
+                sample_item = next((item for item in pages if item.get("printed_page")), pages[0] if pages else None)
+            sample_pdf_page = int((sample_item or {}).get("pdf_page") or (sample_item or {}).get("page") or 1)
+            citation_data = mylib_corpus.get_book_page(
+                uid, sid, sample_pdf_page, include_unpublished=True
+            ) or {}
+            warnings = [str(value) for value in (acceptance.get("blocking") or [])]
+            is_compilation = bibliography.get("document_type") == "compilation"
+            is_translation = bibliography.get("document_type") == "translation_manuscript"
+            original_edition = (
+                bibliography.get("original_edition")
+                if isinstance(bibliography.get("original_edition"), dict) else {}
+            )
+            required_bib = (
+                {"title": "书名", "authors": "编者", "year": "汇编年份"}
+                if is_compilation else
+                {"title": "书名", "authors": "作者/编者"}
+                if is_translation else
+                {"title": "书名", "authors": "作者", "publisher": "出版社", "place": "出版地", "year": "出版年份"}
+            )
+            missing_bib = [label for key, label in required_bib.items() if not bibliography.get(key)]
+            if bibliography.get("source") == "institutional_compilation":
+                pass  # 未出版汇编没有出版社/ISBN是准确状态，不应误报为字段缺失。
+            elif bibliography.get("source") == "translation_manuscript":
+                if not all(original_edition.get(key) for key in ("title", "publisher", "year")):
+                    warnings.append("已识别为未出版译稿，但原版书目信息尚未完成可靠匹配。")
+            elif bibliography.get("source") == "front_matter":
+                warnings.append("未找到可靠版权页；当前仅采用封面/扉页责任说明，不推测出版项。")
+            elif bibliography.get("source") != "copyright_page":
+                warnings.append("未确认来自版权页，当前书目可能是上传信息回退值。")
+            if missing_bib: warnings.append("书目字段缺失：" + "、".join(missing_bib))
+            if not toc: warnings.append("目录索引为空。")
+            elif int(row.get("toc_count") or 0) != len(toc): warnings.append("目录元数据计数与实际索引不一致。")
+            if not citation_data.get("citation"): warnings.append("未生成可用引文示例。")
+            indexed_pages = int(stats.get("pages") or 0)
+            total_pages = int(row.get("page_count") or 0)
+            if row.get("searchable") and total_pages and indexed_pages / total_pages < 0.9:
+                warnings.append("全文索引覆盖不足 PDF 页数的 90%。")
+            if float(quality.get("toc_confidence") or 0) < 0.7 and toc: warnings.append("目录置信度偏低，建议逐项抽查跳转页。")
+            if (
+                not is_compilation and not is_translation
+                and float(quality.get("page_confidence") or 0) < 0.7
+                and citation_data.get("citation")
+            ):
+                warnings.append("页码校准置信度偏低，建议核对引文页码。")
+            copyright_text = " ".join(str((copyright_data or {}).get("text") or "").split())
+            toc_evidence_pages = quality.get("toc_evidence_pdf_pages") or []
+            toc_preview_page = int(
+                (toc_evidence_pages[0] if toc_evidence_pages else 0)
+                or ((toc[0] if toc else {}).get("pdf_page") or 0)
+            )
+            evidence.update({
+                "available": True, "overall": "pass" if not warnings else "review", "warnings": warnings,
+                "acceptance": acceptance,
+                "bibliographic": bibliography, "copyright_text": copyright_text[:1800],
+                "copyright_preview_url": url_for("admin_mylib_page_image", submission_id=sid, page=copyright_page) if copyright_page > 0 else "",
+                "toc_preview_url": url_for("admin_mylib_page_image", submission_id=sid, page=toc_preview_page) if toc_preview_page > 0 else "",
+                "citation_preview_url": url_for("admin_mylib_page_image", submission_id=sid, page=sample_pdf_page) if sample_pdf_page > 0 else "",
+                "toc": toc, "toc_count": len(toc), "citation": str(citation_data.get("citation") or ""),
+                "citations": citation_data.get("citations") or {}, "citation_pdf_page": sample_pdf_page,
+                "citation_printed_page": str(citation_data.get("printed_page") or ""),
+                "quality": quality, "indexed_pages": indexed_pages,
+            })
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("mylib admin inspection failed sid=%s: %s", sid, exc)
+            evidence["warnings"].append("读取验收数据失败，请稍后刷新或重建派生数据。")
+        row["inspection"] = evidence
+        inspected.append(row)
+    return inspected
+
+
+_JOURNAL_FULLTEXT_QUEUE_STATUSES = (
+    "ready",
+    "pending_review",
+    "translation_pending",
+    "processing_failed",
+    "fulltext_unavailable",
+)
+
+
+def _journal_workflow_snapshot(batch: dict | None) -> dict:
+    """Return one operator-facing state for the weekly journal pipeline."""
+    snapshot = {
+        "phase": "waiting",
+        "phase_index": 1,
+        "issue_key": "",
+        "total": 0,
+        "fresh": 0,
+        "processing": 0,
+        "unavailable": 0,
+        "failed": 0,
+        "ready": 0,
+        "next_action": "collect",
+        "next_label": "立即核查并采集本期",
+        "next_hint": "服务器在出刊前一天 19:00 采集题录；随后由本机全文中继补抓公开 PDF。",
+        "can_advance": True,
+        "busy": False,
+        "busy_name": "",
+    }
+    if not batch:
+        return snapshot
+
+    digest_id = int(batch["id"])
+    articles = batch_articles(digest_id, statuses=_JOURNAL_FULLTEXT_QUEUE_STATUSES)
+    states = list_journal_processing_states(digest_id, limit=500)
+    state_by_article = {int(item["article_id"]): item for item in states}
+    publishable = public_batch_articles(digest_id)
+    snapshot.update(
+        issue_key=str(batch.get("issue_key") or f"#{digest_id}"),
+        total=len(articles),
+        ready=len(publishable),
+    )
+    for article in articles:
+        state = state_by_article.get(int(article["id"]))
+        if not state:
+            snapshot["fresh"] += 1
+            continue
+        state_status = str(state.get("status") or "")
+        if state_status in {"pending", "processing"}:
+            snapshot["processing"] += 1
+        elif state_status == "unavailable":
+            snapshot["unavailable"] += 1
+        elif state_status == "failed":
+            snapshot["failed"] += 1
+
+    job_state = globals().get("_journal_job_state") or {}
+    snapshot["busy_name"] = str(job_state.get("name") or "")
+    if snapshot["processing"] and not snapshot["busy_name"]:
+        # The hourly worker runs in a separate systemd process, so it is not
+        # represented by the in-process job flag above.  Treat persisted
+        # processing rows as busy as well to prevent a second operator click
+        # from starting concurrent full-text/translation work.
+        snapshot["busy_name"] = "全文处理"
+    snapshot["busy"] = bool(snapshot["busy_name"])
+    batch_status = str(batch.get("status") or "")
+    if batch_status in {"published", "sent"}:
+        snapshot.update(
+            phase="published",
+            phase_index=5,
+            next_action="review_send",
+            next_label="本期已锁定",
+            next_hint="本期已经人工确认，可在下方查看发送结果。",
+            can_advance=False,
+        )
+    elif snapshot["fresh"] or snapshot["processing"]:
+        snapshot.update(
+            phase="processing",
+            phase_index=2,
+            next_action="process_fulltext",
+            next_label=f"继续处理未完成文章（{snapshot['fresh'] + snapshot['processing']} 篇）",
+            next_hint="先保持本机全文中继运行；已上传的 PDF 由服务器每小时处理 5 篇，也可现在推进一批。",
+        )
+    elif snapshot["ready"]:
+        has_preview = bool(str(batch.get("review_html") or "").strip())
+        snapshot.update(
+            phase="review" if has_preview else "preview",
+            phase_index=4 if has_preview else 3,
+            next_action="review_send" if has_preview else "generate_review",
+            next_label="前往最终核对与发送" if has_preview else f"生成本期目录预览（{snapshot['ready']} 篇）",
+            next_hint="已有完整双语文章；邮件仍须您在下方勾选最终确认。",
+            can_advance=not has_preview,
+        )
+    elif snapshot["unavailable"] or snapshot["failed"]:
+        snapshot.update(
+            phase="blocked",
+            phase_index=2,
+            next_action="retry_fulltext",
+            next_label=f"重试公开全文（{snapshot['unavailable'] + snapshot['failed']} 篇）",
+            next_hint="本期公开全文仍不足，请保持本机全文中继运行；服务器会继续校验已上传的 PDF。",
+        )
+    else:
+        snapshot.update(
+            phase="empty",
+            phase_index=2,
+            next_action="collect",
+            next_label="重新核查本期题录",
+            next_hint="本期已建立，但没有可继续处理的题录。",
+        )
+    if snapshot["busy"]:
+        snapshot["can_advance"] = False
+        snapshot["next_hint"] = f"后台任务 {snapshot['busy_name']} 正在进行，完成后刷新本页即可。"
+    return snapshot
+
+
 def _management_console_context(*, remote_admin: bool, admin_module: str = "overview") -> dict:
     _refresh_ai_runtime_if_needed()
     search_text = (request.args.get("user_q") or "").strip()
+    mylib_inspect_raw = str(request.args.get("mylib_inspect") or "")
+    mylib_inspect_id = int(mylib_inspect_raw) if mylib_inspect_raw.isdigit() else 0
     ai_override_exists = AI_OVERRIDE_PATH.exists()
     state = current_view_state()
     if remote_admin:
@@ -4553,14 +5430,44 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
     journal_batch = current_batch() if remote_admin else None
     journal_batch_pending: list[dict] = []
     journal_batch_ready: list[dict] = []
+    journal_processing_states: list[dict] = []
+    journal_workflow = _journal_workflow_snapshot(None)
     journal_send_status: dict = {}
+    journal_email_preview_html = ""
+    journal_email_preview_subject = ""
+    journal_alert_settings = load_journal_alert_settings() if remote_admin else {}
     if remote_admin and journal_batch:
-        journal_batch_pending = batch_articles(int(journal_batch["id"]), statuses=("pending_review",))
+        journal_batch_pending = batch_articles(
+            int(journal_batch["id"]),
+            statuses=(
+                "pending_review",
+                "translation_pending",
+                "processing_failed",
+                "fulltext_unavailable",
+            ),
+        )
         journal_batch_ready = batch_articles(int(journal_batch["id"]), statuses=("ready",))
+        journal_processing_states = list_journal_processing_states(int(journal_batch["id"]), limit=500)
+    if remote_admin:
+        journal_workflow = _journal_workflow_snapshot(journal_batch)
     if remote_admin:
         journal_send_status = _journal_autosend_status(
-            load_journal_alert_settings(), journal_batch, load_smtp_config().enabled
+            journal_alert_settings, journal_batch, load_smtp_config().enabled
         )
+    if remote_admin and journal_batch and journal_batch_ready:
+        try:
+            _preview_text, journal_email_preview_html = render_journal_review_email(
+                journal_batch,
+                {},
+                journal_alert_public_base_url(DEPLOYMENT),
+                journal_alert_settings,
+            )
+            journal_email_preview_subject = (
+                f"{journal_alert_settings['subject_prefix']}："
+                f"{journal_batch.get('issue_key') or '本期'}（{len(public_batch_articles(int(journal_batch['id'])))}篇）"
+            )
+        except Exception as exc:  # preview failure must not break the admin console
+            LOGGER.warning("Could not render pending journal email preview: %s", exc)
     return {
         "title": title,
         "app_name": APP_NAME,
@@ -4610,7 +5517,20 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "ai_token_quota_settings": _ai_token_daily_settings(),
         "ai_token_quota_labels": AI_TOKEN_DAILY_LABELS,
         "ai_token_quota_defaults": AI_TOKEN_DAILY_DEFAULTS,
+        "plan_weekly_token_groups": {
+            "legacy": [
+                plan for plan in plans_all
+                if str(plan.get("parallel_group") or "") == "legacy_membership"
+                and str(plan.get("kind") or "membership") == "membership"
+            ],
+            "new": [
+                plan for plan in plans_all
+                if str(plan.get("parallel_group") or "") == "new_membership"
+                and str(plan.get("kind") or "membership") == "membership"
+            ],
+        },
         "control_ai_token_quota_url": url_for("admin_ai_token_quota") if remote_admin else "",
+        "control_plan_weekly_token_url": url_for("admin_plan_weekly_token_quota") if remote_admin else "",
         "control_reset_ai_token_quota_url": url_for("admin_reset_ai_token_quota") if remote_admin else "",
         "ai_token_quota_reset_labels": AI_TOKEN_QUOTA_RESET_SCOPE_LABELS,
         "ai_token_quota_resets_active": _ai_token_quota_reset_status() if remote_admin else [],
@@ -4628,6 +5548,14 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "dashboard_history_end": dashboard_history_end,
         "dashboard_history_rows": dashboard_history_rows,
         "dashboard_rules": _dashboard_rules(),
+        "ai_cost_metrics": get_ai_cost_metrics(
+            since_at=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
+        ) if remote_admin else {"by_model": [], "total_cost_micros": 0},
+        "ai_price_versions": [
+            row for row in list_ai_price_versions(limit=40)
+            if _env_flag("MIMO_MODEL_ACCESS_ENABLED", False) or str(row.get("provider") or "") != "mimo"
+        ] if remote_admin else [],
+        "control_ai_price_schedule_url": url_for("admin_ai_price_schedule") if remote_admin else "",
         "dashboard_export_url": (
             url_for(
                 "admin_dashboard_export",
@@ -4669,6 +5597,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_payment_qr_url": url_for("admin_payment_qr_settings") if remote_admin else "",
         "control_payment_test_qr_url": url_for("admin_payment_test_qr") if remote_admin else "",
         "control_payment_clear_pending_url": url_for("admin_payment_clear_pending") if remote_admin else "",
+        "control_payment_refund_url": url_for("admin_payment_refund_reversal") if remote_admin else "",
         "membership_db_path": str(MEMBERSHIP_DB_PATH),
         "admin_store_db_path": str(ADMIN_STORE_DB_PATH),
         "journal_alerts_db_path": str(JOURNAL_ALERTS_DB_PATH),
@@ -4677,8 +5606,54 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "feedback_admin_email": FEEDBACK_ADMIN_EMAIL,
         "page_error_reports": _augment_page_error_jump_urls(list_page_error_reports(limit=80)) if remote_admin else [],
         "page_error_open_count": count_open_page_error_reports() if remote_admin else 0,
-        "journal_alert_settings": load_journal_alert_settings(),
-        "journal_sources": list_journal_sources(limit=80) if remote_admin else [],
+        "corpus_repair_status": (
+            corpus_repair_status_snapshot()
+            if remote_admin and admin_module == "content" else {"configured": False, "state": "not_loaded"}
+        ),
+        "corpus_repair_review": (
+            list_corpus_repair_issues(
+                status="manual_review",
+                page=max(1, int(request.args.get("repair_page") or 1))
+                if str(request.args.get("repair_page") or "1").isdigit() else 1,
+                per_page=40,
+            )
+            if remote_admin and admin_module == "content" else {"items": [], "total": 0}
+        ),
+        # 个人文库审核队列（仅网站后台；本地控制台不参与用户内容审核）
+        "mylib_queue": (
+            _mylib_admin_inspection_rows(
+                mylib.list_pending(limit=80), inspect_submission_id=mylib_inspect_id
+            )
+            if remote_admin and admin_module == "content" else
+            mylib.list_pending(limit=80) if remote_admin else []
+        ),
+        "mylib_reviewed": (
+            _mylib_admin_inspection_rows(
+                mylib.list_recent_reviewed(limit=20), inspect_submission_id=mylib_inspect_id
+            )
+            if remote_admin and admin_module == "content" else []
+        ),
+        "mylib_pending_count": mylib.count_pending() if remote_admin else 0,
+        "control_mylib_review_endpoint": "admin_mylib_review",
+        "control_mylib_enabled": bool(remote_admin and mylib_store.configured()),
+        "book_recommendations": (
+            mylib.list_book_recommendations(limit=100)
+            if remote_admin and admin_module == "content" else []
+        ),
+        "book_recommendation_pending_count": (
+            mylib.count_pending_book_recommendations() if remote_admin else 0
+        ),
+        "book_recommendation_storage_enabled": bool(
+            remote_admin and mylib_store.configured()
+        ),
+        "control_mylib_limits_url": url_for("admin_mylib_limits") if remote_admin else "",
+        "mylib_max_books_per_user": mylib.max_books_per_user(),
+        "mylib_ocr_usage": mylib.ocr_usage_overview() if remote_admin else {},
+        "journal_alert_settings": journal_alert_settings,
+        "journal_sources": (
+            [s for s in list_journal_sources(limit=160) if str(s.get("language") or "").lower() == "en"]
+            if remote_admin else []
+        ),
         "journal_source_catalog": journal_source_catalog() if remote_admin else {"zh": [], "en": [], "total": 0, "auto_count": 0},
         "journal_alert_subscriptions": list_recent_journal_subscriptions(limit=80) if remote_admin else [],
         # 旧版全局列表保留（兼容模板/历史数据），批次化审核改用下面的 batch 变量。
@@ -4687,8 +5662,13 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         # 当前批次及其文章（按学科归类后展示），综述与发送都围绕它。
         "journal_current_batch": journal_batch,
         "journal_send_status": journal_send_status,
+        "journal_email_preview_html": journal_email_preview_html,
+        "journal_email_preview_subject": journal_email_preview_subject,
         "journal_batch_pending_articles": journal_batch_pending,
         "journal_batch_ready_articles": journal_batch_ready,
+        "journal_processing_states": journal_processing_states,
+        "journal_workflow": journal_workflow,
+        "journal_fulltext_storage": journal_fulltext_storage_usage() if remote_admin else {},
         # 顺延（deferred）待办：超过单期发布上限、留待后续批次逐步释放的文章数。
         "journal_deferred_count": count_deferred_journal_articles() if remote_admin else 0,
         "journal_recent_batches": list_recent_batches(limit=8) if remote_admin else [],
@@ -5080,7 +6060,11 @@ def _handle_citation_formats_submit(*, remote_admin: bool):
         # 留空或与默认逐字一致 → 不入库（回退到 search.DEFAULT_CITATION_TEMPLATES 默认）。
         if tpl and tpl != DEFAULT_CITATION_TEMPLATES.get(key, "").strip():
             data[key] = tpl
+    gb2025_approved = str(request.form.get("citation_gb2025_approved") or "").strip().lower() in {"1", "true", "on", "yes"}
+    if gb2025_approved and not str(request.form.get("citation_tpl_gb2025") or "").strip():
+        abort(400, description="确认 GB/T 7714—2025 前必须填写经过正式标准核对的模板。")
     set_setting("citation_formats", data, updated_by=_management_actor_label(remote_admin))
+    set_setting("citation_gb2025_approved", gb2025_approved, updated_by=_management_actor_label(remote_admin))
     _apply_citation_formats_to_corpus()
     _log_management_action(
         action="citation_formats.save",
@@ -5088,7 +6072,12 @@ def _handle_citation_formats_submit(*, remote_admin: bool):
         result="success",
         remote_admin=remote_admin,
     )
-    flash("引文检索·引用格式模板已更新。", "success")
+    flash(
+        "引文格式模板已更新；GB/T 7714—2025 已开放。"
+        if gb2025_approved else
+        "引文格式模板已更新；GB/T 7714—2025 仍保持待核准状态。",
+        "success",
+    )
     return _management_redirect(remote_admin, "content")
 
 
@@ -5220,15 +6209,24 @@ def _handle_plans_submit(*, remote_admin: bool):
     _require_management_csrf()
     if not remote_admin:
         abort(403, description="本地控制台只负责诊断和同步，套餐请在网站 /admin 管理。")
+    plan_code = (request.form.get("code") or "").strip()
+    existing_plan = get_plan(plan_code) if plan_code else None
+    existing_daily_ai_limit = (
+        existing_plan.get("daily_ai_token_limit") if existing_plan else None
+    )
     try:
         plan = upsert_plan(
-            code=(request.form.get("code") or "").strip(),
+            code=plan_code,
             name=(request.form.get("name") or "").strip(),
             price_cents=_form_int("price_cents", 0),
             currency=(request.form.get("currency") or "CNY").strip() or "CNY",
             interval_months=_form_int("interval_months", 1),
             description=(request.form.get("description") or "").strip(),
-            daily_ai_token_limit=_form_optional_int("daily_ai_token_limit"),
+            daily_ai_token_limit=(
+                _form_optional_int("daily_ai_token_limit")
+                if "daily_ai_token_limit" in request.form
+                else existing_daily_ai_limit
+            ),
             daily_zhipu_token_limit=_form_optional_int("daily_zhipu_token_limit"),
             features=(request.form.get("features") or "").strip(),
             badge=(request.form.get("badge") or "").strip(),
@@ -5238,6 +6236,7 @@ def _handle_plans_submit(*, remote_admin: bool):
             research_credits=_form_int("research_credits", 0),
             chat_credits=_form_int("chat_credits", 0),
             reader_credits=_form_int("reader_credits", 0),
+            changed_by=_management_actor_label(remote_admin),
         )
     except ValueError as exc:
         _log_management_action(
@@ -5345,9 +6344,10 @@ def _handle_ai_token_quota_submit(*, remote_admin: bool):
     _require_management_csrf()
     if not remote_admin:
         abort(403, description="本地控制台只负责诊断和同步，AI 每日额度请在网站 /admin 管理。")
+    current = _ai_token_daily_settings()
     try:
         values = {
-            key: _form_int(f"ai_token_{key}", default)
+            key: _form_int(f"ai_token_{key}", current.get(key, default))
             for key, default in AI_TOKEN_DAILY_DEFAULTS.items()
         }
     except ValueError:
@@ -5363,6 +6363,51 @@ def _handle_ai_token_quota_submit(*, remote_admin: bool):
         details=values,
     )
     flash("每日 AI token 额度已保存。", "success")
+    return _management_redirect(remote_admin, "members")
+
+
+def _handle_plan_weekly_token_quota_submit(*, remote_admin: bool):
+    """统一保存新、旧会员套餐的每周 token 硬上限。"""
+    _require_management_access(remote_admin)
+    _require_management_csrf()
+    if not remote_admin:
+        abort(403, description="本地控制台只负责诊断和同步，会员 token 额度请在网站 /admin 管理。")
+    editable = [
+        plan for plan in list_plans(include_inactive=True)
+        if str(plan.get("parallel_group") or "") in {"legacy_membership", "new_membership"}
+        and str(plan.get("kind") or "membership") == "membership"
+    ]
+    values: dict[str, int] = {}
+    try:
+        for plan in editable:
+            code = str(plan.get("code") or "")
+            field = f"weekly_token_{code}"
+            raw = request.form.get(field)
+            weekly = int(plan.get("weekly_token_limit") or 0) if raw is None else int(raw)
+            if weekly < 0:
+                raise ValueError(f"套餐 {code} 的每周 token 额度不能小于 0。")
+            values[code] = weekly
+        changed = update_plan_weekly_token_limits(
+            values, changed_by=_management_actor_label(remote_admin),
+        )
+    except (TypeError, ValueError) as exc:
+        _log_management_action(
+            action="plan_weekly_token_quota.save",
+            target="legacy_and_new_memberships",
+            result="invalid_input",
+            remote_admin=remote_admin,
+            details={"error": str(exc)},
+        )
+        flash(str(exc) or "每周 token 额度必须是有效整数。", "warning")
+        return _management_redirect(remote_admin, "members")
+    _log_management_action(
+        action="plan_weekly_token_quota.save",
+        target="legacy_and_new_memberships",
+        result="success",
+        remote_admin=remote_admin,
+        details={"limits": values, "changed": [str(row.get("code") or "") for row in changed]},
+    )
+    flash(f"新老会员每周 token 额度已保存（更新 {len(changed)} 个套餐）。", "success")
     return _management_redirect(remote_admin, "members")
 
 
@@ -5792,19 +6837,9 @@ _JOURNAL_AUDIENCE_LABELS = {
 
 
 def _journal_autosend_status(settings: dict, batch: dict | None, smtp_enabled: bool) -> dict:
-    """生成「综述是否会按时自动群发」的状态提示（控制台综述审核区展示）。"""
-    freq = str(settings.get("send_frequency") or "weekly").lower()
-    weekday = int(settings.get("send_weekday") or 0)
-    send_time = str(settings.get("send_time") or "08:00")
+    """Describe the automated issue pipeline and its explicit scheduled-send gate."""
     audience = str(settings.get("send_audience") or "subscribers").lower()
     plans = list(settings.get("send_audience_plans") or [])
-    wd = _JOURNAL_WEEKDAY_NAMES[weekday] if 0 <= weekday < 7 else "周一"
-    when = {
-        "daily": f"每天 {send_time}",
-        "weekly": f"每周{wd} {send_time}",
-        "biweekly": f"每两周{wd} {send_time}",
-        "monthly": f"每月 {send_time}",
-    }.get(freq, f"每周{wd} {send_time}")
 
     audience_label = _JOURNAL_AUDIENCE_LABELS.get(audience, audience)
     if audience == "members" and plans:
@@ -5824,17 +6859,25 @@ def _journal_autosend_status(settings: dict, batch: dict | None, smtp_enabled: b
 
     review_status = str((batch or {}).get("review_status") or "none")
     if not batch:
-        return {"level": "muted", "text": "暂无批次：请先「① 立即采集本期」或等待发送日前一天 19:00 自动采集。"}
+        return {"level": "muted", "text": "暂无期次：请先采集英文题录，或等待发送日前一天 19:00 自动采集。"}
     if bool(settings.get("automation_paused")):
         return {"level": "paused",
-                "text": "⏸ 自动化已暂停（总闸开启）：不会自动群发；手动按钮仍可用。关闭「暂停自动化」后恢复。"}
+                "text": "⏸ 采集与全文处理已暂停；已人工批准的定时邮件仍会发送，立即发送按钮也仍可用。"}
     if review_status == "approved":
-        text = f"✅ 综述已批准：将于 {when}（北京时间）自动群发给「{audience_label}」（{count_text}）。"
+        weekday = _JOURNAL_WEEKDAY_NAMES[int(settings.get("send_weekday") or 0) % 7]
+        send_time = str(settings.get("send_time") or "09:00")
+        if bool((batch or {}).get("auto_send")):
+            text = (
+                f"✅ 本期已定稿并进入定时发送队列：北京时间{weekday} {send_time} "
+                f"投递给「{audience_label}」（{count_text}）。"
+            )
+        else:
+            text = f"✅ 本期已定稿，但未批准定时发送；可在下方立即发送或重新设置。"
         if blockers:
             return {"level": "warn", "text": text + " ⚠ 但：" + "；".join(blockers) + "。"}
         return {"level": "ok", "text": text}
-    text = (f"⏳ 综述尚未批准（当前状态：{review_status}）：不会自动群发。"
-            f"点「保存并批准」后，将于 {when} 自动发送给「{audience_label}」（{count_text}）。")
+    text = (f"⏳ 系统正自动形成网站期刊目录与待发送邮件（当前状态：{review_status}）。"
+        f"最终核对后，您可一键批准按设定时间发送给「{audience_label}」（{count_text}），或退回重新推进。")
     if blockers:
         text += " 另外：" + "；".join(blockers) + "。"
     return {"level": "pending", "text": text}
@@ -5870,7 +6913,7 @@ def _handle_journal_alert_settings_submit():
             "send_audience_plans": request.form.getlist("send_audience_plans"),
         }
     )
-    set_setting("journal_alerts_settings", values, updated_by=_management_actor_label(True))
+    save_journal_alert_settings(values)
     _log_management_action(
         action="journal_alerts.settings.save",
         target="journal_alerts_settings",
@@ -6050,7 +7093,6 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     if volume is None:
         abort(404, description="未找到对应的卷册信息。")
-
     page_obj = None
     page_index = -1
     for idx, candidate in enumerate(volume.pages):
@@ -6064,7 +7106,13 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     previous_text = volume.pages[page_index - 1].raw_text if page_index > 0 else ""
     next_text = volume.pages[page_index + 1].raw_text if page_index < len(volume.pages) - 1 else ""
     section_title = corpus.get_section_for_page(source_file, page_number) if corpus else None
-    citation = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file) if corpus else ""
+    citations = (
+        corpus._make_citations(volume.book, volume.volume, [page_obj], source_file=source_file)
+        if corpus else {}
+    )
+    citation = citations.get("mkszyj", "")
+    if not citation and corpus:
+        citation = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file)
     page_label = page_obj.printed_page or f"PDF-{page_number}"
     # 公文类书库（党代会报告/全会公报）的权威原文来源链接（供阅读器「原文来源」展示）
     source_url = ""
@@ -6081,9 +7129,11 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         **_book_payload(volume.book),
         "volume": volume.volume,
         "page": page_number,
+        "page_id": page_obj.id,
         "page_label": page_label,
         "section_title": section_title or "",
         "citation": citation,
+        "citations": citations,
         "source_url": source_url,
         "current_text": _clean_text(page_obj.raw_text),
         "previous_excerpt": _clean_text(previous_text, limit=240),
@@ -6756,6 +7806,20 @@ def _apply_request_body_limit():
         request.max_content_length = (release_mb + 8) * 1024 * 1024
     elif endpoint in _MEDIA_UPLOAD_ENDPOINTS:
         request.max_content_length = 40 * 1024 * 1024
+    elif endpoint == "api_mylib_upload":
+        # 个人文库上传整本 PDF：放宽到单本上限 + 8MB 余量（multipart 头部与边界开销）。
+        request.max_content_length = mylib.MAX_PDF_BYTES + 8 * 1024 * 1024
+    elif endpoint == "api_book_recommendation_upload":
+        # 用户荐书同样是整本 PDF；节点端仍会再次做魔数与可打开性校验。
+        request.max_content_length = mylib.BOOK_RECOMMENDATION_MAX_PDF_BYTES + 8 * 1024 * 1024
+    elif endpoint == "api_citation_create_job":
+        request.max_content_length = citation_tasks.MAX_DOCX_BYTES + 8 * 1024 * 1024
+    elif endpoint == "api_ai_conversation_put":
+        # 单条研究综述及其真实引文附件可能略超全站默认 4MB；节点侧仍有独立 5MB 硬上限，
+        # 前端也会先精简引文附件，正文不受影响。
+        request.max_content_length = 6 * 1024 * 1024
+    elif endpoint.startswith("internal_citation_"):
+        request.max_content_length = 64 * 1024 * 1024
 
 
 @app.before_request
@@ -7021,6 +8085,7 @@ def inject_auth_context():
         "app_version_display": app_version_display,
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
+        "citation_assistant_available": _citation_assistant_entry_visible(),
     }
 
 
@@ -7454,9 +8519,7 @@ def delete_account():
 @app.route("/pricing")
 def pricing():
     state = current_view_state()
-    # 营销决策：会员套餐页不再陈列/出售资源包（credit_pack），只展示按月会员套餐；
-    # 已购资源包次数仍可在会员中心查看余额并继续使用，仅停止售卖入口。
-    plans = [p for p in list_active_plans() if (p.get("kind") or "membership") != "credit_pack"]
+    plans = list_active_plans()
     next_url = _safe_next_url(request.args.get("next"))
     return render_template(
         "pricing.html",
@@ -7477,11 +8540,11 @@ def create_checkout(plan_code: str):
     plan = get_plan(plan_code)
     if not plan or not plan.get("is_active"):
         abort(404, description="未找到可购买的套餐。")
-    # 营销决策：已停止售卖资源包（credit_pack）。即便有人持旧链接直达，也一律拒绝下单；
-    # 已购次数仍可正常使用，仅关闭新购入口。
-    if (plan.get("kind") or "membership") == "credit_pack":
-        abort(404, description="该资源包已停止售卖。")
-    order = create_pending_order(user_id=int(g.current_user["id"]), plan_code=plan_code)
+    try:
+        order = create_pending_order(user_id=int(g.current_user["id"]), plan_code=plan_code)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("pricing"))
     return _build_payment_checkout_redirect(order, plan, g.current_user)
 
 
@@ -7591,7 +8654,8 @@ ACCOUNT_BENEFIT_GROUPS = (
             {"key": "dictionary", "label": "马克思主义大辞典", "hint": "词条释义检索"},
             {"key": "static_library", "label": "原文文库", "hint": "中外文原著对照阅读"},
             {"key": "stream_reading", "label": "流式阅读", "hint": "《马克思恩格斯文集》网页适配阅读"},
-            {"key": "journal_alerts", "label": "期刊新文提醒", "hint": "学科文献综述与新文推送"},
+            {"key": "notes", "label": "笔记与知识库", "hint": "阅读器记笔记，跨书聚合到「我的知识库」"},
+            {"key": "personal_library", "label": "个人文库", "hint": "上传自有书籍，审核后私有阅读与检索"},
         ),
     },
     {
@@ -7613,6 +8677,19 @@ def account():
     user_id = int(g.current_user["id"])
     orders = list_orders_for_user(user_id)
     subscriptions = list_subscriptions_for_user(user_id)
+    citation_visible = _citation_assistant_entry_visible()
+    benefit_groups = ACCOUNT_BENEFIT_GROUPS
+    if not citation_visible:
+        benefit_groups = tuple(
+            {
+                **group,
+                "features": tuple(
+                    item for item in group["features"]
+                    if item.get("key") != "citation_assistant"
+                ),
+            }
+            for group in ACCOUNT_BENEFIT_GROUPS
+        )
     return render_template(
         "account.html",
         title="会员中心",
@@ -7621,8 +8698,10 @@ def account():
         subscriptions=subscriptions,
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
         plans=list_active_plans(),
-        benefit_groups=ACCOUNT_BENEFIT_GROUPS,
+        benefit_groups=benefit_groups,
         notes_access_enabled=_notes_access_enabled(),
+        personal_library_enabled=_personal_library_enabled(),
+        citation_assistant_enabled=_citation_assistant_enabled_for_user(),
         payment_ready=False,
         membership_db_path=str(MEMBERSHIP_DB_PATH),
     )
@@ -7636,7 +8715,7 @@ def account_journal_alerts():
     journal_alerts_allowed = bool(_feature_effective_for_user("journal_alerts"))
     return render_template(
         "journal_alerts.html",
-        title="期刊新文提醒",
+        title="国外文献精选周刊",
         app_name=APP_NAME,
         state=current_view_state(),
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
@@ -7650,7 +8729,7 @@ def account_journal_alerts():
 def account_journal_alerts_subscribe():
     _require_login_page()
     if not _feature_effective_for_user("journal_alerts"):
-        abort(403, description="当前账号暂未开放期刊提醒权限。")
+        abort(403, description="国外文献精选周刊仅供有效会员使用。")
     smtp_config = load_smtp_config()
     if not smtp_config.enabled:
         flash(render_site_text("journal.email_unavailable"), "warning")
@@ -7683,7 +8762,7 @@ def account_journal_alerts_unsubscribe():
     subscription_id = request.form.get("subscription_id", type=int) or 0
     if not journal_unsubscribe_by_id(int(g.current_user["id"]), subscription_id):
         abort(404, description="未找到对应订阅。")
-    flash("期刊新文提醒已退订。", "success")
+    flash("国外文献精选周刊邮件已退订。", "success")
     return redirect(url_for("account_journal_alerts"))
 
 
@@ -7692,7 +8771,7 @@ def journal_alerts_confirm(token: str):
     subscription = confirm_subscription(token)
     if not subscription:
         abort(404, description="确认链接无效或已过期。")
-    flash("期刊新文提醒已确认，后续有新文章会发送到该邮箱。", "success")
+    flash("国外文献精选周刊邮件订阅已确认，后续每期内容会发送到该邮箱。", "success")
     return redirect(url_for("login"))
 
 
@@ -7701,43 +8780,48 @@ def journal_alerts_unsubscribe_token(token: str):
     subscription = journal_unsubscribe_by_token(token)
     if not subscription:
         abort(404, description="退订链接无效。")
-    flash("期刊新文提醒已退订。", "success")
+    flash("国外文献精选周刊邮件已退订。", "success")
     return redirect(url_for("index"))
 
 
 @app.route("/journal-alerts/latest")
 def journal_alerts_latest():
-    # 首页「期刊订阅」栏目入口：展示本期（当前批次）已发布文章；
-    # 支持 ?d=<批次id> 查阅上一期/历史期数（仅限已发送/已归档批次，防越权枚举草稿）。
-    # 严格按控制台「期刊提醒」权限放行（访客/未授权 → 403）。
-    if not _feature_effective_for_user("journal_alerts"):
-        abort(403, description="当前账号暂未开放期刊提醒权限。")
+    # Published bilingual e-journal. Draft and incomplete metadata-only rows
+    # are never exposed, even when an id is guessed.
+    journal_member_access = bool(_feature_effective_for_user("journal_alerts"))
 
-    # 对外可翻阅的历史期（新→旧，含本期已发送 + 历史归档）。
-    public_batches = list_public_batches()
+    # 会员可翻阅全部公开期；访客与普通注册用户只能看人工明确标记的样刊。
+    all_public_batches = list_public_batches()
+    public_batches = (
+        all_public_batches
+        if journal_member_access
+        else [item for item in all_public_batches if item.get("status") == "sample"]
+    )
 
-    # 默认展示「本期」：最近一次已发送批次（留存到下次发送），尚无发送则退回在建批次预览。
-    default_batch = latest_public_batch()
+    # 会员默认展示最新公开期；非会员始终落到公开样刊。
+    default_batch = latest_public_batch() if journal_member_access else (public_batches[0] if public_batches else None)
 
     # ?d 指定历史期：必须命中公开期列表，否则视为不可见/不存在。
     requested_id = request.args.get("d", type=int)
     if requested_id is not None:
         batch = next((b for b in public_batches if int(b["id"]) == requested_id), None)
         if batch is None:
+            if not journal_member_access:
+                # 不向非会员输出正式新期的目录或内容，直接回到样刊并显示会员提示。
+                return redirect(url_for("journal_alerts_latest", member_required="1"))
             abort(404, description="未找到该期内容，或该期暂不可查阅。")
     else:
         batch = default_batch
 
-    articles: list[dict] = []
-    if batch:
-        # 已批准/已发送(ready) 优先；历史归档批次的文章为 archived 态，需一并纳入；
-        # 当批尚未审核时回退 pending_review 以便预览。
-        articles = batch_articles(int(batch["id"]), statuses=("ready",))
-        if not articles:
-            articles = batch_articles(int(batch["id"]), statuses=("ready", "pending_review", "archived"))
-    review_html = ""
-    if batch and str(batch.get("review_status") or "") == "approved":
-        review_html = str(batch.get("review_html") or "")
+    articles = public_batch_articles(int(batch["id"])) if batch else []
+    article_groups = [
+        {
+            "name": discipline,
+            "articles": [a for a in articles if a.get("ai_discipline") == discipline],
+        }
+        for discipline in JOURNAL_DISCIPLINES
+    ]
+    article_groups = [group for group in article_groups if group["articles"]]
 
     # 翻页：在公开期列表中定位当前批次，更旧者为「上一期」、更新者为「下一期」。
     # 若当前展示的是在建批次（不在公开列表），其「上一期」即最新一次已发送批次。
@@ -7757,49 +8841,72 @@ def journal_alerts_latest():
     )
     return render_template(
         "journal_latest.html",
-        title=("历史期 · 期刊新文" if is_historical else "本期期刊新文"),
+        title=("历史期 · 国外文献精选周刊" if is_historical else "国外文献精选周刊"),
         app_name=APP_NAME,
         state=current_view_state(),
         batch=batch,
         articles=articles,
-        review_html=review_html,
+        article_groups=article_groups,
         public_batches=public_batches,
         prev_batch=prev_batch,
         next_batch=next_batch,
         is_historical=is_historical,
         viewing_id=(int(batch["id"]) if batch else None),
-        can_subscribe=bool(_feature_effective_for_user("journal_alerts") and load_smtp_config().enabled),
+        can_subscribe=bool(journal_member_access and load_smtp_config().enabled),
+        journal_member_access=journal_member_access,
+        member_required=bool(request.args.get("member_required")),
+        upgrade_url=url_for("pricing", next=request.path),
+    )
+
+
+@app.route("/journal-alerts/articles/<int:article_id>")
+def journal_alerts_article(article_id: int):
+    _rate_limit_reader_ip_or_abort("journalarticle")
+    article = get_public_journal_article(article_id)
+    if not article:
+        abort(404, description="未找到该文章，或文章尚未完成双语处理。")
+    digest_id = int(article.get("batch_id") or 0)
+    digest = get_batch(digest_id)
+    journal_member_access = bool(_feature_effective_for_user("journal_alerts"))
+    is_public_sample = bool(digest and digest.get("status") == "sample")
+    if not journal_member_access and not is_public_sample:
+        return redirect(url_for("journal_alerts_latest", member_required="1"))
+    document = load_journal_document(article_id)
+    if not document or int(document.get("schema_version") or 0) < 2:
+        abort(404, description="该文章的双语流式文档尚未完成。")
+    previous_article, next_article = get_journal_issue_neighbors(article_id, digest_id)
+    return render_template(
+        "journal_reader.html",
+        title=article.get("title_zh") or article.get("title") or "期刊文章",
+        app_name=APP_NAME,
+        state=current_view_state(),
+        article=article,
+        document=document,
+        paragraphs=document.get("paragraphs") or [],
+        batch=digest,
+        previous_article=previous_article,
+        next_article=next_article,
+        sample_public_view=bool(is_public_sample and not journal_member_access),
+        upgrade_url=url_for("pricing", next=request.path),
     )
 
 
 @app.route("/journal-alerts/pdf/<int:article_id>")
 def journal_alerts_pdf(article_id: int):
-    """文献 PDF 按需下载：首次拉取并镜像到本地后直发；拿不到真 PDF 时优雅跳转源站。
-    与「本期新文」页同权限（期刊提醒），仅对可对外的文章开放，防越权枚举草稿。"""
-    if not _feature_effective_for_user("journal_alerts"):
-        abort(403, description="当前账号暂未开放期刊提醒权限。")
+    """Redirect to the verified public PDF; local copies are processing cache."""
     _rate_limit_reader_ip_or_abort("journalpdf")
     article = get_public_journal_article(article_id)
     if not article:
         abort(404, description="未找到该文献。")
+    digest = get_batch(int(article.get("batch_id") or 0))
+    if not _feature_effective_for_user("journal_alerts") and not (
+        digest and digest.get("status") == "sample"
+    ):
+        return redirect(url_for("journal_alerts_latest", member_required="1"))
     pdf_url = str(article.get("pdf_url") or "").strip()
     if not pdf_url:
         abort(404, description="该文献暂无可下载的 PDF。")
-    # NCPSSD 文章页（全文受登录+WAF 限制）：直接跳转源站阅读，不做无谓镜像。
-    if _is_ncpssd_landing_url(pdf_url):
-        return redirect(pdf_url)
-    cache_path = _mirror_journal_pdf_to_cache(article_id, pdf_url)
-    _prune_journal_pdf_cache_if_due()
-    if cache_path is None:
-        return redirect(pdf_url)  # 镜像失败（非 PDF/被拦/超限）→ 跳转来源
-    return send_file(
-        cache_path,
-        mimetype="application/pdf",
-        as_attachment=True,
-        download_name=_journal_pdf_download_name(article),
-        conditional=True,
-        max_age=86400,
-    )
+    return redirect(pdf_url)
 
 
 @app.route("/control")
@@ -8117,6 +9224,11 @@ def admin_ai_token_quota():
     return _handle_ai_token_quota_submit(remote_admin=True)
 
 
+@app.post("/admin/plan-weekly-token-quota")
+def admin_plan_weekly_token_quota():
+    return _handle_plan_weekly_token_quota_submit(remote_admin=True)
+
+
 @app.post("/admin/reset-ai-token-quota")
 def admin_reset_ai_token_quota():
     return _handle_reset_ai_token_quota_submit(remote_admin=True)
@@ -8316,7 +9428,7 @@ def admin_email_test():
     body = (
         "您好：\n\n"
         "这是一封全站发信测试邮件。\n\n"
-        "收到这封邮件，表示注册邮箱验证码、找回密码、期刊新文提醒将使用同一套 SMTP 发信配置。"
+        "收到这封邮件，表示注册邮箱验证码、找回密码、国外文献精选周刊将使用同一套 SMTP 发信配置。"
     )
     try:
         send_email(smtp_config, to_email, "马著作检索发信测试", body, _plain_text_html(body))
@@ -8571,11 +9683,60 @@ def admin_journal_run():
     action = (request.form.get("action") or "send").strip().lower()
     base_url = journal_alert_public_base_url(DEPLOYMENT)
     busy_msg = "已有期刊后台任务进行中，请稍后刷新本页在运行记录中查看结果。"
+    retry_unavailable = False
 
-    # 新批次化操作：仅采集 / 生成综述 / 发送综述。
+    # The console's primary button is state-aware.  Keep the individual legacy
+    # actions below as recovery tools, while routing normal operation through a
+    # single safe next step.
+    if action == "advance":
+        workflow = _journal_workflow_snapshot(current_batch())
+        next_action = str(workflow.get("next_action") or "")
+        if next_action == "review_send":
+            flash("已到最终人工环节：请在本页下方核对目录、邮件预览与收件范围。", "success")
+            return _management_redirect(True, "journal-alerts")
+        if next_action == "retry_fulltext":
+            action = "process_fulltext"
+            retry_unavailable = True
+        elif next_action in {"collect", "process_fulltext", "generate_review"}:
+            action = next_action
+        else:
+            flash("当前没有需要手动推进的期刊任务。", "warning")
+            return _management_redirect(True, "journal-alerts")
+
+    # Bilingual issue operations: collect metadata / process full text / preview / send.
     if action in {"collect", "fetch_only"}:
-        if _start_journal_job_async("collect", lambda: collect_batch(ai_client=AI_CLIENT)):
+        issue = current_batch()
+        if issue and str(issue.get("status") or "") == "published":
+            flash("本期已整期批准并锁定；请先完成文章卡片邮件发送，再采集下一期。", "warning")
+            return _management_redirect(True, "journal-alerts")
+        if _start_journal_job_async(
+            "collect", lambda: collect_batch(ai_client=None, reuse_open_batch=True)
+        ):
             flash("已开始采集，请稍后刷新本页在「运行记录 / 批次」中查看结果。", "success")
+        else:
+            flash(busy_msg, "warning")
+        return _management_redirect(True, "journal-alerts")
+
+    if action == "process_fulltext":
+        batch = current_batch()
+        if not batch:
+            flash("当前没有待处理期次，请先采集。", "warning")
+            return _management_redirect(True, "journal-alerts")
+        if str(batch.get("status") or "") == "published":
+            flash("本期已整期批准并锁定，不能继续改变文章内容。", "warning")
+            return _management_redirect(True, "journal-alerts")
+        bid = int(batch["id"])
+        if _start_journal_job_async(
+            "process_fulltext",
+            lambda: process_journal_fulltext(
+                bid,
+                limit=5,
+                retry_unavailable=retry_unavailable,
+                translate=True,
+            ),
+        ):
+            retry_text = "重试取得公开 PDF 并" if retry_unavailable else "获取公开 PDF 并"
+            flash(f"已开始为期次 #{bid} {retry_text}进行 MiMo 双语处理。", "success")
         else:
             flash(busy_msg, "warning")
         return _management_redirect(True, "journal-alerts")
@@ -8585,57 +9746,25 @@ def admin_journal_run():
         if not batch:
             flash("当前没有可生成综述的批次，请先采集。", "warning")
             return _management_redirect(True, "journal-alerts")
-        if not AI_CONFIG.enabled:
-            flash("AI 未启用，将生成降级版综述（仅分组列出标题与引文）。", "warning")
         bid = int(batch["id"])
         if _start_journal_job_async(
-            "generate_review", lambda: generate_batch_review(bid, ai_client=AI_CLIENT, auto_approve=False)
+            "generate_preview", lambda: generate_batch_review(bid, ai_client=None, auto_approve=False)
         ):
-            flash(f"已开始生成批次 #{bid} 的文献综述，请稍后刷新本页审核。", "success")
+            flash(f"已生成期次 #{bid} 的确定性目录预览，请审核整期。", "success")
         else:
             flash(busy_msg, "warning")
         return _management_redirect(True, "journal-alerts")
 
     if action in {"send_batch", "send"}:
-        smtp_config = load_smtp_config()
-        if not smtp_config.enabled:
-            flash("全站发信邮箱尚未配置，无法发送。", "warning")
-            return _management_redirect(True, "journal-alerts")
-        if _start_journal_job_async(
-            "send_batch",
-            lambda: send_journal_batch(base_url=base_url, smtp_config=smtp_config, force=True),
-        ):
-            flash("已开始发送文献综述邮件，请稍后在投递记录中查看发送结果。", "success")
-        else:
-            flash(busy_msg, "warning")
+        flash("邮件只能在本期预览下方勾选最终确认后发送。", "warning")
         return _management_redirect(True, "journal-alerts")
 
     if action == "send_only":
-        # 兼容旧版：把已就绪文章逐篇发出（不重新抓取，不走综述）。
-        smtp_config = load_smtp_config()
-        if not smtp_config.enabled:
-            flash("全站发信邮箱尚未配置，无法发送。", "warning")
-            return _management_redirect(True, "journal-alerts")
-        if _start_journal_job_async(
-            "send_only",
-            lambda: deliver_ready_journal_articles(base_url=base_url, smtp_config=smtp_config),
-        ):
-            flash("已开始发送期刊摘要邮件，请稍后查看投递记录。", "success")
-        else:
-            flash(busy_msg, "warning")
+        flash("旧版逐篇发送入口已关闭；请在本期预览下方执行最终确认。", "warning")
         return _management_redirect(True, "journal-alerts")
 
-    # 兜底：采集并尝试发送（旧行为）。
-    smtp_config = load_smtp_config()
-    if _start_journal_job_async(
-        "run_once",
-        lambda: run_journal_alerts_once(
-            ai_client=AI_CLIENT, base_url=base_url, smtp_config=smtp_config, send=True
-        ),
-    ):
-        flash("已开始期刊提醒检测与发送，请稍后在运行记录中查看结果。", "success")
-    else:
-        flash(busy_msg, "warning")
+    # 未知/旧版动作一律不触发发信，避免绕过最终确认复选框。
+    flash("未知操作；邮件未发送。", "warning")
     return _management_redirect(True, "journal-alerts")
 
 
@@ -8658,7 +9787,7 @@ def admin_journal_approve_all():
     _require_admin()
     _require_management_csrf()
     approved = approve_all_pending_journal_articles()
-    flash(f"已批准 {approved} 篇待审文章，将在下次发送时进入摘要。", "success")
+    flash(f"已将 {approved} 篇题录纳入全文处理队列；这不等于发布批准，仍须整期审核。", "success")
     return _management_redirect(True, "journal-alerts")
 
 
@@ -8704,6 +9833,21 @@ def admin_journal_article_review(article_id: int):
     _require_admin()
     _require_management_csrf()
     action = (request.form.get("action") or "").strip().lower()
+    if action in {"takedown", "restore"}:
+        try:
+            if action == "takedown":
+                article = set_journal_article_takedown(
+                    article_id, request.form.get("reason") or "管理员紧急下架"
+                )
+                message = "已立即从电子刊目录和流式阅读页下架；数据盘审计产物未删除。"
+            else:
+                article = clear_journal_article_takedown(article_id)
+                message = "已撤销下架；文章仅在仍满足完整公开门槛时恢复显示。"
+        except ValueError as exc:
+            flash(str(exc), "warning")
+        else:
+            flash(f"文章“{(article or {}).get('title') or article_id}”：{message}", "success")
+        return _management_redirect(True, "journal-alerts")
     status = {
         "approve": "ready",
         "ignore": "ignored",
@@ -8757,11 +9901,11 @@ _JOURNAL_REVIEW_JOBS_LOCK = threading.Lock()
 
 def _run_journal_review_async(digest_id: int) -> None:
     try:
-        generate_batch_review(int(digest_id), ai_client=AI_CLIENT, auto_approve=False)
+        generate_batch_review(int(digest_id), ai_client=None, auto_approve=False)
     except Exception as exc:
-        LOGGER.warning("后台综述生成失败 digest=%s: %s", digest_id, exc)
+        LOGGER.warning("后台整期目录生成失败 digest=%s: %s", digest_id, exc)
         try:
-            update_batch_review(int(digest_id), review_status="生成失败")
+            update_batch_review(int(digest_id), review_status="failed")
         except Exception:
             pass
     finally:
@@ -8775,23 +9919,23 @@ def admin_journal_digest_review(digest_id: int):
     _require_management_csrf()
     action = (request.form.get("action") or "").strip().lower()
     if action == "regenerate":
-        # 已在后台跑就别重复触发（防管理员连点/刷新重提叠加多份 AI 调用）。
+        # 目录是确定性汇总；单飞避免管理员连点造成重复写入。
         with _JOURNAL_REVIEW_JOBS_LOCK:
             already = int(digest_id) in _JOURNAL_REVIEW_JOBS
             if not already:
                 _JOURNAL_REVIEW_JOBS.add(int(digest_id))
         if already:
-            flash("该批次综述正在后台生成中，请稍候刷新本页查看。", "warning")
+            flash("该期目录正在后台刷新，请稍候查看。", "warning")
             return _management_redirect(True, "journal-alerts")
         try:
-            update_batch_review(int(digest_id), review_status="生成中")
+            update_batch_review(int(digest_id), review_status="generating")
         except Exception:
             pass
         threading.Thread(
             target=_run_journal_review_async, args=(int(digest_id),),
             name=f"journal-review-{digest_id}", daemon=True,
         ).start()
-        flash("综述已在后台开始生成（多学科 AI 逐一撰写，通常 1–3 分钟）。完成后本页「综述状态」会转为待审核，请稍后刷新审核。", "success")
+        flash("整期双语目录正在后台刷新；完成后即可进行整期人工审核。", "success")
         return _management_redirect(True, "journal-alerts")
     if action == "save":
         review_md = request.form.get("review_md") or ""
@@ -8803,7 +9947,57 @@ def admin_journal_digest_review(digest_id: int):
         )
         flash("综述草稿已保存。", "success")
         return _management_redirect(True, "journal-alerts")
-    if action == "approve":
+    if action == "reprocess":
+        batch = get_batch(int(digest_id)) or {}
+        if str(batch.get("status") or "") in {"published", "sent", "archived"}:
+            flash("本期已经批准锁定，不能再改变文章；如需修正，请先紧急下架相关条目。", "warning")
+            return _management_redirect(True, "journal-alerts")
+
+        def _reprocess_and_refresh() -> dict:
+            result = process_journal_fulltext(
+                int(digest_id),
+                limit=10,
+                retry_unavailable=True,
+                translate=True,
+            )
+            generate_batch_review(int(digest_id), ai_client=None, auto_approve=False)
+            return result
+
+        update_batch_review(
+            int(digest_id),
+            review_status="generating",
+            status="reviewing",
+            auto_send=False,
+        )
+        if _start_journal_job_async("reprocess_and_refresh", _reprocess_and_refresh):
+            flash("已重新推进全文获取、GLM/PaddleOCR 复核和目录/邮件刷新；完成后本页会出现新的最终预览。", "success")
+        else:
+            flash("已有期刊后台任务进行中，请稍后刷新再试。", "warning")
+        return _management_redirect(True, "journal-alerts")
+    if action in {"approve", "approve_schedule"}:
+        complete_articles = public_batch_articles(int(digest_id))
+        if not complete_articles:
+            flash("本期尚无通过公开 PDF 与完整双语处理门槛的文章，不能批准。", "warning")
+            return _management_redirect(True, "journal-alerts")
+        schedule = action == "approve_schedule"
+        if schedule:
+            smtp_config = load_smtp_config()
+            settings = load_journal_alert_settings()
+            if not smtp_config.enabled:
+                flash("全站发信邮箱尚未配置，不能加入定时发送队列。", "warning")
+                return _management_redirect(True, "journal-alerts")
+            try:
+                recipients, _ = resolve_journal_recipients(
+                    str(settings.get("send_audience") or "subscribers"),
+                    plan_codes=settings.get("send_audience_plans") or [],
+                    emails=[],
+                )
+            except Exception as exc:  # noqa: BLE001
+                flash(f"定时发送受众校验失败：{exc}", "warning")
+                return _management_redirect(True, "journal-alerts")
+            if not recipients:
+                flash("当前默认受众没有可用收件人，不能加入定时发送队列。", "warning")
+                return _management_redirect(True, "journal-alerts")
         review_md = request.form.get("review_md")
         if review_md is not None:
             update_batch_review(
@@ -8814,14 +10008,25 @@ def admin_journal_digest_review(digest_id: int):
         update_batch_review(
             digest_id,
             review_status="approved",
-            status="ready_to_send",
+            status="published",
+            auto_send=schedule,
             mark_approved=True,
         )
-        flash("综述已批准，可在预定时间发送或立即发送。", "success")
+        write_journal_issue_snapshot(get_batch(digest_id) or {}, complete_articles)
+        if schedule:
+            settings = load_journal_alert_settings()
+            weekday = _JOURNAL_WEEKDAY_NAMES[int(settings.get("send_weekday") or 0) % 7]
+            send_time = str(settings.get("send_time") or "09:00")
+            flash(
+                f"整期电子刊已批准并锁定（{len(complete_articles)} 篇）；将于北京时间{weekday} {send_time}自动发送。",
+                "success",
+            )
+        else:
+            flash(f"整期电子刊已批准（{len(complete_articles)} 篇），尚未加入定时发送。", "success")
         return _management_redirect(True, "journal-alerts")
     if action == "reject":
         update_batch_review(digest_id, review_status="pending", status="reviewing")
-        flash("已退回综述，待修改后重新批准。", "success")
+        flash("已退回本期电子刊，待修正后重新批准。", "success")
         return _management_redirect(True, "journal-alerts")
     flash("未知的综述操作。", "warning")
     return _management_redirect(True, "journal-alerts")
@@ -8837,15 +10042,21 @@ def admin_journal_digest_send(digest_id: int):
         return _management_redirect(True, "journal-alerts")
     mode = (request.form.get("recipient_mode") or "subscribers").strip().lower()
     plan_codes = request.form.getlist("recipient_plans")
-    emails = [line.strip() for line in (request.form.get("recipient_emails") or "").splitlines() if line.strip()]
-    if mode == "specific" and not emails:
-        flash("请填写至少一个收件邮箱。", "warning")
+    if mode not in {"subscribers", "members"}:
+        flash("国外文献精选周刊仅可发送给有效会员。", "warning")
+        return _management_redirect(True, "journal-alerts")
+    if (request.form.get("confirm_final") or "").strip() != f"send-{digest_id}":
+        flash("请先勾选“已核对本期目录与邮件预览”，再执行最终发送。", "warning")
+        return _management_redirect(True, "journal-alerts")
+    complete_articles = public_batch_articles(int(digest_id))
+    if not complete_articles:
+        flash("本期尚无通过公开 PDF 与完整双语处理门槛的文章，不能发送。", "warning")
         return _management_redirect(True, "journal-alerts")
     # 收件人解析是快查询，同步做以便即时校验（无人可发/参数错当场提示）；真正逐封阻塞 SMTP 的发送
     # 改为后台单飞，避免向「全部注册用户」逐封发信把请求线程钉死数分钟 / 触 CF 100s 超时。
     try:
         recipients, enforce_permission = resolve_journal_recipients(
-            mode, plan_codes=plan_codes, emails=emails
+            mode, plan_codes=plan_codes, emails=[]
         )
     except Exception as exc:  # noqa: BLE001
         flash(f"收件人解析失败：{exc}", "warning")
@@ -8856,21 +10067,33 @@ def admin_journal_digest_send(digest_id: int):
     base_url = journal_alert_public_base_url(DEPLOYMENT)
     mode_label = {
         "subscribers": "邮箱订阅者", "members": "付费会员",
-        "registered": "全部注册用户", "specific": "特定邮箱",
     }.get(mode, mode)
-    started = _start_journal_job_async(
-        "digest_send",
-        lambda: send_journal_batch(
+    def _approve_lock_and_send() -> dict:
+        # This is the single human gate: lock the exact preview, publish its
+        # snapshot, then deliver.  Scheduled workers never execute this path.
+        update_batch_review(
+            digest_id,
+            review_status="approved",
+            status="published",
+            auto_send=False,
+            mark_approved=True,
+        )
+        write_journal_issue_snapshot(get_batch(digest_id) or {}, complete_articles)
+        return send_journal_batch(
             base_url=base_url,
             smtp_config=smtp_config,
             digest_id=digest_id,
             force=True,
             recipients=recipients,
             enforce_permission=enforce_permission,
-        ),
+        )
+
+    started = _start_journal_job_async(
+        "digest_send",
+        _approve_lock_and_send,
     )
     if started:
-        flash(f"已开始向「{mode_label}」（约 {len(recipients)} 人）发送文献综述邮件，请稍后查看投递记录。", "success")
+        flash(f"已开始向「{mode_label}」（约 {len(recipients)} 人）发送本期文章卡片邮件，请稍后查看投递记录。", "success")
     else:
         flash("已有期刊后台任务进行中，请稍后再试。", "warning")
     return _management_redirect(True, "journal-alerts")
@@ -8890,8 +10113,11 @@ def admin_journal_archive_old():
 def admin_journal_purge_archived():
     _require_admin()
     _require_management_csrf()
-    removed = purge_archived_articles()
-    flash(f"已硬删除 {removed} 篇已归档文章。", "success")
+    result = purge_old_journal_source_pdfs(retain_issues=12)
+    flash(
+        f"已按保留策略清理 {result['pdfs']} 个源 PDF；双语正文、引文和来源凭据均永久保留。",
+        "success",
+    )
     return _management_redirect(True, "journal-alerts")
 
 
@@ -8998,6 +10224,69 @@ def admin_payment_clear_pending():
         count = clear_pending_orders()
         flash(f"已清理全部 {count} 笔待支付订单（置为已过期）。所有用户下次下单都会按当前价新建。", "success")
     return _management_redirect(True, "payments")
+
+
+@app.post("/admin/payments/refund-reversal")
+def admin_payment_refund_reversal():
+    _require_admin()
+    _require_management_csrf()
+    order_no = str(request.form.get("order_no") or "").strip()
+    reason = str(request.form.get("reason") or "").strip()
+    refund_reference = str(request.form.get("refund_reference") or "").strip()
+    if not order_no or not reason:
+        flash("请填写已支付订单号和退款原因。", "warning")
+        return _management_redirect(True, "payments")
+    try:
+        result = reverse_paid_order(
+            order_no=order_no, reason=reason, refund_reference=refund_reference,
+        )
+        record_payment_event(
+            order_no=order_no, provider="admin", event_type="refund_reversal",
+            payload={"reason": reason, "refund_reference": refund_reference, "idempotent": bool(result.get("idempotent"))},
+        )
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return _management_redirect(True, "payments")
+    flash(("该退款通知已处理，未重复冲正。" if result.get("idempotent") else "已冲正订单权益与未使用 AI 余额；已发生的上游成本保留在审计账本。"), "success")
+    return _management_redirect(True, "payments")
+
+
+@app.post("/admin/ai/prices/schedule")
+def admin_ai_price_schedule():
+    _require_admin()
+    _require_management_csrf()
+    raw_effective = str(request.form.get("effective_from") or "").strip()
+    try:
+        effective_dt = datetime.fromisoformat(raw_effective)
+        if effective_dt.tzinfo is None:
+            effective_dt = effective_dt.replace(tzinfo=timezone(timedelta(hours=8)))
+        effective_text = effective_dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+        version = schedule_ai_price_version(
+            provider=str(request.form.get("provider") or ""),
+            model=str(request.form.get("model") or ""),
+            effective_from=effective_text,
+            time_band=str(request.form.get("time_band") or "all"),
+            cache_input_per_million_micros=price_yuan_to_micros(
+                str(request.form.get("cache_input_price") or "0")
+            ),
+            input_per_million_micros=price_yuan_to_micros(
+                str(request.form.get("input_price") or "0")
+            ),
+            output_per_million_micros=price_yuan_to_micros(
+                str(request.form.get("output_price") or "0")
+            ),
+            actor_user_id=int(g.current_user["id"]),
+            note=str(request.form.get("note") or ""),
+        )
+    except (TypeError, ValueError) as exc:
+        flash(str(exc), "warning")
+        return _management_redirect(True, "ai")
+    flash(
+        f"已安排 {version['provider']} / {version['model']} / {version['time_band']} "
+        f"价格于 {version['effective_from']} 生效；旧版本与审计记录均已保留。",
+        "success",
+    )
+    return _management_redirect(True, "ai")
 
 
 @app.post("/admin/desktop/devices")
@@ -9150,20 +10439,23 @@ def zpay_notify():
     return "success"
 
 
-# --- 注册用户省际分布（公告栏下方卡片的数据源）---------------------------------
-# 离线 ip2region 把每个注册用户的代表 IP 归类成省份/国家，只对外暴露聚合后的省级计数与
-# 海外国家计数；单个用户 IP 绝不出现在任何响应里。聚合结果按 TTL 进程级缓存，避免每请求全表扫描。
+# --- 每周检索词句 + 注册用户分布（首页第一行两张独立卡片）--------------------
 REGISTRY_GEO_SETTING_KEY = "index_registry_geo_enabled"
 _REGISTRY_GEO_TTL_SECONDS = 60.0
 _registry_geo_cache: dict = {"at": 0.0, "payload": None}
 _registry_geo_lock = threading.Lock()
+_community_weekly_cache: dict = {"at": 0.0, "payload": None}
+_community_weekly_lock = threading.Lock()
+COMMUNITY_TREND_PUBLIC_MIN_ACTORS = max(
+    2, int(os.environ.get("COMMUNITY_TREND_PUBLIC_MIN_ACTORS", "2") or "2")
+)
 
 
 REGISTRY_GEO_COUNT_KEY = "index_registry_geo_count"
 
 
 def _registry_geo_enabled() -> bool:
-    """公告栏下方「注册用户省际分布」总开关（默认开；后台 set_setting 可关，关后卡片与接口都隐藏）。"""
+    """首页「每周读者动态 + 注册用户分布」两张卡片的总开关。"""
     raw = get_setting(REGISTRY_GEO_SETTING_KEY, "1")
     return str(raw).strip().lower() not in {"0", "false", "off", "no", ""}
 
@@ -9180,7 +10472,7 @@ def _registry_geo_count_config() -> dict:
 
 
 def _registry_geo_editor_settings() -> dict:
-    """控制台「注册用户分布」编辑器的当前值（开关 + 计数模式 + 自定义文本）。"""
+    """控制台首页动态/分布编辑器的当前值（开关 + 注册总数显示方式）。"""
     cfg = _registry_geo_count_config()
     return {"enabled": _registry_geo_enabled(), "mode": cfg["mode"], "custom": cfg["custom"]}
 
@@ -9209,7 +10501,6 @@ def _build_registry_geo_payload() -> dict:
     total = count_registered_users()
     prov_counts: dict[str, int] = {}
     overseas: dict[str, dict] = {}
-    located = 0
     domestic_unknown = 0
     ip_user_count = 0
     for ip, count in get_user_ip_counts():
@@ -9220,14 +10511,14 @@ def _build_registry_geo_payload() -> dict:
             prov = result.get("province")
             if prov:
                 prov_counts[prov] = prov_counts.get(prov, 0) + count
-                located += count
             else:
                 domestic_unknown += count
         elif scope == "overseas":
-            code = result.get("country_code") or "??"
-            slot = overseas.setdefault(code, {"name": result.get("country") or code, "count": 0})
+            code = str(result.get("country_code") or result.get("country") or "海外")
+            slot = overseas.setdefault(
+                code, {"name": result.get("country") or code, "count": 0},
+            )
             slot["count"] += count
-            located += count
         else:
             domestic_unknown += count
     no_ip = max(0, total - ip_user_count)
@@ -9269,7 +10560,7 @@ def _get_registry_geo_payload() -> dict:
 
 @app.get("/api/community/registry-geo")
 def api_community_registry_geo():
-    """公开：注册用户总数 + 省际分布 + 海外国家计数（仅聚合计数，无任何明细 IP）。"""
+    """公开：注册用户总数与省级聚合分布；绝不返回单个用户或 IP。"""
     if not _registry_geo_enabled():
         return jsonify({"ok": False, "disabled": True}), 200
     payload = dict(_get_registry_geo_payload())
@@ -9291,6 +10582,48 @@ def api_community_registry_geo():
     return jsonify(payload)
 
 
+def _build_community_weekly_payload() -> dict:
+    trends = get_community_weekly_trends(
+        public_min_actors=COMMUNITY_TREND_PUBLIC_MIN_ACTORS,
+        search_limit=6,
+    )
+    return {
+        "ok": True,
+        "week_start": trends["week_start"],
+        "week_end": trends["week_end"],
+        "previous_week_start": trends["previous_week_start"],
+        "searches_carried": int(trends.get("searches_carried") or 0),
+        # 公开接口只给六条榜项文字，不暴露具体次数、用户或卷册阅读数据。
+        "top_searches": [
+            str(item.get("text") or "")
+            for item in trends["searches"][:6]
+            if item.get("text")
+        ],
+    }
+
+
+def _get_community_weekly_payload() -> dict:
+    now = time.time()
+    cached = _community_weekly_cache.get("payload")
+    if cached is not None and now - _community_weekly_cache.get("at", 0.0) < _REGISTRY_GEO_TTL_SECONDS:
+        return cached
+    payload = _build_community_weekly_payload()
+    with _community_weekly_lock:
+        _community_weekly_cache["payload"] = payload
+        _community_weekly_cache["at"] = time.time()
+    return payload
+
+
+@app.get("/api/community/weekly")
+def api_community_weekly():
+    """公开：每周检索最多的六条词句；样本不足时由统计层从上周依次补足。"""
+    if not _registry_geo_enabled():
+        return jsonify({"ok": False, "disabled": True}), 200
+    payload = dict(_get_community_weekly_payload())
+    payload["generated_at"] = _display_datetime(utc_now_text())
+    return jsonify(payload)
+
+
 def _render_index_page(layout_page: str | None = None):
     """旧首页与「四页面布局」共用同一份上下文与模板。
 
@@ -9308,7 +10641,10 @@ def _render_index_page(layout_page: str | None = None):
     # 书目列表对所有人可见（含游客）：只取决于资料是否就绪，不看登录/会员。列出书名≠授予阅读权——
     # 点书进阅读器后，能否读 PDF 仍由阅读器路由按站点「访客权限」策略裁决；AI 导学在阅读器内另按登录门控。
     if layout_page == "read" and _feature_is_available("library"):
-        read_book_groups = _library_volume_groups(_library_volumes())
+        # 阅读栏目以「已公开书目 + manifest 已登记卷册」为陈列基线，不能再把当前
+        # corpus.sqlite 是否恰好含有该卷误当成上线状态。这样即使数据部署误回滚，
+        # 已上线著作也不会从界面静默消失；未索引卷在抽屉中会明确标为恢复中。
+        read_book_groups = _library_volume_groups(_library_catalog_volumes())
         _ai_ok = bool(_feature_is_available("ai") and _feature_effective_for_user("ai"))
         # 与中文 PDF 书目一致：对所有身份陈列外文原著书名（require_access=False），真正阅读权
         # 仍在 wenku_reader 入口按 static_library 门控。否则非会员进阅读页时外文原著整组消失。
@@ -9329,6 +10665,7 @@ def _render_index_page(layout_page: str | None = None):
                             "file": _v["source_file"],
                             "pages": _v.get("page_count") or 0,
                             "toc": _v.get("toc_count") or 0,
+                            "indexed": bool(_v.get("catalog_indexed", True)),
                             "span": _v.get("date_span") or "",     # 收录文献时间跨度
                             "unit": _v.get("volume_unit") or "卷",  # 分卷单位（卷/册）
                             "url": _v["viewer_url"],
@@ -9382,8 +10719,16 @@ def _render_index_page(layout_page: str | None = None):
         book_scope_tree=_book_scope_tree(),  # 「精选到书/卷」多选控件数据（按著作群分组+卷号）
         ai_web_access_enabled=_ai_web_access_enabled(),
         notes_access_enabled=_notes_access_enabled(),  # 会员专属「笔记/知识库」：/v2/more 知识库入口 + 阅读页据此显隐
+        personal_library_enabled=_personal_library_enabled(),  # 会员专属「个人文库」：/v2/more 入口据此显隐
+        personal_library_available=_feature_is_available("personal_library"),
+        citation_assistant_enabled=_citation_assistant_enabled_for_user(),
+        citation_assistant_available=_citation_assistant_entry_visible(),
+        citation_assistant_admin_preview=_citation_assistant_admin_preview(),
+        gb2025_approved=_gb2025_template_approved(),
         feedback_thread=feedback_thread,
         registry_geo_enabled=_registry_geo_enabled(),
+        book_recommendations_available=bool(mylib_store.configured() and not DEPLOYMENT.is_desktop),
+        book_recommendation_max_mb=mylib.BOOK_RECOMMENDATION_MAX_PDF_BYTES // 1048576,
         ai_assistant_mode=_ai_assistant_mode(),
         sponsor_enabled=_sponsor_button_enabled(),
         alipay_runtime=PAYMENT_CONFIG.to_public_dict(),  # 首页「赞助」弹层据此决定是否出打赏表单
@@ -9437,6 +10782,7 @@ def _render_ai_page(layout_v2: bool = False):
         "ai.html",
         app_name=APP_NAME,
         app_version=APP_VERSION,
+        state=current_view_state(),
         search_scopes=_scope_options_payload(),  # 「检索范围」chips：自动/全部 + 各著作群
         search_chat_access_enabled=bool(_feature_is_available("search_chat") and _feature_effective_for_user("search_chat")),
         research_access_enabled=bool(_feature_is_available("research") and _feature_effective_for_user("research")),
@@ -9455,6 +10801,15 @@ def ai_page():
 def layout_ai():
     """四页面布局下的 AI 研究对话页：内容与 /ai 完全相同，只多套一层统一导航外壳。"""
     return _render_ai_page(True)
+
+
+def _reader_volume_page_count(volume) -> int:
+    """阅读界面的物理页数上限，不能用索引行数代替。
+
+    个别扫描本（目前为四卷《毛泽东选集》）比配套文字版多两张封面/书名页，
+    因而索引从 PDF 第 3 页开始；用 ``len(volume.pages)`` 会把卷末两页截出导航范围。
+    """
+    return max((int(page.pdf_page or 0) for page in volume.pages), default=0)
 
 
 def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
@@ -9499,7 +10854,7 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
                     "display_title": volume.display_title,
                     **_book_payload(book),
                     "source_file": volume.source_file,
-                    "page_count": len(volume.pages),
+                    "page_count": _reader_volume_page_count(volume),
                     "toc_count": toc_count,
                     "volume_heading": presentation.heading,
                     "volume_subtitle": presentation.subtitle,
@@ -9514,6 +10869,70 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
     return volumes
 
 
+def _library_catalog_volumes() -> list[dict]:
+    """阅读栏目书目：以公开配置和 manifest 为准，并标出尚未进入语料库的卷册。
+
+    ``_library_volumes`` 仍只返回可实际进入 PDF/AI 阅读器的索引卷，供阅读器、
+    检索和旧书目页使用。这里只为四页面布局的「阅读」栏目补齐已经登记上线、
+    但因 corpus.sqlite 回滚而暂时缺行的卷册，防止书目和卷数随数据库版本倒退。
+    """
+    indexed = _library_volumes()
+    indexed_sources: set[str] = set()
+    for volume in indexed:
+        volume["catalog_indexed"] = True
+        indexed_sources.add(str(volume.get("source_file") or ""))
+
+    if corpus is None:
+        return indexed
+
+    # Corpus 启动时已从 config/manifest.yaml 规范化并加载此映射；复用同一份
+    # 内存数据，避免阅读页再读一次配置文件，也确保白名单与目录使用同一来源。
+    manifest_by_file = getattr(corpus, "_manifest_by_file", {})
+    for source_file, meta in manifest_by_file.items():
+        source_file = str(source_file or "")
+        if not source_file or source_file in indexed_sources:
+            continue
+        book = str((meta or {}).get("book") or "")
+        book_cfg = BOOK_CONFIG_BY_KEY.get(book)
+        if not book_cfg or not book_cfg.available:
+            continue
+        try:
+            volume_number = int((meta or {}).get("volume"))
+        except (TypeError, ValueError):
+            continue
+        display_title = str((meta or {}).get("display_title") or Path(source_file).stem)
+        presentation = volume_presentation(
+            book,
+            volume_number,
+            display_title,
+            unit=book_cfg.volume_unit,
+            single_volume=book_cfg.single_volume,
+        )
+        indexed.append(
+            {
+                "book": book,
+                "volume": volume_number,
+                "display_title": display_title,
+                **_book_payload(book),
+                "source_file": source_file,
+                "page_count": 0,
+                "toc_count": 0,
+                "volume_heading": presentation.heading,
+                "volume_subtitle": presentation.subtitle,
+                "date_span": "",
+                "volume_unit": book_cfg.volume_unit,
+                # 没有语料行时不能生成一个注定 404 的阅读器链接；界面仍陈列
+                # 真实上线书目，并在卷册抽屉中说明正文索引正在恢复。
+                "viewer_url": "",
+                "pdf_url": "",
+                "catalog_indexed": False,
+            }
+        )
+
+    indexed.sort(key=lambda item: (item["book_sort_order"], item["volume"], item["source_file"]))
+    return indexed
+
+
 def _library_volume_groups(volumes: list[dict]) -> list[dict]:
     """把扁平卷册整理为阅读器展示组。
 
@@ -9523,6 +10942,8 @@ def _library_volume_groups(volumes: list[dict]) -> list[dict]:
     groups: dict[str, dict] = {}
     for volume in volumes:
         collection = str(volume.get("collection") or "")
+        volume_sort_order = int(volume.get("book_sort_order") or 9999)
+        library_sort_order = int(_COLLECTION_LIBRARY_SORT_ORDERS.get(collection, volume_sort_order))
         group_id = f"collection:{collection}" if collection else f"book:{volume['book']}"
         group = groups.setdefault(
             group_id,
@@ -9530,11 +10951,11 @@ def _library_volume_groups(volumes: list[dict]) -> list[dict]:
                 "id": group_id,
                 "label": volume.get("collection_label") or volume.get("book_title"),
                 "is_collection": bool(collection),
-                "sort_order": int(volume.get("book_sort_order") or 9999),
+                "sort_order": library_sort_order,
                 "books": {},
             },
         )
-        group["sort_order"] = min(group["sort_order"], int(volume.get("book_sort_order") or 9999))
+        group["sort_order"] = min(group["sort_order"], library_sort_order)
         book = group["books"].setdefault(
             volume["book"],
             {"key": volume["book"], "title": volume["book_title"], "sort_order": volume["book_sort_order"], "volumes": []},
@@ -9544,9 +10965,16 @@ def _library_volume_groups(volumes: list[dict]) -> list[dict]:
     result: list[dict] = []
     for group in groups.values():
         books = sorted(group["books"].values(), key=lambda b: (b["sort_order"], b["key"]))
+        for book in books:
+            book["volumes"].sort(key=lambda v: (v["volume"], v["source_file"]))
+            indexed_volumes = [v for v in book["volumes"] if v.get("catalog_indexed", True)]
+            book["indexed_volume_count"] = len(indexed_volumes)
+            book["catalog_complete"] = len(indexed_volumes) == len(book["volumes"])
+            book["entry_volume"] = (indexed_volumes or book["volumes"])[0]
         group["books"] = books
         group["book_count"] = len(books)
         group["volume_count"] = sum(len(b["volumes"]) for b in books)
+        group["indexed_volume_count"] = sum(b["indexed_volume_count"] for b in books)
         result.append(group)
     return sorted(result, key=lambda g: (g["sort_order"], g["id"]))
 
@@ -10164,6 +11592,7 @@ def pdf_viewer():
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     if volume is None:
         abort(404, description="未找到对应的卷册信息。")
+    _record_community_trend("book", _community_volume_title(volume))
     # 《全集》等仅保留 OCR 文本、未随包下发 PDF 的卷册回退到「纯文字」渲染，
     # 仍可逐页阅读并使用 AI 导读；《文集》等带 PDF 的卷册维持原有「书页图像」渲染。
     render_mode = "image" if _pdf_render_available(source_file) else "text"
@@ -10172,7 +11601,7 @@ def pdf_viewer():
     current_section = requested_section or (
         corpus.get_section_for_page(source_file, page) if corpus else None
     )
-    page_count = len(volume.pages) if volume else 1
+    page_count = _reader_volume_page_count(volume) if volume else 1
     page_labels: dict[int, str] = {}
     if volume:
         for page_obj in volume.pages:
@@ -10276,7 +11705,7 @@ def page_image():
     # 热路径不必要的开销一并省掉。
     if PAGE_IMAGE_PREWARM_ENABLED:
         volume = corpus.get_volume_by_source_file(source_file) if corpus else None
-        page_count = len(volume.pages) if volume else page_number
+        page_count = _reader_volume_page_count(volume) if volume else page_number
         _prewarm_page_images(source_file, page_number, highlight_text, page_count)
     _prune_page_image_cache_if_due()
     is_webp = cache_path.suffix.lower() == ".webp"  # 实际产出格式（webp 编码失败已回退 .jpg）
@@ -10444,6 +11873,428 @@ def admin_page_error_resolve(report_id: int):
         details={"status": status},
     )
     flash("已标记为已处理。" if status == "resolved" else "已重新打开该报错。", "success" if ok else "warning")
+    return _management_redirect(True, "copy")
+
+
+@app.post("/admin/library/limits")
+def admin_mylib_limits():
+    """个人文库册数与 OCR 三道额度（持久保存、即时生效、无需重启）。"""
+    _require_admin()
+    _require_management_csrf()
+    try:
+        value = int((request.form.get("max_books_per_user") or "").strip())
+        ocr_book = int((request.form.get("ocr_book_cap") or "").strip())
+        ocr_user_month = int((request.form.get("ocr_user_month_cap") or "").strip())
+        ocr_site_day = int((request.form.get("ocr_site_day_cap") or "").strip())
+    except (TypeError, ValueError):
+        flash("请填写有效的册数和 OCR 页数额度。", "warning")
+        return _management_redirect(True, "copy")
+    if value < 1:
+        flash("册数上限至少为 1。", "warning")
+        return _management_redirect(True, "copy")
+    if min(ocr_book, ocr_user_month, ocr_site_day) < 0:
+        flash("OCR 额度不能小于 0；填 0 表示暂停相应范围的 OCR。", "warning")
+        return _management_redirect(True, "copy")
+    saved = mylib.set_max_books_per_user(value)
+    ocr_saved = mylib.set_ocr_quota_settings(
+        book=ocr_book, user_month=ocr_user_month, site_day=ocr_site_day,
+    )
+    _log_management_action(
+        action="mylib.limits", target="library_and_ocr",
+        result="success", remote_admin=True,
+        details={"max_books_per_user": saved, "ocr": ocr_saved},
+    )
+    flash(
+        f"个人文库额度已保存：每人 {saved} 本；OCR 单本 {ocr_saved['book']} 页、"
+        f"每人每月 {ocr_saved['user_month']} 页、全站每日 {ocr_saved['site_day']} 页。",
+        "success",
+    )
+    return _management_redirect(True, "copy")
+
+
+@app.get("/admin/api/corpus-repair/status")
+def admin_api_corpus_repair_status():
+    """Read-only progress view; OCR/AI work never runs in a web worker."""
+    _require_admin()
+    return jsonify({"ok": True, **corpus_repair_status_snapshot()})
+
+
+@app.get("/admin/api/corpus-text-review")
+def admin_api_corpus_text_review():
+    _require_admin()
+    status = str(request.args.get("status") or "manual_review").strip()
+    batch_id = str(request.args.get("batch_id") or "").strip()[:100]
+    try:
+        page = max(1, int(request.args.get("page") or 1))
+        per_page = max(1, min(200, int(request.args.get("per_page") or 50)))
+        payload = list_corpus_repair_issues(
+            status=status, batch_id=batch_id, page=page, per_page=per_page,
+        )
+    except (TypeError, ValueError) as exc:
+        abort(400, description=str(exc))
+    for item in payload["items"]:
+        item["evidence_url"] = (
+            url_for("admin_api_corpus_text_review_evidence", issue_id=int(item["id"]))
+            if item.get("evidence_crop") else ""
+        )
+    return jsonify({"ok": True, **payload})
+
+
+@app.get("/admin/api/corpus-text-review/<int:issue_id>/evidence")
+def admin_api_corpus_text_review_evidence(issue_id: int):
+    _require_admin()
+    issue = get_corpus_repair_issue(issue_id)
+    if not issue or not str(issue.get("evidence_crop") or ""):
+        abort(404, description="该审校项没有局部原图证据。")
+    root = corpus_repair_root().resolve()
+    target = (root / str(issue["evidence_crop"])).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        abort(404, description="审校证据路径无效。")
+    if not target.is_file() or target.suffix.lower() != ".png":
+        abort(404, description="审校证据不存在。")
+    response = send_file(target, mimetype="image/png", conditional=True, max_age=0)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@app.post("/admin/api/corpus-text-review/<int:issue_id>/decision")
+def admin_api_corpus_text_review_decision(issue_id: int):
+    _require_admin()
+    _require_management_csrf()
+    data = request.get_json(silent=True) or {}
+    actor = str((g.current_user or {}).get("email") or (g.current_user or {}).get("id") or "admin")
+    try:
+        issue = decide_corpus_repair_issue(
+            issue_id,
+            decision=str(data.get("decision") or ""),
+            proposed_text=(str(data["proposed_text"]) if "proposed_text" in data else None),
+            note=str(data.get("note") or ""),
+            actor=actor,
+        )
+    except LookupError as exc:
+        abort(404, description=str(exc))
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    _log_management_action(
+        action="corpus_repair.issue_decision", target=str(issue_id), result="success",
+        remote_admin=True, details={"decision": issue.get("status"), "batch_id": issue.get("batch_id")},
+    )
+    return jsonify({"ok": True, "issue": issue})
+
+
+@app.post("/admin/api/corpus-text-review/batches/<batch_id>/confirm")
+def admin_api_corpus_text_review_confirm(batch_id: str):
+    _require_admin()
+    _require_management_csrf()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,100}", batch_id):
+        abort(400, description="批次编号无效。")
+    actor = str((g.current_user or {}).get("email") or (g.current_user or {}).get("id") or "admin")
+    try:
+        batch = confirm_corpus_repair_batch(batch_id, actor=actor)
+    except LookupError as exc:
+        abort(404, description=str(exc))
+    except ValueError as exc:
+        abort(409, description=str(exc))
+    _log_management_action(
+        action="corpus_repair.batch_confirm", target=batch_id, result="success",
+        remote_admin=True, details={"candidate_sha256": batch.get("candidate_database_sha256")},
+    )
+    return jsonify({"ok": True, "batch": batch})
+
+
+@app.get("/admin/library/submissions/<int:submission_id>/page")
+def admin_mylib_page_image(submission_id: int):
+    """Admin-only source-page preview used to verify copyright and TOC evidence."""
+    _require_admin()
+    row = mylib.get_submission(int(submission_id))
+    page = request.args.get("page", type=int)
+    if not row or row.get("status") == "deleted":
+        abort(404, description="该书不存在或已删除。")
+    if not page or page < 1 or page > int(row.get("page_count") or 0):
+        abort(404, description="页码超出范围。")
+    uid, sid = int(row["user_id"]), int(row["id"])
+    cache_path = _mylib_page_cache_path(uid, sid, page)
+    if cache_path.exists():
+        try:
+            response = send_file(cache_path, mimetype="image/webp", conditional=True)
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+        except OSError:
+            pass
+    try:
+        blob, ctype = mylib_store.render(uid, sid, page)
+    except mylib_store.StoreError as exc:
+        LOGGER.warning("admin mylib render failed sid=%s page=%s: %s", sid, page, exc)
+        abort(502, description="页面暂时无法加载，请稍后重试。")
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(blob)
+    except OSError:
+        pass
+    response = Response(blob, mimetype=ctype or "image/webp")
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@app.post("/admin/library/submissions/<int:submission_id>/review")
+def admin_mylib_review(submission_id: int):
+    """个人文库审核：批准 / 退回 / 重试 / 下架删除。仅网站 /admin 内容运营页可用。
+
+    批准后不在本请求线程里解析——解析以分钟计，会钉死 waitress 线程（参见渲染并发那次
+    线上事故的同类教训）。这里只置状态并交给后台线程。
+    """
+    _require_admin()
+    _require_management_csrf()
+    action = (request.form.get("action") or "").strip().lower()
+    row = mylib.get_submission(int(submission_id))
+    if not row:
+        flash("该提交不存在。", "warning")
+        return _management_redirect(True, "copy")
+    title = row.get("title") or submission_id
+    result = "success"
+
+    if action == "approve":
+        if row.get("status") != "pending":
+            flash("该文件尚未完成安全入库，或当前已不在待审核状态，请刷新后再操作。", "warning")
+            return _management_redirect(True, "copy")
+        mylib.set_status(int(submission_id), "queued", reviewed=True)
+        _mylib_start_parse(int(submission_id))
+        flash(f"《{title}》已批准，正在后台解析。", "success")
+    elif action == "publish":
+        if row.get("status") != "quality_review":
+            flash("只有完成解析且处于数据待复核状态的书可以人工确认上架。", "warning")
+            return _management_redirect(True, "copy")
+        acceptance = mylib.submission_acceptance(row)
+        # 人工放行不应继续把旧阻断项显示成“仍未通过”；保留原始问题供审计，
+        # 同时清空当前阻断项，让控制台准确显示“人工复核通过”。
+        acceptance["overridden_blocking"] = [
+            str(value) for value in (acceptance.get("blocking") or [])
+        ]
+        acceptance["blocking"] = []
+        acceptance.update({
+            "status": "manual_pass",
+            "manual_override": True,
+            "manual_note": "管理员已结合版权页、目录页和引文抽样原图完成复核。",
+        })
+        mylib.set_derivative_acceptance(
+            int(submission_id), acceptance, status="manual_pass",
+        )
+        stats = mylib_corpus.book_derivative_stats(
+            int(row["user_id"]), int(submission_id)
+        )
+        searchable = bool(int(stats.get("pages") or 0) > 0 and row.get("citation_ready"))
+        mylib.set_status(
+            int(submission_id), "ready", searchable=searchable,
+            fail_reason="", reviewed=True, parsed=True,
+        )
+        threading.Thread(
+            target=_mylib_notify_user,
+            args=(int(submission_id),),
+            kwargs={"ready": True, "searchable": searchable},
+            name=f"mylib-publish-{submission_id}", daemon=True,
+        ).start()
+        flash(f"《{title}》已记录人工复核并上架。", "success")
+    elif action == "save_bibliographic":
+        if row.get("status") not in {"ready", "quality_review"}:
+            flash("只有已完成解析的书可以人工校正书目。", "warning")
+            return _management_redirect(True, "copy")
+
+        def _manual_people(value: str) -> list[str]:
+            return [
+                item.strip()
+                for item in re.split(r"[、,，;；\n]+", str(value or ""))
+                if item.strip()
+            ][:30]
+
+        manual_title = (request.form.get("bib_title") or "").strip()[:200]
+        manual_authors = _manual_people(request.form.get("bib_authors") or "")
+        manual_editors = _manual_people(request.form.get("bib_editors") or "")
+        manual_translators = _manual_people(request.form.get("bib_translators") or "")
+        manual_publisher = (request.form.get("bib_publisher") or "").strip()[:160]
+        manual_place = (request.form.get("bib_place") or "").strip()[:80]
+        manual_year = (request.form.get("bib_year") or "").strip()
+        manual_isbn = re.sub(
+            r"[^0-9Xx]", "", request.form.get("bib_isbn") or ""
+        ).upper()
+        manual_standard_number = re.sub(
+            r"\s+", "", request.form.get("bib_standard_number") or ""
+        ).replace("—", "-").replace("–", "-")[:40]
+        document_type = (request.form.get("bib_document_type") or "published").strip()
+        if document_type not in {"published", "translation_manuscript", "compilation"}:
+            document_type = "published"
+        if not manual_title:
+            flash("人工校正时书名不能为空。", "warning")
+            return _management_redirect(True, "copy")
+        if manual_year and not re.fullmatch(r"(?:18|19|20)\d{2}", manual_year):
+            flash("出版年应填写四位年份，或留空。", "warning")
+            return _management_redirect(True, "copy")
+        if manual_isbn and not mylib_corpus._isbn_checksum_valid(manual_isbn):
+            flash("ISBN 校验位不正确，请对照版权页重新填写。", "warning")
+            return _management_redirect(True, "copy")
+        if manual_standard_number and not re.fullmatch(
+            r"[0-9A-Za-z]+(?:[-./][0-9A-Za-z]+)+", manual_standard_number
+        ):
+            flash("统一书号格式不正确，请只填写版权页标示的数字、字母和连接符。", "warning")
+            return _management_redirect(True, "copy")
+        try:
+            copyright_page = max(
+                0, int((request.form.get("bib_copyright_page") or "0").strip() or 0)
+            )
+        except (TypeError, ValueError):
+            flash("版权页应填写 PDF 页码，或留空。", "warning")
+            return _management_redirect(True, "copy")
+        if copyright_page > int(row.get("page_count") or 0):
+            flash("版权页页码超出该 PDF 的总页数。", "warning")
+            return _management_redirect(True, "copy")
+
+        metadata = dict(mylib.submission_bibliographic(row))
+        metadata.update({
+            "title": manual_title,
+            "authors": manual_authors,
+            "editors": manual_editors,
+            "translators": manual_translators,
+            "publisher": manual_publisher,
+            "place": manual_place,
+            "year": manual_year,
+            "isbn": manual_isbn,
+            "isbn_valid": bool(manual_isbn),
+            "standard_number": manual_standard_number,
+            "standard_number_type": "统一书号" if manual_standard_number else "",
+            "document_type": document_type,
+            "source": "manual_verified",
+            "confidence": 1.0,
+            "copyright_pdf_page": copyright_page,
+        })
+        # 删除表单中明确留空的旧值，避免以后生成引文时继续使用旧 OCR 猜测。
+        for key in ("publisher", "place", "year", "isbn", "standard_number", "standard_number_type"):
+            if not metadata.get(key):
+                metadata.pop(key, None)
+        if not manual_isbn:
+            metadata.pop("isbn_valid", None)
+        mylib.set_bibliographic_metadata(int(submission_id), metadata)
+        mylib.set_catalog_identity(
+            int(submission_id), title=manual_title, author="、".join(manual_authors),
+        )
+        mylib_corpus.invalidate(int(row["user_id"]))
+        refreshed = mylib.get_submission(int(submission_id)) or row
+        acceptance = _mylib_derivative_acceptance(refreshed)
+        mylib.set_derivative_acceptance(
+            int(submission_id), acceptance,
+            status=str(acceptance.get("status") or ""),
+        )
+        if row.get("status") == "quality_review" and acceptance.get("status") in {"pass", "readonly"}:
+            stats = mylib_corpus.book_derivative_stats(
+                int(row["user_id"]), int(submission_id)
+            )
+            searchable = bool(
+                acceptance.get("status") == "pass" and int(stats.get("pages") or 0) > 0
+            )
+            mylib.set_status(
+                int(submission_id), "ready", searchable=searchable,
+                fail_reason="", reviewed=True, parsed=True,
+            )
+            flash(f"《{manual_title}》书目已人工确认，重新验收通过并上架。", "success")
+        elif acceptance.get("status") in {"pass", "readonly"}:
+            if row.get("fail_reason"):
+                mylib.set_status(
+                    int(submission_id), str(row.get("status") or "ready"), fail_reason="",
+                )
+            flash(f"《{manual_title}》书目已人工确认并重新验收。", "success")
+        else:
+            flash(
+                f"《{manual_title}》书目已保存；仍需处理："
+                + "；".join(acceptance.get("blocking") or ["请检查其他验收维度"]),
+                "warning",
+            )
+    elif action == "recheck":
+        if row.get("status") not in {"ready", "quality_review"}:
+            flash("只有已经完成解析的书可以重新执行数据验收。", "warning")
+            return _management_redirect(True, "copy")
+        acceptance = _mylib_derivative_acceptance(row)
+        mylib.set_derivative_acceptance(
+            int(submission_id), acceptance,
+            status=str(acceptance.get("status") or ""),
+        )
+        if row.get("status") == "quality_review" and acceptance.get("status") in {"pass", "readonly"}:
+            stats = mylib_corpus.book_derivative_stats(
+                int(row["user_id"]), int(submission_id)
+            )
+            searchable = bool(
+                acceptance.get("status") == "pass"
+                and int(stats.get("pages") or 0) > 0
+            )
+            mylib.set_status(
+                int(submission_id), "ready", searchable=searchable,
+                fail_reason="", reviewed=True, parsed=True,
+            )
+            flash(f"《{title}》重新验收通过，已自动上架。", "success")
+        elif acceptance.get("status") in {"pass", "readonly"}:
+            if row.get("fail_reason"):
+                mylib.set_status(
+                    int(submission_id), str(row.get("status") or "ready"), fail_reason="",
+                )
+            flash(f"《{title}》重新验收通过，线上状态未改变。", "success")
+        else:
+            flash(
+                f"《{title}》仍需人工复核："
+                + "；".join(acceptance.get("blocking") or ["请检查验收证据"]),
+                "warning",
+            )
+    elif action == "reject":
+        reason = (request.form.get("reason") or "").strip()
+        if not reason:
+            flash("请填写退回原因。", "warning")
+            return _management_redirect(True, "copy")
+        mylib.set_status(int(submission_id), "rejected", reject_reason=reason, reviewed=True)
+        threading.Thread(target=_mylib_notify_user, args=(int(submission_id),),
+                         kwargs={"ready": False, "reason": reason},
+                         name=f"mylib-reject-{submission_id}", daemon=True).start()
+        flash(f"《{title}》已退回，并已通知上传者。", "success")
+    elif action == "reocr":
+        if row.get("source_kind") != "scanned" or not row.get("ocr_consent"):
+            flash("只有已同意 OCR 的扫描书可以重建文字层。", "warning")
+            return _management_redirect(True, "copy")
+        _mylib_start_parse(int(submission_id), force_ocr=True)
+        flash(f"《{title}》正在用忠实 OCR 重建全文、目录和引文索引。", "success")
+    elif action == "retry":
+        if _mylib_staging_path(int(submission_id)).exists():
+            mylib.set_status(int(submission_id), "storing", fail_reason="")
+            _mylib_start_ingest(int(submission_id))
+            flash(f"《{title}》已重新开始安全入库。", "success")
+        else:
+            # 数据复核阶段重建扫描件属于管理员修复，不应再次扣用户 OCR 额度；
+            # 与 ready 状态下的“重建文字层”统一走 force_ocr 路径。
+            force_rebuild = bool(
+                row.get("status") == "quality_review"
+                and row.get("source_kind") == "scanned"
+                and row.get("ocr_consent")
+            )
+            _mylib_start_parse(int(submission_id), force_ocr=force_rebuild)
+            flash(
+                f"《{title}》已重新生成文字层与派生数据。"
+                if force_rebuild else f"《{title}》已重新排入解析。",
+                "success",
+            )
+    elif action == "reopen":
+        mylib.set_status(int(submission_id), "pending")
+        flash(f"《{title}》已退回待审核。", "success")
+    elif action == "purge":
+        mylib.mark_deleted(int(submission_id))
+        _mylib_purge(int(row["user_id"]), int(submission_id))
+        flash(f"《{title}》已下架并删除。", "success")
+    else:
+        result = "unknown_action"
+        flash("未知的审核操作。", "warning")
+
+    _log_management_action(
+        action="mylib.review",
+        target=str(submission_id),
+        result=result,
+        remote_admin=True,
+        details={"op": action, "user_id": row.get("user_id")},
+    )
     return _management_redirect(True, "copy")
 
 
@@ -10625,12 +12476,21 @@ def api_ai_assistant_config():
             "web_access": bool(_ai_web_access_enabled()),
             "runtime": runtime,
             "quota": _ai_token_quota_payload() if access else {},
+            "ai_entitlements": _ai_entitlements_payload(user) if user else _ai_entitlements_payload(None),
             "credits": (
                 get_ai_credit_balances(int(user["id"]))
                 if user
                 else {"research": 0, "chat": 0, "reader": 0}
             ),
             "logged_in": bool(user),
+            # 会话云端备份为会员主动勾选功能；正文只经鉴权转发到个人文库节点，本站不落库。
+            "conversation_sync_eligible": bool(
+                user and (
+                    _is_admin_user(user)
+                    or getattr(getattr(g, "membership", None), "is_active_member", False)
+                )
+                and mylib_store.configured()
+            ),
             "locked_message": locked_message,
             "unavailable_message": render_site_text("index.ai_unavailable"),
             "scopes": _scope_options_payload(),  # 「检索范围」下拉：自动/全部 + 各著作群
@@ -10669,15 +12529,15 @@ def _reader_find_snippet(raw_text: str, query: str, width: int = 36) -> str:
 
 @app.post("/api/reader/report-page-error")
 def api_reader_report_page_error():
-    """阅读器引文「一键报错」：读者反馈某处页码有误。记录 + 管理员邮件提醒（仿留言功能）。
-    同一 (阅读器,定位来源,页码) 已有未处理报告则只累加计数、不重复发邮件。轻限流防刷。"""
+    """阅读器/检索引文报错：支持页码、文字和标点问题。记录 + 管理员邮件提醒。
+    同一精确语料页（旧客户端回退到来源+显示页码）的同类未处理报告只累加计数，轻限流防刷。"""
     # 限流：按会话 + 真实 IP，10 分钟最多 8 次，防误点/脚本刷屏（不影响正常单击）。
     ident = _visitor_session_key() or _client_ip() or "anon"
     _rate_limit_or_abort(f"pageerr:{ident}", limit=8, window_seconds=600,
                          message="报错提交过于频繁，请稍后再试。")
     data = request.get_json(silent=True) or {}
     reader = str(data.get("reader") or "").strip().lower()
-    if reader not in ("viewer", "liushi", "wenku"):
+    if reader not in ("viewer", "liushi", "wenku", "mylib", "search"):
         reader = "viewer"
     page = " ".join(str(data.get("page") or "").split())[:32]
     citation_text = " ".join(str(data.get("citation") or "").split())[:600]
@@ -10687,10 +12547,14 @@ def api_reader_report_page_error():
     user = getattr(g, "current_user", None)
     report, is_new = create_page_error_report(
         reader=reader,
+        issue_type=str(data.get("issue_type") or "page_number"),
         book_title=" ".join(str(data.get("book") or "").split())[:200],
         volume_label=" ".join(str(data.get("volume") or "").split())[:200],
         page=page,
+        corpus_page_id=(int(data.get("page_id")) if str(data.get("page_id") or "").isdigit() else None),
         source_ref=str(data.get("source_ref") or "").strip()[:500],
+        query_text=" ".join(str(data.get("query") or "").split())[:300],
+        context_snippet=" ".join(str(data.get("snippet") or data.get("context") or "").split())[:1000],
         citation_text=citation_text,
         note=" ".join(str(data.get("note") or "").split())[:800],
         user_id=(int(user["id"]) if user else None),
@@ -10781,7 +12645,7 @@ def api_notes_create():
                          message="记笔记过于频繁，请稍后再试。")
     data = request.get_json(silent=True) or {}
     reader = str(data.get("reader") or "").strip().lower()
-    if reader not in ("viewer", "liushi", "wenku"):
+    if reader not in ("viewer", "liushi", "wenku", "mylib"):
         abort(400, description="缺少有效的阅读器标识。")
     book_key = str(data.get("book_key") or "").strip()
     if not book_key:
@@ -10856,6 +12720,2099 @@ def knowledge_base_page():
         app_name=APP_NAME,
         app_version=APP_VERSION,
     )
+
+
+# ---------------------------------------------------------------------------
+# AI 研究对话备份：当前站只做账号鉴权与透明转发；正文仅存个人文库服务器。
+# 登录用户始终可查看/导出/删除尚在保留期内的本人记录；只有有效会员可开启并新增同步。
+# 会员到期后，会员期内已经上云的会话固定宽限 30 天并允许继续修改，但不得新增云端会话。
+# ---------------------------------------------------------------------------
+_AI_CONVERSATION_MEMBERSHIP_GRACE_DAYS = 30
+
+
+def _ai_conversation_membership_policy(user: dict | None = None) -> dict:
+    user = user or getattr(g, "current_user", None)
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    membership = getattr(g, "membership", None)
+    is_admin = bool(user and _is_admin_user(user))
+    is_active = bool(is_admin or getattr(membership, "is_active_member", False))
+    expiry_text = str(getattr(membership, "expires_at", "") or "").strip()
+    expiry = None
+    if expiry_text:
+        try:
+            expiry = datetime.fromisoformat(expiry_text.replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+            else:
+                expiry = expiry.astimezone(timezone.utc)
+        except ValueError:
+            expiry = None
+    expiry_ms = int(expiry.timestamp() * 1000) if expiry else 0
+    grace_until = expiry + timedelta(days=_AI_CONVERSATION_MEMBERSHIP_GRACE_DAYS) if expiry else None
+    grace_until_ms = int(grace_until.timestamp() * 1000) if grace_until else 0
+    membership_expired = bool(expiry and expiry <= now and not is_active)
+    grace_active = bool(membership_expired and grace_until and now < grace_until)
+    # 正常滚动保留仍是 30 天；只在会员到期前最后 30 天把仍存在的记录托底到宽限期末。
+    active_retention_floor_ms = 0
+    if is_active and not is_admin and expiry and expiry <= now + timedelta(days=_AI_CONVERSATION_MEMBERSHIP_GRACE_DAYS):
+        active_retention_floor_ms = grace_until_ms
+    return {
+        "eligible": is_active,
+        "can_create": is_active,
+        "can_update_existing": bool(is_active or grace_active),
+        "membership_expired": membership_expired,
+        "membership_expires_at_ms": expiry_ms,
+        "grace_active": grace_active,
+        "grace_until_ms": grace_until_ms,
+        "retention_floor_ms": active_retention_floor_ms,
+        "retention_cap_ms": grace_until_ms if grace_active else 0,
+        "server_now_ms": now_ms,
+    }
+
+
+def _apply_ai_conversation_retention_policy(user: dict, policy: dict) -> None:
+    if policy["grace_active"]:
+        mylib_store.apply_conversation_retention_policy(
+            int(user["id"]), fixed_expires_at_ms=int(policy["grace_until_ms"]),
+        )
+    elif policy["retention_floor_ms"]:
+        mylib_store.apply_conversation_retention_policy(
+            int(user["id"]), minimum_expires_at_ms=int(policy["retention_floor_ms"]),
+        )
+
+
+def _ai_conversation_user(*, require_active_member: bool = False) -> dict:
+    if DEPLOYMENT.is_desktop:
+        abort(404)
+    user = getattr(g, "current_user", None)
+    if not user:
+        abort(401, description="请先登录账号。")
+    if require_active_member and not (
+        _is_admin_user(user)
+        or getattr(getattr(g, "membership", None), "is_active_member", False)
+    ):
+        abort(403, description="云端保存会话为会员可选功能。")
+    if not mylib_store.configured():
+        abort(503, description="个人文库服务器暂不可用，请稍后重试。")
+    return user
+
+
+def _conversation_store_error(exc: Exception):
+    LOGGER.warning("AI conversation storage proxy failed uid=%s path=%s: %s",
+                   (getattr(g, "current_user", None) or {}).get("id"), request.path, exc)
+    return jsonify({"ok": False, "error": "个人文库服务器暂时未能完成操作，本机记录不受影响。"}), 502
+
+
+@app.get("/api/ai/conversations/status")
+def api_ai_conversations_status():
+    user = getattr(g, "current_user", None)
+    policy = _ai_conversation_membership_policy(user)
+    eligible = bool(user and policy["eligible"] and mylib_store.configured() and not DEPLOYMENT.is_desktop)
+    if not user:
+        return jsonify({
+            "ok": True, "logged_in": False, "eligible": False, "enabled": False,
+            "storage_location": "个人文库服务器", "retention_days": 30,
+            "warning_days": 5, "recovery_days": 7,
+        })
+    if not mylib_store.configured() or DEPLOYMENT.is_desktop:
+        return jsonify({
+            "ok": True, "logged_in": True, "eligible": False, "enabled": False,
+            "available": False, "storage_location": "个人文库服务器",
+        })
+    try:
+        _apply_ai_conversation_retention_policy(user, policy)
+        payload = mylib_store.conversation_sync_status(int(user["id"]))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+    return jsonify({
+        **payload,
+        "logged_in": True,
+        "eligible": eligible,
+        "can_create": bool(policy["can_create"]),
+        "can_update_existing": bool(policy["can_update_existing"]),
+        "membership_expired": bool(policy["membership_expired"]),
+        "membership_expires_at_ms": int(policy["membership_expires_at_ms"]),
+        "grace_active": bool(policy["grace_active"]),
+        "grace_until_ms": int(policy["grace_until_ms"]),
+        "available": True,
+        "storage_location": "个人文库服务器",
+        "privacy_notice": "会话按账号严格隔离，只有本人登录后可查看；如需找回，管理员可在7天回收期内协助恢复。",
+    })
+
+
+@app.post("/api/ai/conversations/consent")
+def api_ai_conversations_consent():
+    user = _ai_conversation_user()
+    enabled = _coerce_bool((request.get_json(silent=True) or {}).get("enabled"))
+    policy = _ai_conversation_membership_policy(user)
+    if enabled and not policy["eligible"]:
+        abort(403, description="云端保存会话为有效会员可选功能。")
+    try:
+        payload = mylib_store.set_conversation_sync_consent(int(user["id"]), enabled)
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+    return jsonify({**payload, "storage_location": "个人文库服务器"})
+
+
+@app.get("/api/ai/conversations")
+def api_ai_conversations_list():
+    user = _ai_conversation_user()
+    try:
+        return jsonify(mylib_store.list_conversations(int(user["id"])))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+
+
+@app.put("/api/ai/conversations/<conversation_id>")
+def api_ai_conversation_put(conversation_id: str):
+    user = _ai_conversation_user()
+    policy = _ai_conversation_membership_policy(user)
+    if not policy["can_update_existing"]:
+        abort(403, description="云端会话宽限期已结束；本机会话仍可正常使用和导出。")
+    body = request.get_json(silent=True) or {}
+    conversation = body.get("conversation")
+    if not isinstance(conversation, dict):
+        abort(400, description="缺少会话内容。")
+    try:
+        payload = mylib_store.put_conversation(
+            int(user["id"]), conversation_id, conversation,
+            replace_messages=_coerce_bool(body.get("replace_messages")),
+            allow_create=bool(policy["can_create"]),
+            retention_floor_ms=int(policy["retention_floor_ms"]),
+            retention_cap_ms=int(policy["retention_cap_ms"]),
+        )
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+    return jsonify(payload)
+
+
+@app.delete("/api/ai/conversations/<conversation_id>")
+def api_ai_conversation_delete(conversation_id: str):
+    user = _ai_conversation_user()
+    try:
+        return jsonify(mylib_store.delete_conversation(int(user["id"]), conversation_id))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+
+
+@app.post("/api/ai/conversations/cleanup-before")
+def api_ai_conversations_cleanup_before():
+    user = _ai_conversation_user()
+    body = request.get_json(silent=True) or {}
+    try:
+        before_ms = int(body.get("before_ms") or 0)
+    except (TypeError, ValueError):
+        before_ms = 0
+    if before_ms < 1:
+        abort(400, description="请选择清理日期。")
+    keep_ids = [str(value) for value in (body.get("keep_ids") or [])[:20]]
+    try:
+        return jsonify(mylib_store.cleanup_conversations_before(
+            int(user["id"]), before_ms, keep_ids=keep_ids,
+        ))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+
+
+@app.post("/api/ai/conversations/<conversation_id>/extend")
+def api_ai_conversation_extend(conversation_id: str):
+    user = _ai_conversation_user(require_active_member=True)
+    policy = _ai_conversation_membership_policy(user)
+    try:
+        return jsonify(mylib_store.extend_conversation(
+            int(user["id"]), conversation_id,
+            minimum_expires_at_ms=int(policy["retention_floor_ms"]),
+        ))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+
+
+@app.get("/api/admin/ai-conversations/recoverable")
+def api_admin_ai_conversations_recoverable():
+    _require_admin()
+    user_id = request.args.get("user_id", type=int)
+    if not user_id or not get_user_by_id(user_id):
+        abort(404, description="未找到该用户。")
+    try:
+        return jsonify(mylib_store.list_recoverable_conversations(user_id))
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+
+
+@app.post("/api/admin/ai-conversations/<int:user_id>/<conversation_id>/restore")
+def api_admin_ai_conversation_restore(user_id: int, conversation_id: str):
+    _require_admin()
+    if not get_user_by_id(user_id):
+        abort(404, description="未找到该用户。")
+    try:
+        payload = mylib_store.restore_conversation(user_id, conversation_id)
+    except mylib_store.StoreError as exc:
+        return _conversation_store_error(exc)
+    LOGGER.info("management_action %s", json.dumps({
+        "scope": "admin", "action": "ai_conversation.restore",
+        "actor": str((g.current_user or {}).get("email") or ""),
+        "target": f"{user_id}:{conversation_id}", "result": "success",
+    }, ensure_ascii=False, sort_keys=True))
+    return jsonify(payload)
+
+
+# ============================ 论文引文与注释助手 ============================
+_CITATION_VERSION_LOCK = threading.Lock()
+_CITATION_CORPUS_SHA256 = ""
+
+
+def _require_citation_assistant_access():
+    user = getattr(g, "current_user", None)
+    if not _citation_assistant_admin_preview(user):
+        # The global switch is the release boundary. Plan/user settings cannot
+        # accidentally expose an unreleased feature to members.
+        if not _citation_assistant_rollout_enabled():
+            abort(404)
+        _require_content_feature("citation_assistant")
+    if not user:
+        abort(401, description="请先登录已开通论文引文助手的会员账号。")
+    if corpus is None:
+        abort(503, description="引文语料库尚未就绪。")
+    # GB/T 7714—2025 未核准时只禁用该格式（创建任务处另行校验），不能连带封死
+    # 已上线的 2015 版与期刊插注校注能力。
+    return user
+
+
+def _citation_corpus_sha256() -> str:
+    global _CITATION_CORPUS_SHA256
+    if _CITATION_CORPUS_SHA256:
+        return _CITATION_CORPUS_SHA256
+    with _CITATION_VERSION_LOCK:
+        if not _CITATION_CORPUS_SHA256:
+            if CORPUS_INDEX_DB_PATH.exists():
+                _CITATION_CORPUS_SHA256 = compute_sha256(CORPUS_INDEX_DB_PATH)
+            else:
+                _CITATION_CORPUS_SHA256 = sha256(
+                    json.dumps(sorted(ALLOWED_SOURCE_FILES), ensure_ascii=False).encode("utf-8")
+                ).hexdigest()
+    return _CITATION_CORPUS_SHA256
+
+
+def _citation_template_version() -> str:
+    payload = {
+        "schema": 2,
+        "defaults": DEFAULT_CITATION_TEMPLATES,
+        "overrides": _load_citation_formats(),
+        "gb2025_approved": _gb2025_template_approved(),
+    }
+    return sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _citation_personal_scope_rows(user_id: int, tokens: list[str]) -> dict[int, dict]:
+    rows: dict[int, dict] = {}
+    for token in tokens:
+        sid = mylib_corpus.submission_id_from_scope_token(token)
+        if not sid or sid in rows:
+            continue
+        row = mylib.get_submission(sid, int(user_id))
+        if not row or row.get("status") != "ready" or not row.get("searchable"):
+            raise citation_tasks.CitationAssistantError("所选个人文库书籍已不可用，请重新选择范围。")
+        if int(row.get("derivative_version") or 0) != int(mylib_corpus.INDEX_PIPELINE_VERSION):
+            raise citation_tasks.CitationAssistantError("所选个人文库索引版本已变更，请等待重建后重试。")
+        rows[sid] = row
+    return rows
+
+
+def _citation_personal_callback(job: dict):
+    uid = int(job["user_id"])
+    threshold = str(job.get("threshold_mode") or "conservative")
+    scoped_rows = _citation_personal_scope_rows(uid, list(job.get("scope") or []))
+    if not scoped_rows:
+        return None
+    pcorpus = mylib_corpus.get_personal_corpus(uid)
+    if pcorpus is None:
+        raise citation_tasks.CitationAssistantError("个人文库索引暂不可用。")
+    wanted = {mylib_corpus.personal_book_key(sid) for sid in scoped_rows}
+
+    def callback(records: list[dict], _tokens: list[str], style: str) -> list[dict]:
+        results: list[dict] = []
+        for record in records[:400]:
+            raw = str(record.get("raw_text") or "").strip()
+            if not raw:
+                continue
+            try:
+                hits = pcorpus.locate_quote(raw, per_book_exact=8, allow_fuzzy=bool(record.get("quoted")))
+            except Exception:
+                continue
+            options: list[dict] = []
+            seen: set[tuple] = set()
+            for hit in hits:
+                if str(getattr(hit, "book", "")) not in wanted:
+                    continue
+                sid = mylib_corpus.submission_id_from_key(str(hit.book))
+                source_row = scoped_rows.get(int(sid or 0))
+                if not source_row:
+                    continue
+                quality = mylib.submission_quality(source_row)
+                confidence = float(quality.get("page_confidence") or 0.0)
+                option = citation_tasks._option_from_hit(hit, personal=True, personal_confidence=confidence)
+                pages = list(option.get("pdf_pages") or [1])
+                option.update({
+                    "private_source": True,
+                    "submission_id": sid,
+                    "display_title": str(source_row.get("title") or option.get("display_title") or "个人文库"),
+                    "viewer_url": url_for("mylib_reader", submission_id=sid, page=pages[0]),
+                })
+                signature = citation_tasks._option_signature(option)
+                if signature not in seen:
+                    seen.add(signature)
+                    options.append(option)
+            if not options:
+                continue
+            best = options[0]
+            match_type = str(best.get("match_type") or "exact")
+            score = float(best.get("score") or 0)
+            errors = best.get("fuzzy_errors")
+            issue = "ambiguous" if len(options) > 1 else "suggest_add"
+            results.append({
+                "kind": "generate", "section_id": str(record.get("section_id") or ""),
+                "paragraph_index": int(record.get("paragraph_index") or 0),
+                "raw_start": int(record.get("raw_start") or 0), "raw_end": int(record.get("raw_end") or 0),
+                "paper_text": raw, "match_type": match_type, "score": score,
+                "fuzzy_errors": errors, "issue_code": issue,
+                "issue_label": citation_tasks.ISSUE_LABELS[issue], "source_options": options,
+                "selected_option": 0, "proposed_citation": citation_tasks._citation_for_style(best, style),
+                "auto_selected": citation_tasks._auto_select(match_type, score, errors, options, threshold),
+            })
+        return results
+
+    return callback
+
+
+def _citation_agent_shadow_callback(job: dict):
+    """Build an admin-only, non-mutating V4 Pro recall observer."""
+    if not CITATION_AGENT_SHADOW_ENABLED:
+        return None
+    user = get_user_by_id(int(job["user_id"]))
+    if not _is_admin_user(user):
+        return None
+    job_id = str(job["id"])
+
+    def callback(records: list[dict], candidates: list[dict], tokens: list[str]) -> None:
+        def complete(messages: list[dict[str, str]], max_tokens: int) -> str:
+            _refresh_ai_runtime_if_needed()
+            return AI_CLIENT.chat_complete(
+                messages,
+                max_tokens,
+                temperature=0,
+                model=citation_agent_shadow.MODEL,
+                http_timeout=CITATION_AGENT_SHADOW_TIMEOUT_SECONDS,
+                # The plan is small and machine-readable. Disable the reasoning
+                # stream to keep this observational stage within its token/time cap.
+                disable_thinking=True,
+            )
+
+        report = citation_agent_shadow.run_shadow(
+            records, candidates, corpus, tokens, complete=complete,
+        )
+        citation_tasks.save_agent_shadow_run(job_id, report)
+        LOGGER.info(
+            "citation Agent shadow job=%s status=%s model=%s attempted=%d planned=%d verified=%d incremental=%d",
+            job_id,
+            report.get("status"),
+            report.get("model"),
+            int(report.get("attempted_record_count") or 0),
+            int(report.get("planned_record_count") or 0),
+            int(report.get("verified_match_count") or 0),
+            int(report.get("incremental_record_count") or 0),
+        )
+
+    return callback
+
+
+def _citation_analysis_worker(job_id: str) -> None:
+    job = citation_tasks.get_job(job_id)
+    if not job:
+        return
+    try:
+        if job.get("corpus_sha256") != _citation_corpus_sha256():
+            raise citation_tasks.CitationAssistantError("语料库版本已变更，请重新创建任务。")
+        if job.get("template_version") != _citation_template_version():
+            raise citation_tasks.CitationAssistantError("引文模板已变更，请重新创建任务。")
+        callback = _citation_personal_callback(job)
+        shadow_callback = _citation_agent_shadow_callback(job)
+        citation_tasks.run_analysis(
+            job_id, corpus, personal_callback=callback, shadow_callback=shadow_callback,
+        )
+    except Exception as exc:
+        citation_tasks.update_job(job_id, status="failed", error=str(exc)[:500])
+
+
+def _citation_export_worker(job_id: str) -> None:
+    job = citation_tasks.get_job(job_id)
+    if not job:
+        return
+    try:
+        if job.get("corpus_sha256") != _citation_corpus_sha256():
+            raise citation_tasks.CitationAssistantError("语料库版本已变更，为保证结果可复现，已拒绝导出。")
+        if job.get("template_version") != _citation_template_version():
+            raise citation_tasks.CitationAssistantError("引文模板已变更，为保证结果可复现，已拒绝导出。")
+        _citation_personal_scope_rows(int(job["user_id"]), list(job.get("scope") or []))
+        citation_tasks.run_export(job_id)
+    except Exception as exc:
+        citation_tasks.update_job(job_id, status="failed", error=str(exc)[:500])
+
+
+def _citation_job_payload(job: dict) -> dict:
+    public = {
+        key: job.get(key) for key in (
+            "id", "original_filename", "byte_size", "mode", "note_kind", "threshold_mode",
+            "citation_style", "resolved_style", "style_confidence", "scope", "sections",
+            "selected_sections", "flags", "status", "progress_done", "progress_total",
+            "candidate_count", "accepted_count", "corpus_sha256", "template_version",
+            "error", "created_at", "updated_at", "expires_at",
+        )
+    }
+    public["page_url"] = url_for("citation_assistant_job_page", job_id=job["id"])
+    public["docx_url"] = (
+        url_for("citation_assistant_download", job_id=job["id"], artifact="docx")
+        if job.get("output_docx_path") else ""
+    )
+    public["pdf_url"] = (
+        url_for("citation_assistant_download", job_id=job["id"], artifact="pdf")
+        if job.get("output_pdf_path") else ""
+    )
+    public["pdf_is_annotated"] = "批注版" in Path(str(job.get("output_pdf_path") or "")).name
+    return public
+
+
+def _citation_dispatch(job_id: str, target) -> bool:
+    # 线上默认只入队，由独立单并发 worker 认领；桌面/开发环境可就地后台执行。
+    return bool(CITATION_INLINE_WORKER and citation_tasks.start_background(job_id, target))
+
+
+@app.after_request
+def _citation_private_cache_headers(response):
+    if (request.path.startswith("/citation-assistant")
+            or request.path.startswith("/api/citation-assistant")
+            or request.path.startswith("/api/search/exports")):
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    return response
+
+
+@app.get("/citation-assistant")
+def citation_assistant_page():
+    user = getattr(g, "current_user", None)
+    # 正式发布后，入口页向所有人展示完整界面；真正的任务、文件和 API
+    # 仍由 _require_citation_assistant_access 实施服务端会员鉴权。
+    if not _citation_assistant_entry_visible(user):
+        abort(404)
+    if corpus is None:
+        abort(503, description="引文语料库尚未就绪。")
+    citation_access = bool(_citation_assistant_enabled_for_user(user))
+    jobs = []
+    if citation_access and user:
+        jobs = [
+            _citation_job_payload(row)
+            for row in citation_tasks.list_jobs(int(user["id"]), limit=20)
+        ]
+    return render_template(
+        "citation_assistant.html", app_name=APP_NAME, app_version=APP_VERSION,
+        layout_v2=True, layout_page="citation",
+        csrf_token=_ensure_csrf_token(), job=None, jobs=jobs,
+        book_scope_tree=_book_scope_tree(), max_mb=citation_tasks.MAX_DOCX_BYTES // 1048576,
+        gb2025_approved=_gb2025_template_approved(),
+        citation_access=citation_access,
+        upgrade_url=url_for("pricing", next=request.path),
+    )
+
+
+@app.get("/citation-assistant/jobs/<job_id>")
+def citation_assistant_job_page(job_id: str):
+    user = _require_citation_assistant_access()
+    job = citation_tasks.get_job(job_id, int(user["id"]))
+    if not job or job.get("status") in {"deleted", "expired"}:
+        abort(404, description="任务不存在或已过期。")
+    return render_template(
+        "citation_assistant.html", app_name=APP_NAME, app_version=APP_VERSION,
+        layout_v2=True, layout_page="citation",
+        csrf_token=_ensure_csrf_token(), job=_citation_job_payload(job), jobs=[],
+        book_scope_tree=_book_scope_tree(), max_mb=citation_tasks.MAX_DOCX_BYTES // 1048576,
+        gb2025_approved=_gb2025_template_approved(),
+        citation_access=True,
+        upgrade_url=url_for("pricing", next=request.path),
+    )
+
+
+@app.post("/api/citation-assistant/jobs")
+def api_citation_create_job():
+    user = _require_citation_assistant_access()
+    uid = int(user["id"])
+    if not _is_admin_user(user):
+        if citation_tasks.count_active_jobs(uid) >= citation_tasks.MAX_ACTIVE_PER_USER:
+            abort(429, description=f"同时最多可保留 {citation_tasks.MAX_ACTIVE_PER_USER} 个活动任务。")
+        local_now = datetime.now(timezone(timedelta(hours=8)))
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        if citation_tasks.count_jobs_since(uid, local_start.isoformat()) >= citation_tasks.MAX_JOBS_PER_DAY:
+            abort(429, description=f"每天最多创建 {citation_tasks.MAX_JOBS_PER_DAY} 个论文任务。")
+    upload = (request.files or {}).get("file")
+    if upload is None:
+        abort(400, description="请选择 .docx 论文文件。")
+    requested_style = str(request.form.get("citation_style") or "mkszyj")
+    if not _gb2025_template_approved() and requested_style in {"auto", "gb2025"}:
+        abort(400, description="GB/T 7714—2025 尚未由站长正式核准；内测请明确选择 2015 版或期刊格式。")
+    data = upload.read(citation_tasks.MAX_DOCX_BYTES + 1)
+    try:
+        scope_tokens = json.loads(str(request.form.get("scope") or "[]"))
+    except Exception:
+        scope_tokens = []
+    if not isinstance(scope_tokens, list):
+        scope_tokens = []
+    try:
+        job = citation_tasks.create_job(
+            uid, upload.filename or "论文.docx", data,
+            mode=str(request.form.get("mode") or "both"),
+            note_kind=str(request.form.get("note_kind") or "footnote"),
+            # The public workflow no longer exposes fuzzy auto-selection presets.
+            # Only unique, exact, reliable-page matches may be adopted automatically.
+            threshold="conservative",
+            citation_style=requested_style,
+            scope_tokens=[str(x) for x in scope_tokens[:500]],
+            corpus_sha256=_citation_corpus_sha256(), template_version=_citation_template_version(),
+        )
+    except citation_tasks.CitationAssistantError as exc:
+        abort(400, description=str(exc))
+    _citation_dispatch(str(job["id"]), citation_tasks.run_extraction)
+    return jsonify({"ok": True, "job": _citation_job_payload(job)}), 202
+
+
+@app.get("/api/citation-assistant/jobs/<job_id>")
+def api_citation_get_job(job_id: str):
+    user = _require_citation_assistant_access()
+    job = citation_tasks.get_job(job_id, int(user["id"]))
+    if not job or job.get("status") in {"deleted", "expired"}:
+        abort(404, description="任务不存在或已过期。")
+    return jsonify({"ok": True, "job": _citation_job_payload(job)})
+
+
+@app.post("/api/citation-assistant/jobs/<job_id>/analyze")
+def api_citation_analyze(job_id: str):
+    user = _require_citation_assistant_access()
+    uid = int(user["id"])
+    job = citation_tasks.get_job(job_id, uid)
+    if not job:
+        abort(404, description="任务不存在。")
+    payload = request.get_json(silent=True) or {}
+    sections = payload.get("sections") or []
+    scope = payload.get("scope") or []
+    if not isinstance(sections, list) or not isinstance(scope, list):
+        abort(400, description="分析范围格式无效。")
+    try:
+        _citation_personal_scope_rows(uid, [str(x) for x in scope])
+        job = citation_tasks.set_analysis_config(
+            job_id, uid, section_ids=[str(x) for x in sections[:1000]],
+            scope_tokens=[str(x) for x in scope[:500]],
+        )
+    except citation_tasks.CitationAssistantError as exc:
+        abort(400, description=str(exc))
+    _citation_dispatch(job_id, _citation_analysis_worker)
+    return jsonify({"ok": True, "job": _citation_job_payload(job)}), 202
+
+
+@app.get("/api/citation-assistant/jobs/<job_id>/candidates")
+def api_citation_candidates(job_id: str):
+    user = _require_citation_assistant_access()
+    if not citation_tasks.get_job(job_id, int(user["id"])):
+        abort(404, description="任务不存在。")
+    result = citation_tasks.list_candidates(
+        job_id, page=request.args.get("page", type=int) or 1,
+        page_size=request.args.get("page_size", type=int) or 50,
+        kind=str(request.args.get("kind") or ""), issue=str(request.args.get("issue") or ""),
+        decision=str(request.args.get("decision") or ""),
+        section=str(request.args.get("section") or ""),
+    )
+    return jsonify({"ok": True, **result})
+
+
+@app.patch("/api/citation-assistant/jobs/<job_id>/decisions")
+def api_citation_decisions(job_id: str):
+    user = _require_citation_assistant_access()
+    payload = request.get_json(silent=True) or {}
+    decisions = payload.get("decisions") or []
+    if not isinstance(decisions, list):
+        abort(400, description="决定列表格式无效。")
+    try:
+        accepted = citation_tasks.save_decisions(job_id, int(user["id"]), decisions)
+    except citation_tasks.CitationAssistantError as exc:
+        abort(404, description=str(exc))
+    return jsonify({"ok": True, "accepted_count": accepted})
+
+
+@app.patch("/api/citation-assistant/jobs/<job_id>/decisions/pending")
+def api_citation_pending_decisions(job_id: str):
+    user = _require_citation_assistant_access()
+    decision = str((request.get_json(silent=True) or {}).get("decision") or "")
+    try:
+        result = citation_tasks.bulk_decide_pending(
+            job_id, int(user["id"]), decision,
+        )
+    except citation_tasks.CitationAssistantError as exc:
+        abort(400, description=str(exc))
+    return jsonify({"ok": True, **result})
+
+
+@app.patch("/api/citation-assistant/jobs/<job_id>/citation-style")
+def api_citation_style(job_id: str):
+    user = _require_citation_assistant_access()
+    style = str((request.get_json(silent=True) or {}).get("citation_style") or "")
+    if style == "gb2025" and not _gb2025_template_approved():
+        abort(409, description="GB/T 7714—2025 模板尚未正式核准。")
+    try:
+        job = citation_tasks.choose_citation_style(job_id, int(user["id"]), style)
+    except citation_tasks.CitationAssistantError as exc:
+        abort(400, description=str(exc))
+    return jsonify({"ok": True, "job": _citation_job_payload(job)})
+
+
+@app.post("/api/citation-assistant/jobs/<job_id>/export")
+def api_citation_export(job_id: str):
+    user = _require_citation_assistant_access()
+    job = citation_tasks.get_job(job_id, int(user["id"]))
+    if not job:
+        abort(404, description="任务不存在。")
+    if job.get("citation_style") == "auto" and float(job.get("style_confidence") or 0) < 0.80:
+        abort(409, description="现有注释不足或格式混用，请先明确选择引文格式再生成文档。")
+    if job.get("status") != "review_ready":
+        abort(409, description="请先完成候选内容审核。")
+    citation_tasks.update_job(job_id, status="exporting")
+    _citation_dispatch(job_id, _citation_export_worker)
+    return jsonify({"ok": True, "status": "exporting"}), 202
+
+
+@app.get("/api/citation-assistant/jobs/<job_id>/download/<artifact>")
+def citation_assistant_download(job_id: str, artifact: str):
+    user = _require_citation_assistant_access()
+    job = citation_tasks.get_job(job_id, int(user["id"]))
+    if not job:
+        abort(404, description="任务不存在。")
+    if artifact == "docx":
+        path = Path(str(job.get("output_docx_path") or ""))
+        mimetype, name = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", path.name
+    elif artifact == "pdf":
+        path = Path(str(job.get("output_pdf_path") or ""))
+        name = "论文引文校对批注版.pdf" if "批注版" in path.name else "论文引文校对旧版列表报告.pdf"
+        mimetype = "application/pdf"
+    else:
+        abort(404)
+    directory = citation_tasks._job_dir(int(user["id"]), job_id).resolve()
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        abort(404, description="导出文件尚未生成或已过期。")
+    if directory not in resolved.parents:
+        abort(404)
+    return send_file(resolved, mimetype=mimetype, as_attachment=True, download_name=name, conditional=True)
+
+
+@app.delete("/api/citation-assistant/jobs/<job_id>")
+def api_citation_delete_job(job_id: str):
+    user = _require_citation_assistant_access()
+    if not citation_tasks.delete_job(job_id, int(user["id"])):
+        abort(404, description="任务不存在。")
+    return jsonify({"ok": True, "deleted": True})
+
+
+# Optional HTTP bridge for a parsing node that does not share the application process.
+# Production may instead run scripts/citation_assistant_worker.py against the shared data volume.
+_CITATION_INTERNAL_ENDPOINTS = {
+    "internal_citation_claim", "internal_citation_input", "internal_citation_extraction_get",
+    "internal_citation_extraction_submit", "internal_citation_progress",
+    "internal_citation_candidates_submit", "internal_citation_export_config",
+    "internal_citation_artifacts_submit",
+}
+CSRF_EXEMPT_ENDPOINTS.update(_CITATION_INTERNAL_ENDPOINTS)
+
+
+def _require_citation_worker(
+    job_id: str = "", *, idempotent_statuses: set[str] | None = None,
+) -> tuple[str, dict | None]:
+    expected = str(os.environ.get("CITATION_ASSISTANT_WORKER_TOKEN") or "").strip()
+    auth = str(request.headers.get("Authorization") or "").strip()
+    actual = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if len(expected) < 32 or not actual or not secrets.compare_digest(expected, actual):
+        abort(404)
+    worker_id = re.sub(r"[^A-Za-z0-9_.:-]", "", str(request.headers.get("X-Worker-ID") or ""))[:100]
+    if not worker_id:
+        abort(400, description="缺少工作节点标识。")
+    job = citation_tasks.get_job(job_id) if job_id else None
+    if job and str(job.get("status") or "") in (idempotent_statuses or set()):
+        return worker_id, job
+    lease_expired = bool(job and str(job.get("lease_expires_at") or "") <= datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+    if job_id and (not job or str(job.get("lease_owner") or "") != worker_id or lease_expired):
+        abort(409, description="任务未由当前工作节点认领或租约已失效。")
+    return worker_id, job
+
+
+def _internal_job_payload(job: dict) -> dict:
+    return {
+        key: job.get(key) for key in (
+            "id", "user_id", "original_filename", "mode", "note_kind", "threshold_mode",
+            "citation_style", "resolved_style", "scope", "selected_sections", "flags",
+            "corpus_sha256", "template_version", "claimed_stage", "lease_expires_at",
+        )
+    }
+
+
+@app.post("/internal/citation-assistant/claim")
+def internal_citation_claim():
+    worker_id, _ = _require_citation_worker()
+    job = citation_tasks.claim_next_job(worker_id, lease_seconds=900)
+    if not job:
+        return jsonify({"ok": True, "job": None})
+    payload = _internal_job_payload(job)
+    payload.update({
+        "input_url": url_for("internal_citation_input", job_id=job["id"]),
+        "extraction_url": url_for("internal_citation_extraction_get", job_id=job["id"]),
+        "export_config_url": url_for("internal_citation_export_config", job_id=job["id"]),
+    })
+    return jsonify({"ok": True, "job": payload})
+
+
+@app.get("/internal/citation-assistant/jobs/<job_id>/input")
+def internal_citation_input(job_id: str):
+    _, job = _require_citation_worker(job_id)
+    path = Path(str((job or {}).get("input_path") or ""))
+    if not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@app.get("/internal/citation-assistant/jobs/<job_id>/extraction")
+def internal_citation_extraction_get(job_id: str):
+    _, job = _require_citation_worker(job_id)
+    path = Path(str((job or {}).get("extraction_path") or ""))
+    if not path.is_file():
+        abort(404)
+    return send_file(path, mimetype="application/json")
+
+
+@app.post("/internal/citation-assistant/jobs/<job_id>/extraction")
+def internal_citation_extraction_submit(job_id: str):
+    _, job = _require_citation_worker(job_id, idempotent_statuses={"awaiting_sections"})
+    if job.get("status") == "awaiting_sections":
+        return jsonify({"ok": True, "idempotent": True})
+    if job.get("status") != "extracting":
+        abort(409, description="任务不在文档解析阶段。")
+    payload = request.get_json(silent=True) or {}
+    sections, paragraphs, flags = payload.get("sections"), payload.get("paragraphs"), payload.get("flags")
+    if not isinstance(sections, list) or not isinstance(paragraphs, list) or not isinstance(flags, dict):
+        abort(400, description="文档解析结果格式无效。")
+    if len(paragraphs) > citation_tasks.MAX_PARAGRAPHS or len(sections) > 2000:
+        abort(413, description="文档解析结果超出上限。")
+    normalized_chars = sum(len(normalize(str(item.get("text") or ""))) for item in paragraphs if isinstance(item, dict))
+    note_count = sum(len(item.get("note_refs") or []) for item in paragraphs if isinstance(item, dict))
+    if normalized_chars > citation_tasks.MAX_NORMALIZED_CHARS or note_count > citation_tasks.MAX_NOTES:
+        abort(413, description="文档正文或注释数量超出上限。")
+    encoded = json.dumps({"sections": sections, "paragraphs": paragraphs, "flags": flags}, ensure_ascii=False).encode("utf-8")
+    if len(encoded) > 32 * 1024 * 1024:
+        abort(413, description="文档解析结果超出上限。")
+    out = citation_tasks._job_dir(int(job["user_id"]), job_id, create=True) / "extraction.json"
+    partial = out.with_suffix(".json.part")
+    partial.write_bytes(encoded)
+    partial.replace(out)
+    selected = [str(s.get("id")) for s in sections if s.get("default_selected")]
+    citation_tasks.update_job(
+        job_id, status="awaiting_sections", extraction_path=str(out),
+        sections_json=json.dumps(sections, ensure_ascii=False),
+        selected_sections_json=json.dumps(selected, ensure_ascii=False),
+        flags_json=json.dumps(flags, ensure_ascii=False), progress_done=1, progress_total=1, error="",
+    )
+    return jsonify({"ok": True})
+
+
+@app.post("/internal/citation-assistant/jobs/<job_id>/progress")
+def internal_citation_progress(job_id: str):
+    worker_id, _ = _require_citation_worker(job_id)
+    payload = request.get_json(silent=True) or {}
+    citation_tasks.update_job(
+        job_id, progress_done=max(0, int(payload.get("done") or 0)),
+        progress_total=max(1, int(payload.get("total") or 1)),
+    )
+    citation_tasks.renew_lease(job_id, worker_id, lease_seconds=900)
+    return jsonify({"ok": True})
+
+
+@app.post("/internal/citation-assistant/jobs/<job_id>/candidates")
+def internal_citation_candidates_submit(job_id: str):
+    _, job = _require_citation_worker(job_id, idempotent_statuses={"review_ready"})
+    if job.get("status") == "review_ready":
+        return jsonify({"ok": True, "idempotent": True, "candidate_count": int(job.get("candidate_count") or 0)})
+    if job.get("status") != "matching":
+        abort(409, description="任务不在匹配阶段。")
+    payload = request.get_json(silent=True) or {}
+    if payload.get("corpus_sha256") != job.get("corpus_sha256") or payload.get("template_version") != job.get("template_version"):
+        abort(409, description="语料或模板版本不一致。")
+    resolved_style = str(payload.get("resolved_style") or "gb2025")
+    if resolved_style not in citation_tasks.VALID_CITATION_STYLES - {"auto"}:
+        abort(400, description="解析后的引文格式无效。")
+    if resolved_style == "gb2025" and not _gb2025_template_approved():
+        abort(409, description="GB/T 7714—2025 模板尚未正式核准。")
+    candidates = payload.get("candidates") or []
+    if not isinstance(candidates, list) or len(candidates) > 20_000:
+        abort(413, description="候选结果超出上限。")
+    citation_tasks.replace_candidates(job_id, candidates)
+    citation_tasks.update_job(
+        job_id, status="review_ready", resolved_style=resolved_style,
+        style_confidence=float(payload.get("style_confidence") or 0), progress_done=1, progress_total=1,
+    )
+    return jsonify({"ok": True, "candidate_count": len(candidates)})
+
+
+@app.get("/internal/citation-assistant/jobs/<job_id>/export-config")
+def internal_citation_export_config(job_id: str):
+    _, job = _require_citation_worker(job_id)
+    return jsonify({
+        "ok": True, "job": _internal_job_payload(job),
+        "candidates": citation_tasks.all_candidates(job_id),
+    })
+
+
+@app.post("/internal/citation-assistant/jobs/<job_id>/artifacts")
+def internal_citation_artifacts_submit(job_id: str):
+    _, job = _require_citation_worker(job_id, idempotent_statuses={"complete"})
+    if job.get("status") == "complete":
+        return jsonify({"ok": True, "idempotent": True, "status": "complete"})
+    if job.get("status") != "exporting":
+        abort(409, description="任务不在导出阶段。")
+    if request.form.get("corpus_sha256") != job.get("corpus_sha256") or request.form.get("template_version") != job.get("template_version"):
+        abort(409, description="语料或模板版本不一致。")
+    directory = citation_tasks._job_dir(int(job["user_id"]), job_id, create=True)
+    docx_path, pdf_path = "", ""
+    docx_upload = (request.files or {}).get("docx")
+    if docx_upload:
+        data = docx_upload.read(citation_tasks.MAX_DOCX_BYTES + 1)
+        if len(data) > citation_tasks.MAX_DOCX_BYTES:
+            abort(413)
+        target = directory / f"{Path(str(job['original_filename'])).stem}_引文校对.docx"
+        partial = target.with_suffix(".docx.part")
+        partial.write_bytes(data)
+        try:
+            citation_tasks.validate_exported_docx(partial, filename=target.name)
+        except citation_tasks.CitationAssistantError as exc:
+            partial.unlink(missing_ok=True)
+            abort(400, description=str(exc))
+        partial.replace(target)
+        docx_path = str(target)
+    pdf_upload = (request.files or {}).get("pdf")
+    if pdf_upload:
+        data = pdf_upload.read(50 * 1024 * 1024 + 1)
+        if len(data) > 50 * 1024 * 1024:
+            abort(413)
+        target = directory / "论文引文校对报告.pdf"
+        partial = target.with_suffix(".pdf.part")
+        partial.write_bytes(data)
+        try:
+            with fitz.open(partial) as report:
+                if report.page_count < 1:
+                    raise ValueError("empty PDF")
+                for report_page in report:
+                    report_page.get_text("text")
+        except Exception:
+            partial.unlink(missing_ok=True)
+            abort(400, description="PDF 产物无法验证。")
+        partial.replace(target)
+        pdf_path = str(target)
+    if not pdf_path:
+        abort(400, description="必须提交 PDF 校对报告。")
+    citation_tasks.update_job(
+        job_id, status="complete", output_docx_path=docx_path,
+        output_pdf_path=pdf_path, progress_done=1, progress_total=1, error="",
+    )
+    return jsonify({"ok": True})
+
+
+# =============================== 个人文库 ===============================
+# 会员上传自有书籍 → 管理员审核 → 解析入个人索引 → 私有阅读/检索/AI 问答。
+# 隔离要点：一切读写都以会话里的 user_id 判权；个人书永不进全局 corpus，也永不进
+# ALLOWED_SOURCE_FILES 白名单；原始 PDF 与页图都在另一台存储服务器上。
+MYLIB_PRERENDER_PAGES = int(os.environ.get("MYLIB_PRERENDER_PAGES", "20"))
+MYLIB_UPLOAD_STAGING_DIR = APPDATA_DIR / "mylib_upload_staging"
+MYLIB_INGEST_SLOTS = max(1, int(os.environ.get("MYLIB_INGEST_SLOTS", "2")))
+_MYLIB_INGEST_SEMAPHORE = threading.BoundedSemaphore(MYLIB_INGEST_SLOTS)
+BOOK_RECOMMENDATION_STAGING_DIR = APPDATA_DIR / "book_recommendation_staging"
+_BOOK_RECOMMENDATION_INGEST_SEMAPHORE = threading.BoundedSemaphore(
+    max(1, int(os.environ.get("BOOK_RECOMMENDATION_INGEST_SLOTS", "2")))
+)
+
+
+def _mylib_probe_text_layer(document, max_samples: int = 12) -> dict:
+    """Stratified PDF text probe; front matter alone must not decide the source type."""
+    total = max(0, int(getattr(document, "page_count", 0) or 0))
+    if total <= 0:
+        return {"has_text": False, "sample_pages": [], "sample_chars": 0, "nonempty_ratio": 0.0}
+    count = min(total, max(4, int(max_samples)))
+    indices = {0, min(1, total - 1), max(0, total - 2), total - 1}
+    if count > 1:
+        indices.update(round(step * (total - 1) / (count - 1)) for step in range(count))
+    sampled = sorted(index for index in indices if 0 <= index < total)
+    char_counts: list[int] = []
+    for index in sampled:
+        try:
+            char_counts.append(len((document[index].get_text("text") or "").strip()))
+        except Exception:  # noqa: BLE001 — one damaged page must not invalidate the file probe
+            char_counts.append(0)
+    nonempty = sum(value >= 20 for value in char_counts)
+    sample_chars = sum(char_counts)
+    nonempty_ratio = nonempty / max(1, len(char_counts))
+    ordered = sorted(char_counts)
+    median_chars = ordered[len(ordered) // 2] if ordered else 0
+    has_text = bool(
+        nonempty_ratio >= 0.5
+        and (sample_chars >= 60 * len(char_counts) or median_chars >= 60)
+    )
+    return {
+        "has_text": has_text,
+        "sample_pages": [index + 1 for index in sampled],
+        "sample_chars": sample_chars,
+        "median_chars": median_chars,
+        "nonempty_ratio": round(nonempty_ratio, 3),
+    }
+
+
+def _require_personal_library_access():
+    """个人文库为会员专属：未登录 → 401/登录页，无权限 → 403/套餐页。返回当前用户 dict。"""
+    _require_content_feature("personal_library")
+    user = getattr(g, "current_user", None)
+    if not user:
+        abort(401, description="请先登录会员账号。")
+    return user
+
+
+def _mylib_payload(row: dict) -> dict:
+    """提交记录 → 前端载荷。剔除 user_email 等内部字段，只给用户自己看得懂的部分。"""
+    quality = mylib.submission_quality(row)
+    bibliographic = mylib.submission_bibliographic(row)
+    acceptance = mylib.submission_acceptance(row)
+    toc_confidence = float(quality.get("toc_confidence") or 0.0)
+    page_confidence = float(quality.get("page_confidence") or 0.0)
+    return {
+        "id": row["id"],
+        "title": row.get("title") or "",
+        "author": row.get("author") or "",
+        "pages": int(row.get("page_count") or 0),
+        "size_mb": round((row.get("byte_size") or 0) / 1048576, 1),
+        "status": row.get("status") or "",
+        "searchable": bool(row.get("searchable")),
+        "citation_ready": bool(row.get("citation_ready")),
+        "acceptance_status": str(row.get("acceptance_status") or acceptance.get("status") or ""),
+        "acceptance": {
+            "blocking": [str(x) for x in (acceptance.get("blocking") or [])[:5]],
+            "warnings": [str(x) for x in (acceptance.get("warnings") or [])[:5]],
+            "dimensions": acceptance.get("dimensions") if isinstance(
+                acceptance.get("dimensions"), dict
+            ) else {},
+        },
+        "toc_count": int(row.get("toc_count") or 0),
+        "quality": {
+            "toc_source": str(quality.get("toc_source") or "none"),
+            "toc_confidence": toc_confidence,
+            "page_confidence": page_confidence,
+            "toc_label": "可靠" if toc_confidence >= 0.70 else ("可用" if toc_confidence >= 0.45 else "未确认"),
+            "page_label": "已校准" if page_confidence >= 0.70 else "PDF页码",
+            "warnings": [str(x) for x in (quality.get("warnings") or [])[:5]],
+            "source_profile": quality.get("source_profile") if isinstance(
+                quality.get("source_profile"), dict
+            ) else {},
+        },
+        "bibliographic": {
+            "title": str(bibliographic.get("title") or ""),
+            "authors": [str(x) for x in (bibliographic.get("authors") or [])[:8]],
+            "translators": [str(x) for x in (bibliographic.get("translators") or [])[:8]],
+            "publisher": str(bibliographic.get("publisher") or ""),
+            "place": str(bibliographic.get("place") or ""),
+            "year": str(bibliographic.get("year") or ""),
+            "isbn": str(bibliographic.get("isbn") or ""),
+            "standard_number": str(bibliographic.get("standard_number") or ""),
+            "standard_number_type": str(bibliographic.get("standard_number_type") or ""),
+            "source": str(bibliographic.get("source") or ""),
+            "copyright_pdf_page": bibliographic.get("copyright_pdf_page"),
+            "confidence": float(bibliographic.get("confidence") or 0.0),
+        },
+        "source_kind": row.get("source_kind") or "",
+        "reject_reason": row.get("reject_reason") or "",
+        "fail_reason": row.get("fail_reason") or "",
+        "progress_done": int(row.get("progress_done") or 0),
+        "progress_total": int(row.get("progress_total") or 0),
+        "created_at": row.get("created_at") or "",
+    }
+
+
+@app.route("/mylib")
+def mylib_home():
+    """「我的个人文库」：本人上传的书一览，可阅读/删除/再上传。二级页，不套 v2 外壳。"""
+    _require_personal_library_access()
+    return render_template("mylib_home.html", app_name=APP_NAME, app_version=APP_VERSION)
+
+
+@app.route("/mylib/upload")
+def mylib_upload_page():
+    _require_personal_library_access()
+    return render_template(
+        "mylib_upload.html",
+        app_name=APP_NAME,
+        app_version=APP_VERSION,
+        max_mb=mylib.MAX_PDF_BYTES // 1048576,
+        max_books=mylib.max_books_per_user(),
+    )
+
+
+@app.route("/mylib/<int:submission_id>")
+def mylib_reader(submission_id: int):
+    """个人文库阅读器。归属 + 状态双校验后才渲染；页图由 /api/mylib/page-image 逐页取。"""
+    user = _require_personal_library_access()
+    row = mylib.get_submission(int(submission_id), int(user["id"]))
+    if not row or row["status"] != "ready":
+        flash("该书不存在或尚未上架。", "warning")
+        raise _RedirectTo(url_for("mylib_home"))
+    ai_access = bool(_feature_is_available("ai") and _feature_effective_for_user("ai"))
+    return render_template(
+        "mylib_reader.html",
+        app_name=APP_NAME,
+        app_version=APP_VERSION,
+        book=_mylib_payload(row),
+        notes_access_enabled=_notes_access_enabled(),
+        ai_access_enabled=ai_access,
+        search_chat_access_enabled=bool(
+            _feature_is_available("search_chat") and _feature_effective_for_user("search_chat")
+        ),
+        ai_web_access_enabled=_ai_web_access_enabled(),
+        ai_runtime=_public_ai_runtime_payload(allow_details=ai_access),
+        ai_token_quota=_ai_token_quota_payload(getattr(g, "current_user", None)) if ai_access else {},
+    )
+
+
+@app.get("/api/mylib/books")
+def api_mylib_books():
+    user = _require_personal_library_access()
+    rows = mylib.list_user_books(int(user["id"]))
+    used = sum(1 for r in rows if r["status"] == "ready")
+    return jsonify({
+        "ok": True,
+        "books": [_mylib_payload(r) for r in rows],
+        "quota_used": used,
+        "quota_max": mylib.max_books_per_user(),
+        "max_mb": mylib.MAX_PDF_BYTES // 1048576,
+    })
+
+
+@app.get("/api/mylib/<int:submission_id>/toc")
+def api_mylib_toc(submission_id: int):
+    """个人阅读器目录：先做 owner + ready 双校验，再从该用户独立索引读取。"""
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    row = mylib.get_submission(int(submission_id), uid)
+    if not row or row["status"] != "ready":
+        abort(404, description="书籍不存在或尚未上架。")
+    entries = mylib_corpus.get_book_toc(uid, int(submission_id))
+    return jsonify({"ok": True, "count": len(entries), "entries": entries})
+
+
+@app.get("/api/mylib/<int:submission_id>/search")
+def api_mylib_book_search(submission_id: int):
+    """个人阅读器“查找本书”：只搜本人指定书，返回可跳页、可复制的真实引文。"""
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    row = mylib.get_submission(int(submission_id), uid)
+    if not row or row["status"] != "ready":
+        abort(404, description="书籍不存在或尚未上架。")
+    if not row.get("searchable"):
+        abort(409, description="本书尚无可检索文字层。")
+    query = " ".join(str(request.args.get("q") or "").split())[:100]
+    if len(normalize(query)) < 2:
+        abort(400, description="请至少输入两个有效字符。")
+    _rate_limit_or_abort(
+        f"mylib-book-search:{uid}", limit=90, window_seconds=60,
+        message="本书检索过于频繁，请稍后再试。",
+    )
+    hits = mylib_corpus.search_book(uid, int(submission_id), query, limit=30)
+    results: list[dict] = []
+    for hit in hits:
+        item = hit.to_dict()
+        item["personal"] = True
+        item["viewer_url"] = (
+            f"{url_for('mylib_reader', submission_id=submission_id)}"
+            f"?page={(item.get('pdf_pages') or [1])[0]}"
+        )
+        results.append(item)
+    return jsonify({"ok": True, "query": query, "count": len(results), "results": results})
+
+
+@app.get("/api/mylib/<int:submission_id>/page-text")
+def api_mylib_page_text(submission_id: int):
+    """个人阅读器逐页文字层：可复制、可划词记笔记，且沿用同一私有索引生成引文。"""
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    row = mylib.get_submission(int(submission_id), uid)
+    if not row or row["status"] != "ready":
+        abort(404, description="书籍不存在或尚未上架。")
+    if not row.get("searchable"):
+        abort(409, description="本书尚无可选择文字层。")
+    try:
+        page = int(request.args.get("page") or 0)
+    except (TypeError, ValueError):
+        abort(400, description="页码无效。")
+    if page < 1 or page > int(row.get("page_count") or 0):
+        abort(400, description="页码超出范围。")
+    item = mylib_corpus.get_book_page(uid, int(submission_id), page)
+    if item is None:
+        return jsonify({
+            "ok": True, "pdf_page": page, "printed_page": None, "text": "",
+            "section_title": "", "citation": "", "citations": {},
+        })
+    return jsonify({"ok": True, **item})
+
+
+def _get_mylib_ai_page_context_payload(submission_id: int, page_number: int) -> dict:
+    """个人文库 AI 导读上下文：owner + ready + 私有索引三重校验，绝不回落公共语料。"""
+    user = _require_personal_library_access()
+    uid, sid = int(user["id"]), int(submission_id)
+    row = mylib.get_submission(sid, uid)
+    if not row or row.get("status") != "ready":
+        abort(404, description="书籍不存在或尚未上架。")
+    if not row.get("searchable"):
+        abort(409, description="本书尚无 OCR 文字层，暂时无法进行 AI 导读。")
+    page = max(1, int(page_number))
+    if page > int(row.get("page_count") or 0):
+        abort(404, description="请求页码超出本书范围。")
+    current = mylib_corpus.get_book_page(uid, sid, page)
+    if not current or not str(current.get("text") or "").strip():
+        abort(409, description="当前页尚未识别到可供 AI 导读的文字。")
+    previous = mylib_corpus.get_book_page(uid, sid, page - 1) if page > 1 else None
+    next_page = (
+        mylib_corpus.get_book_page(uid, sid, page + 1)
+        if page < int(row.get("page_count") or 0) else None
+    )
+    bibliographic = mylib.submission_bibliographic(row)
+    printed = current.get("printed_page")
+    return {
+        "source_file": f"mylib:{sid}",
+        "display_title": str(bibliographic.get("title") or row.get("title") or "个人文库书籍"),
+        "book": str(row.get("title") or "个人文库"),
+        "volume": "",
+        "page": page,
+        "page_label": str(printed or f"PDF-{page}"),
+        "section_title": str(current.get("section_title") or ""),
+        "citation": str(current.get("citation") or ""),
+        "source_url": url_for("mylib_reader", submission_id=sid, page=page),
+        "current_text": _clean_text(str(current.get("text") or "")),
+        "previous_excerpt": _clean_text(str((previous or {}).get("text") or ""), limit=240),
+        "next_excerpt": _clean_text(str((next_page or {}).get("text") or ""), limit=240),
+    }
+
+
+@app.post("/api/mylib/upload")
+def api_mylib_upload():
+    """接收上传：校验后先落本机暂存并立即应答，再由后台写入远端存储。
+
+    注意：全局 MAX_CONTENT_LENGTH 仅 4MB，本路由在 before_request 里单独放宽（见
+    _mylib_relax_upload_limit），否则大 PDF 会在进入本函数前就被 413 掉。
+
+    远端 ingest 不得留在请求线程：近 100MB 文件曾在后台成功登记，但同步转存把请求拖到
+    Cloudflare 125 秒断开，用户看到 524 并误以为提交失败。storing → pending 明确区分
+    “服务器已接收”和“已经安全落到存储节点”，管理员只会看到后者。
+    """
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    _rate_limit_or_abort(f"mylib-upload:{uid}", limit=10, window_seconds=3600,
+                         message="上传过于频繁，请稍后再试。")
+
+    upload = (request.files or {}).get("file")
+    if upload is None:
+        abort(400, description="请选择要上传的 PDF 文件。")
+    title = str(request.form.get("title") or "").strip()
+    author = str(request.form.get("author") or "").strip()
+    attested = str(request.form.get("license_attested") or "").strip() in {"1", "true", "on", "yes"}
+    ocr_consent = str(request.form.get("ocr_consent") or "").strip() in {"1", "true", "on", "yes"}
+    if not title:
+        abort(400, description="请填写书名。")
+    if not attested:
+        abort(400, description="请先勾选权利声明。")
+
+    data = upload.read(mylib.MAX_PDF_BYTES + 1)
+    if not data:
+        abort(400, description="文件为空。")
+    if len(data) > mylib.MAX_PDF_BYTES:
+        abort(400, description=f"文件超过 {mylib.MAX_PDF_BYTES // 1048576}MB 上限。")
+    # 魔数校验：不信扩展名（改名骗不过），与留言图片同一思路。
+    if data[:5] != b"%PDF-":
+        abort(400, description="不是有效的 PDF 文件。")
+
+    sha = sha256(data).hexdigest()
+    existing = mylib.find_user_submission_by_sha(uid, sha)
+    if existing:
+        return jsonify({
+            "ok": True, "id": int(existing["id"]), "status": existing["status"],
+            "duplicate": True, "has_text": existing.get("source_kind") == "text_layer",
+            "pages": int(existing.get("page_count") or 0),
+        })
+    pages_n, has_text = 0, False
+    toc_seed: list[dict] = []
+    try:
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            pages_n = doc.page_count
+            probe = _mylib_probe_text_layer(doc)
+            has_text = bool(probe.get("has_text"))
+            # PDF 书签是最可靠的目录来源，必须在原文件仍位于请求内存时抓取；远端解析节点只回传
+            # 逐页文本，过去正是在这里丢掉了目录。仅存标题/层级/页号，不保存外链或动作。
+            for outline in (doc.get_toc(simple=False) or [])[:5000]:
+                if len(outline) < 3:
+                    continue
+                try:
+                    toc_seed.append({
+                        "level": max(1, int(outline[0])),
+                        "title": str(outline[1] or ""),
+                        "pdf_page": int(outline[2]),
+                    })
+                except (TypeError, ValueError):
+                    continue
+    except Exception:  # noqa: BLE001 — 损坏文件按无文字层处理，审核时人工判断
+        pass
+
+    try:
+        row = mylib.create_submission(
+            user_id=uid, user_email=str(user.get("email") or ""), title=title, author=author,
+            original_filename=upload.filename or "", byte_size=len(data), page_count=pages_n,
+            sha256=sha, source_kind="text_layer" if has_text else "scanned",
+            license_attested=True, ocr_consent=ocr_consent,
+            toc_entries=toc_seed,
+            initial_status="storing",
+        )
+    except ValueError as exc:
+        abort(400, description=str(exc))
+
+    sid = int(row["id"])
+    try:
+        _mylib_stage_upload(sid, data)
+    except OSError as exc:
+        mylib.set_status(sid, "failed", fail_reason=f"上传暂存失败：{exc}")
+        LOGGER.warning("mylib staging failed sid=%s: %s", sid, exc)
+        abort(507, description="服务器暂存空间不可用，请联系管理员后重试。")
+    _mylib_start_ingest(sid)
+    return jsonify({"ok": True, "id": sid, "status": "storing",
+                    "has_text": has_text, "pages": pages_n}), 202
+
+
+def _mylib_staging_path(submission_id: int) -> Path:
+    return MYLIB_UPLOAD_STAGING_DIR / f"{int(submission_id)}.pdf"
+
+
+def _mylib_stage_upload(submission_id: int, data: bytes) -> Path:
+    """原子写入可恢复暂存区；进程中途重启不会留下一个被当成完整 PDF 的半文件。"""
+    MYLIB_UPLOAD_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(MYLIB_UPLOAD_STAGING_DIR, 0o700)
+    except OSError:
+        pass
+    final_path = _mylib_staging_path(submission_id)
+    part_path = final_path.with_name(f".{final_path.name}.{secrets.token_hex(6)}.part")
+    try:
+        with part_path.open("xb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        part_path.replace(final_path)
+    finally:
+        try:
+            part_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return final_path
+
+
+def _mylib_start_ingest(submission_id: int) -> None:
+    threading.Thread(
+        target=_mylib_ingest_worker, args=(int(submission_id),),
+        name=f"mylib-ingest-{int(submission_id)}", daemon=True,
+    ).start()
+
+
+def _mylib_ingest_worker(submission_id: int) -> None:
+    """把暂存 PDF 写到独立存储节点；成功后才进入审核队列并通知管理员。"""
+    sid = int(submission_id)
+    row = mylib.get_submission(sid)
+    if not row or row.get("status") != "storing":
+        return
+    uid = int(row["user_id"])
+    staged = _mylib_staging_path(sid)
+    if not staged.exists():
+        mylib.set_status(sid, "failed", fail_reason="上传暂存文件缺失，请重新上传。")
+        return
+    data: bytes | None = None
+    try:
+        with _MYLIB_INGEST_SEMAPHORE:
+            current = mylib.get_submission(sid)
+            if not current or current.get("status") != "storing":
+                return
+            data = staged.read_bytes()
+            if sha256(data).hexdigest() != str(row.get("sha256") or ""):
+                raise OSError("暂存文件完整性校验失败")
+            ingest_result = mylib_store.ingest(uid, sid, data)
+            if isinstance(ingest_result, dict):
+                remote_pages = int(ingest_result.get("pages") or row.get("page_count") or 0)
+                remote_kind = "text_layer" if ingest_result.get("has_text") else "scanned"
+                mylib.set_page_count(sid, remote_pages, source_kind=remote_kind)
+    except (mylib_store.StoreError, OSError) as exc:
+        current = mylib.get_submission(sid)
+        if current and current.get("status") == "storing":
+            mylib.set_status(sid, "failed", fail_reason=f"上传到存储节点失败：{exc}")
+        LOGGER.warning("mylib ingest failed sid=%s: %s", sid, exc)
+        return
+    finally:
+        data = None
+
+    current = mylib.get_submission(sid)
+    if not current or current.get("status") == "deleted":
+        try:
+            mylib_store.delete_book(uid, sid)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("mylib cancelled ingest cleanup failed sid=%s: %s", sid, exc)
+    elif current.get("status") == "storing":
+        mylib.set_status(sid, "pending", fail_reason="")
+        threading.Thread(
+            target=_mylib_notify_admin, args=(sid,),
+            name=f"mylib-notify-{sid}", daemon=True,
+        ).start()
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# =============================== 用户荐书 ===============================
+def _book_recommendation_staging_path(recommendation_id: int) -> Path:
+    return BOOK_RECOMMENDATION_STAGING_DIR / f"{int(recommendation_id)}.pdf"
+
+
+def _stage_book_recommendation(recommendation_id: int, data: bytes) -> Path:
+    """原子暂存荐书 PDF；只有完整写入的文件才会被后台转存线程看见。"""
+    BOOK_RECOMMENDATION_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(BOOK_RECOMMENDATION_STAGING_DIR, 0o700)
+    except OSError:
+        pass
+    final_path = _book_recommendation_staging_path(recommendation_id)
+    part_path = final_path.with_name(f".{final_path.name}.{secrets.token_hex(6)}.part")
+    try:
+        with part_path.open("xb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        part_path.replace(final_path)
+    finally:
+        try:
+            part_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return final_path
+
+
+def _start_book_recommendation_ingest(recommendation_id: int) -> None:
+    threading.Thread(
+        target=_book_recommendation_ingest_worker,
+        args=(int(recommendation_id),),
+        name=f"book-recommendation-ingest-{int(recommendation_id)}",
+        daemon=True,
+    ).start()
+
+
+def _book_recommendation_ingest_worker(recommendation_id: int) -> None:
+    rid = int(recommendation_id)
+    row = mylib.get_book_recommendation(rid)
+    if not row or row.get("status") != "storing":
+        return
+    uid = int(row["user_id"])
+    staged = _book_recommendation_staging_path(rid)
+    if not staged.exists():
+        mylib.set_book_recommendation_status(
+            rid, "failed", fail_reason="上传暂存文件缺失，请重新提交。",
+        )
+        return
+    try:
+        with _BOOK_RECOMMENDATION_INGEST_SEMAPHORE:
+            current = mylib.get_book_recommendation(rid)
+            if not current or current.get("status") != "storing":
+                return
+            data = staged.read_bytes()
+            if sha256(data).hexdigest() != str(row.get("sha256") or ""):
+                raise OSError("暂存文件完整性校验失败")
+            result = mylib_store.ingest_book_recommendation(uid, rid, data)
+            if str((result or {}).get("sha256") or "") != str(row.get("sha256") or ""):
+                raise OSError("存储节点返回的文件指纹不一致")
+    except (mylib_store.StoreError, OSError) as exc:
+        current = mylib.get_book_recommendation(rid)
+        if current and current.get("status") == "storing":
+            mylib.set_book_recommendation_status(
+                rid, "failed", fail_reason=f"上传到暂存服务器失败：{exc}",
+            )
+        LOGGER.warning("book recommendation ingest failed rid=%s: %s", rid, exc)
+        return
+    finally:
+        data = None
+
+    mylib.set_book_recommendation_status(rid, "pending", fail_reason="")
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _resume_book_recommendation_storing() -> None:
+    for row in mylib.list_storing_book_recommendations():
+        rid = int(row.get("id") or 0)
+        if rid <= 0:
+            continue
+        if _book_recommendation_staging_path(rid).exists():
+            _start_book_recommendation_ingest(rid)
+        else:
+            mylib.set_book_recommendation_status(
+                rid, "failed", fail_reason="服务重启后未找到完整暂存文件，请重新提交。",
+            )
+
+
+@app.post("/api/book-recommendations")
+def api_book_recommendation_upload():
+    """注册用户上传荐书 PDF，等待管理员审核处理。"""
+    user = getattr(g, "current_user", None)
+    if not user:
+        abort(401, description="请先登录后再提交荐书。")
+    if not mylib_store.configured():
+        abort(503, description="荐书暂存服务尚未就绪，请稍后再试。")
+    uid = int(user["id"])
+    _rate_limit_or_abort(
+        f"book-recommendation-upload:{uid}", limit=5, window_seconds=24 * 3600,
+        message="今天提交荐书较多，请明天再试。",
+    )
+    upload = (request.files or {}).get("file")
+    if upload is None:
+        abort(400, description="请选择要上传的 PDF 文件。")
+    filename = Path(str(upload.filename or "")).name
+    if not filename.lower().endswith(".pdf"):
+        abort(400, description="荐书栏目只接收 PDF 文件。")
+    title = str(request.form.get("title") or "").strip()
+    author = str(request.form.get("author") or "").strip()
+    note = str(request.form.get("note") or "").strip()
+    if not title:
+        abort(400, description="请填写荐书书名。")
+    data = upload.read(mylib.BOOK_RECOMMENDATION_MAX_PDF_BYTES + 1)
+    if not data:
+        abort(400, description="文件为空。")
+    if len(data) > mylib.BOOK_RECOMMENDATION_MAX_PDF_BYTES:
+        abort(
+            400,
+            description=(
+                f"文件超过 {mylib.BOOK_RECOMMENDATION_MAX_PDF_BYTES // 1048576}MB 上限。"
+            ),
+        )
+    if data[:5] != b"%PDF-":
+        abort(400, description="不是有效的 PDF 文件。")
+    try:
+        with fitz.open(stream=data, filetype="pdf") as document:
+            if document.needs_pass:
+                abort(400, description="暂不接收带打开密码的 PDF。")
+            page_count = int(document.page_count)
+    except Exception as exc:
+        if getattr(exc, "code", None):
+            raise
+        abort(400, description="PDF 已损坏或无法打开。")
+    if page_count <= 0:
+        abort(400, description="PDF 中没有可读取的页面。")
+
+    digest = sha256(data).hexdigest()
+    duplicate = mylib.find_book_recommendation_by_sha(uid, digest)
+    if duplicate:
+        return jsonify({
+            "ok": True, "id": int(duplicate["id"]), "status": duplicate["status"],
+            "duplicate": True,
+        })
+    try:
+        row = mylib.create_book_recommendation(
+            user_id=uid,
+            user_email=str(user.get("email") or ""),
+            title=title,
+            author=author,
+            note=note,
+            original_filename=filename,
+            byte_size=len(data),
+            page_count=page_count,
+            sha256=digest,
+        )
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    rid = int(row["id"])
+    try:
+        _stage_book_recommendation(rid, data)
+    except OSError as exc:
+        mylib.set_book_recommendation_status(
+            rid, "failed", fail_reason=f"上传暂存失败：{exc}",
+        )
+        LOGGER.warning("book recommendation staging failed rid=%s: %s", rid, exc)
+        abort(507, description="服务器暂存空间不可用，请联系管理员后重试。")
+    _start_book_recommendation_ingest(rid)
+    return jsonify({"ok": True, "id": rid, "status": "storing"}), 202
+
+
+@app.get("/admin/book-recommendations/<int:recommendation_id>/download")
+def admin_book_recommendation_download(recommendation_id: int):
+    """管理员经网站后台代理下载荐书 PDF；存储节点地址和令牌不会下发浏览器。"""
+    _require_admin()
+    row = mylib.get_book_recommendation(int(recommendation_id))
+    if not row or row.get("status") != "pending":
+        abort(404, description="荐书文件不存在或尚未完成转存。")
+    try:
+        blob, _content_type = mylib_store.fetch_book_recommendation(
+            int(row["user_id"]), int(row["id"]),
+        )
+    except mylib_store.StoreError as exc:
+        LOGGER.warning("book recommendation download failed rid=%s: %s", recommendation_id, exc)
+        abort(502, description="暂时无法从荐书存储服务器读取文件，请稍后再试。")
+    filename = re.sub(
+        r'[\\/:*?"<>|\r\n\t]+', " ", str(row.get("original_filename") or "荐书.pdf"),
+    ).strip()[:180]
+    if not filename.lower().endswith(".pdf"):
+        filename = (filename or "荐书") + ".pdf"
+    response = send_file(
+        BytesIO(blob), mimetype="application/pdf", as_attachment=True, download_name=filename,
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@app.post("/admin/book-recommendations/<int:recommendation_id>/archive")
+def admin_book_recommendation_archive(recommendation_id: int):
+    """管理员下载并处理后归档元数据；归档会释放该用户的待审提交名额。"""
+    _require_admin()
+    row = mylib.get_book_recommendation(int(recommendation_id))
+    if not row:
+        abort(404, description="荐书记录不存在。")
+    if row.get("status") not in {"pending", "failed"}:
+        abort(409, description="当前荐书状态不能归档。")
+    mylib.set_book_recommendation_status(int(recommendation_id), "archived")
+    flash("荐书已标记为处理完成。", "success")
+    return redirect(url_for("admin", module="content") + "#book-recommendations")
+
+
+@app.post("/api/mylib/<int:submission_id>/delete")
+def api_mylib_delete(submission_id: int):
+    """用户自助删除：索引行、存储节点对象、本地页图缓存一并清除；表行软删留审计。"""
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    row = mylib.get_submission(int(submission_id), uid)
+    if not row:
+        abort(404, description="书籍不存在或无权删除。")
+    mylib.mark_deleted(int(submission_id), uid)
+    _mylib_purge(uid, int(submission_id))
+    return jsonify({"ok": True, "deleted": True})
+
+
+def _mylib_purge(user_id: int, submission_id: int) -> None:
+    """清干净一本书的所有痕迹（索引 → 存储对象 → 页图缓存）。任一步失败不阻断其余。"""
+    try:
+        mylib_corpus.drop_book_index(int(user_id), int(submission_id))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib drop index failed sid=%s: %s", submission_id, exc)
+    try:
+        mylib_store.delete_book(int(user_id), int(submission_id))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib delete objects failed sid=%s: %s", submission_id, exc)
+    try:
+        _mylib_staging_path(int(submission_id)).unlink(missing_ok=True)
+    except OSError:
+        pass
+    _mylib_clear_page_cache(int(user_id), int(submission_id))
+
+
+@app.get("/api/mylib/page-image")
+def api_mylib_page_image():
+    """个人文库取图代理：**归属 + 状态双校验**后才回源存储节点取页图。
+
+    绝不复用全局 /page-image 与 ALLOWED_SOURCE_FILES —— 那是给公共语料的白名单机制，
+    个人书的隔离靠 owner 判定，两套不可混用。本机再加一层磁盘缓存，热页不跨机。
+    """
+    user = _require_personal_library_access()
+    uid = int(user["id"])
+    sid = request.args.get("sid", type=int)
+    page = request.args.get("page", type=int)
+    if not sid or not page or page < 1:
+        abort(400, description="参数不完整。")
+    row = mylib.get_submission(sid, uid)
+    if not row or row["status"] != "ready":
+        abort(404, description="书籍不存在或尚未上架。")
+    if row.get("page_count") and page > int(row["page_count"]):
+        abort(404, description="页码超出范围。")
+
+    cache_path = _mylib_page_cache_path(uid, sid, page)
+    if cache_path.exists():
+        try:
+            return send_file(cache_path, mimetype="image/webp", conditional=True, max_age=86400)
+        except OSError:
+            pass
+    try:
+        blob, ctype = mylib_store.render(uid, sid, page)
+    except mylib_store.StoreError as exc:
+        LOGGER.warning("mylib render failed sid=%s page=%s: %s", sid, page, exc)
+        abort(502, description="页面暂时无法加载，请稍后重试。")
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(blob)
+    except OSError:
+        pass
+    resp = Response(blob, mimetype=ctype or "image/webp")
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
+def _mylib_page_cache_path(user_id: int, submission_id: int, page: int) -> Path:
+    """本机热页缓存。与公共 page_images 分目录，命名空间不相撞。"""
+    return APPDATA_DIR / "mylib_pages" / str(int(user_id)) / str(int(submission_id)) / f"{int(page)}.webp"
+
+
+def _mylib_clear_page_cache(user_id: int, submission_id: int) -> None:
+    import shutil
+    d = APPDATA_DIR / "mylib_pages" / str(int(user_id)) / str(int(submission_id))
+    try:
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+    except OSError:
+        pass
+
+
+# ---------- 解析流水线（后台线程，绝不占 waitress 请求线程）----------
+def _mylib_start_parse(submission_id: int, *, force_ocr: bool = False) -> None:
+    """把一本书排进解析。批准动作触发；解析耗时以分钟计，故必须离开请求线程。
+
+    这里刻意不用「跨机作业队列」：文字层抽取本身很快，节点侧同步接口足够；扫描件 OCR
+    （Phase 2）才需要真正的队列与断点续跑。
+    """
+    mylib.set_status(int(submission_id), "queued")
+    threading.Thread(target=_mylib_parse_worker, args=(int(submission_id), force_ocr),
+                     name=f"mylib-parse-{submission_id}", daemon=True).start()
+
+
+def _mylib_parse_worker(submission_id: int, force_ocr: bool = False) -> None:
+    sid = int(submission_id)
+    row = mylib.get_submission(sid)
+    if not row:
+        return
+    uid = int(row["user_id"])
+    try:
+        mylib.set_status(sid, "parsing")
+        result = mylib_store.parse(uid, sid)
+        total = int(result.get("pages") or row.get("page_count") or 0)
+        mylib.set_page_count(sid, total)
+        mylib.set_progress(sid, 0, total)
+
+        embedded_pages: list[dict] | None = None
+        needs_ocr = bool(result.get("needs_ocr") or force_ocr)
+        if not needs_ocr:
+            embedded_pages = mylib_store.fetch_text(uid, sid)
+            text_quality = mylib_corpus.assess_text_layer_quality(embedded_pages)
+            needs_ocr = bool(text_quality.get("requires_ocr"))
+            if needs_ocr:
+                result["text_quality"] = text_quality
+                LOGGER.warning(
+                    "mylib embedded text rejected sid=%s quality=%s", sid, text_quality
+                )
+
+        if needs_ocr:
+            mylib.set_page_count(sid, total, source_kind="scanned")
+            _mylib_prerender(uid, sid)
+            # 扫描件：用户同意后才建立文字层；普通任务仍须经过三道额度闸。
+            if not row.get("ocr_consent"):
+                written = _mylib_write_derivatives(
+                    row, embedded_pages or [], result=result
+                )
+                _mylib_finalize_derivatives(sid, written)
+                return
+            # 强制 OCR 只能保留上传 PDF 自带的书签，不能把上一次自动推导的错误目录
+            # 再灌回新索引，否则“重建文字层”永远修不好目录。
+            preserved_toc = mylib.submission_toc(row) if force_ocr else None
+            pages = _mylib_run_ocr(uid, sid, total, force=force_ocr)
+            if pages > 0:
+                texts = mylib_store.fetch_text(uid, sid)
+                written = _mylib_write_derivatives(
+                    row, texts, result=result,
+                    preserve_bibliographic=force_ocr,
+                    toc_entries_override=preserved_toc,
+                )
+                if not force_ocr:
+                    mylib.record_ocr_usage(uid, sid, pages)
+                mylib.set_progress(sid, written, total or written)
+                _mylib_finalize_derivatives(sid, written)
+            else:
+                # 用户已授权 OCR 但未生成文字层时进入数据复核，不再静默标成完成。
+                fallback_pages = embedded_pages or mylib_corpus.read_book_pages(uid, sid)
+                written = _mylib_write_derivatives(row, fallback_pages, result=result)
+                _mylib_finalize_derivatives(sid, written)
+            return
+
+        pages = embedded_pages if embedded_pages is not None else mylib_store.fetch_text(uid, sid)
+        written = _mylib_write_derivatives(row, pages, result=result)
+        mylib.set_progress(sid, written, total or written)
+        mylib.set_page_count(sid, total, source_kind="text_layer")
+        _mylib_prerender(uid, sid)
+        _mylib_finalize_derivatives(sid, written)
+    except Exception as exc:  # noqa: BLE001 — 任何失败都要落到可见状态，不能静默卡死
+        LOGGER.warning("mylib parse failed sid=%s: %s", sid, exc)
+        mylib.set_status(sid, "failed", fail_reason=str(exc)[:300])
+
+
+def _mylib_write_derivatives(
+    row: dict,
+    pages: list[dict],
+    *,
+    result: dict | None = None,
+    preserve_bibliographic: bool = False,
+    refresh_bibliographic: bool = False,
+    toc_entries_override: list[dict] | None = None,
+    legacy_toc_entries: list[dict] | None = None,
+) -> int:
+    """一次性、原子地生成逐页检索数据 + 目录，并记录可审计版本。
+
+    新版节点若返回 toc/outline 则优先使用；否则用上传时保存的 PDF 书签；两者都没有时，
+    personal_corpus 会从印刷目录页文字自动识别。返回可形成引文命中的非空文本页数。
+    """
+    uid, sid = int(row["user_id"]), int(row["id"])
+    result = result or {}
+    stored_bibliographic = mylib.submission_bibliographic(row)
+    preserve_manual = str(stored_bibliographic.get("source") or "") == "manual_verified"
+    # 管理员逐页核验的数据是上限而不是缓存：任何普通重解析、版本回填或节点升级
+    # 都不能再用低置信自动抽取覆盖它。强制 OCR 同样保留既有人工书目。
+    existing_bibliographic = (
+        stored_bibliographic if preserve_bibliographic or preserve_manual else {}
+    )
+    detected_bibliographic = {}
+    if refresh_bibliographic or not existing_bibliographic:
+        detected_bibliographic = mylib_corpus.extract_bibliographic_metadata(
+            pages,
+            fallback_title=str(row.get("title") or ""),
+            fallback_author=str(row.get("author") or ""),
+        )
+        detected_bibliographic = mylib_corpus.enrich_original_edition_online(
+            detected_bibliographic
+        )
+    bibliographic = (
+        mylib_corpus.merge_bibliographic_metadata(existing_bibliographic, detected_bibliographic)
+        if existing_bibliographic else detected_bibliographic
+    )
+    mylib.set_bibliographic_metadata(sid, bibliographic)
+    if (
+        str(bibliographic.get("source") or "") in {
+            "copyright_page", "institutional_compilation", "translation_manuscript",
+        }
+        and float(bibliographic.get("confidence") or 0.0) >= 0.75
+    ):
+        catalog_authors = (
+            bibliographic.get("authors")
+            if isinstance(bibliographic.get("authors"), list)
+            else []
+        )
+        mylib.set_catalog_identity(
+            sid,
+            title=str(bibliographic.get("title") or ""),
+            author="、".join(str(value).strip() for value in catalog_authors if str(value).strip()),
+        )
+    # ``None`` 表示让流水线自动选源；空列表是有意清空显式书签的有效指令，
+    # 不能再用 ``or`` 把它偷换成旧数据。
+    if toc_entries_override is not None:
+        toc_entries = toc_entries_override
+    else:
+        toc_entries = (
+            result.get("toc")
+            or result.get("outline")
+            or mylib.submission_toc(row)
+        )
+    written = mylib_corpus.write_book_index(
+        uid,
+        sid,
+        pages,
+        toc_entries=toc_entries if isinstance(toc_entries, list) else [],
+        legacy_toc_entries=(
+            legacy_toc_entries if isinstance(legacy_toc_entries, list) else []
+        ),
+    )
+    stats = mylib_corpus.book_derivative_stats(uid, sid)
+    derivative_quality = dict(
+        stats.get("quality") if isinstance(stats.get("quality"), dict) else {}
+    )
+    source_profile = result.get("source_profile") if isinstance(
+        result.get("source_profile"), dict
+    ) else None
+    if source_profile is None:
+        previous_quality = mylib.submission_quality(row)
+        source_profile = previous_quality.get("source_profile") if isinstance(
+            previous_quality.get("source_profile"), dict
+        ) else None
+    if source_profile:
+        derivative_quality["source_profile"] = source_profile
+    # 引文就绪必须验证真实输出，不再以“写入过一页文字”代替。
+    # 此时书通常仍处于 parsing/quality_review，因此显式走内部候选 Corpus。
+    sample_item = next(
+        (item for item in pages if str(item.get("text") or "").strip()), None
+    )
+    sample_pdf_page = int((sample_item or {}).get("page") or 0)
+    citation_ready = False
+    if written > 0 and sample_pdf_page > 0:
+        sample = mylib_corpus.get_book_page(
+            uid, sid, sample_pdf_page, include_unpublished=True
+        ) or {}
+        citation_ready = bool(str(sample.get("citation") or "").strip())
+    mylib.set_derivative_state(
+        sid,
+        toc_count=int(stats.get("toc") or 0),
+        citation_ready=citation_ready,
+        version=mylib_corpus.INDEX_PIPELINE_VERSION,
+        quality=derivative_quality,
+    )
+    return written
+
+
+MYLIB_OCR_POLL_SECONDS = int(os.environ.get("MYLIB_OCR_POLL_SECONDS", "15"))
+MYLIB_OCR_MAX_MINUTES = int(os.environ.get("MYLIB_OCR_MAX_MINUTES", "180"))
+
+
+def _mylib_run_ocr(
+    user_id: int, submission_id: int, total_pages: int, *, force: bool = False
+) -> int:
+    """驱动扫描件 OCR：过成本闸 → 启动节点作业 → 轮询进度 → 返回成功页数。
+
+    OCR 以分钟计（本地逐页忠实识别），全程在后台线程里等；失败只影响「可检索」，
+    书本身仍可阅读，所以这里不把整本置为 failed。
+    """
+    uid, sid = int(user_id), int(submission_id)
+    allowed, why = (total_pages, "") if force else mylib.ocr_quota_allowance(uid, total_pages)
+    if allowed <= 0:
+        LOGGER.info("mylib OCR skipped sid=%s: %s", sid, why or "额度不足")
+        mylib.set_status(sid, "parsing", fail_reason=why or "OCR 额度不足，本书仅可阅读")
+        return 0
+    if why:
+        LOGGER.info("mylib OCR capped sid=%s to %s pages: %s", sid, allowed, why)
+    try:
+        mylib_store.ocr_start(uid, sid, max_pages=allowed, force=force)
+    except mylib_store.StoreError as exc:
+        LOGGER.warning("mylib OCR start failed sid=%s: %s", sid, exc)
+        return 0
+
+    deadline = time.time() + MYLIB_OCR_MAX_MINUTES * 60
+    done = 0
+    while time.time() < deadline:
+        time.sleep(MYLIB_OCR_POLL_SECONDS)
+        try:
+            st = mylib_store.ocr_status(uid, sid)
+        except mylib_store.StoreError as exc:
+            LOGGER.warning("mylib OCR status failed sid=%s: %s", sid, exc)
+            continue
+        done = int(st.get("done") or 0)
+        mylib.set_progress(sid, done, int(st.get("total") or allowed))
+        state = str(st.get("state") or "")
+        if state == "done":
+            return done
+        if state == "failed":
+            LOGGER.warning("mylib OCR failed sid=%s: %s", sid, st.get("error"))
+            return done
+    LOGGER.warning("mylib OCR timeout sid=%s after %s min", sid, MYLIB_OCR_MAX_MINUTES)
+    return done
+
+
+def _mylib_prerender(user_id: int, submission_id: int) -> None:
+    """预渲染前若干页：读者首开即出图，避免冷渲染等待（存储节点侧完成，不占本机 CPU）。"""
+    try:
+        mylib_store.prerender(int(user_id), int(submission_id), MYLIB_PRERENDER_PAGES)
+    except Exception as exc:  # noqa: BLE001 — 预渲染失败不影响可读性（届时按需渲染）
+        LOGGER.info("mylib prerender skipped sid=%s: %s", submission_id, exc)
+
+
+def _mylib_resume_pending() -> None:
+    """进程重启会让 queued/parsing 的书悬空，启动时扫一遍续跑。"""
+    try:
+        for row in mylib.list_resumable():
+            _mylib_start_parse(int(row["id"]))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib resume sweep failed: %s", exc)
+
+
+def _mylib_resume_storing() -> None:
+    """恢复进程重启前已完成本机暂存、尚未写完存储节点的上传。"""
+    try:
+        for row in mylib.list_storing():
+            _mylib_start_ingest(int(row["id"]))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib ingest resume sweep failed: %s", exc)
+
+
+def _mylib_backfill_derivatives() -> None:
+    """平滑回填旧版已解析书：优先复用本机索引文本，缺失时才从节点拉 text.jsonl。
+
+    不改审核/上架状态、不重跑 OCR、不阻塞启动；单本失败保留旧版本号，下次重启可继续自愈。
+    """
+    try:
+        rows = mylib.list_derivative_backfill(
+            mylib_corpus.INDEX_PIPELINE_VERSION, limit=5000
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib derivative backfill scan failed: %s", exc)
+        rows = []
+    for row in rows:
+        uid, sid = int(row["user_id"]), int(row["id"])
+        try:
+            pages = mylib_corpus.read_book_pages(uid, sid)
+            if not pages and row.get("searchable"):
+                pages = mylib_store.fetch_text(uid, sid)
+            text_quality = mylib_corpus.assess_text_layer_quality(pages)
+            if text_quality.get("requires_ocr"):
+                # 旧流程把“含有乱码隐藏层”记成 text_layer，使管理员无法重建。
+                # 这里只纠正类型并让验收阻止错误上架；是否 OCR 仍受用户授权控制。
+                mylib.set_page_count(sid, int(row.get("page_count") or 0), source_kind="scanned")
+                row = {**row, "source_kind": "scanned"}
+            existing_toc = mylib_corpus.get_book_toc(uid, sid)
+            original_toc = mylib.submission_toc(row)
+            # 原 PDF 书签和旧版派生目录必须分开：前者是新管线的正常输入，
+            # 后者只是防退化候选。这样新规则才能修复旧目录，同时保留明显更好的
+            # 人工修复结果。
+            _mylib_write_derivatives(
+                row,
+                pages,
+                preserve_bibliographic=True,
+                refresh_bibliographic=True,
+                toc_entries_override=original_toc,
+                legacy_toc_entries=existing_toc,
+            )
+            refreshed = mylib.get_submission(sid)
+            if refreshed:
+                report = _mylib_derivative_acceptance(refreshed)
+                mylib.set_derivative_acceptance(
+                    sid, report, status=str(report.get("status") or ""),
+                )
+                if (
+                    row.get("status") == "quality_review"
+                    and report.get("status") in {"pass", "readonly"}
+                ):
+                    stats = mylib_corpus.book_derivative_stats(uid, sid)
+                    searchable = bool(
+                        report.get("status") == "pass"
+                        and int(stats.get("pages") or 0) > 0
+                    )
+                    mylib.set_status(
+                        sid, "ready", searchable=searchable,
+                        fail_reason="", reviewed=True, parsed=True,
+                    )
+                    _mylib_notify_user(sid, ready=True, searchable=searchable)
+                elif report.get("status") in {"pass", "readonly"} and refreshed.get("fail_reason"):
+                    mylib.set_status(sid, str(refreshed.get("status") or "ready"), fail_reason="")
+        except Exception as exc:  # noqa: BLE001 — 一本坏书不能挡住其余用户的迁移
+            LOGGER.warning("mylib derivative backfill failed sid=%s: %s", sid, exc)
+    _mylib_audit_existing_acceptance()
+
+
+def _mylib_audit_existing_acceptance() -> None:
+    """Versioned, idempotent acceptance audit for books created by older workflows.
+
+    Existing ready books are never silently unpublished by a rollout.  They receive a
+    persisted report visible in the console; books already held in quality_review may
+    be promoted automatically when a newer parser/gate proves that all blockers are gone.
+    """
+    try:
+        rows = mylib.list_acceptance_audit(MYLIB_ACCEPTANCE_GATE_VERSION, limit=5000)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib acceptance audit scan failed: %s", exc)
+        return
+    for row in rows:
+        sid = int(row.get("id") or 0)
+        try:
+            report = _mylib_derivative_acceptance(row)
+            mylib.set_derivative_acceptance(
+                sid, report, status=str(report.get("status") or ""),
+            )
+            if row.get("status") == "quality_review" and report.get("status") in {"pass", "readonly"}:
+                stats = mylib_corpus.book_derivative_stats(
+                    int(row.get("user_id") or 0), sid
+                )
+                searchable = bool(
+                    report.get("status") == "pass"
+                    and int(stats.get("pages") or 0) > 0
+                )
+                mylib.set_status(
+                    sid, "ready", searchable=searchable,
+                    fail_reason="", reviewed=True, parsed=True,
+                )
+                _mylib_notify_user(sid, ready=True, searchable=searchable)
+            elif report.get("status") in {"pass", "readonly"} and row.get("fail_reason"):
+                mylib.set_status(sid, str(row.get("status") or "ready"), fail_reason="")
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("mylib acceptance audit failed sid=%s: %s", sid, exc)
+
+
+def _mylib_notify_admin(submission_id: int) -> None:
+    row = mylib.get_submission(int(submission_id))
+    if not row:
+        return
+    body = (
+        "管理员您好：\n\n"
+        f"有一本新的个人文库书籍待审核。\n\n"
+        f"书名：{row.get('title')}\n"
+        f"作者：{row.get('author') or '（未填写）'}\n"
+        f"上传者：{row.get('user_email') or row.get('user_id')}\n"
+        f"文件：{row.get('original_filename')}（{round((row.get('byte_size') or 0)/1048576, 1)}MB，"
+        f"{row.get('page_count')} 页）\n"
+        f"上传预检：{'抽样发现文字层，解析后再验收' if row.get('source_kind') == 'text_layer' else '抽样未发现可靠文字层，批准后将按授权执行本地 OCR'}\n\n"
+        f"请到管理后台审核：{_feedback_public_base_url()}/admin/content\n"
+    )
+    try:
+        _send_account_email(FEEDBACK_ADMIN_EMAIL, "个人文库·新书待审核", body)
+    except Exception as exc:  # noqa: BLE001 — 发信失败不应影响用户上传
+        LOGGER.warning("mylib admin notice failed sid=%s: %s", submission_id, exc)
+
+
+def _mylib_notify_admin_quality_review(submission_id: int, report: dict | None = None) -> None:
+    """解析已完成但验收受阻时通知运营，避免待复核任务静默搁置。"""
+    row = mylib.get_submission(int(submission_id))
+    if not row:
+        return
+    blocking = [str(value) for value in ((report or {}).get("blocking") or [])]
+    body = (
+        "管理员您好：\n\n"
+        f"《{row.get('title') or submission_id}》已经完成解析，但未通过上架前数据验收。\n\n"
+        + "待复核项目：\n- "
+        + ("\n- ".join(blocking) if blocking else "请检查版权页、目录和引文证据")
+        + f"\n\n请到管理后台查看三类原图证据并处理：{_feedback_public_base_url()}/admin/content\n"
+    )
+    try:
+        _send_account_email(FEEDBACK_ADMIN_EMAIL, "个人文库·数据待复核", body)
+    except Exception as exc:  # noqa: BLE001 — 告警失败不能改变数据验收状态
+        LOGGER.warning("mylib quality review notice failed sid=%s: %s", submission_id, exc)
+
+
+def _mylib_notify_user(submission_id: int, *, ready: bool, searchable: bool = False,
+                       reason: str = "") -> None:
+    row = mylib.get_submission(int(submission_id))
+    if not row:
+        return
+    to = normalize_email(row.get("user_email") or "")
+    if not to:
+        return
+    title = row.get("title") or ""
+    if ready:
+        extra = "该书已可阅读并已并入你的个人检索范围。" if searchable else \
+                "该书为扫描件，可以阅读，但暂不支持检索（后续将支持）。"
+        body = (f"你好：\n\n你上传的《{title}》已通过审核并完成解析。\n{extra}\n\n"
+                f"进入个人文库：{_feedback_public_base_url()}/mylib\n")
+        subject = "个人文库·已上架"
+    else:
+        body = (f"你好：\n\n你上传的《{title}》未通过审核。\n\n原因：{reason or '未说明'}\n\n"
+                f"你可以修改后重新上传：{_feedback_public_base_url()}/mylib\n")
+        subject = "个人文库·未通过审核"
+    try:
+        _send_account_email(to, subject, body)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("mylib user notice failed sid=%s: %s", submission_id, exc)
 
 
 @app.route("/api/reader/find")
@@ -11350,6 +15307,83 @@ def _review_quotes_by_index(review_md: str) -> dict[int, list[str]]:
     return by_index
 
 
+def _grounded_direct_quotes_by_index(answer_md: str) -> dict[int, list[str]]:
+    """按 [N] 提取行内引号和 MiMo Markdown 引用块中的逐字引文。"""
+    by_index = _review_quotes_by_index(answer_md)
+    seen_by_index = {idx: {normalize(quote) for quote in quotes} for idx, quotes in by_index.items()}
+    for line in str(answer_md or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = line.lstrip()
+        if not stripped.startswith(">"):
+            continue
+        body = stripped[1:].strip()
+        refs = _review_ref_indices(body)
+        quote = re.sub(r"\[\d+\]", "", body)
+        quote = re.sub(r"[*_~`]", "", quote).strip().strip("“”「」『』\"")
+        key = normalize(quote)
+        if len(key) < 6:
+            continue
+        for idx in refs:
+            seen = seen_by_index.setdefault(idx, set())
+            if key in seen:
+                continue
+            seen.add(key)
+            by_index.setdefault(idx, []).append(quote)
+    for quotes in by_index.values():
+        quotes.sort(key=len, reverse=True)
+    return by_index
+
+
+def _retarget_verified_chat_citations(
+    answer_md: str,
+    citations: list[dict],
+    *,
+    viewer_allowed: bool,
+    q_for_viewer: str,
+) -> list[dict]:
+    """只改引文卡片元数据，把能逐字核验的引文链接重定位到实际物理页。"""
+    quotes_by_index = _grounded_direct_quotes_by_index(answer_md)
+    if not quotes_by_index:
+        return citations
+    out: list[dict] = []
+    for raw in citations:
+        base = dict(raw or {})
+        try:
+            idx = int(base.get("grounding_index"))
+        except (TypeError, ValueError):
+            out.append(base)
+            continue
+        matched = None
+        for quote in quotes_by_index.get(idx, []):
+            matched = _quote_match_in_citation_payload(base, quote)
+            if matched is not None:
+                break
+        if matched is None:
+            out.append(base)
+            continue
+        page = matched.get("pdf_page")
+        span = str(matched.get("span") or "")
+        base.update({
+            "book": matched.get("book") or base.get("book"),
+            "volume": matched.get("volume") or base.get("volume"),
+            "source_file": matched.get("source_file") or base.get("source_file"),
+            "citation": matched.get("citation") or base.get("citation"),
+            "citations": matched.get("citations") or base.get("citations") or {},
+            "section_title": matched.get("section_title") or base.get("section_title"),
+            "pdf_pages": [int(page)] if page else base.get("pdf_pages") or [],
+            "printed_pages": [matched.get("printed_page") or ""] if page else base.get("printed_pages") or [],
+            "context": _review_evidence_context(str(matched.get("source_text") or ""), [span]),
+            "quote_page_verified": True,
+        })
+        if viewer_allowed and page and base.get("source_file"):
+            base["viewer_available"] = True
+            base["viewer_url"] = url_for(
+                "pdf_viewer", file=base["source_file"], page=int(page), q=q_for_viewer, h=span,
+                section=base.get("section_title") or "", printed=(base.get("printed_pages") or [""])[0],
+            )
+        out.append(base)
+    return out
+
+
 def _normalized_span_in_text(text: str, needle: str) -> str:
     """Find a normalized needle in text and return the original text span."""
     nneedle = normalize(needle)
@@ -11448,6 +15482,31 @@ def _hit_volume(hit_obj):
         return corpus.get_volume_by_source_file(source_file)
     except Exception:
         return None
+
+
+def _payload_volume(payload: dict):
+    """Resolve a public-corpus volume from a serialized citation payload."""
+    if not corpus:
+        return None
+    source_file = str((payload or {}).get("source_file") or "")
+    if not source_file:
+        return None
+    try:
+        return corpus.get_volume_by_source_file(source_file)
+    except Exception:
+        return None
+
+
+def _payload_first_page_index(payload: dict, volume) -> int:
+    raw_pages = (payload or {}).get("pdf_pages") or []
+    try:
+        pdf_page = int(raw_pages[0])
+    except (IndexError, TypeError, ValueError):
+        return 0
+    for idx, page in enumerate(getattr(volume, "pages", []) or []):
+        if int(getattr(page, "pdf_page", 0) or 0) == pdf_page:
+            return idx
+    return 0
 
 
 def _page_raw_text(page) -> str:
@@ -11571,6 +15630,121 @@ def _quote_match_in_hit_volume(hit_obj, quote: str) -> dict | None:
     if not span:
         return None
     return _volume_page_evidence(volume, page_idx, span, source_text, kind="quote", quote=quote)
+
+
+_CHAT_QUOTE_MATCH_CACHE_MAX = 4096
+_CHAT_QUOTE_MATCH_CACHE: OrderedDict[tuple[int, str, int, str], tuple[int, str] | None] = OrderedDict()
+_CHAT_QUOTE_MATCH_CACHE_LOCK = threading.Lock()
+_CHAT_QUOTE_MATCH_CACHE_MISS = object()
+
+
+def _chat_quote_match_cache_get(key: tuple[int, str, int, str]):
+    with _CHAT_QUOTE_MATCH_CACHE_LOCK:
+        if key not in _CHAT_QUOTE_MATCH_CACHE:
+            return _CHAT_QUOTE_MATCH_CACHE_MISS
+        value = _CHAT_QUOTE_MATCH_CACHE[key]
+        _CHAT_QUOTE_MATCH_CACHE.move_to_end(key)
+        return value
+
+
+def _chat_quote_match_cache_put(
+    key: tuple[int, str, int, str], value: tuple[int, str] | None,
+) -> None:
+    with _CHAT_QUOTE_MATCH_CACHE_LOCK:
+        _CHAT_QUOTE_MATCH_CACHE[key] = value
+        _CHAT_QUOTE_MATCH_CACHE.move_to_end(key)
+        while len(_CHAT_QUOTE_MATCH_CACHE) > _CHAT_QUOTE_MATCH_CACHE_MAX:
+            _CHAT_QUOTE_MATCH_CACHE.popitem(last=False)
+
+
+def _indexed_quote_page_match(volume, pages: list, quote: str, normalized_quote: str,
+                              hit_idx: int) -> tuple[bool, tuple[int, str] | None]:
+    """Use ``Volume.norm_full`` to shortlist exact-quote pages without rescanning a volume.
+
+    The corpus builds ``norm_full`` and ``page_offsets`` once at startup from the same
+    normalized page text used by quote verification.  A full-volume ``str.find`` is
+    therefore enough to locate candidate pages; only those pages need the more
+    expensive original-span reconstruction.  The boolean is false when a legacy or
+    test volume has no trustworthy index, in which case the caller preserves the old
+    exhaustive verifier.
+    """
+    norm_full = getattr(volume, "norm_full", None)
+    page_offsets = getattr(volume, "page_offsets", None)
+    page_index_at = getattr(volume, "page_index_at", None)
+    if (
+        not isinstance(norm_full, str)
+        or not isinstance(page_offsets, list)
+        or len(page_offsets) != len(pages) + 1
+        or not page_offsets
+        or page_offsets[0] != 0
+        or page_offsets[-1] != len(norm_full)
+        or not callable(page_index_at)
+    ):
+        return False, None
+
+    candidate_pages: set[int] = set()
+    start = 0
+    while True:
+        pos = norm_full.find(normalized_quote, start)
+        if pos < 0:
+            break
+        try:
+            candidate_pages.add(int(page_index_at(pos)))
+        except Exception:
+            return False, None
+        start = pos + len(normalized_quote)
+
+    # Match the old selection rule exactly: nearest to the grounding page, then the
+    # earlier physical page.  Verification still reconstructs the literal source span
+    # before a page is accepted, so an index hit crossing a page boundary cannot pass.
+    for page_idx in sorted(candidate_pages, key=lambda idx: (abs(idx - hit_idx), idx)):
+        if not (0 <= page_idx < len(pages)):
+            continue
+        raw = _page_raw_text(pages[page_idx])
+        span = _normalized_span_in_text(raw, quote)
+        if span:
+            return True, (page_idx, span)
+    return True, None
+
+
+def _quote_match_in_citation_payload(payload: dict, quote: str) -> dict | None:
+    """逐字引文若位于材料窗口的相邻页，返回其实际物理页；不确定时不猜测。"""
+    volume = _payload_volume(payload)
+    nq = normalize(quote)
+    pages = (getattr(volume, "pages", []) or []) if volume else []
+    if not volume or len(nq) < 6 or not pages:
+        return None
+    hit_idx = _payload_first_page_index(payload, volume)
+    source_file = str((payload or {}).get("source_file") or getattr(volume, "source_file", "") or "")
+    cache_key = (id(volume), source_file, hit_idx, nq)
+    cached = _chat_quote_match_cache_get(cache_key)
+    if cached is not _CHAT_QUOTE_MATCH_CACHE_MISS:
+        match = cached
+    else:
+        indexed, match = _indexed_quote_page_match(volume, pages, quote, nq, hit_idx)
+        if not indexed:
+            # Compatibility fallback for legacy/fake volumes that lack the startup
+            # index.  This is the previous verifier unchanged, including its nearest-
+            # page tie-break, so deployments can roll forward without data migration.
+            best: tuple[int, int, str] | None = None
+            for page_idx, page in enumerate(pages):
+                raw = _page_raw_text(page)
+                span = _normalized_span_in_text(raw, quote)
+                if not span:
+                    continue
+                candidate = (abs(page_idx - hit_idx), page_idx, span)
+                if best is None or candidate[:2] < best[:2]:
+                    best = candidate
+            match = (best[1], best[2]) if best is not None else None
+        _chat_quote_match_cache_put(cache_key, match)
+    if match is None:
+        return None
+    page_idx, span = match
+    if not (0 <= page_idx < len(pages)):
+        return None
+    return _volume_page_evidence(
+        volume, page_idx, span, _page_raw_text(pages[page_idx]), kind="quote", quote=quote,
+    )
 
 
 def _span_match_in_hit_volume(hit_obj, span_text: str) -> dict | None:
@@ -12260,6 +16434,418 @@ def _standard_search_scope(payload: dict) -> object:
     return None
 
 
+def _split_personal_scope(raw_scope: object) -> "tuple[list[int], object]":
+    """从检索范围 token 里拆出个人文库，返回 (个人书 id 列表, 其余 token)。
+
+    前端控件实际导出 ``book:mylib:<sid>``（不是裸 ``mylib:<sid>``）；两种形式都必须识别。
+    个人书不在全局 corpus 里，``_parse_book_token`` 对 mylib token 本就返回
+    (None, None)——被安全忽略。但若用户「只勾了个人书」，剩余 token 为空会被既有逻辑当作
+    「不限定 → 全库」，范围反而被放大。故在进入既有 scope 解析前先摘出来，既不改动现有
+    「指定优先」链，又能正确表达「只搜我的文库」。
+    """
+    if not isinstance(raw_scope, (list, tuple)):
+        return [], raw_scope
+    sids: list[int] = []
+    rest: list[str] = []
+    for token in raw_scope:
+        text = str(token or "").strip()
+        sid = mylib_corpus.submission_id_from_scope_token(text)
+        if sid:
+            sids.append(sid)
+        elif text:
+            rest.append(text)
+    return sids, rest
+
+
+def _personal_search_results(user: object, q: str, sids: "list[int]", limit: int = 30) -> list[dict]:
+    """在**当前用户自己的** Corpus 实例里检索。个人书永不与全局语料共用实例，故不可能串号。"""
+    if not user or not q or not _personal_library_enabled():
+        return []
+    try:
+        pcorpus = mylib_corpus.get_personal_corpus(int(user["id"]))
+    except Exception as exc:  # noqa: BLE001 — 个人索引异常不应拖垮主检索
+        LOGGER.warning("personal corpus load failed uid=%s: %s", user.get("id"), exc)
+        return []
+    if pcorpus is None:
+        return []
+    wanted = {mylib_corpus.personal_book_key(s) for s in sids} if sids else None
+    out: list[dict] = []
+    try:
+        hits = pcorpus.search(q, max_results=limit)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("personal search failed uid=%s: %s", user.get("id"), exc)
+        return []
+    for hit in hits:
+        if wanted is not None and hit.book not in wanted:
+            continue
+        item = hit.to_dict()
+        sid = mylib_corpus.submission_id_from_key(hit.book)
+        pages = item.get("pdf_pages") or [1]
+        item["personal"] = True
+        item["submission_id"] = sid
+        item["viewer_available"] = True
+        item["viewer_url"] = f"{url_for('mylib_reader', submission_id=sid)}?page={pages[0]}"
+        out.append(item)
+    return out
+
+
+
+# ============================ 首页引文检索汇编导出 ============================
+
+def _search_export_user_or_abort(*, require_corpus: bool = False) -> dict:
+    user = getattr(g, "current_user", None)
+    if not user:
+        abort(401, description="请先登录，再下载引文汇编。")
+    if require_corpus and corpus is None:
+        abort(503, description="引文语料库尚未就绪。")
+    return user
+
+
+def _search_export_base_url() -> str:
+    configured = str(DEPLOYMENT.public_base_url or "").strip().rstrip("/")
+    if configured:
+        return configured
+    if not DEPLOYMENT.is_desktop:
+        abort(503, description="导出服务尚未配置安全的公网阅读链接。")
+    # 本地开发/测试没有公网配置时才回落到当前请求地址；生产部署已有
+    # PUBLIC_BASE_URL，因此产物中的链接不受 Host 头影响。
+    request_base = str(request.url_root or "").strip().rstrip("/")
+    return request_base
+
+
+def _validated_search_export_scope(payload: dict, user: dict) -> object:
+    raw_scope = payload.get("scope")
+    if raw_scope in (None, "", [], (), {}):
+        return None
+    if not isinstance(raw_scope, (list, tuple)):
+        abort(400, description="检索范围参数无效。")
+    cleaned = sorted(dict.fromkeys(str(value).strip() for value in raw_scope if str(value).strip()))
+    if len(cleaned) > 500:
+        abort(400, description="检索范围过多，请重新选择。")
+    personal_ids: list[int] = []
+    for token in cleaned:
+        personal_id = mylib_corpus.submission_id_from_scope_token(token)
+        if personal_id:
+            personal_ids.append(int(personal_id))
+            continue
+        if token.lower() in {"all", "全部", "全部著作"} or token in _CORPUS_SCOPE_BY_ID:
+            continue
+        book, volume = _parse_book_token(token)
+        if not book or book not in corpus.books or not corpus.get_book_config(book).available:
+            abort(400, description="所选著作或卷册已不可用，请重新选择。")
+        if volume is not None and int(volume) not in {int(row.volume) for row in corpus.get_volumes(book)}:
+            abort(400, description="所选卷册已不可用，请重新选择。")
+    if personal_ids:
+        if not _personal_library_enabled():
+            abort(403, description="当前未开放个人文库检索。")
+        try:
+            _citation_personal_scope_rows(int(user["id"]), [f"mylib:{sid}" for sid in personal_ids])
+        except Exception as exc:
+            abort(400, description=str(exc) or "所选个人文库资料已不可用。")
+    return cleaned
+
+
+def _search_export_scope_context(job: dict) -> tuple[object, bool, list[int], bool]:
+    """Return public scope/use-public and private ids/use-default-private."""
+    raw_scope = job.get("scope")
+    personal_ids, public_scope = _split_personal_scope(raw_scope)
+    book_filter = str(job.get("book_filter") or "").strip()
+    default_private = raw_scope in (None, "", [], (), {}) and not book_filter
+    public_enabled = not (personal_ids and not public_scope and not book_filter)
+    public_spec = _standard_search_scope({"scope": public_scope, "book": book_filter}) \
+        if public_enabled else {}
+    return public_spec, public_enabled, personal_ids, default_private
+
+
+def _search_export_personal_context(job: dict, personal_ids: list[int], default_private: bool):
+    if str(job.get("search_mode") or "") != "exact" or not (personal_ids or default_private):
+        return None, None
+    user_id = int(job["user_id"])
+    if personal_ids:
+        _citation_personal_scope_rows(user_id, [f"mylib:{sid}" for sid in personal_ids])
+    personal = mylib_corpus.get_personal_corpus(user_id)
+    if personal is None:
+        return None, None
+    if personal_ids:
+        wanted = {mylib_corpus.personal_book_key(sid): None for sid in personal_ids}
+        return personal, wanted
+    return personal, None
+
+
+def _search_export_count(job: dict, stop_after: int) -> int:
+    public_spec, public_enabled, personal_ids, default_private = _search_export_scope_context(job)
+    query = str(job.get("query_text") or "")
+    mode = str(job.get("search_mode") or "exact")
+    total = 0
+    if public_enabled:
+        if mode == "cooccurrence":
+            total = corpus.count_cooccurrence_export(
+                _split_cooc_keywords(query), book_scope=public_spec, stop_after=stop_after,
+            )
+        else:
+            total = corpus.count_exact_export(query, book_scope=public_spec, stop_after=stop_after)
+    if total >= stop_after or mode != "exact":
+        return total
+    personal, personal_spec = _search_export_personal_context(
+        job, personal_ids, default_private,
+    )
+    if personal is not None:
+        total += personal.count_exact_export(
+            query, book_scope=personal_spec, stop_after=max(1, stop_after - total),
+        )
+    return total
+
+
+def _search_export_viewer_url(job: dict, hit: dict, *, personal: bool = False) -> str:
+    base = str(job.get("base_url") or "").strip().rstrip("/")
+    pages = list(hit.get("pdf_pages") or [1])
+    page = max(1, int(pages[0] or 1))
+    query = " ".join(str(job.get("query_text") or "").split())
+    highlight = query if str(job.get("search_mode") or "") == "cooccurrence" \
+        else _hit_highlight_text(hit, query)
+    if personal:
+        submission_id = mylib_corpus.submission_id_from_key(str(hit.get("book") or ""))
+        return f"{base}/mylib/{int(submission_id)}?{urllib.parse.urlencode({'page': page, 'q': query, 'h': highlight})}" \
+            if submission_id else ""
+    printed = [
+        str(value) for value in (hit.get("printed_pages") or [])
+        if value and not str(value).startswith("pre-")
+    ]
+    params = urllib.parse.urlencode({
+        "file": str(hit.get("source_file") or ""),
+        "page": page,
+        "q": query,
+        "h": highlight,
+        "section": str(hit.get("section_title") or ""),
+        "printed": printed[0] if printed else "",
+    })
+    return f"{base}/viewer?{params}"
+
+
+def _search_export_prepare_hit(job: dict, hit: dict, *, personal: bool = False) -> dict:
+    item = dict(hit)
+    if personal:
+        submission_id = mylib_corpus.submission_id_from_key(str(item.get("book") or ""))
+        row = mylib.get_submission(int(submission_id), int(job["user_id"])) if submission_id else None
+        if not row or row.get("status") != "ready":
+            raise search_export_tasks.SearchExportError("个人文库资料在导出期间已不可用。")
+        title = str(row.get("title") or item.get("display_title") or "我的文库")
+        item.update({
+            "personal": True,
+            "submission_id": int(submission_id),
+            "book_title": title,
+            "book_short_title": title,
+            "display_title": title,
+        })
+    item["viewer_url"] = _search_export_viewer_url(job, item, personal=personal)
+    return item
+
+
+def _search_export_iter(job: dict, limit: int):
+    public_spec, public_enabled, personal_ids, default_private = _search_export_scope_context(job)
+    query = str(job.get("query_text") or "")
+    mode = str(job.get("search_mode") or "exact")
+    emitted = 0
+    # 与首页一致：个人文库单独置顶，且所有读取都重新按 job.user_id 做归属校验。
+    if mode == "exact":
+        personal, personal_spec = _search_export_personal_context(job, personal_ids, default_private)
+        if personal is not None:
+            for hit in personal.iter_exact_export_hits(query, book_scope=personal_spec, limit=limit):
+                yield _search_export_prepare_hit(job, hit, personal=True)
+                emitted += 1
+                if emitted >= limit:
+                    return
+    if not public_enabled:
+        return
+    remaining = max(0, limit - emitted)
+    if mode == "cooccurrence":
+        iterator = corpus.iter_cooccurrence_export_hits(
+            _split_cooc_keywords(query), book_scope=public_spec, limit=remaining,
+        )
+    else:
+        iterator = corpus.iter_exact_export_hits(query, book_scope=public_spec, limit=remaining)
+    for hit in iterator:
+        yield _search_export_prepare_hit(job, hit)
+
+
+def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
+    worker = str(worker_id or f"local:{os.getpid()}")
+    job = search_export_tasks.get_job(job_id)
+    if not job:
+        return
+    try:
+        if job.get("corpus_version") != _citation_corpus_sha256():
+            raise search_export_tasks.SearchExportError("语料库版本已变更，请重新创建任务。")
+        if job.get("template_version") != _citation_template_version():
+            raise search_export_tasks.SearchExportError("引用模板已变更，请重新创建任务。")
+        # 私库 token 必须在每次重试时重新验证，不能只信创建任务时的状态。
+        _public_spec, _public_enabled, personal_ids, _default_private = _search_export_scope_context(job)
+        if personal_ids:
+            _citation_personal_scope_rows(
+                int(job["user_id"]), [f"mylib:{sid}" for sid in personal_ids],
+            )
+        consecutive_high_load = 0
+
+        def resource_gate() -> bool:
+            nonlocal consecutive_high_load
+            # The long-standing citation-assistant queue owns this worker.  A
+            # multi-part search export yields between bounded parts whenever a
+            # citation task becomes runnable.
+            try:
+                citation_waiting = citation_tasks.has_runnable_job()
+            except Exception:
+                # A citation-queue health problem must never be amplified by
+                # continuing lower-priority export work.
+                return False
+            if citation_waiting:
+                return False
+            snapshot = search_export_tasks.resource_snapshot()
+            if snapshot.available_bytes is not None and snapshot.available_bytes < int(1.25 * 1024**3):
+                return False
+            if snapshot.load_one is not None and snapshot.load_one >= 6.0:
+                consecutive_high_load += 1
+            else:
+                consecutive_high_load = 0
+            return consecutive_high_load < 3
+
+        search_export_tasks.run_job(
+            job_id,
+            worker_id=worker,
+            count_hits=_search_export_count,
+            iter_hits=_search_export_iter,
+            continue_after_part=resource_gate,
+        )
+    except Exception as exc:
+        search_export_tasks.requeue_job(job_id, str(exc)[:500])
+
+
+def _search_export_job_for_request(job_id: str) -> tuple[dict, dict]:
+    user = _search_export_user_or_abort()
+    try:
+        job = search_export_tasks.get_job(job_id)
+    except Exception:
+        abort(503, description="导出服务暂不可用，检索和阅读功能不受影响。")
+    if not job:
+        abort(404, description="导出任务不存在或已过期。")
+    if int(job.get("user_id") or 0) != int(user["id"]) and not _is_admin_user(user):
+        abort(404, description="导出任务不存在或已过期。")
+    return user, job
+
+
+def _search_export_payload(job: dict) -> dict:
+    payload = search_export_tasks.public_payload(job)
+    payload["status_url"] = url_for("api_search_export_status", job_id=job["id"])
+    payload["download_url"] = (
+        url_for("api_search_export_download", job_id=job["id"])
+        if job.get("status") == "complete" else ""
+    )
+    return payload
+
+
+@app.post("/api/search/exports")
+def api_search_export_create():
+    user = _search_export_user_or_abort(require_corpus=True)
+    try:
+        if not search_export_tasks.feature_enabled():
+            abort(503, description="引文汇编导出正在维护，检索和阅读功能不受影响。")
+        if not search_export_tasks.worker_available():
+            abort(503, description="导出服务暂不可用，检索和阅读功能不受影响。")
+    except Exception:
+        abort(503, description="导出服务暂不可用，检索和阅读功能不受影响。")
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        abort(400, description="导出参数必须是 JSON 对象。")
+    query = str(payload.get("q") or "").strip()
+    normalized_query = normalize(query)
+    if len(normalized_query) < 2:
+        abort(400, description="请至少输入两个有效字符再导出。")
+    if len(query) > search_export_tasks.MAX_QUERY_CHARS:
+        abort(400, description=f"检索词最多 {search_export_tasks.MAX_QUERY_CHARS} 个字符。")
+    mode_raw = str(payload.get("mode") or "exact").strip().lower()
+    if mode_raw not in {"exact", "cooccurrence", "cooc", "multi"}:
+        abort(400, description="仅支持精确检索或同段多词检索导出。")
+    mode = "cooccurrence" if mode_raw in {"cooccurrence", "cooc", "multi"} else "exact"
+    if mode == "cooccurrence" and len(_split_cooc_keywords(query)) < 2:
+        abort(400, description="同段多词检索请输入两个及以上关键词。")
+    output_format = str(payload.get("format") or "").strip().lower()
+    if output_format not in search_export_tasks.VALID_FORMATS:
+        abort(400, description="请选择 Word 或 HTML 导出格式。")
+    citation_style = str(payload.get("citation_style") or "gb2015").strip().lower()
+    if citation_style not in search_export_tasks.VALID_STYLES:
+        abort(400, description="引用格式无效。")
+    if citation_style == "gb2025" and not _gb2025_template_approved():
+        abort(400, description="GB/T 7714—2025 引用模板尚未核准。")
+    scope = _validated_search_export_scope(payload, user)
+    book_filter = str(payload.get("book") or "").strip()
+    if book_filter and book_filter not in BOOK_CONFIG_BY_KEY:
+        abort(400, description="书库筛选参数无效。")
+    if scope is not None:
+        # 新版 scope 已完整表达范围；丢弃旧 book 回显，既避免冲突，也让
+        # 逻辑相同的范围命中 24 小时任务复用。
+        book_filter = ""
+    elif mode == "exact" and not book_filter and not _personal_library_enabled():
+        # 首页只有具备个人文库权限时，默认“全部著作”才包含“我的文库”。
+        # 用显式 all 快照保留“仅公共语料”的含义，防止 worker 在无请求上下文时扩大范围。
+        scope = ["all"]
+    active_member = bool(
+        _is_admin_user(user)
+        or getattr(getattr(g, "membership", None), "is_active_member", False)
+    )
+    try:
+        job, reused = search_export_tasks.create_job(
+            user_id=int(user["id"]),
+            query_text=query,
+            normalized_query=normalized_query,
+            search_mode=mode,
+            scope=scope,
+            book_filter=book_filter,
+            citation_style=citation_style,
+            output_format=output_format,
+            corpus_version=_citation_corpus_sha256(),
+            template_version=_citation_template_version(),
+            base_url=_search_export_base_url(),
+            active_member=active_member,
+        )
+    except search_export_tasks.RateLimitError as exc:
+        return jsonify({"ok": False, "error": str(exc), "limit_scope": "rate"}), 429
+    except search_export_tasks.QueueLimitError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    except search_export_tasks.SearchExportError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "reused": reused, "job": _search_export_payload(job)}), (200 if reused else 202)
+
+
+@app.get("/api/search/exports/<job_id>")
+def api_search_export_status(job_id: str):
+    _user, job = _search_export_job_for_request(job_id)
+    response = jsonify({"ok": True, "job": _search_export_payload(job)})
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    return response
+
+
+@app.get("/api/search/exports/<job_id>/download")
+def api_search_export_download(job_id: str):
+    _user, job = _search_export_job_for_request(job_id)
+    try:
+        artifact = search_export_tasks.completed_artifact(job)
+    except Exception:
+        abort(503, description="导出文件服务暂不可用，检索和阅读功能不受影响。")
+    if artifact is None:
+        abort(409, description="导出文件尚未生成完成或已经过期。")
+    try:
+        response = send_file(
+            artifact,
+            as_attachment=True,
+            download_name=str(job.get("output_name") or artifact.name),
+            conditional=True,
+            max_age=0,
+        )
+    except OSError:
+        abort(409, description="导出文件已经过期，请重新创建任务。")
+    response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
 def _chaptered_search_payload(q, scope_spec, requested_group_page, viewer_allowed, user):
     """海量命中专用：完整聚合全部卷/篇章的准确命中数（C 层级计数），命中详情由
     /api/search/chapter-hits 按需分页物化——既“全部呈现”又不一次性物化海量命中拖垮服务。
@@ -12328,18 +16914,45 @@ def api_search():
         return jsonify({"ok": False, "error": "查询内容不能为空。"}), 400
     if len(q_norm) < 2:
         return jsonify({"ok": False, "error": "请至少输入两个有效字符再检索。"}), 400
+    if requested_group_page == 1:
+        _record_community_trend("search", q)
     q_for_viewer = " ".join(q.split())
     state = current_view_state()
     viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
 
     # 检索范围（标准检索·后置过滤）：新版前端「指定著作/卷」发 scope（book:/vol:/著作群 token 列表），
     # 旧版书库分栏 tab 发单个 book。统一解析为范围 spec；D3=book_counts 仍全库统计、结果再按 spec 过滤。
+    # 个人文库：先把 mylib token 拆出来单独路由（个人书不在全局 corpus，见 _split_personal_scope）。
+    # 未指定任何著作时，“全库”应包含登录用户自己的私有书；显式指定公共著作时则严格尊重范围。
+    # 同段多词暂不混入个人分支，避免用普通子串命中冒充共现命中。
+    requested_mode = str(payload.get("mode") or "").strip().lower()
+    requested_cooc = requested_mode in {"cooccurrence", "cooc", "multi"}
+    raw_scope = payload.get("scope")
+    mylib_sids, mylib_rest_scope = _split_personal_scope(raw_scope)
+    default_personal_scope = (
+        raw_scope in (None, "", [], (), {}) and not str(payload.get("book") or "").strip()
+    )
+    personal_results = _personal_search_results(user, q, mylib_sids) \
+        if (not requested_cooc and (mylib_sids or default_personal_scope)) else []
+    if mylib_sids and not mylib_rest_scope:
+        # 只勾了个人文库 → 不扫全局语料，直接返回个人命中（否则会被当成「全库」）
+        return jsonify({
+            "ok": True, "query": q, "count": len(personal_results),
+            "group_count": 0, "group_page": 1, "group_pages": 1, "groups_per_page": GROUPS_PER_PAGE,
+            "truncated": False, "display_mode": "direct", "access_level": "full",
+            "results": [], "personal_results": personal_results,
+            "pdf_enabled": viewer_allowed, "book_counts": [], "book_filter": "",
+        })
+    if mylib_sids:
+        payload = dict(payload)
+        payload["scope"] = mylib_rest_scope
+
     scope_spec = _standard_search_scope(payload)
     book_filter = _scope_book_echo(scope_spec)  # 回显：单本整套→书库键（保旧分栏高亮），否则空串
 
     # 同段多词检索（标准检索的「同段多词」开关）：把输入拆成多个关键词，定位全部词共现于
     # 邻近段落的真实命中。纯子串/共现，与单子串的篇章聚合通道不兼容，故下面两个聚合分支均跳过。
-    mode = str(payload.get("mode") or "").strip().lower()
+    mode = requested_mode
     cooc = mode in {"cooccurrence", "cooc", "multi"}
     cooc_keywords: list[str] = []
     if cooc:
@@ -12357,6 +16970,8 @@ def api_search():
             q, scope_spec, requested_group_page, viewer_allowed, user
         )
         if payload_chaptered is not None:
+            payload_chaptered["personal_results"] = personal_results
+            payload_chaptered["count"] = int(payload_chaptered.get("count") or 0) + len(personal_results)
             return jsonify(payload_chaptered)
 
     try:
@@ -12376,6 +16991,8 @@ def api_search():
             q, scope_spec, requested_group_page, viewer_allowed, user
         )
         if payload_chaptered is not None:
+            payload_chaptered["personal_results"] = personal_results
+            payload_chaptered["count"] = int(payload_chaptered.get("count") or 0) + len(personal_results)
             return jsonify(payload_chaptered)
 
     # 同段多词：context 含多处高亮，阅读器高亮用空格分隔的关键词串逐词命中。
@@ -12402,7 +17019,7 @@ def api_search():
             {
                 "ok": True,
                 "query": grouped["query"],
-                "count": effective_total_hits,
+                "count": effective_total_hits + len(personal_results),
                 "group_count": summary["group_count"],
                 "group_page": summary["group_page"],
                 "group_pages": summary["group_pages"],
@@ -12411,6 +17028,7 @@ def api_search():
                 "display_mode": summary["display_mode"],
                 "access_level": "summary",
                 "results": summary["results"],
+                "personal_results": personal_results,
                 "pdf_enabled": False,
                 "book_counts": book_counts,
                 "book_filter": book_filter,
@@ -12456,7 +17074,7 @@ def api_search():
         {
             "ok": True,
             "query": grouped["query"],
-            "count": effective_total_hits,
+            "count": effective_total_hits + len(personal_results),
             "group_count": response_group_count,
             "group_page": group_page,
             "group_pages": total_group_pages,
@@ -12465,6 +17083,7 @@ def api_search():
             "display_mode": display_mode,
             "access_level": "full",
             "results": results,
+            "personal_results": personal_results,
             "pdf_enabled": viewer_allowed,
             "book_counts": book_counts,
             "book_filter": book_filter,
@@ -12543,6 +17162,7 @@ def api_search_chapter_hits():
 # 前端「模型选择」可切换的 DeepSeek 档位白名单：flash（默认·快）/ pro（更强·较慢）。
 # 只允许在这两个已知模型间切换，绝不把前端任意字符串透传给上游 API。
 _SELECTABLE_DEEPSEEK_MODELS = {"deepseek-v4-flash", "deepseek-v4-pro"}
+_SELECTABLE_MIMO_MODELS = {"mimo-v2.5", "mimo-v2.5-pro"}
 
 
 def _resolve_selectable_model(payload: dict) -> str | None:
@@ -12562,9 +17182,127 @@ def _resolve_ai_provider_or_abort(payload: dict) -> str:
     if raw in {"", "default", "deepseek"}:
         return ""
     if raw in {"zhipu", "glm", "zai"}:
-        _require_content_feature("ai_web")
+        if not _ai_web_access_enabled():
+            abort(403, description="GLM-5.1 仅供网站管家使用。")
         return "zhipu"
     abort(400, description="未知的 AI 模型选择。")
+
+
+def _mimo_migration_enabled() -> bool:
+    return (
+        _env_flag("MIMO_MODEL_ACCESS_ENABLED", False)
+        and _env_flag("MIMO_MIGRATION_ENABLED", False)
+        and bool(AI_CONFIG.mimo_enabled)
+    )
+
+
+def _mimo_admin_gray_enabled() -> bool:
+    return (
+        _env_flag("MIMO_MODEL_ACCESS_ENABLED", False)
+        and _env_flag("MIMO_ADMIN_GRAY_ENABLED", False)
+        and bool(AI_CONFIG.mimo_enabled)
+    )
+
+
+def _mascot_ai_selection() -> tuple[str, str]:
+    # 吉祥物是站方承担费用的轻量服务，固定 Flash 非思考，避免跟随会员模型迁移
+    # 产生 90 秒级长尾。环境变量仅保留故障处置覆盖能力。
+    provider = MASCOT_AI_PROVIDER_OVERRIDE or "deepseek"
+    model = MASCOT_AI_MODEL_OVERRIDE or "deepseek-v4-flash"
+    if not _env_flag("MIMO_MODEL_ACCESS_ENABLED", False) and (
+        provider == "mimo" or str(model).startswith("mimo-")
+    ):
+        provider, model = "deepseek", "deepseek-v4-flash"
+    return provider, model
+
+
+def _resolve_ai_selection_or_abort(payload: dict, *, feature: str) -> dict:
+    """Resolve model rights server-side. Client fields are requests, never authority."""
+    raw_provider = str((payload or {}).get("provider") or "").strip().lower()
+    if raw_provider in {"zhipu", "glm", "zai"}:
+        user = getattr(g, "current_user", None)
+        if not (_feature_is_available("ai_web") and _is_admin_user(user)):
+            abort(403, description="GLM-5.1 仅供网站管家使用。")
+        return {
+            "provider": "zhipu", "model": "glm-5.1", "reasoning_effort": "off",
+            "charge_user_wallet": False,
+        }
+    user = getattr(g, "current_user", None)
+    requested_model = str((payload or {}).get("model") or "").strip().lower()
+    requested_effort = str((payload or {}).get("reasoning_effort") or "").strip().lower()
+
+    # MiMo 总闸关闭时只屏蔽 MiMo，不再强制把有钱包的会员按功能锁到单一
+    # DeepSeek 模型。存量/基础会员的权威钱包策略会显式授予 Flash；服务端仍通过
+    # authorize_ai_selection 校验模型和思考档，不信任前端字段。
+    if not _env_flag("MIMO_MODEL_ACCESS_ENABLED", False):
+        if raw_provider not in {"", "default", "deepseek"}:
+            abort(403 if raw_provider == "mimo" else 400, description="当前模型入口已停用。")
+        entitlements = get_ai_entitlements(int(user["id"]) if user else None)
+        if user and (entitlements.get("models") or {}):
+            try:
+                return authorize_ai_selection(
+                    user_id=int(user["id"]), feature=feature,
+                    provider=raw_provider, model=requested_model, reasoning_effort=requested_effort,
+                )
+            except ValueError as exc:
+                abort(403, description=str(exc))
+        return {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "reasoning_effort": "off",
+            # 无金额钱包的兼容/免费用户走站方小额度，不可伪造个人钱包扣费。
+            "charge_user_wallet": False,
+        }
+
+    migration_live = _mimo_migration_enabled() and utc_now_text() >= MEMBERSHIP_REFORM_CUTOFF
+    # 管理员灰度与正式开关分离，可在零点前做真实页面验证，且不收取用户钱包。
+    if _is_admin_user(user) and (_mimo_admin_gray_enabled() or _mimo_migration_enabled()):
+        default_bucket = "research" if feature in {"research_review", "research", "research-review"} else (
+            "reader" if feature in {"pdf-chat", "pdf-chat-stream", "wenku_ai"} else "quick"
+        )
+        default_selection = _ADMIN_AI_MODEL_DEFAULTS[default_bucket]
+        model = requested_model or str(default_selection["model"])
+        if model not in (_SELECTABLE_DEEPSEEK_MODELS | _SELECTABLE_MIMO_MODELS):
+            abort(400, description="未知的 AI 模型选择。")
+        default_effort = {
+            "mimo-v2.5": "off", "mimo-v2.5-pro": "on",
+            "deepseek-v4-flash": "off", "deepseek-v4-pro": "high",
+        }[model]
+        effort = "high" if requested_effort == "medium" else (
+            requested_effort or str(default_selection["reasoning_effort"] if not requested_model else default_effort)
+        )
+        if effort not in _ADMIN_AI_MODEL_ENTITLEMENTS[model]:
+            abort(403, description="当前模型不支持所选思考档位。")
+        provider = "mimo" if model.startswith("mimo-") else "deepseek"
+        return {"provider": provider, "model": model, "reasoning_effort": effort}
+
+    # Before both the quality gate and the payment-time cutoff are satisfied, retain production routing.
+    if not migration_live:
+        if raw_provider not in {"", "default", "deepseek"}:
+            abort(400, description="未知的 AI 模型选择。")
+        return {
+            "provider": "deepseek", "model": _resolve_selectable_model(payload),
+            "reasoning_effort": "off",
+        }
+
+    entitlements = get_ai_entitlements(int(user["id"]) if user else None)
+    if user and not (entitlements.get("models") or {}):
+        # 已通过功能权限与免费 token 门禁、但没有付费钱包的登录用户：
+        # 固定 DeepSeek Flash 非思考，走站方每周 2 万 token 体验池，不创建或预扣个人钱包。
+        return {
+            "provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off",
+            "charge_user_wallet": False,
+        }
+    # Fixed legacy/Basic routing ignores forged client model fields.
+    if set(entitlements.get("models") or {}) == {"mimo-v2.5-pro"}:
+        return {"provider": "mimo", "model": "mimo-v2.5-pro", "reasoning_effort": "on"}
+    try:
+        return authorize_ai_selection(
+            user_id=int(user["id"]) if user else None, feature=feature,
+            provider=raw_provider, model=requested_model, reasoning_effort=requested_effort,
+        )
+    except ValueError as exc:
+        abort(403, description=str(exc))
 
 
 # ============================ 检索范围（著作群语义路由）============================
@@ -12575,10 +17313,10 @@ def _resolve_ai_provider_or_abort(payload: dict) -> str:
 # books 用 books.yaml 的书库键；不在库/未开放的书库会被 _scope_books/_scope_options 自动剔除。
 CORPUS_SCOPES: tuple[dict, ...] = (
     {"id": "marx_engels", "label": "马克思 · 恩格斯",
-     "books": ("文集", "全集", "全集二版", "马恩选集"),
+     "books": ("文集", "全集", "全集二版", "马恩选集", "资本论"),
      "hints": ("马克思", "恩格斯", "马恩", "资本论", "剩余价值", "唯物史观", "历史唯物主义",
                "政治经济学批判", "共产党宣言", "异化", "商品拜物教", "德意志意识形态",
-               "费尔巴哈", "辩证唯物", "生产力和生产关系", "阶级斗争", "无产阶级革命")},
+               "辩证唯物", "生产力和生产关系", "阶级斗争", "无产阶级革命")},
     {"id": "lenin", "label": "列宁",
      "books": ("列宁全集", "列宁年谱"),
      "hints": ("列宁", "帝国主义是", "布尔什维克", "苏维埃", "十月革命", "民主集中制",
@@ -12588,12 +17326,34 @@ CORPUS_SCOPES: tuple[dict, ...] = (
      "hints": ("斯大林", "斯大林全集", "斯大林年谱", "联共（布）", "联共(布)", "论列宁主义基础",
                "一国建成社会主义", "五年计划", "集体农庄", "民族问题和列宁主义")},
     {"id": "western_marxism", "label": "西马文库",
-     "books": ("历史与阶级意识", "马克思主义和哲学", "狱中札记", "希望的原理（第一卷）",
-               "启蒙辩证法", "保卫马克思", "空间的生产"),
+     "books": tuple(book.key for book in BOOK_CONFIGS if book.collection == "western_marxism"),
      "hints": ("西方马克思主义", "西马", "卢卡奇", "科尔施", "葛兰西", "布洛赫", "霍克海默尔",
                "阿多诺", "阿尔都塞", "列斐伏尔", "阶级意识", "物化", "总体性", "文化霸权",
                "有机知识分子", "希望的原理", "启蒙辩证法", "文化工业", "意识形态国家机器",
-               "空间的生产", "社会空间")},
+                "空间的生产", "社会空间", "哈贝马斯", "公共领域", "伊格尔顿", "詹姆逊",
+                "哈维", "后现代主义", "景观社会", "存在与时间", "存在与虚无", "日常生活批判")},
+    {"id": "kant", "label": "康德著作集",
+     "books": ("康德前批判时期著作", "康德纯粹理性批判（第2版）", "康德纯粹理性批判（第1版）等",
+               "康德实践理性批判与判断力批判", "康德学科之争与实用人类学", "康德1781年之后的论文",
+               "康德逻辑学自然地理学教育学"),
+     "hints": ("康德", "纯粹理性批判", "实践理性批判", "判断力批判", "未来形而上学导论",
+               "道德形而上学", "先验感性论", "先验逻辑", "范畴", "物自体", "二律背反",
+               "绝对命令", "定言命令", "启蒙是什么", "实用人类学", "哥尼斯堡")},
+    {"id": "hegel", "label": "黑格尔著作集",
+     "books": ("黑格尔早期神学著作", "黑格尔精神现象学", "黑格尔逻辑学", "黑格尔小逻辑",
+               "黑格尔自然哲学", "黑格尔法哲学原理", "黑格尔美学", "黑格尔哲学史讲演录"),
+     "hints": ("黑格尔", "精神现象学", "逻辑学", "小逻辑", "自然哲学", "法哲学原理",
+               "美学", "哲学史讲演录", "绝对精神", "主奴辩证法", "否定之否定", "扬弃",
+               "正题反题合题", "实体即主体", "理性的现实", "德国古典哲学")},
+    {"id": "feuerbach", "label": "费尔巴哈著作集",
+     "books": ("费尔巴哈从培根到斯宾诺莎的近代哲学史", "费尔巴哈对莱布尼茨哲学的叙述分析和批判",
+               "费尔巴哈比埃尔培尔对哲学史和人类史的贡献", "费尔巴哈基督教的本质",
+               "费尔巴哈宗教的本质", "费尔巴哈宗教本质讲演录", "费尔巴哈从人本学观点论不死问题",
+               "费尔巴哈论唯灵主义和唯物主义", "费尔巴哈幸福论", "费尔巴哈未来哲学原理",
+               "费尔巴哈哲学短篇集"),
+     "hints": ("费尔巴哈", "路德维希费尔巴哈", "基督教的本质", "宗教的本质", "宗教本质讲演录",
+               "未来哲学原理", "幸福论", "唯灵主义", "人本学", "不死问题", "感性的人",
+               "神学的秘密", "人创造上帝", "青年黑格尔派", "德国古典哲学终结")},
     # 李大钊、陈独秀：中国早期马克思主义传播者。排在毛之前，与其著作 sort_order（36/38）
     # 的编年位置一致；问「李大钊的唯物史观」此前只能被马恩列强命中霸榜。
     {"id": "lidazhao", "label": "李大钊",
@@ -12630,17 +17390,38 @@ CORPUS_SCOPES: tuple[dict, ...] = (
      "books": ("胡锦涛文选",),
      "hints": ("胡锦涛", "科学发展观", "和谐社会", "以人为本", "两型社会")},
     {"id": "xi", "label": "习近平",
-     "books": ("治国理政", "习近平经济文选",
+     "books": ("治国理政", "习近平著作选读", "习近平经济文选", "习近平党建文选",
                "习近平新时代中国特色社会主义思想学习纲要", "习近平经济思想学习纲要",
                "习近平法治思想学习纲要", "习近平生态文明思想学习纲要",
-               "习近平文化思想学习纲要", "习近平总书记关于党的建设的重要思想概论"),
+               "习近平文化思想学习纲要", "习近平总书记关于党的建设的重要思想概论",
+               "习近平外交思想学习纲要",
+               # 2026-08-04 新增专题论述 10 种。指定著作控件由 CORPUS_SCOPES 生成；
+               # 只在 books.yaml/manifest 建库并不会自动出现在引文检索与 AI 研究的书目树中。
+               "论坚持党对一切工作的领导", "论党的宣传思想工作", "论中国共产党历史",
+               "论把握新发展阶段、贯彻新发展理念、构建新发展格局", "论党的自我革命",
+               "习近平关于党的群众路线教育实践活动论述摘编",
+               "习近平关于总体国家安全观论述摘编", "习近平关于网络强国论述摘编",
+               "习近平关于社会主义精神文明建设论述摘编",
+               "习近平关于树立和践行正确政绩观论述摘编",
+               # 论述摘编/选编 7 种（2026-08-02 新增）。逐段摘录并注明出处，是「找总书记
+               # 关于某议题怎么说」最直给的材料，务必进范围，否则前端「指定著作」也选不到。
+               "习近平关于全面深化改革论述摘编", "习近平关于全面依法治国论述摘编",
+               "习近平关于科技创新论述摘编", "习近平关于全面从严治党论述摘编",
+               "习近平关于社会主义生态文明建设论述摘编",
+               "习近平关于力戒形式主义官僚主义重要论述选编",
+               "习近平关于加强党的作风建设论述摘编"),
      "hints": ("习近平", "总书记", "新时代", "中国式现代化", "中华民族伟大复兴", "中国梦",
                "人类命运共同体", "五位一体", "四个全面", "四个自信", "新发展理念", "一带一路",
                "两个一百年", "八项规定", "全过程人民民主", "新质生产力", "精准扶贫", "供给侧",
                "高质量发展", "共同富裕", "生态文明", "全面从严治党", "二十大", "十九大",
                "学习纲要", "习近平经济思想", "习近平法治思想", "全面依法治国", "法治中国",
                "习近平文化思想", "文化强国", "两个结合", "习近平生态文明思想", "美丽中国",
-               "党的建设", "党的自我革命", "两个确立", "两个维护", "根本遵循和行动指南")},
+               "党的建设", "党的自我革命", "两个确立", "两个维护", "根本遵循和行动指南",
+               # 2026-08-02 新增书库对应的标志词：没有这些词，问「力戒形式主义怎么讲」
+               # 之类仍会落回全库检索、被马恩强命中霸榜（同「问总书记却检索起马恩」的老病根）。
+               "著作选读", "党建文选", "论述摘编", "论述选编", "科技创新", "创新驱动",
+               "全面深化改革", "形式主义", "官僚主义", "四风", "作风建设", "正风肃纪",
+               "习近平外交思想", "外交思想", "中国特色大国外交", "党建思想")},
     {"id": "party_docs", "label": "党和国家文献",
      # 新增文献选编必须同时登记在这里：「指定著作」多选控件与著作群限定都只认 CORPUS_SCOPES，
      # 光在 books.yaml 建库、语料建好，前端也选不到（未登记＝不可限定检索）。
@@ -12746,6 +17527,16 @@ def _book_scope_tree() -> list[dict]:
             })
         if books:
             tree.append({"id": s["id"], "label": s["label"], "books": books})
+    # 个人文库作为一个独立分组接入既有控件（不新增控件）。仅本人可见：未登录/无权限/无书 → 不出现。
+    user = getattr(g, "current_user", None)
+    if user and _personal_library_enabled():
+        try:
+            group = mylib_corpus.scope_tree_group(int(user["id"]))
+        except Exception as exc:  # noqa: BLE001 — 个人书目异常不应影响主控件
+            LOGGER.warning("personal scope tree failed uid=%s: %s", user.get("id"), exc)
+            group = None
+        if group:
+            tree.append(group)
     return tree
 
 
@@ -12926,6 +17717,171 @@ def _hit_page_key(h) -> tuple:
     return (h.source_file, h.pages[0].pdf_page if h.pages else -1)
 
 
+_SOURCE_REFRESH_RE = re.compile(
+    r"(?:换(?:一批|一组|一些)?|更换|另找|另搜|重新搜索|重新检索|再搜索|再检索|继续搜索|继续检索|"
+    r"再找|再查|补充搜索).{0,16}(?:文献|资料|引文|原文|出处)?|"
+    r"(?:文献|资料|引文|原文|出处).{0,12}(?:不要重复|别重复|避免重复|换一批|另一批|新一批|新的)|"
+    r"(?:不要|别|避免).{0,12}重复.{0,12}(?:文献|资料|引文|原文|出处)",
+    re.I,
+)
+_CONTEXTUAL_FOLLOWUP_RE = re.compile(
+    r"(?:上述|上文|前述|前面|刚才|上一轮|原来的|这个|这一|这些|该问题|二者|两者|它们|对此)|"
+    r"^(?:继续|那么|那就|请再|再(?:找|搜|检索|搜索|换|补充|回答|分析|解释|谈|说|列|举|给))",
+    re.I,
+)
+
+
+def _history_message_text(item: object) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(str(item.get("content") or "").split())
+
+
+def _is_source_refresh_request(question: str) -> bool:
+    """用户是否明确要求换用、继续寻找一批不重复的材料。"""
+    return bool(_SOURCE_REFRESH_RE.search(" ".join(str(question or "").split())))
+
+
+def _conversation_retrieval_query(question: str, messages: object) -> tuple[str, bool]:
+    """把“换一批/再搜索”等短追问还原到上文研究主题，返回 (检索问题, 是否换资料)。
+
+    普通、语义自足的新问题原样返回，避免无端把旧话题带入检索；只有明确换资料或含上文指代的
+    追问才拼接最近两条用户问题。这样修复上下文，又不改变首轮/普通新问题的召回质量。
+    """
+    current = " ".join(str(question or "").split())[:600]
+    refresh = _is_source_refresh_request(current)
+    contextual = refresh or bool(_CONTEXTUAL_FOLLOWUP_RE.search(current))
+    if not contextual or not isinstance(messages, list):
+        return current, refresh
+
+    topics: list[str] = []
+    for item in reversed(messages[-16:]):
+        if not isinstance(item, dict) or str(item.get("role") or "") != "user":
+            continue
+        text = _history_message_text(item)
+        if not text or text == current or _is_source_refresh_request(text):
+            continue
+        topics.append(text[:240])
+        # 如果这一条自身语义完整，就已经找到主题锚；若仍含“上述/二者”等指代，再向前补一条。
+        if not _CONTEXTUAL_FOLLOWUP_RE.search(text) or len(topics) >= 2:
+            break
+    if not topics:
+        return current, refresh
+    context = "；".join(reversed(topics))
+    return (context + "；本轮要求：" + current)[:600], refresh
+
+
+def _citation_passage_signature(text: object) -> str:
+    cleaned = str(text or "").replace("[[H]]", "").replace("[[/H]]", "")
+    return normalize(" ".join(cleaned.split()))
+
+
+def _history_citation_exclusions(messages: object) -> dict[str, set]:
+    """提取既往 AI 回答的具体页、出处与段落签名；不把整部著作加入排除集。"""
+    exclusions: dict[str, set] = {"pages": set(), "citations": set(), "passages": set()}
+    if not isinstance(messages, list):
+        return exclusions
+    seen_refs = 0
+    for item in reversed(messages[-24:]):
+        if not isinstance(item, dict) or str(item.get("role") or "") != "assistant":
+            continue
+        refs = item.get("citation_refs") or item.get("citations") or []
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            seen_refs += 1
+            source_file = str(ref.get("source_file") or "").strip()
+            pages = ref.get("pdf_pages") if isinstance(ref.get("pdf_pages"), list) else []
+            if ref.get("pdf_page") is not None:
+                pages = [*pages, ref.get("pdf_page")]
+            if not pages and ref.get("viewer_url"):
+                try:
+                    pages = urllib.parse.parse_qs(
+                        urllib.parse.urlparse(str(ref.get("viewer_url"))).query
+                    ).get("page", [])
+                except (TypeError, ValueError):
+                    pages = []
+            for page in pages:
+                try:
+                    page_no = int(page)
+                except (TypeError, ValueError):
+                    continue
+                if source_file and page_no > 0:
+                    exclusions["pages"].add((source_file, page_no))
+            citation_key = normalize(str(ref.get("citation") or ""))
+            if citation_key:
+                exclusions["citations"].add(citation_key)
+            passage_key = _citation_passage_signature(ref.get("context"))
+            if len(passage_key) >= 24:
+                exclusions["passages"].add(passage_key[:480])
+            if seen_refs >= 160:
+                return exclusions
+    return exclusions
+
+
+def _passage_matches_exclusions(text: object, exclusions: dict[str, set] | None) -> bool:
+    if not exclusions or not exclusions.get("passages"):
+        return False
+    key = _citation_passage_signature(text)
+    if len(key) < 24:
+        return False
+    return any(old in key or key in old for old in exclusions["passages"])
+
+
+def _hit_matches_exclusions(hit, exclusions: dict[str, set] | None) -> bool:
+    """按具体页/出处/段落过滤旧材料；同一 source_file 的其它页仍被允许。"""
+    if not exclusions:
+        return False
+    source_file = str(getattr(hit, "source_file", "") or "").strip()
+    pages = getattr(hit, "pages", []) or []
+    # 只用命中的主页判断：hit.pages 可能还包含为补齐语句而携带的相邻页，
+    # 若“任一相邻页旧”就整条剔除，会误伤同一著作中的新页材料和召回质量。
+    primary_page = int(getattr(pages[0], "pdf_page", -1) or -1) if pages else -1
+    if source_file and (source_file, primary_page) in exclusions.get("pages", set()):
+        return True
+    try:
+        payload = hit.to_dict()
+    except Exception:  # noqa: BLE001 — 过滤辅助绝不能让检索失败
+        payload = {}
+    citation_key = normalize(str(payload.get("citation") or getattr(hit, "citation", "") or ""))
+    if citation_key and citation_key in exclusions.get("citations", set()):
+        return True
+    return _passage_matches_exclusions(payload.get("context"), exclusions)
+
+
+def _fresh_hits(candidates: object, exclusions: dict[str, set] | None) -> list:
+    return [hit for hit in (candidates or []) if not _hit_matches_exclusions(hit, exclusions)]
+
+
+def _merge_assoc_candidate_tiers(textual: object, semantic: object) -> tuple[list, set[tuple]]:
+    """把模糊检索候选固化为“文本近似优先、语义联想补充”的两层顺序。
+
+    两层都只能传入语料库返回的真实 Hit。按页去重时文本层拥有优先权：同一页同时被
+    用户原文和 AI 线索命中，仍归入文本层，不允许后者将其挤到联想结果中。
+    """
+    merged: list = []
+    seen: set[tuple] = set()
+    textual_keys: set[tuple] = set()
+    for stage, candidates in (("textual", textual), ("semantic", semantic)):
+        for hit in candidates or []:
+            key = _hit_page_key(hit)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(hit)
+            if stage == "textual":
+                textual_keys.add(key)
+            if len(merged) >= ASSOC_CANDIDATE_CAP:
+                return merged, textual_keys
+    return merged, textual_keys
+
+
+def _has_citation_exclusions(exclusions: dict[str, set] | None) -> bool:
+    return bool(exclusions and any(exclusions.get(key) for key in ("pages", "citations", "passages")))
+
+
 # 联想检索（定位意图）自动路由回填下限：范围内命中不足此数才无范围补足。定位求聚焦、一页足矣；
 # 研究意图另用 RESEARCH_REVIEW_SOURCES（要喂满 20-24 源）。
 ASSOC_PAGE_BACKFILL_FLOOR = 12
@@ -12939,8 +17895,48 @@ CHAT_GROUNDING_CONTEXT_CHARS = 900  # 每条注入原文的字数上限（按完
 CHAT_GROUNDING_PER_BOOK = 3         # 单一「著作群」在接地结果里至多占的条数（马恩三版合一个名额；防霸榜、让其它作者铺开。条数升到 10 后同步从 2 上调到 3，让最贴题的著作能多贡献一条又不至霸榜）
 
 
+def _personal_grounding_candidates(question, quotes, fragments, keywords,
+                                   chapter_keywords, raw_terms, raw_scope) -> list:
+    """AI 接地的个人文库分支：仅当用户在范围里显式勾选了自己的书时才参与。
+
+    个人书在**按 user_id 独立实例化**的 Corpus 里，与全局语料物理隔离；这里只是把命中
+    并入候选池，后续构造与去重与全局命中完全一致。
+    """
+    user = getattr(g, "current_user", None)
+    if not user or not _personal_library_enabled():
+        return []
+    sids, _rest = _split_personal_scope(raw_scope)
+    if not sids:          # 未勾选个人文库 → 尊重用户范围选择，不接地
+        return []
+    try:
+        pcorpus = mylib_corpus.get_personal_corpus(int(user["id"]))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("personal grounding corpus failed uid=%s: %s", user.get("id"), exc)
+        return []
+    if pcorpus is None:
+        return []
+    wanted = {mylib_corpus.personal_book_key(s) for s in sids}
+    try:
+        cands = pcorpus.locate_associative(
+            quotes=quotes, keywords=keywords, fragments=fragments,
+            chapter_keywords=chapter_keywords,
+            diversify_per_book=CHAT_GROUNDING_PER_BOOK, book_scope=wanted,
+        )
+        if not cands and (raw_terms or question):
+            cands = pcorpus.locate_associative(
+                quotes=[question] if question else [], keywords=raw_terms,
+                fragments=raw_terms, chapter_keywords=raw_terms,
+                diversify_per_book=CHAT_GROUNDING_PER_BOOK, book_scope=wanted,
+            )
+        return cands or []
+    except Exception as exc:  # noqa: BLE001 — 个人接地失败不应阻断作答
+        LOGGER.warning("personal grounding failed uid=%s: %s", user.get("id"), exc)
+        return []
+
+
 def _build_chat_grounding(
-    question: str, *, raw_scope: object = "auto"
+    question: str, *, raw_scope: object = "auto", exclusions: dict[str, set] | None = None,
+    provider_call_ids: list[int] | None = None, user_id: int | None = None,
 ) -> tuple[list[dict], list[dict], list[str], dict]:
     """问题 → 检索线索 → 真实命中。返回 (注入提示词用的原文清单, 前端展示用的引文清单, 提示, 范围元数据)。
 
@@ -12954,15 +17950,32 @@ def _build_chat_grounding(
 
     plan: dict = {}
     try:
-        plan = AI_CLIENT.expand_associative_query(question)
+        with ai_call_context(
+            user_id=user_id, feature="associative_internal", charge_user=False,
+            provider_call_ids=provider_call_ids if provider_call_ids is not None else [],
+        ):
+            plan = AI_CLIENT.expand_associative_query(question)
     except AIServiceError as exc:  # 抽取失败不致命：下面用原词兜底
-        LOGGER.info("Search-chat grounding expand failed q=%r: %s", question[:80], exc)
+        LOGGER.info("Search-chat grounding expand failed query=%s: %s", _private_log_fingerprint(question), exc)
 
     quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
     raw_terms = _split_gist_terms(question)
-    book_scope, scope_id, scope_manual = _resolve_search_scope(raw_scope, question, plan)
-    scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
-                  "manual": scope_manual, "applied": book_scope is not None}
+    personal_scope_sids, public_scope_raw = _split_personal_scope(raw_scope)
+    personal_only = bool(personal_scope_sids and not public_scope_raw)
+    if personal_only:
+        # 个人阅读器会明确指定 book:mylib:<sid>。这是硬隔离范围：即使私有书无命中，也绝不
+        # 回填公共语料来生成一个看似来自本书的回答。owner 隔离由个人 Corpus 的 user_id 构造保证。
+        book_scope, scope_id, scope_manual = None, "mylib-private", True
+        scope_meta = {
+            "id": scope_id, "label": "当前个人书籍（私有）",
+            "manual": True, "applied": True, "personal_only": True,
+        }
+    else:
+        book_scope, scope_id, scope_manual = _resolve_search_scope(
+            public_scope_raw if personal_scope_sids else raw_scope, question, plan
+        )
+        scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
+                      "manual": scope_manual, "applied": book_scope is not None}
 
     # 接地仅取前 CHAT_GROUNDING_TOP 条注入提示词；分数并列时排序兜底键 book_sort_order 升序会让
     # sort_order 最小（10）的《文集》霸榜，把《列宁全集》《毛泽东文集》等更贴题的原著挤出首屏。
@@ -12985,12 +17998,19 @@ def _build_chat_grounding(
             )
         return cands
 
-    candidates = _locate(book_scope)
+    candidates = [] if personal_only else _fresh_hits(_locate(book_scope), exclusions)
+    # 个人文库接地：用户在范围里勾了自己的书时，把私有书的命中并入候选，与全局命中统一走
+    # 下面的构造/去重流程。引文只对本人显示——个人 Corpus 是按 user_id 独立实例化的。
+    personal_candidates = _personal_grounding_candidates(
+        question, quotes, fragments, keywords, chapter_keywords, raw_terms, raw_scope
+    )
+    if personal_candidates:
+        candidates = _fresh_hits(personal_candidates, exclusions) + candidates
     # 自动路由「限定+兜底回填」：范围内不足 CHAT_GROUNDING_TOP 条 → 再无范围补足（范围内命中排前、
     # 更贴题），保证注入条数不因限定而下降。手动指定范围则尊重用户选择、不回填。
     if book_scope is not None and not scope_manual and len(candidates) < CHAT_GROUNDING_TOP:
         seen = {_hit_page_key(c) for c in candidates}
-        for c in _locate(None):
+        for c in _fresh_hits(_locate(None), exclusions):
             k = _hit_page_key(c)
             if k not in seen:
                 seen.add(k)
@@ -12998,6 +18018,12 @@ def _build_chat_grounding(
 
     if not candidates:
         note = (
+            "未找到尚未在本会话中使用、且与问题直接相关的新原文；你可以补充更具体的侧面或扩大检索范围。"
+            if _has_citation_exclusions(exclusions)
+            else
+            "当前个人书籍中未检索到与该问题直接相关的原文；为保护范围准确性，本次未使用公共语料补答。"
+            if personal_only
+            else
             f"「{scope_meta['label']}」范围内未检索到与该问题直接相关的原文，本次回答基于模型自身知识。"
             if (book_scope is not None and scope_manual)
             else "未在引文库中检索到与该问题直接相关的原文，本次回答基于模型自身知识。"
@@ -13016,6 +18042,13 @@ def _build_chat_grounding(
         d = hit.to_dict()
         citation = str(d.get("citation") or "").strip()
         cd = _attach_viewer_payload(d, question, viewer_allowed)
+        # 个人书不在全局白名单里，_attach_viewer_payload 给不出可用深链，改指个人阅读器。
+        _personal_sid = mylib_corpus.submission_id_from_key(str(d.get("book") or ""))
+        if _personal_sid:
+            cd["personal"] = True
+            cd["viewer_available"] = True
+            cd["viewer_url"] = (f"{url_for('mylib_reader', submission_id=_personal_sid)}"
+                                f"?page={(d.get('pdf_pages') or [1])[0]}")
         # 快速回答使用自己的严格句界提取：按“前页→命中页→后页”补齐跨页句子，并且永不在字符
         # 上限处硬切。研究综述的段落窗口更重语境，不直接复用，避免两条链路互相牵动输出质量。
         try:
@@ -13030,6 +18063,8 @@ def _build_chat_grounding(
         trimmed_ctx = _trim_hit_context_to_sentences(str(d.get("context") or ""))
         plain = plain or _squeeze_cjk_line_joins(_plain_hit_context({"context": trimmed_ctx}))
         if not plain:
+            continue
+        if _passage_matches_exclusions(plain, exclusions):
             continue
 
         # 同一逐字句在不同版本、不同页或不同检索线索下只注入一次。去重键只看“命中所在句”，
@@ -13046,7 +18081,10 @@ def _build_chat_grounding(
         cd["context"] = display_ctx or _squeeze_cjk_line_joins(trimmed_ctx)
         cd["grounding_index"] = idx
         citations.append(cd)
-    return passages, citations, [], scope_meta
+    warnings = []
+    if not passages and _has_citation_exclusions(exclusions):
+        warnings.append("未找到尚未在本会话中使用、且与问题直接相关的新原文；本次未重复旧引文。")
+    return passages, citations, warnings, scope_meta
 
 
 @app.route("/api/ai/search-chat", methods=["POST"])
@@ -13088,15 +18126,29 @@ def api_ai_search_chat():
             return jsonify({"ok": False, "error": str(exc)}), 502
     _require_ai()
     payload = request.get_json(silent=True) or {}
-    ai_provider = _resolve_ai_provider_or_abort(payload)
+    ai_selection = _resolve_ai_selection_or_abort(payload, feature="search-chat")
+    ai_provider = str(ai_selection["provider"])
+    ai_model = ai_selection.get("model")
+    ai_reasoning_effort = str(ai_selection.get("reasoning_effort") or "off")
+    ai_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    ai_charge_user = bool(
+        ai_user_id and ai_selection.get("charge_user_wallet", True)
+        and not _is_admin_user(getattr(g, "current_user", None))
+    )
+    search_call_ids: list[int] = []
+    grounding_call_ids: list[int] = []
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
-    # 「模型选择」：deepseek 通道可在 flash/pro 间切换（白名单校验）；智谱通道无此项。
-    ai_model = _resolve_selectable_model(payload) if ai_provider != "zhipu" else None
     question = " ".join(str(payload.get("question") or "").split())
     messages = payload.get("messages") or []
     if not question:
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
+    # 普通新问题仍原样检索；只在用户明确说“换一批/再搜索”或使用上文指代时，
+    # 才用最近的用户论题还原本轮检索语义。已用材料仅在“换资料”追问中按具体页/段排除。
+    retrieval_question, source_refresh = _conversation_retrieval_query(question, messages)
+    prior_citation_exclusions = (
+        _history_citation_exclusions(messages) if source_refresh else None
+    )
 
     # 引文库接地（默认关闭，省 token；由前端「检索引文库」开关控制，勾选后随请求带 grounding=true）：
     # 开启后先把问题落到真实语料，再把原文+准确出处注入 AI，让 DeepSeek/智谱都据此作答并准确引用。
@@ -13111,11 +18163,42 @@ def api_ai_search_chat():
     if grounding_on:
         try:
             grounding_passages, grounding_citations, grounding_warnings, grounding_scope_meta = (
-                _build_chat_grounding(question, raw_scope=grounding_scope_req)
+                _build_chat_grounding(
+                    retrieval_question,
+                    raw_scope=grounding_scope_req,
+                    exclusions=prior_citation_exclusions,
+                    provider_call_ids=grounding_call_ids,
+                    user_id=ai_user_id,
+                )
             )
         except Exception as exc:  # noqa: BLE001 — 接地失败不应阻断对话，降级为普通问答
-            LOGGER.warning("Search-chat grounding failed q=%r: %s", question[:80], exc)
+            LOGGER.warning("Search-chat grounding failed query=%s: %s", _private_log_fingerprint(question), exc)
             grounding_warnings = ["引文库检索暂时不可用，本次回答未接入引文库。"]
+        if grounding_call_ids:
+            _record_ai_usage(
+                quota, feature="associative_internal", prompt_parts=(question,),
+                success=True, provider="deepseek", model="deepseek-v4-flash",
+                provider_call_ids=grounding_call_ids,
+            )
+
+    # 个人阅读器的“检索本书原文作答”是严格接地模式。私有书没有命中时直接如实返回，
+    # 不再调用模型凭自身知识补答，避免用户误把生成内容当成本书原文，也不消耗一次 AI 额度。
+    if grounding_on and grounding_scope_meta.get("personal_only") and not grounding_passages:
+        message = (
+            grounding_warnings[0] if grounding_warnings
+            else "当前个人书籍中未检索到与该问题直接相关的原文。"
+        )
+        return jsonify({
+            "ok": True,
+            "answer_markdown": message,
+            "sources": [],
+            "warnings": grounding_warnings,
+            "citations": [],
+            "grounded": False,
+            "grounding_scope": grounding_scope_meta,
+            "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+            "ai_entitlements": _ai_entitlements_payload(getattr(g, "current_user", None)),
+        })
 
     # 慢活——尤其是「接地长答」（接地时会注入多段原文、答案更长）——丢进 SSE 心跳保活后台线程。
     # 接地检索（含一次线索抽取 AI 调用）已在上面同步跑完，其耗时计入「首字节」（与研究综述同构，
@@ -13126,10 +18209,18 @@ def api_ai_search_chat():
     # finalize（stream_with_context 保住 g/request）。
     def _slow_answer(cancel_event):
         # 接地长答是单次调用，取消位无处插入（一次 chat_complete），故接收但不使用 cancel_event。
-        return AI_CLIENT.answer_search_chat(
-            messages, question, provider=ai_provider or None,
-            grounding=grounding_passages or None, model=ai_model,
-        )
+        with ai_call_context(
+            user_id=ai_user_id,
+            feature="search-chat",
+            charge_user=ai_charge_user,
+            provider_call_ids=search_call_ids,
+        ):
+            return AI_CLIENT.answer_search_chat(
+                messages, question, provider=ai_provider or None,
+                grounding=grounding_passages or None, model=ai_model,
+                prefer_new_sources=bool(source_refresh and grounding_passages),
+                reasoning_effort=ai_reasoning_effort,
+            )
 
     def _finalize_search_chat(answer, error):
         if error is not None or answer is None:
@@ -13138,10 +18229,10 @@ def api_ai_search_chat():
                 LOGGER.warning("Search AI failed: %s", error)
             elif error is not None:
                 err_msg = "AI 服务暂时不可用，请稍后重试。"
-                LOGGER.error("Search-chat crashed q=%r", question[:80], exc_info=error)
+                LOGGER.error("Search-chat crashed query=%s", _private_log_fingerprint(question), exc_info=error)
             else:
                 err_msg = "AI 未能生成回答，请稍后重试。"
-                LOGGER.warning("Search-chat returned no answer q=%r", question[:80])
+                LOGGER.warning("Search-chat returned no answer query=%s", _private_log_fingerprint(question))
             _record_ai_usage(
                 quota,
                 feature="search-chat",
@@ -13149,6 +18240,8 @@ def api_ai_search_chat():
                 success=False,
                 error=err_msg,
                 provider=ai_provider,
+                model=str(ai_model or ""),
+                provider_call_ids=search_call_ids,
             )
             return {"ok": False, "error": err_msg}
         _record_ai_usage(
@@ -13158,6 +18251,8 @@ def api_ai_search_chat():
             completion_text=answer.answer_markdown,
             success=True,
             provider=ai_provider,
+            model=str(ai_model or ""),
+            provider_call_ids=search_call_ids,
         )
         _consume_credit_if_paid(quota, "chat")
         result = answer.to_dict()
@@ -13165,18 +18260,34 @@ def api_ai_search_chat():
             int(g.current_user["id"]) if getattr(g, "current_user", None) else None
         )
         result["ai_token_quota"] = _ai_token_quota_payload(getattr(g, "current_user", None))
+        result["ai_entitlements"] = _ai_entitlements_payload(getattr(g, "current_user", None))
         if grounding_warnings:
             result["warnings"] = list(result.get("warnings") or []) + grounding_warnings
         if grounding_citations:
-            result["citations"] = grounding_citations
+            state = current_view_state()
+            result["citations"] = _retarget_verified_chat_citations(
+                answer.answer_markdown,
+                grounding_citations,
+                viewer_allowed=bool(state["pdf_enabled"] and _content_access_enabled("viewer")),
+                q_for_viewer=retrieval_question,
+            )
         result["grounded"] = bool(grounding_passages)
+        if source_refresh:
+            result["source_refresh"] = {
+                "requested": True,
+                "excluded_pages": len((prior_citation_exclusions or {}).get("pages", set())),
+                "new_citations": len(grounding_citations),
+            }
         if grounding_on and grounding_scope_meta.get("applied"):
             result["grounding_scope"] = grounding_scope_meta  # 供前端提示「本次范围：习近平」
         return result
 
     return Response(
         stream_with_context(
-            _sse_run_with_heartbeat(_slow_answer, _finalize_search_chat)
+            _sse_run_with_heartbeat(
+                _slow_answer, _finalize_search_chat,
+                progress_message="正在生成回答",
+            )
         ),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
@@ -13400,16 +18511,31 @@ def api_ai_mascot_chat():
     if DEPLOYMENT.is_desktop:
         return jsonify({"ok": False, "error": "桌面模式暂不支持马克思形象对话。"})
     _require_ai()
+    now_mono = time.monotonic()
+    with _MASCOT_CIRCUIT_LOCK:
+        if _MASCOT_CIRCUIT_OPEN_UNTIL[0] > now_mono:
+            # Frontend already owns the local quotation fallback; never spill over to a pricier provider.
+            return jsonify({"ok": False, "error": "形象对话暂时降级为本地台词。", "fallback": "local"}), 503
     quota = _ai_usage_context()
     payload = request.get_json(silent=True) or {}
     mode = str(payload.get("mode") or "").strip().lower()
     messages = _mascot_build_messages(mode, payload)
+    mascot_provider, mascot_model = _mascot_ai_selection()
+    mascot_call_ids: list[int] = []
     try:
-        text = AI_CLIENT.chat_complete(
-            messages, max_tokens=500, temperature=0.8, allow_reasoning_fallback=False,
-            model=MASCOT_AI_MODEL,
-        )
+        with ai_call_context(feature="mascot", charge_user=False, provider_call_ids=mascot_call_ids):
+            text = AI_CLIENT.chat_complete(
+                messages, max_tokens=500, temperature=0.8, allow_reasoning_fallback=False,
+                provider=mascot_provider, model=mascot_model, disable_thinking=True,
+                reasoning_effort="off", http_timeout=12.0,
+            )
     except AIServiceError as exc:
+        with _MASCOT_CIRCUIT_LOCK:
+            cutoff = time.monotonic() - 120.0
+            _MASCOT_FAILURE_TIMES[:] = [stamp for stamp in _MASCOT_FAILURE_TIMES if stamp >= cutoff]
+            _MASCOT_FAILURE_TIMES.append(time.monotonic())
+            if len(_MASCOT_FAILURE_TIMES) >= 3:
+                _MASCOT_CIRCUIT_OPEN_UNTIL[0] = time.monotonic() + 300.0
         LOGGER.warning("Mascot AI failed: %s", exc)
         _record_ai_usage(
             quota,
@@ -13417,9 +18543,11 @@ def api_ai_mascot_chat():
             prompt_parts=(mode, messages[-1].get("content", "")),
             success=False,
             error=str(exc),
-            model=MASCOT_AI_MODEL,
+            provider=mascot_provider,
+            model=mascot_model,
+            provider_call_ids=mascot_call_ids,
         )
-        return jsonify({"ok": False, "error": str(exc)}), 502
+        return jsonify({"ok": False, "error": str(exc), "fallback": "local"}), 502
     reply = _mascot_trim_reply(_mascot_sanitize(text))
     if not reply:
         # 模型泄漏了提示词/思考过程，或清洗后为空：判失败，前端走本地兜底台词。
@@ -13429,7 +18557,9 @@ def api_ai_mascot_chat():
             prompt_parts=(mode, messages[-1].get("content", "")),
             success=False,
             error="sanitized-empty",
-            model=MASCOT_AI_MODEL,
+            provider=mascot_provider,
+            model=mascot_model,
+            provider_call_ids=mascot_call_ids,
         )
         return jsonify({"ok": False, "error": "（本次未能给出合适的回应）"})
     _record_ai_usage(
@@ -13438,8 +18568,13 @@ def api_ai_mascot_chat():
         prompt_parts=(mode, messages[-1].get("content", "")),
         completion_text=reply,
         success=True,
-        model=MASCOT_AI_MODEL,
+        provider=mascot_provider,
+        model=mascot_model,
+        provider_call_ids=mascot_call_ids,
     )
+    with _MASCOT_CIRCUIT_LOCK:
+        _MASCOT_FAILURE_TIMES.clear()
+        _MASCOT_CIRCUIT_OPEN_UNTIL[0] = 0.0
     return jsonify({"ok": True, "text": reply, "mode": mode})
 
 
@@ -13658,6 +18793,7 @@ def api_search_associative():
             _sse_run_with_heartbeat(
                 _run_full_research_pipeline,
                 _finalize_full_research_pipeline,
+                progress_message="正在检索真实原文并生成研究综述",
             )
         ),
         mimetype="text/event-stream",
@@ -13675,15 +18811,28 @@ def _api_search_associative_impl(*, cancel_event=None):
     # 意图分流后按所选模式鉴权：研究型检索走独立的 research 权限，其余（精准定位/自动）走 associative。
     _requested_mode = str((request.get_json(silent=True) or {}).get("mode") or "auto").strip().lower()
     _require_content_feature("research" if _requested_mode == "research" else "associative")
-    _rate_limit_ai_or_abort()
-    # 研究型检索：每日 token 用尽但持有研究资源包次数时放行（成功后扣 1 次）。
-    quota = _require_ai_quota_or_raise(credit_kind="research" if _requested_mode == "research" else "")
+    # 研究综述属用户 AI 场景；模糊定位由站方出资，使用独立限流桶，
+    # 不得因连续检索挤占 AI 研究对话/阅读器解读的频率额度。
+    if _requested_mode == "research":
+        _rate_limit_ai_or_abort()
+    else:
+        _rate_limit_associative_or_abort()
+    # 三条费用链路严格隔离：
+    # - locate / auto：站方承担的联想定位，只保留审计上下文，绝不检查或消耗用户周额度；
+    # - research：用户明确选择的研究综述，才检查用户额度/研究资源包。
+    # 不能先统一过用户额度闸再把供应商调用标成 charge_user=False，否则会出现“钱由站方付、
+    # 功能却被用户额度拦住”的矛盾，并让普通注册用户的历史联想记录污染额度统计。
+    quota = (
+        _require_ai_quota_or_raise(credit_kind="research")
+        if _requested_mode == "research"
+        else _ai_usage_context()
+    )
     if DEPLOYMENT.is_desktop:
         # 联想检索需与内存中的 corpus 同进程完成接地定位，桌面模式暂不经代理提供。
         return jsonify({"ok": False, "error": "联想检索暂仅在云端模式可用。"}), 200
-    _require_ai()
     payload = request.get_json(silent=True) or {}
     gist = " ".join(str(payload.get("gist") or payload.get("q") or "").split())
+    messages = payload.get("messages") or []
     rerank = _coerce_bool(payload.get("rerank", True))
     # 意图分流：auto=由 expand 的 AI 判定；locate/research=前端显式覆盖（「精准定位/研究辅助」开关）。
     mode = str(payload.get("mode") or "auto").strip().lower()
@@ -13695,6 +18844,58 @@ def _api_search_associative_impl(*, cancel_event=None):
         return jsonify({"ok": False, "error": "请描述你要找的内容（大意或关键词）。"}), 400
     if len(gist) > 600:
         gist = gist[:600]
+    retrieval_gist, source_refresh = _conversation_retrieval_query(gist, messages)
+    prior_citation_exclusions = (
+        _history_citation_exclusions(messages) if source_refresh else None
+    )
+    _record_community_trend("search", gist)
+
+    # 模糊定位的执行顺序必须与展示语义一致：先完成零 AI 的用户原文近似检索，
+    # 只在不足一页时才向 AI 请求语义线索。这些预检索结果会在后文复用，不重复扫描语料。
+    raw_terms = _split_gist_terms(retrieval_gist)
+    preliminary_book_scope = None
+    preliminary_scope_id = "auto"
+    preliminary_scope_manual = False
+    preliminary_textual_primary: list = []
+    preliminary_textual_backfill: list = []
+    preliminary_backfill_attempted = False
+    preliminary_textual_candidates: list = []
+    pipeline_warnings: list[str] = []
+
+    def _raw_textual_locate(scope):
+        return _fresh_hits(
+            corpus.locate_associative(
+                quotes=[retrieval_gist] if retrieval_gist else [],
+                keywords=raw_terms,
+                fragments=raw_terms,
+                chapter_keywords=raw_terms,
+                intent="locate",
+                book_scope=scope,
+                expand_synonyms=False,
+                pseudo_feedback=False,
+            ),
+            prior_citation_exclusions,
+        )
+
+    if mode != "research":
+        try:
+            preliminary_book_scope, preliminary_scope_id, preliminary_scope_manual = _resolve_search_scope(
+                scope_req, retrieval_gist, {}
+            )
+            preliminary_textual_primary = _raw_textual_locate(preliminary_book_scope)
+            if (
+                preliminary_book_scope is not None
+                and not preliminary_scope_manual
+                and len(preliminary_textual_primary) < ASSOC_PAGE_BACKFILL_FLOOR
+            ):
+                preliminary_backfill_attempted = True
+                preliminary_textual_backfill = _raw_textual_locate(None)
+            preliminary_textual_candidates, _ = _merge_assoc_candidate_tiers(
+                [*preliminary_textual_primary, *preliminary_textual_backfill], []
+            )
+        except Exception as exc:
+            LOGGER.warning("Associative textual preflight failed query=%s: %s", _private_log_fingerprint(gist), exc)
+            return jsonify({"ok": False, "error": "模糊检索失败，请稍后再试。"}), 400
 
     # 研究型检索次数额度：达到本周上限立即拦截，绝不在此之后消耗 AI（expand/综述）。
     # 显式研究模式在此前置拦截；auto 模式解析为研究意图时，会在综述分支再校验一次。
@@ -13710,16 +18911,55 @@ def _api_search_associative_impl(*, cancel_event=None):
 
     state = current_view_state()
     viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
+    associative_call_ids: list[int] = []
+    associative_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
 
-    try:
-        # 研究综述档（前端「研究辅助」显式传 mode=research）用 pro 抽线索：综述要铺 20-24 条引用，
-        # 线索面越广越好，多花的几秒在这一档可接受；快速问答/精准定位仍走 flash 保响应。
-        # auto 模式即便事后被判成 research 意图也不改档——模型选择必须发生在抽取之前。
-        plan = AI_CLIENT.expand_associative_query(gist, deep=(mode == "research"))
-    except AIServiceError as exc:
-        LOGGER.warning("Associative expand failed gist=%r: %s", gist[:80], exc)
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc))
-        return jsonify({"ok": False, "error": str(exc)}), 502
+    plan: object = {}
+    ai_expansion_succeeded = False
+    textual_sufficient = (
+        mode != "research"
+        and len(preliminary_textual_candidates) >= ASSOC_PAGE_BACKFILL_FLOOR
+    )
+    if not textual_sufficient:
+        # 研究综述始终需要 AI；模糊定位则只在文本层不足时请求语义补充。
+        _refresh_ai_runtime_if_needed()
+        ai_runtime_available = bool(
+            AI_CONFIG.enabled or (_mimo_migration_enabled() and AI_CONFIG.mimo_enabled)
+        )
+        if not ai_runtime_available and mode != "research" and preliminary_textual_candidates:
+            pipeline_warnings.append("AI 语义补充暂不可用，已仅显示文本近似结果。")
+            rerank = False
+        else:
+            _require_ai()
+            try:
+                # 研究综述档（前端「研究辅助」显式传 mode=research）用 pro 抽线索：综述要铺 20-24 条引用，
+                # 线索面越广越好，多花的几秒在这一档可接受；模糊定位仍走 flash 保响应。
+                with ai_call_context(
+                    user_id=associative_user_id, feature="associative_internal",
+                    charge_user=False, provider_call_ids=associative_call_ids,
+                ):
+                    plan = AI_CLIENT.expand_associative_query(retrieval_gist, deep=(mode == "research"))
+                ai_expansion_succeeded = True
+            except AIServiceError as exc:
+                LOGGER.warning("Associative expand failed query=%s: %s", _private_log_fingerprint(gist), exc)
+                _record_ai_usage(
+                    quota, feature="associative_internal", prompt_parts=(gist,), success=False,
+                    error=str(exc), provider="deepseek", model="deepseek-v4-flash",
+                    provider_call_ids=associative_call_ids,
+                )
+                associative_call_ids.clear()
+                if mode != "research" and preliminary_textual_candidates:
+                    # 扩词失败不得吞掉已经能够返回的本地结果。
+                    pipeline_warnings.append("AI 语义补充暂不可用，已仅显示文本近似结果。")
+                    rerank = False
+                    plan = {}
+                else:
+                    return jsonify({"ok": False, "error": str(exc)}), 502
+    else:
+        LOGGER.info(
+            "Associative textual preflight satisfied query=%s count=%d (AI supplement skipped)",
+            _private_log_fingerprint(gist), len(preliminary_textual_candidates),
+        )
 
     # The browser may have left while query expansion was waiting upstream.  Do not continue into
     # retrieval and a multi-minute review for a connection that can no longer receive the result.
@@ -13727,7 +18967,15 @@ def _api_search_associative_impl(*, cancel_event=None):
         return {"ok": False, "error": "请求已取消。"}
 
     quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
-    intent = _resolve_assoc_intent(mode, plan, quotes, fragments, chapter_keywords, gist)
+    intent = _resolve_assoc_intent(mode, plan, quotes, fragments, chapter_keywords, retrieval_gist)
+    # 只有显式 mode=research 才能进入用户付费/额度受限的研究综述。旧客户端省略 mode 时仍可
+    # 使用站方承担的定位检索，但 AI 的 intent 判断不得把一次定位请求悄悄升级为研究长文。
+    if mode != "research" and intent == "research":
+        LOGGER.info(
+            "Implicit associative research intent downgraded to locate query=%s mode=%s",
+            _private_log_fingerprint(gist), mode,
+        )
+        intent = "locate"
     # auto 模式按【解析后】的意图复检 research 权限（mode==research 已在上方前置鉴权）：持 associative
     # 但被显式停用 research 的账号在此降级为定位检索，避免靠 auto 绕过定向封禁。管理员/桌面完整资料豁免。
     if intent == "research" and not (
@@ -13735,54 +18983,92 @@ def _api_search_associative_impl(*, cancel_event=None):
         or _desktop_content_access_enabled()
         or (_feature_is_available("research") and _feature_effective_for_user("research"))
     ):
-        LOGGER.info("Associative research intent downgraded to locate (no research feature) gist=%r", gist[:80])
+        LOGGER.info("Associative research intent downgraded to locate (no research feature) query=%s", _private_log_fingerprint(gist))
         intent = "locate"
+
+    if intent == "research":
+        # Query expansion is a site-funded retrieval primitive.  Link it to a separate
+        # logical row now so it can never be attributed to the user's research wallet.
+        _record_ai_usage(
+            quota, feature="associative_internal", prompt_parts=(gist,), success=True,
+            provider="deepseek", model="deepseek-v4-flash",
+            provider_call_ids=associative_call_ids,
+        )
+        associative_call_ids.clear()
     facets = _assoc_facets_from_plan(plan) if intent == "research" else []
     # 著作群路由：把语义信号落成检索范围。研究/定位同样受益（问「中华民族伟大复兴」定向到习著作群）。
-    book_scope, scope_id, scope_manual = _resolve_search_scope(scope_req, gist, plan)
+    book_scope, scope_id, scope_manual = _resolve_search_scope(scope_req, retrieval_gist, plan)
     scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
                   "manual": scope_manual, "applied": book_scope is not None}
     # 限定+兜底回填的下限：研究要喂满源条数（20-24），定位一页即可。范围内够量则不触发回填。
     scope_floor = RESEARCH_REVIEW_SOURCES if intent == "research" else ASSOC_PAGE_BACKFILL_FLOOR
-    if not (quotes or fragments or keywords or chapter_keywords):
+    if ai_expansion_succeeded and not (quotes or fragments or keywords or chapter_keywords):
         # 线上「搜不到」首要排查点：AI 抽词为空（模型超时/截断/格式异常）→ 仅靠原词兜底。
         LOGGER.info(
-            "Associative expand yielded no usable clues gist=%r mode=%s intent=%s (fallback to raw terms)",
-            gist[:80], mode, intent,
+            "Associative expand yielded no usable clues query=%s mode=%s intent=%s (fallback to raw terms)",
+            _private_log_fingerprint(gist), mode, intent,
         )
-    raw_terms = _split_gist_terms(gist)
-
     def _assoc_locate(scope):
-        # 一档：用 LLM 抽取的（已分好类的）线索检索——排序最干净
-        cands = []
+        if intent == "locate":
+            # 主层：直接用用户输入做整句/短片段/关键词共现检索。关闭同义词扩展，
+            # 只衡量词面和文本结构上的近似，用来承接精确检索的错字/漏字/断句差异。
+            if mode != "research" and scope == preliminary_book_scope:
+                textual = list(preliminary_textual_primary)
+            elif mode != "research" and scope is None and preliminary_book_scope is None:
+                textual = list(preliminary_textual_primary)
+            elif mode != "research" and scope is None and preliminary_backfill_attempted:
+                textual = list(preliminary_textual_backfill)
+            else:
+                textual = _raw_textual_locate(scope)
+
+            # 补充层：文本层不足一页时，才用 AI 抽取的大意/概念线索扩充。
+            # 即使补充层分数更高，合并时也不得越过文本层。
+            semantic = []
+            if len(textual) < ASSOC_PAGE_BACKFILL_FLOOR and (
+                quotes or fragments or keywords or chapter_keywords
+            ):
+                semantic = corpus.locate_associative(
+                    quotes=quotes, keywords=keywords, fragments=fragments,
+                    chapter_keywords=chapter_keywords, intent="locate", book_scope=scope,
+                )
+                semantic = _fresh_hits(semantic, prior_citation_exclusions)
+            return textual, semantic
+
+        # 研究模式仍以语义分面为主；若 AI 未给出可用线索，才用原词保底。
+        semantic = []
         if quotes or fragments or keywords or chapter_keywords:
-            cands = corpus.locate_associative(
+            semantic = corpus.locate_associative(
                 quotes=quotes, keywords=keywords, fragments=fragments, chapter_keywords=chapter_keywords,
                 intent=intent, facets=facets, book_scope=scope,
             )
-        # 二档兜底：LLM 无果或未命中时，用用户原词直接检索，确保“总能搜到”（不污染一档的干净排序）
-        if not cands and (raw_terms or gist):
-            cands = corpus.locate_associative(
-                quotes=[gist] if gist else [],
+        if not semantic and (raw_terms or retrieval_gist):
+            semantic = corpus.locate_associative(
+                quotes=[retrieval_gist] if retrieval_gist else [],
                 keywords=raw_terms, fragments=raw_terms, chapter_keywords=raw_terms,
                 intent=intent, book_scope=scope,
             )
-        return cands
+        return [], _fresh_hits(semantic, prior_citation_exclusions)
 
     try:
-        candidates = _assoc_locate(book_scope)
+        textual_candidates, semantic_candidates = _assoc_locate(book_scope)
+        candidates, _ = _merge_assoc_candidate_tiers(textual_candidates, semantic_candidates)
         # 自动路由「限定+兜底回填」：范围内命中不足下限 → 再无范围补足（范围内更贴题、排在前面），
         # 确保引用条数/综述源不因限定而缩水。手动指定范围则硬限定、不回填，尊重用户选择。
         if book_scope is not None and not scope_manual and len(candidates) < scope_floor:
-            seen = {_hit_page_key(c) for c in candidates}
-            for c in _assoc_locate(None):
-                k = _hit_page_key(c)
-                if k not in seen:
-                    seen.add(k)
-                    candidates.append(c)
+            more_textual, more_semantic = _assoc_locate(None)
+            textual_candidates.extend(more_textual)
+            semantic_candidates.extend(more_semantic)
+        # 全局最后再合并一次：确保“范围外回填的文本近似”也位于任何语义联想之前。
+        candidates, textual_candidate_keys = _merge_assoc_candidate_tiers(
+            textual_candidates, semantic_candidates
+        )
     except Exception as exc:
-        LOGGER.warning("Associative locate failed gist=%r: %s", gist[:80], exc)
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc))
+        LOGGER.warning("Associative locate failed query=%s: %s", _private_log_fingerprint(gist), exc)
+        _record_ai_usage(
+            quota, feature="associative", prompt_parts=(gist,), success=False, error=str(exc),
+            provider="deepseek", model="deepseek-v4-flash",
+            provider_call_ids=associative_call_ids,
+        )
         return jsonify({"ok": False, "error": "联想检索失败，请稍后再试。"}), 400
 
     # 研究意图叠加「名目索引」主题层（P2a）：编辑手工建的权威「概念→页码」，置候选最前、按页去重。
@@ -13790,9 +19076,12 @@ def _api_search_associative_impl(*, cancel_event=None):
     if intent == "research":
         try:
             si_terms = list(dict.fromkeys([*keywords, *(w for fac in facets for w in fac), *raw_terms]))
-            subject_hits = corpus.locate_subject_index(si_terms, cap=12, book_scope=book_scope)
+            subject_hits = _fresh_hits(
+                corpus.locate_subject_index(si_terms, cap=12, book_scope=book_scope),
+                prior_citation_exclusions,
+            )
         except Exception as exc:  # noqa: BLE001 — 主题层失败不应阻断词面召回
-            LOGGER.warning("Subject-index locate failed gist=%r: %s", gist[:80], exc)
+            LOGGER.warning("Subject-index locate failed query=%s: %s", _private_log_fingerprint(gist), exc)
             subject_hits = []
         if subject_hits:
             si_keys = {_hit_page_key(h) for h in subject_hits}
@@ -13800,22 +19089,35 @@ def _api_search_associative_impl(*, cancel_event=None):
 
     if not candidates:
         LOGGER.info(
-            "Associative no candidates gist=%r mode=%s intent=%s clues(q/f/k/ck)=%d/%d/%d/%d raw_terms=%d",
-            gist[:80], mode, intent, len(quotes), len(fragments), len(keywords), len(chapter_keywords), len(raw_terms),
+            "Associative no candidates query=%s mode=%s intent=%s clues(q/f/k/ck)=%d/%d/%d/%d raw_terms=%d",
+            _private_log_fingerprint(gist), mode, intent, len(quotes), len(fragments), len(keywords), len(chapter_keywords), len(raw_terms),
         )
-        _record_ai_usage(quota, feature="associative", prompt_parts=(gist,), success=True)
+        if ai_expansion_succeeded:
+            _record_ai_usage(
+                quota, feature="associative", prompt_parts=(gist,), success=True,
+                provider="deepseek", model="deepseek-v4-flash",
+                provider_call_ids=associative_call_ids,
+            )
         no_hit_msg = (
-            f"「{scope_meta['label']}」范围内未定位到匹配段落，可切换为「全部著作」或换一种说法再试。"
+            "未找到尚未在本会话中使用、且与当前论题直接相关的新原文；"
+            "可以补充更具体的分析侧面，或扩大检索范围。"
+            if source_refresh and _has_citation_exclusions(prior_citation_exclusions)
+            else f"「{scope_meta['label']}」范围内未定位到匹配段落，可切换为「全部著作」或换一种说法再试。"
             if (book_scope is not None and scope_manual)
             else "未在语料中定位到匹配段落，请换一种说法或补充更具体的关键词、人名或术语。"
         )
-        return jsonify({
-            "ok": True, "query": gist, "count": 0, "display_mode": "associative",
+        empty_mode = "research_review" if intent == "research" else "associative"
+        empty_payload = {
+            "ok": True, "query": gist, "count": 0, "display_mode": empty_mode,
             "access_level": "full" if viewer_allowed else "summary", "results": [],
-            "pdf_enabled": viewer_allowed, "warnings": [],
+            "pdf_enabled": viewer_allowed, "warnings": list(pipeline_warnings),
             "intent": intent, "mode": mode, "scope": scope_meta,
+            "retrieval_breakdown": {"textual": 0, "semantic": 0},
             "message": no_hit_msg,
-        })
+        }
+        if intent == "research":
+            empty_payload.update({"review_markdown": no_hit_msg, "review_citations": []})
+        return jsonify(empty_payload)
 
     # 研究意图：检索 → 高相关且适度多样的资料源 → 生成接地综述 + 简明引文条（取代卡片列表；引文不可伪造，
     # 综述只依据下列真实命中、文中 [N] 标注，引文条与之一一对应、可点开核对）。
@@ -13837,25 +19139,53 @@ def _api_search_associative_impl(*, cancel_event=None):
         # 先备好喂给 AI 的完整原文段（含主题相关窗口），并留住每条 hit 以便综述生成后重建高亮。
         review_passages: list[dict] = []
         review_sources: list[tuple] = []
-        review_hits = _select_research_review_hits(candidates, RESEARCH_REVIEW_SOURCES)
-        for i, hit in enumerate(review_hits, start=1):
+        # 先适度超取候选，再按实际喂给模型的段落内容做第二道去重；
+        # 可排除同页旧段落，但不会把同一著作的其它页面一并排除。
+        review_hits = _select_research_review_hits(
+            candidates, min(len(candidates), RESEARCH_REVIEW_SOURCES * 3)
+        )
+        for hit in review_hits:
             base = hit.to_dict()
-            plain = _research_review_passage_text(hit, base, gist)
+            plain = _research_review_passage_text(hit, base, retrieval_gist)
+            if _passage_matches_exclusions(plain, prior_citation_exclusions):
+                continue
+            i = len(review_passages) + 1
             review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
             review_sources.append((i, hit, plain))
+            if len(review_passages) >= RESEARCH_REVIEW_SOURCES:
+                break
+        if not review_passages:
+            no_fresh_msg = (
+                "未找到尚未在本会话中使用、且与当前论题直接相关的新原文；"
+                "可以补充更具体的分析侧面，或扩大检索范围。"
+            )
+            return {
+                "ok": True, "query": gist, "display_mode": "research_review",
+                "intent": intent, "mode": mode, "scope": scope_meta,
+                "access_level": "full" if viewer_allowed else "summary",
+                "pdf_enabled": viewer_allowed, "review_markdown": no_fresh_msg,
+                "review_citations": [], "count": 0, "warnings": [],
+            }
         # 综述生成是非流式慢活(可达 100s+)：丢到后台线程，外层用 SSE 心跳保活喂住 Cloudflare ~100s
         # 「首字节」计时器，故能从容写完整全长综述、绝不被砍成 524 HTML。生成只吃纯数据(gist+passages)、
         # 线程安全；接地引文匹配/记账等需要请求上下文的收尾，放回生成器里做(stream_with_context 保住 g/request)。
-        # 「模型选择」：研究综述可按前端所选 flash/pro 档生成（白名单校验；智谱/缺省 → None 用服务端默认）。
-        # 研究综述剔除 flash：DeepSeek 通道一律用更强的 v4pro（默认）；智谱通道（会员经 ai_web 权限）model 传 None。
-        review_provider = _resolve_ai_provider_or_abort(payload)   # zhipu 需 ai_web 权限，否则 400
+        # 最终综述严格按会员钱包的默认/显式选模生成；旧会员与基础会员缺省为 Flash 非思考。
+        review_selection = _resolve_ai_selection_or_abort(payload, feature=RESEARCH_QUOTA_FEATURE)
+        review_provider = str(review_selection["provider"])
         if review_provider == "zhipu":
             _require_zhipu_quota_or_raise(quota)
-        review_model = None if review_provider == "zhipu" else "deepseek-v4-pro"
+        review_model = review_selection.get("model")
+        review_reasoning_effort = str(review_selection.get("reasoning_effort") or "off")
+        review_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+        review_charge_user = bool(
+            review_user_id and review_selection.get("charge_user_wallet", True)
+            and not _is_admin_user(getattr(g, "current_user", None))
+        )
+        review_call_ids: list[int] = []
         # 承接上下文：把此前对话（前端所传 messages）作为背景传给综述生成，让「研究综述」也能延续对话
         # （retrieval 仍以本轮 gist 为准；背景仅用于理解语境、承接上文）。限最近 6 条、每条限长，防 token 暴涨。
         review_context: list[dict] = []
-        for _m in (payload.get("messages") or [])[-6:]:
+        for _m in messages[-10:]:
             if isinstance(_m, dict):
                 _c = " ".join(str(_m.get("content") or "").split())[:1200]
                 if _c:
@@ -13865,19 +19195,25 @@ def _api_search_associative_impl(*, cancel_event=None):
 
         def _slow_generate_review(review_cancel_event):
             # cancel_event 由 SSE 层在客户端断开时置位；透传给生成器，使其在调用边界提前收尾、释放名额。
-            return AI_CLIENT.generate_research_review(
-                gist, review_passages, should_cancel=review_cancel_event.is_set, model=review_model,
-                context_messages=review_context or None, provider=(review_provider or None),
-            )
+            with ai_call_context(
+                user_id=review_user_id, feature=RESEARCH_QUOTA_FEATURE,
+                charge_user=review_charge_user,
+                provider_call_ids=review_call_ids,
+            ):
+                return AI_CLIENT.generate_research_review(
+                    retrieval_gist, review_passages, should_cancel=review_cancel_event.is_set, model=review_model,
+                    context_messages=review_context or None, provider=(review_provider or None),
+                    reasoning_effort=review_reasoning_effort,
+                )
 
         def _finalize_research_review(review_md, error):
             review_warnings: list[str] = []
             if error is not None or not review_md:
                 if error is not None and not isinstance(error, AIServiceError):
-                    LOGGER.error("Research review crashed gist=%r", gist[:80], exc_info=error)
+                    LOGGER.error("Research review crashed query=%s", _private_log_fingerprint(gist), exc_info=error)
                 else:
-                    LOGGER.warning("Research review failed gist=%r: %s", gist[:80], error)
-                review_md = _build_research_review_fallback(gist, review_passages)
+                    LOGGER.warning("Research review failed query=%s: %s", _private_log_fingerprint(gist), error)
+                review_md = _build_research_review_fallback(retrieval_gist, review_passages)
                 review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
             # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
             # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
@@ -13895,7 +19231,7 @@ def _api_search_associative_impl(*, cancel_event=None):
                     quote_spans,
                     review_units_by_index.get(i, []),
                     viewer_allowed,
-                    gist,
+                    retrieval_gist,
                 )
                 d = _attach_viewer_payload(
                     base, gist, viewer_allowed,
@@ -13915,7 +19251,9 @@ def _api_search_associative_impl(*, cancel_event=None):
                 completion_text=review_md, success=True,
                 prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
                 completion_tokens=_estimate_tokens_from_text(review_md),
-                provider=("zhipu" if review_provider == "zhipu" else ""),
+                provider=review_provider,
+                model=str(review_model or ""),
+                provider_call_ids=review_call_ids,
             )
             if paid_research_use:
                 _user = getattr(g, "current_user", None)
@@ -13933,6 +19271,7 @@ def _api_search_associative_impl(*, cancel_event=None):
                 # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
                 "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
                 "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+                "ai_entitlements": _ai_entitlements_payload(getattr(g, "current_user", None)),
             }
 
         # 显式 research 模式已由路由外层从线索扩展开始整段保活；在同一个后台 worker 内直接完成生成，
@@ -13948,7 +19287,10 @@ def _api_search_associative_impl(*, cancel_event=None):
 
         return Response(
             stream_with_context(
-                _sse_run_with_heartbeat(_slow_generate_review, _finalize_research_review)
+                _sse_run_with_heartbeat(
+                    _slow_generate_review, _finalize_research_review,
+                    progress_message="正在依据真实原文生成研究综述",
+                )
             ),
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
@@ -13956,30 +19298,37 @@ def _api_search_associative_impl(*, cancel_event=None):
 
     # 候选已按综合权重降序。权重是主排序；AI 仅对权重最高的一小批做标注/解释（候选多时控成本），
     # 不丢弃任何已接地的候选——聚合展示靠权重优先呈现最可能段落。
-    warnings: list[str] = []
+    warnings: list[str] = list(pipeline_warnings)
     meta_by_id: dict[int, dict] = {}
-    if rerank:
+    if rerank and ai_expansion_succeeded:
         top_n = ASSOC_RERANK_TOP_RESEARCH if intent == "research" else ASSOC_RERANK_TOP
         # 名目索引命中已是权威「直接支撑」(下面统一标注)，不占用 rerank 名额——AI 判定只给词面候选。
         head = [c for c in candidates if not getattr(c, "subject_label", None)][:top_n]
         try:
-            ranking = AI_CLIENT.rank_associative_candidates(
-                gist, [h.to_dict() for h in head], intent=intent
-            )
+            with ai_call_context(
+                user_id=associative_user_id, feature="associative_internal",
+                charge_user=False, provider_call_ids=associative_call_ids,
+            ):
+                ranking = AI_CLIENT.rank_associative_candidates(
+                    retrieval_gist, [h.to_dict() for h in head], intent=intent
+                )
             ordered_head, rationale_head = _apply_assoc_ranking(head, ranking)
             for h, meta in zip(ordered_head, rationale_head):
                 meta_by_id[id(h)] = meta
             if not ordered_head:
                 warnings.append("AI 未在候选中判定强匹配，已按权重排序展示。")
         except Exception as exc:  # noqa: BLE001 — 标注失败不应阻断已接地的结果
-            LOGGER.warning("Associative rerank failed gist=%r: %s", gist[:80], exc)
+            LOGGER.warning("Associative rerank failed query=%s: %s", _private_log_fingerprint(gist), exc)
             warnings.append("AI 标注暂不可用，已按权重排序展示。")
 
-    q_for_viewer = gist
+    q_for_viewer = retrieval_gist
     results: list[dict] = []
     for hit in candidates:
         d = _attach_viewer_payload(hit.to_dict(), q_for_viewer, viewer_allowed)
         d["associative_weight"] = int(hit.score)
+        d["associative_stage"] = (
+            "textual" if _hit_page_key(hit) in textual_candidate_keys else "semantic"
+        )
         if hit.subject_label:
             # 名目索引命中＝编辑级权威主题收录 → 统一判为「直接支撑」并给出处理由（不依赖 AI 重排）
             d["associative_relation"] = "support"
@@ -13992,13 +19341,17 @@ def _api_search_associative_impl(*, cancel_event=None):
             d["associative_relation"] = meta.get("relation") or ""
         results.append(d)
 
-    _record_ai_usage(
-        quota,
-        feature="associative",
-        prompt_parts=(gist,),
-        completion_text="\n".join(d.get("associative_reason") or "" for d in results),
-        success=True,
-    )
+    if ai_expansion_succeeded:
+        _record_ai_usage(
+            quota,
+            feature="associative",
+            prompt_parts=(gist,),
+            completion_text="\n".join(d.get("associative_reason") or "" for d in results),
+            success=True,
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            provider_call_ids=associative_call_ids,
+        )
     return jsonify({
         "ok": True,
         "query": gist,
@@ -14011,6 +19364,10 @@ def _api_search_associative_impl(*, cancel_event=None):
         "intent": intent,
         "mode": mode,
         "scope": scope_meta,
+        "retrieval_breakdown": {
+            "textual": sum(1 for item in results if item.get("associative_stage") == "textual"),
+            "semantic": sum(1 for item in results if item.get("associative_stage") == "semantic"),
+        },
     })
 
 
@@ -14043,12 +19400,23 @@ def api_ai_pdf_chat():
             )
             return jsonify({"ok": False, "error": str(exc)}), 502
     _require_ai()
-    ai_provider = _resolve_ai_provider_or_abort(payload)
+    ai_selection = _resolve_ai_selection_or_abort(payload, feature="pdf-chat")
+    ai_provider = str(ai_selection["provider"])
+    ai_model = ai_selection.get("model")
+    ai_reasoning_effort = str(ai_selection.get("reasoning_effort") or "off")
     # AI 导学问答：仅 DeepSeek-V4-Pro 主通道可用资源包「导学」次数兜底（智谱联网通道不抵扣）。
-    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider == "" else "")
+    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider in {"", "deepseek"} else "")
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
-    source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
+    try:
+        personal_submission_id = max(0, int(payload.get("personal_submission_id") or 0))
+    except (TypeError, ValueError):
+        personal_submission_id = 0
+    source_file = (
+        f"mylib:{personal_submission_id}"
+        if personal_submission_id
+        else _normalize_source_file(str(payload.get("source_file") or "").strip())
+    )
     page = max(1, int(payload.get("page") or 1))
     question = " ".join(str(payload.get("question") or "").split())
     selected_text = str(payload.get("selected_text") or "").strip()
@@ -14057,19 +19425,35 @@ def api_ai_pdf_chat():
     messages = payload.get("messages") or []
     if not question:
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
-    page_context = _get_page_context_payload(source_file, page)
+    page_context = (
+        _get_mylib_ai_page_context_payload(personal_submission_id, page)
+        if personal_submission_id
+        else _get_page_context_payload(source_file, page)
+    )
+    pdf_call_ids: list[int] = []
     try:
-        answer = AI_CLIENT.answer_pdf_chat(
-            messages=messages,
-            question=question,
-            source_file=source_file,
-            page=page,
-            selected_text=selected_text,
-            web_enabled=web_enabled,
-            quick_mode=quick_mode,
-            page_context=page_context,
-            provider=ai_provider or None,
-        )
+        with ai_call_context(
+            user_id=int(g.current_user["id"]) if getattr(g, "current_user", None) else None,
+            feature="pdf-chat",
+            charge_user=bool(
+                ai_selection.get("charge_user_wallet", True)
+                and not _is_admin_user(getattr(g, "current_user", None))
+            ),
+            provider_call_ids=pdf_call_ids,
+        ):
+            answer = AI_CLIENT.answer_pdf_chat(
+                messages=messages,
+                question=question,
+                source_file=source_file,
+                page=page,
+                selected_text=selected_text,
+                web_enabled=web_enabled,
+                quick_mode=quick_mode,
+                page_context=page_context,
+                provider=ai_provider or None,
+                model=ai_model,
+                reasoning_effort=ai_reasoning_effort,
+            )
     except AIServiceError as exc:
         LOGGER.warning("PDF AI failed: %s", exc)
         _record_ai_usage(
@@ -14079,6 +19463,8 @@ def api_ai_pdf_chat():
             success=False,
             error=str(exc),
             provider=ai_provider,
+            model=str(ai_model or ""),
+            provider_call_ids=pdf_call_ids,
         )
         return jsonify({"ok": False, "error": str(exc)}), 502
     _record_ai_usage(
@@ -14088,10 +19474,13 @@ def api_ai_pdf_chat():
         completion_text=answer.answer_markdown,
         success=True,
         provider=ai_provider,
+        model=str(ai_model or ""),
+        provider_call_ids=pdf_call_ids,
     )
     _consume_credit_if_paid(quota, "reader")
     result = answer.to_dict()
     result["ai_token_quota"] = _ai_token_quota_payload(getattr(g, "current_user", None))
+    result["ai_entitlements"] = _ai_entitlements_payload(getattr(g, "current_user", None))
     return jsonify(result)
 
 
@@ -14109,7 +19498,10 @@ _SSE_STREAM_ACQUIRE_TIMEOUT = max(0.0, float(os.environ.get("MARX_SSE_STREAM_ACQ
 _SSE_STREAM_SEMAPHORE = threading.BoundedSemaphore(_SSE_STREAM_CONCURRENCY)
 
 
-def _sse_run_with_heartbeat(slow_fn, finalize_fn, *, heartbeat_interval: float = 12.0):
+def _sse_run_with_heartbeat(
+    slow_fn, finalize_fn, *, heartbeat_interval: float = 12.0,
+    progress_message: str = "AI 正在生成回答",
+):
     """跑一段**慢但非流式**的活，期间周期吐 SSE 心跳保活，完成后吐一个 done 事件。
 
     用途：研究综述用非流式 ``generate_research_review`` 生成(逐 token 流式版曾翻车，不再用)，
@@ -14138,14 +19530,21 @@ def _sse_run_with_heartbeat(slow_fn, finalize_fn, *, heartbeat_interval: float =
             holder["error"] = exc
 
     worker = threading.Thread(target=_worker, daemon=True)
+    started = time.monotonic()
     try:
-        yield ": keepalive\n\n"  # 立刻首字节：抢在 CF 计时之前，之后心跳逐拍续命
+        yield _sse_event("progress", {"message": progress_message, "elapsed_seconds": 0})
         worker.start()
         while True:
             worker.join(timeout=heartbeat_interval)
             if not worker.is_alive():
                 break
-            yield ": keepalive\n\n"
+            yield _sse_event(
+                "progress",
+                {
+                    "message": progress_message,
+                    "elapsed_seconds": int(time.monotonic() - started),
+                },
+            )
         try:
             payload = finalize_fn(holder.get("result"), holder.get("error"))
         except Exception:  # noqa: BLE001 — 收尾失败也要给前端一个干净的可读结果，而非半截流
@@ -14165,7 +19564,15 @@ def api_ai_pdf_chat_stream():
     _require_content_feature("ai")
     _rate_limit_ai_or_abort()
     payload = request.get_json(silent=True) or {}
-    source_file = _normalize_source_file(str(payload.get("source_file") or "").strip())
+    try:
+        personal_submission_id = max(0, int(payload.get("personal_submission_id") or 0))
+    except (TypeError, ValueError):
+        personal_submission_id = 0
+    source_file = (
+        f"mylib:{personal_submission_id}"
+        if personal_submission_id
+        else _normalize_source_file(str(payload.get("source_file") or "").strip())
+    )
     page = max(1, int(payload.get("page") or 1))
     question = " ".join(str(payload.get("question") or "").split())
     selected_text = str(payload.get("selected_text") or "").strip()
@@ -14198,6 +19605,7 @@ def api_ai_pdf_chat_stream():
                         "sources": answer.get("sources") or [],
                         "warnings": answer.get("warnings") or [],
                         "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+                        "ai_entitlements": _ai_entitlements_payload(getattr(g, "current_user", None)),
                     },
                 )
             except Exception as exc:
@@ -14218,12 +19626,25 @@ def api_ai_pdf_chat_stream():
         )
 
     _require_ai()
-    ai_provider = _resolve_ai_provider_or_abort(payload)
+    ai_selection = _resolve_ai_selection_or_abort(payload, feature="pdf-chat-stream")
+    ai_provider = str(ai_selection["provider"])
+    ai_model = ai_selection.get("model")
+    ai_reasoning_effort = str(ai_selection.get("reasoning_effort") or "off")
+    ai_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    ai_charge_user = bool(
+        ai_user_id and ai_selection.get("charge_user_wallet", True)
+        and not _is_admin_user(getattr(g, "current_user", None))
+    )
     # AI 导学问答：仅 DeepSeek-V4-Pro 主通道可用资源包「导学」次数兜底（智谱联网通道不抵扣）。
-    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider == "" else "")
+    quota = _require_ai_quota_or_raise(credit_kind="reader" if ai_provider in {"", "deepseek"} else "")
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
-    page_context = _get_page_context_payload(source_file, page)
+    page_context = (
+        _get_mylib_ai_page_context_payload(personal_submission_id, page)
+        if personal_submission_id
+        else _get_page_context_payload(source_file, page)
+    )
+    pdf_stream_call_ids: list[int] = []
 
     def _generate():
         chunks: list[str] = []
@@ -14240,15 +19661,25 @@ def api_ai_pdf_chat_stream():
                 page_context=page_context,
                 provider=ai_provider or None,
             )
-            for text in AI_CLIENT.chat_complete_stream(
-                model_messages,
-                max_tokens,
-                provider=ai_provider or None,
-                meta_out=stream_meta,
-                web_search_query=(
-                    AI_CLIENT.zhipu_search_query(question, page_context) if ai_provider == "zhipu" else None
-                ),
-            ):
+            def _metered_model_stream():
+                with ai_call_context(
+                    user_id=ai_user_id, feature="pdf-chat-stream",
+                    charge_user=ai_charge_user,
+                    provider_call_ids=pdf_stream_call_ids,
+                ):
+                    yield from AI_CLIENT.chat_complete_stream(
+                        model_messages,
+                        max_tokens,
+                        provider=ai_provider or None,
+                        meta_out=stream_meta,
+                        web_search_query=(
+                            AI_CLIENT.zhipu_search_query(question, page_context) if ai_provider == "zhipu" else None
+                        ),
+                        model=ai_model,
+                        reasoning_effort=ai_reasoning_effort,
+                    )
+
+            for text in _metered_model_stream():
                 if not text:
                     # 推理模型思考阶段的保活 tick（思维链本身不下发）：以 SSE 注释喂住连接与
                     # Cloudflare 空闲计时，前端解析时自动忽略，不进答案、不进会话历史、不计额度。
@@ -14266,9 +19697,23 @@ def api_ai_pdf_chat_stream():
                 completion_text=answer_text,
                 success=True,
                 provider=ai_provider,
+                model=str(ai_model or ""),
+                provider_call_ids=pdf_stream_call_ids,
             )
             _consume_credit_if_paid(quota, "reader")
             done_sources = stream_meta.get("sources") or sources
+            done_citations = list(done_sources)
+            local_citation = str(page_context.get("citation") or "").strip()
+            if local_citation:
+                local_excerpt = _clean_text(
+                    selected_text or str(page_context.get("current_text") or ""), limit=320
+                )
+                done_citations.insert(0, {
+                    "citation": local_citation,
+                    "context": local_excerpt,
+                    "viewer_url": str(page_context.get("source_url") or ""),
+                    "source_kind": "personal_page" if personal_submission_id else "pdf_page",
+                })
             done_warnings = list(warnings)
             if ai_provider == "zhipu" and not done_sources:
                 done_warnings.append("本次未获取到联网检索来源（检索服务暂不可用或已降级），讲解基于本页文本与模型自身知识。")
@@ -14278,8 +19723,14 @@ def api_ai_pdf_chat_stream():
                     "ok": True,
                     "answer_markdown": answer_text,
                     "sources": done_sources,
+                    "citations": done_citations,
+                    "grounding_scope": (
+                        {"id": f"mylib:{personal_submission_id}", "label": "当前私有书籍"}
+                        if personal_submission_id else None
+                    ),
                     "warnings": done_warnings,
                     "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
+                    "ai_entitlements": _ai_entitlements_payload(getattr(g, "current_user", None)),
                 },
             )
         except AIServiceError as exc:
@@ -14292,6 +19743,8 @@ def api_ai_pdf_chat_stream():
                 success=False,
                 error=str(exc),
                 provider=ai_provider,
+                model=str(ai_model or ""),
+                provider_call_ids=pdf_stream_call_ids,
             )
             yield _sse_event("error", {"ok": False, "error": str(exc)})
 
@@ -14414,25 +19867,31 @@ def run_waitress() -> None:
         serve(app, **serve_kwargs)
 
 
-# ====== 「原文文库」内置翻译（DeepSeek 俄→中，永久缓存，计入 AI 额度/审计） ======
+# ====== 流式阅读器内置翻译（MiMo 非思考，永久缓存，站方承担成本） ======
 wenku_translate.init_db()
 _WENKU_TR_MAX_TEXTS = 30   # 单次请求最多接收段数（含已缓存）
 _WENKU_TR_MAX_NEW = 12     # 单次最多新译段数（封顶每次点击成本）
+_WENKU_TRANSLATE_PROVIDER = "mimo"
+_WENKU_TRANSLATE_MODEL = "mimo-v2.5"
+_WENKU_TRANSLATE_REASONING_EFFORT = "off"
 _WENKU_SEG_MARK = re.compile(r"\[\[(\d+)\]\]")
-_WENKU_LANG_NAME = {"zh": "简体中文", "ru": "俄文", "de": "德文", "en": "英文"}
+_WENKU_LANG_NAME = {"zh": "简体中文", "ru": "俄文", "de": "德文", "en": "英文", "fr": "法文"}
 # AI 导读输出上限：原 1100 太低，密集页的「①主旨②逐层解释③理论位置」三段会被截在半句。
 # 提到 2600（≈1700 中文字），让长导读能写完；仍受每次点击的额度/计数把关。
-_WENKU_AI_MAX_TOKENS = 2600
+_WENKU_AI_MAX_TOKENS = 4096
 
 
-def _wenku_translate_misses(items: list[str], *, src: str, tgt: str, quota: dict) -> list[str | None]:
-    """对未命中的若干段做一次 DeepSeek 批量翻译；返回与 items 等长的译文列表（缺失为 None）。"""
+def _wenku_translate_misses(
+    items: list[str], *, src: str, tgt: str, provider: str, model: str,
+    reasoning_effort: str,
+) -> list[str | None]:
+    """Translate uncached segments with the explicitly selected non-thinking model."""
     if not items:
         return []
     src_name = _WENKU_LANG_NAME.get(src, src)
     tgt_name = _WENKU_LANG_NAME.get(tgt, tgt)
     joined = "\n\n".join(f"[[{i + 1}]]\n{t}" for i, t in enumerate(items))
-    max_tokens = max(400, min(4096, sum(len(t) for t in items) + 400))
+    max_tokens = max(1024, min(8192, sum(len(t) for t in items) * 2 + 768))
     messages = [
         {"role": "system", "content": f"你是严谨的{src_name}译{tgt_name}专家，只输出译文，不解释、不评论。"},
         {"role": "user", "content": (
@@ -14442,7 +19901,9 @@ def _wenku_translate_misses(items: list[str], *, src: str, tgt: str, quota: dict
         )},
     ]
     text = AI_CLIENT.chat_complete(
-        messages, max_tokens=max_tokens, temperature=0.2, allow_reasoning_fallback=False
+        messages, max_tokens=max_tokens, temperature=0.2, allow_reasoning_fallback=False,
+        provider=provider or None, model=model or None,
+        disable_thinking=True, reasoning_effort=reasoning_effort or "off",
     )
     parts = _WENKU_SEG_MARK.split(text)  # [pre, '1', seg1, '2', seg2, ...]
     by_idx: dict[int, str] = {}
@@ -14451,8 +19912,6 @@ def _wenku_translate_misses(items: list[str], *, src: str, tgt: str, quota: dict
             by_idx[int(parts[k])] = parts[k + 1].strip()
         except (ValueError, IndexError):
             continue
-    _record_ai_usage(quota, feature="wenku_translate", prompt_parts=tuple(items),
-                     completion_text=text, success=True)
     return [by_idx.get(i + 1) for i in range(len(items))]
 
 
@@ -14474,23 +19933,61 @@ def api_wenku_translate():
     cached = wenku_translate.get_cached(texts, src, tgt)
     if all((not t) or (t in cached) for t in texts):
         return jsonify({"ok": True, "translations": [cached.get(t) for t in texts], "new": 0, "remaining": 0})
-    # 有未命中 → 经限流/额度/可用性把关后调 DeepSeek。
+    # 有未命中 → 经限流/可用性把关后固定调 MiMo 非思考。
+    # 这是阅读器的站方基础服务：不校验用户 AI 周额度，也不解析用户套餐模型；
+    # ai_call_context(charge_user=False) 仍保留供应商调用与站方成本审计，但绝不扣用户钱包。
     _rate_limit_ai_or_abort()
-    quota = _require_ai_quota_or_raise()
     _require_ai()
-    try:
-        result = wenku_translate.translate_aligned(
-            texts, src, tgt,
-            lambda items: _wenku_translate_misses(items, src=src, tgt=tgt, quota=quota),
-            max_new=_WENKU_TR_MAX_NEW,
-            model=AI_CONFIG.model,
+    quota = _ai_usage_context()
+    ai_provider = _WENKU_TRANSLATE_PROVIDER
+    ai_model = _WENKU_TRANSLATE_MODEL
+    ai_reasoning_effort = _WENKU_TRANSLATE_REASONING_EFFORT
+    ai_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    translate_call_ids: list[int] = []
+
+    def _slow_translate(_cancel_event):
+        with ai_call_context(
+            user_id=ai_user_id, feature="wenku_translate", charge_user=False,
+            provider_call_ids=translate_call_ids,
+        ):
+            return wenku_translate.translate_aligned(
+                texts, src, tgt,
+                lambda items: _wenku_translate_misses(
+                    items, src=src, tgt=tgt, provider=ai_provider, model=ai_model,
+                    reasoning_effort=ai_reasoning_effort,
+                ),
+                max_new=_WENKU_TR_MAX_NEW,
+                model=ai_model,
+            )
+
+    def _finalize_translate(result, error):
+        if error is not None or result is None:
+            message = str(error or "翻译失败，请稍后重试。")
+            LOGGER.warning("wenku translate failed: %s", message)
+            _record_ai_usage(
+                quota, feature="wenku_translate", prompt_parts=tuple(texts),
+                success=False, error=message, provider=ai_provider, model=ai_model,
+                provider_call_ids=translate_call_ids,
+            )
+            return {"ok": False, "error": message}
+        _record_ai_usage(
+            quota, feature="wenku_translate", prompt_parts=tuple(texts),
+            completion_text="\n".join(str(item or "") for item in result.get("translations") or []),
+            success=True, provider=ai_provider, model=ai_model,
+            provider_call_ids=translate_call_ids,
         )
-    except AIServiceError as exc:
-        LOGGER.warning("wenku translate failed: %s", exc)
-        _record_ai_usage(quota, feature="wenku_translate", prompt_parts=tuple(texts),
-                         success=False, error=str(exc))
-        return jsonify({"ok": False, "error": str(exc)}), 502
-    return jsonify({"ok": True, **result})
+        return {"ok": True, **result}
+
+    return Response(
+        stream_with_context(
+            _sse_run_with_heartbeat(
+                _slow_translate, _finalize_translate,
+                progress_message="正在翻译未缓存段落",
+            )
+        ),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 # ====== 「原文文库」/「流式阅读」AI 导读（DeepSeek / 智谱GLM联网可选，基于当前页原文，计入 AI 额度/审计） ======
@@ -14501,7 +19998,10 @@ def _static_reading_ai_respond():
     quota = _require_ai_quota_or_raise()
     _require_ai()
     payload = request.get_json(silent=True) or {}
-    ai_provider = _resolve_ai_provider_or_abort(payload)   # "" = DeepSeek 主通道；"zhipu" 需 ai_web 权限
+    ai_selection = _resolve_ai_selection_or_abort(payload, feature="wenku_ai")
+    ai_provider = str(ai_selection["provider"])
+    ai_model = ai_selection.get("model")
+    ai_reasoning_effort = str(ai_selection.get("reasoning_effort") or "off")
     if ai_provider == "zhipu":
         _require_zhipu_quota_or_raise(quota)
     use_zhipu = ai_provider == "zhipu"
@@ -14533,20 +20033,52 @@ def _static_reading_ai_respond():
         )
     sources: list[dict] = []
     web_query = AI_CLIENT.zhipu_search_query(question or ref or context[:120]) if use_zhipu else None
-    try:
-        text = AI_CLIENT.chat_complete(
-            [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user}],
-            max_tokens=_WENKU_AI_MAX_TOKENS, temperature=0.5, provider=ai_provider or None,
-            web_search_query=web_query, sources_out=sources, allow_reasoning_fallback=False,
+    ai_user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    ai_charge_user = bool(
+        ai_user_id and ai_selection.get("charge_user_wallet", True)
+        and not _is_admin_user(getattr(g, "current_user", None))
+    )
+    wenku_call_ids: list[int] = []
+
+    def _slow_wenku_ai(_cancel_event):
+        with ai_call_context(
+            user_id=ai_user_id, feature="wenku_ai", charge_user=ai_charge_user,
+            provider_call_ids=wenku_call_ids,
+        ):
+            return AI_CLIENT.chat_complete(
+                [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user}],
+                max_tokens=_WENKU_AI_MAX_TOKENS, temperature=0.5, provider=ai_provider or None,
+                web_search_query=web_query, sources_out=sources, allow_reasoning_fallback=False,
+                model=ai_model, reasoning_effort=ai_reasoning_effort,
+            )
+
+    def _finalize_wenku_ai(text, error):
+        if error is not None or not text:
+            message = str(error or "AI 未能生成导读，请稍后重试。")
+            LOGGER.warning("wenku AI failed: %s", message)
+            _record_ai_usage(
+                quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
+                success=False, error=message, provider=ai_provider, model=str(ai_model or ""),
+                provider_call_ids=wenku_call_ids,
+            )
+            return {"ok": False, "error": message}
+        _record_ai_usage(
+            quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
+            completion_text=text, success=True, provider=ai_provider, model=str(ai_model or ""),
+            provider_call_ids=wenku_call_ids,
         )
-    except AIServiceError as exc:
-        LOGGER.warning("wenku AI failed: %s", exc)
-        _record_ai_usage(quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
-                         success=False, error=str(exc), provider=ai_provider)
-        return jsonify({"ok": False, "error": str(exc)}), 502
-    _record_ai_usage(quota, feature="wenku_ai", prompt_parts=(question or "[解读本页]", context[:160]),
-                     completion_text=text, success=True, provider=ai_provider)
-    return jsonify({"ok": True, "answer": text, "sources": sources, "provider": ai_provider or "deepseek"})
+        return {"ok": True, "answer": text, "sources": sources, "provider": ai_provider or "deepseek"}
+
+    return Response(
+        stream_with_context(
+            _sse_run_with_heartbeat(
+                _slow_wenku_ai, _finalize_wenku_ai,
+                progress_message="正在结合当前原文生成导读",
+            )
+        ),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/wenku/ai", methods=["POST"])
@@ -14568,11 +20100,56 @@ register_static_library(
     require_content_feature=_require_content_feature,
     ai_web_allowed=_ai_web_access_enabled,
     notes_access=_notes_access_enabled,
+    record_book_read=lambda title: _record_community_trend("book", title),
     # 外文原著已并入「著作目录」：阅读器左上角「返回」按 ?from= 回到来源阅读器，
     # 而非已退役的原文文库首页。
     back_targets={"reader": ("reader", "全文阅读器"), "library": ("library", "AI 导学阅读器"), "read": ("layout_read", "阅读")},
 )
-register_stream_reading(app, require_content_feature=_require_content_feature, ai_web_allowed=_ai_web_access_enabled, notes_access=_notes_access_enabled)
+register_stream_reading(
+    app,
+    require_content_feature=_require_content_feature,
+    ai_web_allowed=_ai_web_access_enabled,
+    notes_access=_notes_access_enabled,
+    record_book_read=lambda title: _record_community_trend("book", title),
+)
+
+# 个人文库：进程重启会让 queued/parsing 的书悬空，启动时扫一遍续跑（后台线程，不阻塞启动）。
+if mylib_store.configured():
+    threading.Thread(target=_mylib_resume_storing, name="mylib-ingest-resume", daemon=True).start()
+    threading.Thread(
+        target=_resume_book_recommendation_storing,
+        name="book-recommendation-ingest-resume",
+        daemon=True,
+    ).start()
+    threading.Thread(target=_mylib_resume_pending, name="mylib-resume", daemon=True).start()
+    threading.Thread(
+        target=_mylib_backfill_derivatives,
+        name="mylib-derivative-backfill",
+        daemon=True,
+    ).start()
+
+
+def _citation_maintenance_loop() -> None:
+    try:
+        citation_tasks.purge_expired()
+        if corpus is not None and CITATION_INLINE_WORKER:
+            citation_tasks.resume_jobs(
+                corpus, analysis_target=_citation_analysis_worker,
+                export_target=_citation_export_worker,
+            )
+    except Exception:
+        LOGGER.warning("Citation assistant startup maintenance failed", exc_info=True)
+    while True:
+        time.sleep(6 * 60 * 60)
+        try:
+            citation_tasks.purge_expired()
+        except Exception:
+            LOGGER.warning("Citation assistant expiry cleanup failed", exc_info=True)
+
+
+threading.Thread(
+    target=_citation_maintenance_loop, name="citation-maintenance", daemon=True,
+).start()
 
 
 def main() -> None:

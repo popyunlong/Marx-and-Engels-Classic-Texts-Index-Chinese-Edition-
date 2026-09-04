@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title }} - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --paper:#f3ecdf; --sheet:#fffefa; --ink:#211c17; --muted:#756b61; --red:#821d1d; --rule:#dacbb9; --zh:#4e4035; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:Georgia,"Times New Roman",serif; }
+    a { color:var(--red); }
+    .progress { position:fixed; z-index:20; inset:0 auto auto 0; height:3px; width:0; background:var(--red); }
+    .shell { width:min(980px,100%); margin:0 auto; background:var(--sheet); min-height:100vh; box-shadow:0 0 45px rgba(54,36,21,.12); }
+    .topbar { position:sticky; z-index:10; top:0; display:flex; justify-content:space-between; gap:14px; padding:12px clamp(16px,4vw,40px); border-bottom:1px solid var(--rule); background:rgba(255,254,250,.95); backdrop-filter:blur(10px); font:13px/1.5 "Microsoft YaHei",sans-serif; }
+    .topbar a { text-decoration:none; }
+    .sample-access-note { margin:0; padding:14px clamp(18px,6vw,70px); border-bottom:1px solid #d7b78f; background:#fff3df; color:#65472e; text-align:center; font:13px/1.75 "Microsoft YaHei",sans-serif; }
+    .sample-access-note strong { color:var(--red); }
+    .sample-access-note a { display:inline-block; margin-left:9px; padding:3px 11px; border:1px solid var(--red); border-radius:999px; text-decoration:none; font-weight:700; }
+    header { padding:52px clamp(22px,8vw,90px) 38px; border-bottom:4px double var(--ink); }
+    .discipline { display:inline-block; color:var(--red); font:700 12px/1.4 "Microsoft YaHei",sans-serif; letter-spacing:.08em; }
+    h1 { margin:16px 0 7px; font:700 clamp(29px,5vw,48px)/1.35 "Noto Serif CJK SC","Songti SC",serif; }
+    .title-en { margin:0 0 27px; color:#4d443c; font:italic clamp(21px,3.2vw,30px)/1.35 Georgia,serif; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:15px 30px; padding:20px 0; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+    .label { display:block; margin-bottom:4px; color:var(--red); font:700 11px/1.4 "Microsoft YaHei",sans-serif; letter-spacing:.1em; }
+    .meta { line-height:1.65; }
+    .meta .zh { font-family:"Noto Serif CJK SC","Songti SC",serif; }
+    .meta .en { color:var(--muted); }
+    .abstracts { margin-top:25px; display:grid; gap:16px; }
+    .abstract { margin:0; line-height:1.8; }
+    .abstract.zh { color:var(--zh); font-family:"Noto Serif CJK SC","Songti SC",serif; }
+    .keywords { margin-top:22px; padding:15px 0 2px; border-top:1px solid var(--rule); }
+    .keyword-row { display:flex; align-items:flex-start; gap:12px; margin:7px 0; line-height:1.65; }
+    .keyword-row .keylang { flex:0 0 68px; color:var(--red); font:700 11px/1.7 "Microsoft YaHei",sans-serif; letter-spacing:.08em; }
+    .keyword-list { display:flex; flex-wrap:wrap; gap:7px 9px; }
+    .keyword { display:inline-block; padding:3px 9px; border:1px solid var(--rule); border-radius:999px; background:#faf5ed; font-size:13px; }
+    .keyword-row.zh .keyword { color:var(--zh); font-family:"Noto Serif CJK SC","Songti SC",serif; }
+    .citations { margin-top:26px; border:1px solid var(--rule); background:#faf5ed; }
+    .citation { padding:12px 14px; font-size:13px; line-height:1.7; border-bottom:1px solid var(--rule); }
+    .citation:last-child { border-bottom:0; }
+    .citation strong { color:var(--red); font-family:"Microsoft YaHei",sans-serif; }
+    .source { display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; }
+    .button { display:inline-block; border:1px solid var(--red); border-radius:999px; padding:8px 14px; text-decoration:none; font:13px "Microsoft YaHei",sans-serif; }
+    article.body { padding:48px clamp(22px,8vw,90px) 80px; }
+    .block { scroll-margin-top:70px; }
+    .heading { margin:40px 0 18px; color:#2d241d; }
+    h2.heading { font-size:29px; border-bottom:2px solid var(--red); padding-bottom:8px; }
+    h3.heading { font-size:23px; }
+    h4.heading { font-size:19px; font-style:italic; }
+    .heading-zh { display:block; margin-top:6px; color:var(--zh); font:600 .78em/1.5 "Noto Serif CJK SC","Songti SC",serif; }
+    .pair { margin:0 0 26px; }
+    .original { margin:0; font-size:18px; line-height:1.85; text-align:justify; hyphens:auto; }
+    .translation { position:relative; margin:9px 0 0; padding:14px 17px 14px 22px; color:var(--zh); background:#faf5ed; border-left:3px solid #bca489; font:16px/1.9 "Noto Serif CJK SC","Songti SC",serif; text-align:justify; }
+    .translation::before { content:"译"; position:absolute; left:-10px; top:13px; width:18px; height:18px; border-radius:50%; color:#fff; background:var(--red); text-align:center; font:10px/18px "Microsoft YaHei",sans-serif; }
+    .reference { margin:0 0 10px; padding-left:22px; text-indent:-22px; color:#4f4740; font-size:14px; line-height:1.65; }
+    .footnote .original,.caption .original { font-size:14px; color:#5c534b; }
+    .pager { display:flex; justify-content:space-between; gap:14px; padding:22px clamp(18px,6vw,70px); border-top:4px double var(--ink); font:14px/1.5 "Microsoft YaHei",sans-serif; }
+    .pager a { max-width:46%; text-decoration:none; }
+    @media (max-width:680px) { .meta-grid{grid-template-columns:1fr}header{padding-top:35px}.original{font-size:17px}.translation{font-size:15px}.topbar{position:static}.pager{align-items:flex-start} }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+  <div class="shell">
+    <nav class="topbar"><a href="{{ url_for('journal_alerts_latest', d=batch.id if batch else None) }}">← 返回本期目录</a><span>{{ batch.issue_key if batch else '' }}</span></nav>
+    {% if sample_public_view %}<aside class="sample-access-note"><strong>你正在阅读公开样刊全文。</strong>每周正式新期仅向会员开放。<a href="{{ upgrade_url }}">开通会员 →</a></aside>{% endif %}
+    <header>
+      <span class="discipline">{{ article.ai_discipline }}</span>
+      <h1>{{ article.title_zh }}</h1>
+      <p class="title-en" lang="en">{{ article.title }}</p>
+      <div class="meta-grid">
+        <div class="meta"><span class="label">期刊 / JOURNAL</span><div class="zh">{{ article.journal_name_zh }}</div><div class="en">{{ article.journal_name }}</div></div>
+        <div class="meta"><span class="label">作者 / AUTHORS</span><div class="zh">{{ article.authors_zh|join('、') }}</div><div class="en">{{ article.authors|join(', ') }}</div></div>
+      </div>
+      {% set editorial_summary = article.metadata.abstract_source == 'ai_editorial_summary' %}
+      <div class="abstracts">
+        <p class="abstract zh"><span class="label">{{ '内容提要（AI 编辑生成）' if editorial_summary else '摘要' }}</span>{{ article.abstract_zh }}</p>
+        <p class="abstract" lang="en"><span class="label">{{ 'EDITORIAL SUMMARY (AI-GENERATED)' if editorial_summary else 'ABSTRACT' }}</span>{{ article.abstract }}</p>
+      </div>
+      {% if article.metadata.keywords_en or article.metadata.keywords_zh %}
+      <div class="keywords">
+        <span class="label">关键词 / KEYWORDS</span>
+        {% if article.metadata.keywords_zh %}<div class="keyword-row zh"><span class="keylang">中文</span><span class="keyword-list">{% for keyword in article.metadata.keywords_zh %}<span class="keyword">{{ keyword }}</span>{% endfor %}</span></div>{% endif %}
+        {% if article.metadata.keywords_en %}<div class="keyword-row"><span class="keylang">EN</span><span class="keyword-list" lang="en">{% for keyword in article.metadata.keywords_en %}<span class="keyword">{{ keyword }}</span>{% endfor %}</span></div>{% endif %}
+      </div>
+      {% endif %}
+      <div class="citations">
+        <div class="citation"><strong>GB/T 7714—2015（英文原始）</strong><br>{{ article.citation_gb2015 }}</div>
+        <div class="citation"><strong>《马克思主义研究》（英文原始）</strong><br>{{ article.citation_mks_en }}</div>
+      </div>
+      <div class="source"><a class="button" href="{{ url_for('journal_alerts_pdf', article_id=article.id) }}" target="_blank" rel="noopener noreferrer">查看公开 PDF 来源 ↗</a></div>
+    </header>
+    <article class="body">
+      {% for block in paragraphs %}
+        {% if block.kind == 'heading' %}
+          {% set level = block.level|default(2)|int %}
+          {% if level == 1 %}<h2 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h2>
+          {% elif level == 2 %}<h3 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h3>
+          {% else %}<h4 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h4>{% endif %}
+        {% elif block.kind == 'reference' %}
+          <p class="reference" lang="en">{{ block.text }}</p>
+        {% else %}
+          <section class="pair {{ block.kind|default('body') }} block">
+            <p class="original" lang="en">{{ block.text }}</p>
+            <p class="translation" lang="zh-CN">{{ block.zh }}</p>
+          </section>
+        {% endif %}
+      {% endfor %}
+    </article>
+    <nav class="pager">
+      <span>{% if previous_article %}<a href="{{ url_for('journal_alerts_article', article_id=previous_article.id) }}">← {{ previous_article.title_zh }}</a>{% endif %}</span>
+      <span>{% if next_article %}<a href="{{ url_for('journal_alerts_article', article_id=next_article.id) }}">{{ next_article.title_zh }} →</a>{% endif %}</span>
+    </nav>
+  </div>
+  <script nonce="{{ csp_nonce }}">
+    (() => { const bar=document.getElementById('progress'); const draw=()=>{ const d=document.documentElement; const max=d.scrollHeight-d.clientHeight; bar.style.width=(max?Math.min(100,d.scrollTop/max*100):0)+'%'; }; addEventListener('scroll',draw,{passive:true}); draw(); })();
+  </script>
+</body>
+</html>

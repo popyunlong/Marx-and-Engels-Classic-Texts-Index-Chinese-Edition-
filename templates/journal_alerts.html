@@ -79,11 +79,11 @@
     <section class="hero">
       <div class="hero-row">
         <div>
-          <h1>期刊新文提醒</h1>
-          <p>订阅后，系统每天 09:00（北京时间）汇总公开发表的新文章，把题目、摘要、作者和 GB/T 7714-2015 引文发送到你的邮箱。</p>
+          <h1>国外文献精选周刊</h1>
+          <p>每周汇总已取得公开 PDF、并完成逐段双语处理的英文马克思主义、批判理论与哲学期刊文章。邮件含中英题名、期刊、作者、摘要及两种引文体例。</p>
         </div>
         <div class="actions">
-          <a class="btn" href="{{ url_for('account') }}">返回{{ account_center_label }}</a>
+          <a class="btn" href="{{ url_for('journal_alerts_latest') }}">返回本期目录</a>
           <a class="btn" href="/">返回首页</a>
         </div>
       </div>
@@ -103,7 +103,7 @@
       <h2>添加订阅邮箱</h2>
       {% if journal_alerts_allowed %}
       {% if smtp_enabled %}
-      <p class="muted">提交后会先通过全站发信邮箱发送确认邮件，点击确认链接后才会开始接收每日摘要。</p>
+      <p class="muted">提交后会先发送确认邮件；点击确认链接后开始接收每周电子刊目录与文章卡片。</p>
       <form method="post" action="{{ url_for('account_journal_alerts_subscribe') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="email" name="email" value="{{ current_user.email }}" required>
@@ -115,7 +115,7 @@
       <p class="muted">{{ site_text("journal.email_unavailable") }}</p>
       {% endif %}
       {% else %}
-      <p class="muted">当前账号暂未开放期刊提醒权限。开通对应套餐，或由管理员在控制台为你的账号开放后即可订阅。</p>
+      <p class="muted">本栏目仅供有效会员使用，所有旧版会员与新版会员均可订阅；会员过期后需续费恢复。</p>
       <a class="btn primary" href="{{ url_for('pricing') }}">查看会员套餐</a>
       {% endif %}
     </section>
@@ -129,7 +129,7 @@
           <div class="kv">
             <div>状态：{{ subscription.status }}</div>
             <div>确认时间：{{ subscription.confirmed_at or "尚未确认" }}</div>
-            <div>最近摘要：{{ subscription.last_sent_at or "暂无" }}</div>
+            <div>最近周刊：{{ subscription.last_sent_at or "暂无" }}</div>
           </div>
           {% if subscription.status != "unsubscribed" %}
           <form method="post" action="{{ url_for('account_journal_alerts_unsubscribe') }}" style="margin-top:12px">

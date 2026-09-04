@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>个人文库 - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/mylib/mylib.css?v=9">
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="{{ url_for('layout_more') }}">← 会员功能</a>
+    <h1>个人文库</h1>
+    <span class="spacer"></span>
+    <a class="acct" href="{{ url_for('account') }}">会员中心</a>
+  </div>
+
+  <div class="mx-wrap">
+    <div data-mylib-home></div>
+  </div>
+
+  <script src="/static/mylib/mylib.js?v=9"
+          data-uid="{{ (current_user.id if current_user else '') }}"
+          data-csrf="{{ csrf_token }}"></script>
+</body>
+</html>

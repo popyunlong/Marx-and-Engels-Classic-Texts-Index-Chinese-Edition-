@@ -265,6 +265,9 @@
           {% if notes_access_enabled %}
           <a class="btn" href="{{ url_for('knowledge_base_page') }}">我的知识库</a>
           {% endif %}
+          {% if personal_library_enabled %}
+          <a class="btn" href="{{ url_for('mylib_home') }}">个人文库</a>
+          {% endif %}
           {% if local_console_available %}
           <a class="btn" href="{{ url_for('control') }}">本地控制台</a>
           {% endif %}
@@ -364,7 +367,28 @@
           {% endif %}
         </article>
 
-        {# 营销决策：不再售卖资源包；仅对仍持有剩余次数的老用户展示余额，新用户不出现「资源包」概念。 #}
+        {% if state.ai_entitlements and state.ai_entitlements.wallets %}
+        <article class="card">
+          <h2>AI 研学额度</h2>
+          <p class="muted">MiMo 与 DeepSeek 按模型和实际用量从共享额度中折算；缓存、思考深度与请求长度会影响可用量。内部结算金额仅在管理后台记录。</p>
+          <div class="list">
+            {% for wallet in state.ai_entitlements.wallets %}
+            <section class="item">
+              <h3>{{ wallet.plan_name }}</h3>
+              <div class="kv">
+                <div>本期额度已开放：{{ wallet.released_percent | default(0, true) }}%</div>
+                <div>当前已开放额度剩余：{{ wallet.remaining_percent | default(0, true) }}%</div>
+                {% if wallet.starts_at %}<div>开始时间：{{ format_datetime(wallet.starts_at) }}</div>{% endif %}
+                {% if wallet.second_release_at %}<div>第二批开放：{{ format_datetime(wallet.second_release_at) }}</div>{% endif %}
+                <div>失效时间：{{ format_datetime(wallet.expires_at) }}</div>
+              </div>
+            </section>
+            {% endfor %}
+          </div>
+        </article>
+        {% endif %}
+
+        {# 旧次数包仅为历史兼容；新的研究资源包使用金额钱包。 #}
         {% if (state.ai_credits.research | default(0, true)) + (state.ai_credits.chat | default(0, true)) + (state.ai_credits.reader | default(0, true)) > 0 %}
         <article class="card">
           <h2>AI 次数额度</h2>
@@ -431,21 +455,6 @@
             <div class="item">
               <div class="muted">{{ site_text("account.empty_subscriptions") }}</div>
             </div>
-            {% endif %}
-          </div>
-        </article>
-
-        <article class="card">
-          <h2>期刊新文提醒</h2>
-          <p class="muted">开放权限后，系统会按设定频率收集相关期刊新文，生成学科文献综述并发送到你的邮箱；新文的题目、作者、摘要与 GB/T 7714-2015 引文也可在「查看本周新文」中浏览。</p>
-          <div class="kv">
-            <div>权限状态：{{ "已开放" if state.feature_access.journal_alerts else "暂未开放" }}</div>
-          </div>
-          <div class="actions" style="margin-top:14px">
-            {% if state.feature_access.journal_alerts %}
-            <a class="btn secondary" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
-            {% else %}
-            <a class="btn secondary" href="{{ url_for('pricing') }}">查看会员套餐</a>
             {% endif %}
           </div>
         </article>

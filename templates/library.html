@@ -210,8 +210,13 @@
     .foreign-head { margin: 22px 4px 0; padding-top: 18px; border-top: 2px solid var(--line); font-size: 1.05rem; font-weight: 700; color: var(--accent); }
     .foreign-hint { margin: 2px 4px 0; color: var(--muted); font-size: 0.86rem; line-height: 1.6; }
     .fbadge { display: inline-block; font-size: 0.6rem; font-weight: 700; color: #fff; background: var(--accent); border-radius: 5px; padding: 1px 6px; vertical-align: middle; margin-left: 6px; letter-spacing: 0.04em; }
-    .foreign-vol { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 20px; margin-bottom: 8px; }
-    .foreign-vol .volume-title h2 { font-size: 1.05rem; line-height: 1.5; }
+    .foreign-group { min-width: 0; margin: 18px 0 22px; }
+    .foreign-group:first-child { margin-top: 8px; }
+    .foreign-group-title { margin: 0 2px 10px; padding: 0 2px 7px; border-bottom: 1px solid var(--line); color: var(--accent); font-size: .94rem; font-weight: 800; }
+    .foreign-vol { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; min-width: 0; padding: 14px 18px; margin-bottom: 8px; }
+    .foreign-vol .volume-title h2 { min-width: 0; font-size: 1rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .foreign-volume-tag { display: inline-block; margin: 0 8px 3px 0; color: var(--accent); font-weight: 800; }
+    .legacy-mega-note { margin: 2px 0 10px; color: var(--muted); font-size: .82rem; line-height: 1.55; }
     .toc .toc-loading { padding: 12px 16px; color: var(--muted); font-size: .92rem; }
     @media (max-width: 720px) {
       .topbar, .volume summary {
@@ -225,6 +230,7 @@
       .volume-actions {
         justify-content: flex-start;
       }
+      .foreign-vol { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 13px; }
       .toc a {
         grid-template-columns: 1fr;
         gap: 2px;
@@ -474,14 +480,37 @@
       <details class="book-section foreign">
         <summary>
           <span class="bg-name">{{ fbook.title }}{% if fbook.badge %}<span class="fbadge">{{ fbook.badge }}</span>{% endif %}</span>
-          <span class="bg-count">{{ fbook.volumes|length }} 卷</span>
+          <span class="bg-count">{% if fbook.volumes|length == 64 and 'MEGA' in fbook.title %}63册原典＋1册研究导论{% else %}{{ fbook.volumes|length }} 卷{% endif %}</span>
         </summary>
-        <div class="book-section-body">
+        <div class="book-section-body foreign-volume-list" data-foreign-title="{{ fbook.title }}">
+          {% if 'MEGA²·第二部分' in fbook.title %}<p class="legacy-mega-note">既有经典五卷网页版，与 MEGA 全卷集的第二部分部分重合；保留独立入口以兼容旧链接。</p>{% endif %}
+          {% set ns = namespace(grp='') %}
           {% for v in fbook.volumes %}
+          {% set mega_ref = (v.source_id|default('') ~ ' ' ~ v.tag|default('') ~ ' ' ~ v.label|default('')) %}
+          {% if 'MEGA¹' in fbook.title %}
+            {% if v.nav_group %}{% set cur = v.nav_group %}
+            {% elif v.n == 0 or 'editing-history' in mega_ref or '编辑学研究' in mega_ref %}{% set cur = '研究导论' %}
+            {% elif 'MEGA¹' in mega_ref or 'mega1-' in mega_ref %}{% set cur = 'MEGA¹ 历史版' %}
+            {% elif ' IV/' in mega_ref or 'mega2-iv-' in mega_ref %}{% set cur = 'MEGA² 第四部分 · 摘录、笔记和批注' %}
+            {% elif ' III/' in mega_ref or 'mega2-iii-' in mega_ref %}{% set cur = 'MEGA² 第三部分 · 书信' %}
+            {% elif ' II/' in mega_ref or 'mega2-ii-' in mega_ref %}{% set cur = 'MEGA² 第二部分 ·《资本论》及其准备材料' %}
+            {% else %}{% set cur = 'MEGA² 第一部分 · 著作、文章和草稿' %}{% endif %}
+          {% elif 'MEGA²·第二部分' in fbook.title %}{% set cur = '经典五卷 · MEGA² 第二部分（既有网页版）' %}
+          {% else %}{% set cur = '' %}{% endif %}
+          {% if cur and cur != ns.grp %}
+            {% set ns.grp = cur %}
+            {% if not loop.first %}</section>{% endif %}
+            {% if cur == '研究导论' %}{% set group_key = 'research' %}{% elif 'MEGA¹' in cur %}{% set group_key = 'mega1' %}{% elif '第四' in cur %}{% set group_key = 'mega2-iv' %}{% elif '第三' in cur %}{% set group_key = 'mega2-iii' %}{% elif '第二' in cur %}{% set group_key = 'mega2-ii' %}{% else %}{% set group_key = 'mega2-i' %}{% endif %}
+            <section class="foreign-group mega-volume-group" data-mega-group="{{ group_key }}"><h3 class="foreign-group-title mega-volume-group-title">{{ cur }}</h3>
+          {% endif %}
+          {% set label_prefix = v.label.split(': ', 1)[0] if ': ' in v.label else '' %}
+          {% set parsed_tag = v.tag or (label_prefix if ('MEGA' in label_prefix or ('/' in label_prefix and 'MEGA²·第二部分' in fbook.title)) else ('研究导论' if cur == '研究导论' else '')) %}
+          {% set parsed_detail = v.label.split(': ', 1)[1] if parsed_tag and ': ' in v.label else v.label %}
           <div class="foreign-vol">
-            <div class="volume-title"><h2>{{ v.label }}</h2></div>
+            <div class="volume-title"><h2>{% if parsed_tag %}<span class="foreign-volume-tag">{{ parsed_tag }}</span>{% endif %}{{ parsed_detail }}</h2></div>
             <div class="volume-actions"><a class="primary" href="{{ v.url }}">打开阅读器</a></div>
           </div>
+          {% if loop.last and cur %}</section>{% endif %}
           {% endfor %}
         </div>
       </details>

@@ -42,7 +42,7 @@
       margin: 0 auto;
       padding: 24px 16px 56px;
     }
-    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .community-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
+    .hero, .panel, .hit, .group-card, .status-card, .notice-card, .weekly-trends-card, .community-card, .book-recommend-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
       background: var(--card);
       border: 1px solid var(--line);
       border-radius: 20px;
@@ -366,7 +366,7 @@
       gap: 14px;
       align-content: start;
     }
-    .panel, .status-card, .notice-card, .community-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
+    .panel, .status-card, .notice-card, .weekly-trends-card, .community-card, .book-recommend-card, .feedback-card, .ai-card, .registry-geo-card, .library-card {
       padding: 20px;
     }
     /* 引文检索卡：上下留白更充裕，不显局促（仅纵向加大，左右与宽度不变）。 */
@@ -383,19 +383,18 @@
     }
     .library-head .library-count { font-size: .82rem; font-weight: 600; color: var(--muted); white-space: nowrap; letter-spacing: 0; }
     .library-marquee {
-      position: relative; height: 340px; overflow: hidden;
+      position: relative; height: 340px; overflow-x: hidden; overflow-y: auto;
+      cursor: grab; user-select: none; touch-action: none; overscroll-behavior: contain;
+      scrollbar-width: thin; scrollbar-color: #d8c6aa transparent;
       /* 上下淡入淡出，让循环更柔和 */
       -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
               mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
     }
+    .library-marquee.is-dragging { cursor: grabbing; }
+    .library-marquee::-webkit-scrollbar { width: 8px; }
+    .library-marquee::-webkit-scrollbar-thumb { background: #d8c6aa; border-radius: 999px; }
     .library-track {
-      display: flex; flex-direction: column; will-change: transform;
-      animation: libraryScroll calc(max(var(--library-count, 8), 6) * 2.1s) linear infinite;
-    }
-    .library-marquee:hover .library-track { animation-play-state: paused; }
-    @keyframes libraryScroll {
-      from { transform: translateY(0); }
-      to   { transform: translateY(-50%); }
+      display: flex; flex-direction: column;
     }
     /* 条目文字：思源宋体（与 hero 收录清单同款），字号略大、字距微开、行高放松，
        书名号《》在宋体下形态更端正，整块更显典雅；底色改为极淡暖粉渐变，不再是死板色块。 */
@@ -756,6 +755,13 @@
       background: linear-gradient(180deg, var(--oil-gold-hi), var(--oil-gold));
       box-shadow: 0 1px 0 rgba(255,255,255,.5) inset;
     }
+    .assoc-stage-badge {
+      display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
+      font-size: .76rem; font-weight: 800; vertical-align: middle;
+      border: 1px solid rgba(31,78,121,.26);
+    }
+    .assoc-stage-badge.textual { color: #14532d; background: #e6f4ea; border-color: #b8ddc4; }
+    .assoc-stage-badge.semantic { color: #33439a; background: #edf0ff; border-color: #cbd2f2; }
     .assoc-note {
       margin: 4px 0 2px; padding: 7px 11px; border-radius: 10px;
       background: linear-gradient(180deg, #eaf1fa, #dde8f5);
@@ -888,12 +894,10 @@
       background: var(--oil-gold-hi, #f3e1a8); border-radius: 999px;
       padding: 3px 12px; margin-bottom: 8px;
     }
-    /* 「精确检索零命中 → 自动联想检索」的兜底说明条：整块显示（不是圆角小标签），
-       因为这句话必须被读完——下面的结果是凭大意召回的，不是逐字精确命中。 */
     .assoc-fallback-banner {
-      font-size: .86rem; line-height: 1.6; color: #4a2a08;
+      font-size: .88rem; line-height: 1.65; color: #4a2a08;
       background: #fdf3df; border: 1px solid #e8cf9d; border-left: 4px solid #c8912f;
-      border-radius: 8px; padding: 8px 12px; margin-bottom: 10px;
+      border-radius: 8px; padding: 9px 12px; margin-bottom: 10px;
     }
     .assoc-fallback-banner strong { color: #7d1616; }
     .assoc-relation {
@@ -903,6 +907,12 @@
     .assoc-relation.support { background: #e6f4ea; color: #1f7a3d; border: 1px solid #bfe3cb; }
     .assoc-relation.tension { background: #fdeaea; color: #b3331f; border: 1px solid #f2c4bd; }
     .assoc-relation.extend  { background: #eef0fb; color: #3a46b0; border: 1px solid #ccd2f2; }
+    /* 个人文库命中标记：与公共语料结果一眼可辨，提示该条只有本人可见 */
+    .mylib-badge {
+      display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
+      font-size: .74rem; font-weight: 800; vertical-align: middle;
+      color: #264653; background: #e8eff1; border: 1px solid rgba(38,70,83,.25);
+    }
     .fuzzy-badge {
       display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px;
       font-size: .76rem; font-weight: 800; vertical-align: middle; color: #4a3300;
@@ -1203,19 +1213,18 @@
       padding: 4px 14px;
       white-space: nowrap;
     }
-    /* 注册用户省际分布：公告正下方的小卡片（窄右栏）。地图为内联 SVG choropleth，
-       数据走 /api/community/registry-geo（仅省级聚合计数，无任何明细 IP）。 */
-    .registry-geo-card {
+    /* 每周读者动态只展示检索词句；注册总数与省际分布单独放在第三卡。 */
+    .weekly-trends-card, .registry-geo-card {
       background: linear-gradient(135deg, rgba(250, 244, 236, 0.95), rgba(255, 253, 249, 0.98));
     }
     .rg-head {
       display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
       margin-bottom: 10px;
     }
-    .rg-head h2 { margin: 0; margin-right: auto; }
+    .rg-head h2 { margin: 0; margin-right: auto; font-size: 1.2rem; }
     .rg-live {
       display: inline-flex; align-items: center; gap: 5px;
-      font-size: .76rem; font-weight: 700; color: var(--accent, #8f1d1d);
+      font-size: .8rem; font-weight: 700; color: var(--accent, #8f1d1d);
       background: rgba(143, 29, 29, 0.07); border: 1px solid rgba(143, 29, 29, 0.16);
       border-radius: 999px; padding: 2px 9px; white-space: nowrap;
     }
@@ -1229,10 +1238,7 @@
       70% { box-shadow: 0 0 0 6px rgba(211, 51, 51, 0); }
       100% { box-shadow: 0 0 0 0 rgba(211, 51, 51, 0); }
     }
-    .rg-total {
-      display: flex; align-items: baseline; gap: 8px;
-      padding: 4px 0 12px;
-    }
+    .rg-total { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 12px; }
     .rg-total .rg-num {
       font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
       font-size: 2.5rem; font-weight: 800; line-height: 1;
@@ -1240,60 +1246,88 @@
       font-variant-numeric: tabular-nums;
     }
     .rg-total .rg-num-label { font-size: .92rem; color: var(--muted); font-weight: 700; }
+    .rg-weekly {
+      display: grid; gap: 13px; padding-top: 8px;
+      border-top: 1px solid rgba(143, 29, 29, .13);
+    }
+    .rg-week-block { min-width: 0; }
+    .rg-week-heading {
+      display: flex; align-items: center; gap: 9px;
+      margin-bottom: 5px; color: var(--accent-deep, #651313);
+      font-size: .84rem; font-weight: 760; line-height: 1.45;
+      letter-spacing: .025em;
+    }
+    .rg-week-heading::before {
+      content: ""; min-width: 18px; height: 1px; flex: 1;
+      background: linear-gradient(90deg, transparent, rgba(143, 29, 29, .16));
+    }
+    .rg-week-heading::after {
+      content: ""; min-width: 18px; height: 1px; flex: 1;
+      background: linear-gradient(90deg, rgba(143, 29, 29, .16), transparent);
+    }
+    .rg-ranked-list {
+      display: grid; margin: 0; padding: 0; list-style: none;
+      border-top: 1px solid rgba(143, 29, 29, .09);
+    }
+    .rg-ranked-list li {
+      position: relative; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0;
+      padding: 6px 32px; border-bottom: 1px solid rgba(143, 29, 29, .09);
+      color: var(--text); font-size: .86rem; font-weight: 650;
+    }
+    .rg-list-rank {
+      position: absolute; left: 2px; color: var(--accent, #8f1d1d);
+      font-size: .72rem; font-weight: 800; letter-spacing: .06em;
+      font-variant-numeric: tabular-nums;
+    }
+    .rg-list-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+    /* 长搜索词句最多显示两行；完整内容写入 title，悬停可查看，且不会把等高卡片无限撑高。 */
+    #weeklySearches .rg-list-label {
+      white-space: normal; line-height: 1.32; overflow-wrap: anywhere;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    }
+    /* 地图保持紧凑，确保地图下方的前八地区人数无需在卡内继续滚动即可看见。 */
+    .registry-geo-card .rg-mapwrap { position: relative; height: 142px; min-height: 142px; }
+    .registry-geo-card .rg-mapwrap > .rg-map,
+    .registry-geo-card .rg-mapwrap svg.rg-map { height: 100%; }
     .rg-mapwrap { position: relative; }
     .rg-map { width: 100%; height: auto; display: block; }
     .rg-map .rg-prov {
       stroke: #fffdf9; stroke-width: 0.8; stroke-linejoin: round;
-      transition: fill .25s ease, filter .15s ease;
-      cursor: default;
+      transition: fill .25s ease, filter .15s ease; cursor: default;
     }
     .rg-map .rg-prov:hover { filter: brightness(1.06); stroke: var(--accent-deep, #651313); stroke-width: 1.1; }
-    .rg-map .rg-scs-box { fill: rgba(255, 255, 255, 0.35); stroke: #b6a079; stroke-width: 1; }
-    .rg-map .rg-scs { fill: #8f1d1d; stroke: #8f1d1d; stroke-width: 0.6; }
+    .rg-map .rg-scs-box { fill: rgba(255,255,255,.35); stroke: #b6a079; stroke-width: 1; }
+    .rg-map .rg-scs { fill: #8f1d1d; stroke: #8f1d1d; stroke-width: .6; }
     .rg-tip {
       position: absolute; z-index: 5; pointer-events: none; opacity: 0;
       transform: translate(-50%, -130%); transition: opacity .12s ease;
-      background: rgba(40, 22, 16, 0.93); color: #fff5ec;
-      font-size: .78rem; font-weight: 600; line-height: 1.2;
-      padding: 4px 9px; border-radius: 7px; white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(40, 8, 6, 0.3);
+      background: rgba(40,22,16,.93); color: #fff5ec; font-size: .78rem; font-weight: 600;
+      line-height: 1.2; padding: 4px 9px; border-radius: 7px; white-space: nowrap;
+      box-shadow: 0 6px 18px rgba(40,8,6,.3);
     }
     .rg-tip.show { opacity: 1; }
-    .rg-legend {
-      display: flex; align-items: center; gap: 8px;
-      font-size: .72rem; color: var(--muted); margin: 8px 2px 4px;
-    }
+    .rg-legend { display: flex; align-items: center; gap: 8px; font-size: .72rem; color: var(--muted); margin: 8px 2px 4px; }
     .rg-legend .rg-bar {
       flex: 1; height: 7px; border-radius: 999px;
-      background: linear-gradient(90deg, var(--rg-c-zero, #ece2d2), var(--rg-c-low, #f3ddc2) 28%, var(--rg-c-high, #7d1616));
-      border: 1px solid rgba(123, 31, 31, 0.12);
+      background: linear-gradient(90deg, var(--rg-c-zero,#ece2d2), var(--rg-c-low,#f3ddc2) 28%, var(--rg-c-high,#7d1616));
+      border: 1px solid rgba(123,31,31,.12);
     }
-    .rg-rank {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px;
-      margin: 10px 0 2px;
-    }
+    .rg-rank { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; margin: 0 0 2px; }
     .rg-chip {
-      position: relative; overflow: hidden;
-      display: flex; align-items: baseline; gap: 5px;
-      padding: 4px 9px; border-radius: 8px;
-      background: rgba(143, 29, 29, 0.05); border: 1px solid rgba(143, 29, 29, 0.1);
-      font-size: .82rem;
+      position: relative; overflow: hidden; display: flex; align-items: baseline; gap: 5px;
+      padding: 4px 9px; border-radius: 8px; background: rgba(143,29,29,.05);
+      border: 1px solid rgba(143,29,29,.1); font-size: .82rem;
     }
-    .rg-chip .rg-chip-bar {
-      position: absolute; left: 0; top: 0; bottom: 0; z-index: 0;
-      background: rgba(143, 29, 29, 0.12);
-    }
+    .rg-chip .rg-chip-bar { position: absolute; inset: 0 auto 0 0; z-index: 0; background: rgba(143,29,29,.12); }
     .rg-chip b, .rg-chip .rg-chip-n { position: relative; z-index: 1; }
     .rg-chip b { color: var(--text); font-weight: 700; }
-    .rg-chip .rg-chip-rk { position: relative; z-index: 1; color: var(--accent, #8f1d1d); font-weight: 800; font-size: .72rem; }
-    .rg-chip .rg-chip-n { margin-left: auto; color: var(--accent-deep, #651313); font-weight: 700; font-variant-numeric: tabular-nums; }
-    .rg-overseas, .rg-unknown {
-      font-size: .82rem; line-height: 1.55; color: var(--muted); margin-top: 9px;
-    }
-    .rg-overseas b { color: var(--accent-deep, #651313); }
+    .rg-chip .rg-chip-rk { position: relative; z-index: 1; color: var(--accent,#8f1d1d); font-weight: 800; font-size: .72rem; }
+    .rg-chip .rg-chip-n { margin-left: auto; color: var(--accent-deep,#651313); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .rg-overseas, .rg-unknown { font-size: .82rem; line-height: 1.55; color: var(--muted); margin-top: 9px; }
+    .rg-overseas b { color: var(--accent-deep,#651313); }
     .rg-unknown { font-size: .76rem; opacity: .82; }
-    .rg-foot { font-size: .72rem; color: var(--muted); opacity: .72; margin-top: 9px; }
-    .rg-empty { grid-column: 1 / -1; font-size: .82rem; color: var(--muted); padding: 6px 0; }
+    .rg-foot { font-size: .73rem; color: var(--muted); opacity: .72; margin-top: 6px; }
+    .rg-empty { grid-column: 1 / -1; color: var(--muted); font-weight: 500; }
     .rg-loading { font-size: .84rem; color: var(--muted); padding: 18px 0; text-align: center; }
     @media (prefers-reduced-motion: reduce) {
       .rg-live::before { animation: none; }
@@ -1399,6 +1433,24 @@
       font-size: 0.9rem;
       line-height: 1.6;
     }
+    .book-recommend-card { display: grid; gap: 10px; align-content: start; }
+    .book-recommend-card h2 { margin-bottom: 0; }
+    .book-recommend-intro { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.55; }
+    .book-recommend-form { display: grid; gap: 9px; }
+    .book-recommend-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .book-recommend-form input[type="text"] { width: 100%; min-width: 0; }
+    .book-recommend-note { grid-column: 1 / -1; }
+    .book-recommend-file {
+      display: flex; align-items: center; gap: 9px; min-width: 0; padding: 9px 11px;
+      border: 1px dashed var(--line); border-radius: 12px; background: var(--soft); cursor: pointer;
+      color: var(--accent); font-weight: 700;
+    }
+    .book-recommend-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .book-recommend-actions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+    .book-recommend-status { color: var(--muted); font-size: .82rem; line-height: 1.45; }
+    .book-recommend-status.ok { color: #24593f; font-weight: 700; }
+    .book-recommend-status.error { color: var(--accent); font-weight: 700; }
+    @media (max-width: 480px) { .book-recommend-fields { grid-template-columns: 1fr; } .book-recommend-note { grid-column: auto; } }
     /* 历史检索记录：入口按钮（开始检索右侧）+ 点击展开的「固定高度、可滚动」弹层。 */
     /* 弹层用显式浅色，故联想/研究的暗色面板下仍是一张干净的浅色卡片。 */
     .history-toggle[hidden] { display: none; }
@@ -1693,6 +1745,16 @@
       cursor: pointer;
     }
     .cite-format-bar .cfb-hint { color: var(--muted, #6b7280); font-size: 12px; }
+    .search-export-controls { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+    .search-export-controls[hidden] { display: none; }
+    .search-export-btn {
+      padding: 6px 11px; border: 1px solid var(--accent); border-radius: 8px;
+      background: #fff; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer;
+    }
+    .search-export-btn:hover { background: var(--soft); }
+    .search-export-btn:disabled { opacity: .55; cursor: wait; }
+    .search-export-status { flex-basis: 100%; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .search-export-status.error { color: #9b1c1c; }
     @media (max-width: 560px) { .cite-format-bar .cfb-hint { display: none; } }
     .book-tab {
       border: 1px solid var(--border, #d0d4dc);
@@ -2346,7 +2408,7 @@
       }
     }
   </style>
-  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=24">{% endif %}
+  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=29">{% endif %}
 </head>
 <body{% if layout_v2 %} class="v2"{% endif %}>
   {# 四页面布局（layout_v2）：同一模板按 layout_page 分区渲染。
@@ -2471,7 +2533,7 @@
       {% elif _pg == 'more' %}
       <div class="v2kicker">More</div>
       <h1>会员功能</h1>
-      <p class="v2lede">流式阅读、期刊订阅与我的知识库——会员专享，随时进入。</p>
+      <p class="v2lede">流式阅读、我的知识库与个人文库——会员专享，随时进入。</p>
       {% endif %}
     </div>
     {% endif %}
@@ -2578,11 +2640,19 @@
             <div id="citeFormatBar" class="cite-format-bar" hidden>
               <span class="cfb-label">引用格式</span>
               <select id="citeFormatSelect" aria-label="引用格式">
+                {% if gb2025_approved %}
+                <option value="gb2025">国标 GB/T 7714—2025</option>
+                {% endif %}
                 <option value="gb2015">国标 GB/T 7714—2015</option>
                 <option value="zgshkx">《中国社会科学》</option>
                 <option value="mkszyj">《马克思主义研究》</option>
               </select>
               <span class="cfb-hint">切换后下方所有引文出处与「复制引文」即按此格式</span>
+              <div id="searchExportControls" class="search-export-controls" hidden>
+                <button type="button" class="search-export-btn" data-export-format="docx">下载 Word</button>
+                <button type="button" class="search-export-btn" data-export-format="html">下载 HTML</button>
+                <span id="searchExportStatus" class="search-export-status" role="status" aria-live="polite"></span>
+              </div>
             </div>
           </div>
           <div class="results-scrollwrap">
@@ -2719,12 +2789,12 @@
             <h3 class="v2cat-title">{{ group.label }}<span class="v2cat-n">{{ group.books|length }} 部 · {{ group.volume_count }} 卷</span></h3>
             <div class="v2books">
               {% for book in group.books %}
-              <a class="v2book" data-bk="{{ book.key }}" href="{{ book.volumes[0].viewer_url }}&from=v2read">
+              <a class="v2book" data-bk="{{ book.key }}" href="{% if book.entry_volume.viewer_url %}{{ book.entry_volume.viewer_url }}&from=v2read{% else %}#{% endif %}">
                 <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=book.volumes[0].source_file) }}" alt="{{ book.title }} 封面" onerror="this.remove()"></span>
                 <span class="v2book-body">
                   <span class="v2book-title">{{ book.title }}</span>
                   <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>
-                  <span class="v2book-tag">AI 导读</span>
+                  <span class="v2book-tag">{% if book.catalog_complete %}AI 导读{% else %}原书已上线{% endif %}</span>
                 </span>
               </a>
               {% endfor %}
@@ -2741,7 +2811,7 @@
                 <span class="v2book-cover v2book-cover-foreign" aria-hidden="true">{{ fb.title[:1] }}</span>
                 <span class="v2book-body">
                   <span class="v2book-title">{{ fb.title }}</span>
-                  <span class="v2book-meta">{{ fb.volumes|length }} 卷 · 外文原著</span>
+                  <span class="v2book-meta">{% if fb.volumes|length == 64 and 'MEGA' in fb.title %}63册原典＋1册研究导论{% else %}{{ fb.volumes|length }} 卷 · 外文原著{% endif %}</span>
                   <span class="v2book-tag">AI 导读</span>
                 </span>
               </a>
@@ -2786,29 +2856,68 @@
           function withFrom(u){ return u ? (u+(u.indexOf('?')>-1?'&':'?')+'from=v2read') : '#'; }
           function open(){ overlay.hidden=false; drawer.hidden=false; document.body.style.overflow='hidden'; void drawer.offsetWidth; drawer.classList.add('open'); overlay.classList.add('open'); }
           function close(){ drawer.classList.remove('open'); overlay.classList.remove('open'); document.body.style.overflow=''; setTimeout(function(){ drawer.hidden=true; overlay.hidden=true; },240); }
+          function megaParts(v){
+            var raw=[v.tag,v.v,v.title,v.label,v.source_id].filter(Boolean).join(' ');
+            var label=String(v.title||v.label||v.v||'').trim();
+            var research=/(?:编辑史|编辑学研究|editing[-\s]?history|research)/i.test(raw);
+            var mark=(raw.match(/MEGA\s*[²¹]\s*(?:I{1,3}|IV)\s*[\/.]\s*\d+(?:\.\d+)?/i)||[])[0]||'';
+            if(!mark){ mark=(raw.match(/MEGA\s*[²¹]\s*(?:I{1,3}|IV)\b/i)||[])[0]||''; }
+            mark=mark.replace(/\s+/g,' ').replace(/\s*[\.]\s*/, '/').trim();
+            var source=String(v.source_id||'').toLowerCase();
+            var edition=/MEGA\s*¹/i.test(mark)||source.indexOf('mega1-')===0?'mega1':'mega2';
+            var roman=(mark.match(/\b(I{1,3}|IV)\s*\//i)||[])[1]||'';
+            if(!roman){ roman=(source.match(/^mega[12]-(i{1,3}|iv)(?:-|$)/i)||[])[1]||''; }
+            roman=roman.toUpperCase();
+            var group=research?'research':(edition==='mega1'?'mega1':('mega2-'+roman.toLowerCase()));
+            var titles={I:'MEGA² 第一部分 · 著作、文章和草稿',II:'MEGA² 第二部分 ·《资本论》及其准备材料',III:'MEGA² 第三部分 · 书信',IV:'MEGA² 第四部分 · 摘录、笔记和批注'};
+            var groupTitle=research?'研究导论':(edition==='mega1'?'MEGA¹ 历史版':(titles[roman]||'MEGA²'));
+            if(mark){
+              var escaped=mark.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+              label=label.replace(new RegExp('^\\s*'+escaped+'\\s*[:：]?\\s*','i'),'').trim();
+            }
+            if(research && !mark){ mark='研究导论'; }
+            return {tag:mark||String(v.v||''), detail:label, group:group, groupTitle:groupTitle};
+          }
+          function volumeGroups(book){
+            if(book.kind!=='foreign' || !/MEGA\s*¹/i.test(book.title||'')) return null;
+            var order=['research','mega2-i','mega2-ii','mega2-iii','mega2-iv','mega1'], groups={};
+            book.volumes.forEach(function(v,i){ var p=megaParts(v); if(!groups[p.group]) groups[p.group]={key:p.group,title:p.groupTitle,rows:[]}; groups[p.group].rows.push({v:v,i:i,p:p}); });
+            return order.filter(function(k){return groups[k];}).map(function(k){return groups[k];});
+          }
+          function volumeRow(book,v,i,p){
+            var recovering=book.kind!=='foreign' && v.indexed===false;
+            var meta=book.kind==='foreign'?'':(recovering?'原书已上线 · 正文索引恢复中':((v.pages?v.pages+' 页':'')+(v.toc?' · '+v.toc+' 目录项':'')));
+            var heading=p?p.tag:(book.kind==='foreign'?v.v:(v.heading||('第 '+v.v+' '+((v.unit)||'卷'))));
+            var main=p?p.detail:(book.kind==='foreign'?(v.title||''):(v.subtitle||''));
+            return '<button type="button" class="v2vrow" data-vi="'+i+'"'+(recovering?' disabled aria-disabled="true"':'')+(p?' data-mega-group="'+esc(p.group)+'"':'')+'>'
+              +'<span class="v2vrow-n">'+esc(heading)+'</span>'
+              +(main?'<span class="v2vrow-t">'+esc(main)+'</span>':'')
+              +(meta?'<span class="v2vrow-m">'+esc(meta)+'</span>':'')
+              +'<span class="v2vrow-go">'+(book.kind==='foreign'?'阅读 →':(recovering?'恢复中':'目录 ›'))+'</span></button>';
+          }
           function showVolumes(book){
             curBook=book; elBack.hidden=true; elTitle.textContent=book.title;
             var unit0=(book.volumes[0]&&book.volumes[0].unit)||'卷';
-            elSub.textContent=book.label+' · 共 '+book.volumes.length+' '+unit0;
-            if(book.volumes.length===1){ showToc(book, book.volumes[0]); return; }
-            elBody.innerHTML='<div class="v2vlist">'+book.volumes.map(function(v,i){
-              var meta=book.kind==='foreign'?'':((v.pages?v.pages+' 页':'')+(v.toc?' · '+v.toc+' 目录项':''));
-              var heading=book.kind==='foreign'?v.v:(v.heading||('第 '+v.v+' '+((v.unit)||'卷')));
-              var main=book.kind==='foreign'?(v.title||''):(v.subtitle||'');
-              return '<button type="button" class="v2vrow" data-vi="'+i+'">'
-                +'<span class="v2vrow-n">'+esc(heading)+'</span>'
-                +(main?'<span class="v2vrow-t">'+esc(main)+'</span>':'')
-                +(meta?'<span class="v2vrow-m">'+esc(meta)+'</span>':'')
-                +'<span class="v2vrow-go">'+(book.kind==='foreign'?'阅读 →':'目录 ›')+'</span></button>';
-            }).join('')+'</div>';
+            var megaCount=book.kind==='foreign' && /(?:MEGA|历史考证版)/i.test(book.title||'') && book.volumes.length===64
+              ? '63册原典＋1册研究导论'
+              : '共 '+book.volumes.length+' '+unit0;
+            elSub.textContent=book.label+' · '+megaCount;
+            if(book.volumes.length===1 && book.volumes[0].indexed!==false){ showToc(book, book.volumes[0]); return; }
+            var grouped=volumeGroups(book);
+            elBody.innerHTML=grouped?grouped.map(function(g){
+              return '<section class="mega-volume-group" data-mega-group="'+esc(g.key)+'"><h3 class="mega-volume-group-title">'+esc(g.title)+'</h3><div class="v2vlist">'
+                +g.rows.map(function(row){return volumeRow(book,row.v,row.i,row.p);}).join('')+'</div></section>';
+            }).join(''):('<div class="v2vlist">'+book.volumes.map(function(v,i){return volumeRow(book,v,i,null);}).join('')+'</div>');
             elBody.scrollTop=0;
             elBody.querySelectorAll('.v2vrow').forEach(function(btn){ btn.addEventListener('click',function(){
               var v=book.volumes[Number(btn.dataset.vi)];
               if(book.kind==='foreign'){ window.location.href=v.url; return; }
+              if(v.indexed===false) return;
               showToc(book,v);
             }); });
           }
           function showToc(book,vol){
+            if(book.kind!=='foreign' && vol.indexed===false) return;
             elBack.hidden=(book.volumes.length===1);
             elTitle.textContent=book.title;
             var heading=book.kind==='foreign'?(vol.v||''):(vol.heading||((book.volumes.length>1)?'第 '+vol.v+' '+((vol.unit)||'卷'):''));
@@ -2839,13 +2948,13 @@
         </script>
         {% endif %}
 
-        {# 功能卡：四页面布局下仅「进阶功能」页渲染（大辞典 / 期刊 / 流式阅读）；
+        {# 功能卡：四页面布局下仅「会员功能」页渲染流式阅读；国外文献精选周刊已抽为顶级栏目；
            全文阅读 / AI 导学阅读器已由上面的书目网格取代，不再作为中转卡出现。
            旧首页 legacy（not v2）照常渲染全部卡片。 #}
         {% if (not v2) or _pg == 'more' %}
         <div class="reader-entry-grid{% if v2 and _pg == 'more' %} v2more-grid{% endif %}" aria-label="功能卡">
           {% for card in feature_cards %}
-          {% set _more_card = card.key in ('journal', 'liushi') %}
+          {% set _more_card = card.key == 'liushi' %}
           {% if (not v2) or _more_card %}
           {% if card.type == 'reader' %}
           {% set entry = card.entry %}
@@ -2864,7 +2973,7 @@
             <a class="feature-action {% if entry.disabled %}disabled{% endif %}" {% if entry.disabled %}aria-disabled="true"{% endif %} href="{{ entry.href }}">{{ site_text(entry.action_key) }}</a>
           </section>
           {% elif card.type == 'journal' %}
-          <section class="journal-bar" aria-label="期刊新文提醒功能">
+          <section class="journal-bar" aria-label="国外文献精选周刊">
             <div class="feature-copy">
               <div class="feature-kicker">{{ site_text("index.journal_kicker") }}</div>
               <div class="reader-status-row">
@@ -2933,10 +3042,30 @@
         </section>
         {% endif %}
 
+        {% if v2 and _pg == 'more' and personal_library_available %}
+        {# 「个人文库」：会员专享；非会员也陈列，按钮引导开通（与知识库同一处理）。
+           存储节点未配置时（personal_library_available 为假）整卡不出现，避免用户传了书无处安放。 #}
+        <section class="journal-bar" aria-label="个人文库">
+          <div class="feature-copy">
+            <div class="feature-kicker">会员专属 · 个人收藏</div>
+            <div class="reader-status-row">
+              <span class="reader-status">私有存储 · 仅本人可见</span>
+            </div>
+            <h2>个人文库</h2>
+            <p>上传你自己的书，经审核后在专属阅读器中阅读、记笔记；检索与 AI 问答时可一并检索个人文库。</p>
+          </div>
+          {% if personal_library_enabled %}
+          <a class="feature-action" href="{{ url_for('mylib_home') }}">进入个人文库</a>
+          {% else %}
+          <a class="feature-action" href="{{ url_for('pricing') }}?from=mylib">开通会员后使用</a>
+          {% endif %}
+        </section>
+        {% endif %}
+
       </div>
 
       {% if show_search %}
-      <aside class="right-stack">
+      <aside class="right-stack" id="homeInfoPanels">
         <div class="right-top-stack">
           <section class="notice-card">
             <h2 class="notice-head">
@@ -2948,6 +3077,20 @@
           </section>
 
           {% if registry_geo_enabled %}
+          <section class="weekly-trends-card" id="weeklyTrendsCard" aria-label="{{ site_text('index.community_weekly_title') }}">
+            <div class="rg-head">
+              <h2>{{ site_text("index.community_weekly_title") }}</h2>
+              <span class="rg-live">{{ site_text("index.community_weekly_live") }}</span>
+            </div>
+            <div class="rg-weekly" aria-live="polite">
+              <section class="rg-week-block" aria-labelledby="weeklySearchHeading">
+                <div class="rg-week-heading" id="weeklySearchHeading">{{ site_text("index.community_weekly_search_title") }}</div>
+                <ol class="rg-ranked-list" id="weeklySearches"><li class="rg-empty">{{ site_text("index.community_weekly_empty") }}</li></ol>
+              </section>
+            </div>
+            <div class="rg-foot">{{ site_text("index.community_weekly_foot") }}</div>
+          </section>
+
           <section class="registry-geo-card" id="registryGeoCard" aria-label="{{ site_text('index.registry_geo_title') }}">
             <div class="rg-head">
               <h2>{{ site_text("index.registry_geo_title") }}</h2>
@@ -2962,42 +3105,17 @@
               <div class="rg-tip" id="rgTip"></div>
             </div>
             <div class="rg-legend"><span>{{ site_text("index.registry_geo_legend_low") }}</span><span class="rg-bar"></span><span>{{ site_text("index.registry_geo_legend_high") }}</span></div>
-            {# 代表性省份排行榜（rgRank）：注册人数前 8 省，每省一枚 chip（名次·简称·人数 + 比例底条）。
-               数据来自 /api/community/registry-geo 的 provinces（仅省级聚合、无明细 IP）。 #}
             <div class="rg-rank" id="rgRank"></div>
-            <p class="rg-overseas" id="rgOverseas" style="display:none"></p>
-            <p class="rg-unknown" id="rgUnknown" style="display:none"></p>
+            <div class="rg-meta-row">
+              <p class="rg-overseas" id="rgOverseas" style="display:none"></p>
+              <p class="rg-unknown" id="rgUnknown" style="display:none"></p>
+            </div>
             <div class="rg-foot">{{ site_text("index.registry_geo_foot") }}</div>
           </section>
           {% endif %}
+        </div>{# /right-top-stack：公告 / 每周检索词句 / 注册用户分布 三卡一行 #}
 
-          {# 第三卡：网站支持的文库——复用首页 hero 的收录清单逻辑（book_stats 固定版次文案／实时卷数），
-             与左侧「公告 / 注册分布」同宽等高对齐。 #}
-          <section class="library-card" aria-label="网站支持的文库">
-            {% set lib_items = [] %}
-            {% for item in book_stats %}
-              {% set label_raw = site_text(item.text_key) or item.fixed_pill %}
-              {% if label_raw %}{% set _ = lib_items.append(label_raw) %}
-              {% elif item.count and item.count > 0 %}{% set _ = lib_items.append(item.short_title ~ " " ~ item.count ~ " 卷") %}{% endif %}
-            {% endfor %}
-            {% if wenku_available %}{% set _ = lib_items.append("外文原著（俄 / 德 / 英）") %}{% endif %}
-            <h2 class="library-head"><span>网站支持的文库</span><span class="library-count">共 {{ lib_items|length }} 种</span></h2>
-            {# 竖向逐条无缝循环（与社区建设同款）：轨道放两份内容，CSS 平移 -50%（一份高度）到末尾
-               时第二份恰好顶到起点，肉眼无跳变。鼠标悬停暂停，尊重「减少动态」无障碍设置。 #}
-            <div class="library-marquee">
-              <div class="library-track" style="--library-count: {{ lib_items|length }}">
-                {% for label in lib_items %}
-                <div class="library-item">{{ label }}</div>
-                {% endfor %}
-                {% for label in lib_items %}
-                <div class="library-item" aria-hidden="true">{{ label }}</div>
-                {% endfor %}
-              </div>
-            </div>
-          </section>
-        </div>{# /right-top-stack：公告 / 注册分布 / 文库 三卡一行 #}
-
-        {# 第二行：社区建设 + 留言反馈，两卡等宽等高对齐 #}
+        {# 第二行：社区建设 + 用户荐书 + 留言反馈，三卡等宽等高对齐 #}
         {% set community_items = render_community_items(site_text("index.community_body")) %}
         <div class="right-bottom-stack">
           {% if community_items %}
@@ -3019,6 +3137,35 @@
             </div>
           </section>
           {% endif %}
+
+          <section class="book-recommend-card" id="bookRecommendCard" aria-label="用户荐书">
+            <h2>用户荐书</h2>
+            <p class="book-recommend-intro">向网站推荐值得收录的著作，管理员审核后上线阅读栏目，展示期为一个月。</p>
+            {% if current_user %}
+              {% if book_recommendations_available %}
+              <form class="book-recommend-form" id="bookRecommendForm" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="book-recommend-fields">
+                  <input type="text" name="title" maxlength="160" required placeholder="书名（必填）">
+                  <input type="text" name="author" maxlength="120" placeholder="作者（选填）">
+                  <input class="book-recommend-note" type="text" name="note" maxlength="500" placeholder="推荐理由或版本说明（选填）">
+                </div>
+                <label class="book-recommend-file">
+                  <span id="bookRecommendFileLabel">📄 选择 PDF（不超过 {{ book_recommendation_max_mb }}MB）</span>
+                  <input type="file" id="bookRecommendFile" name="file" accept="application/pdf,.pdf" required hidden>
+                </label>
+                <div class="book-recommend-actions">
+                  <button class="primary" type="submit" id="bookRecommendSubmit">上传荐书</button>
+                  <span class="book-recommend-status" id="bookRecommendStatus" aria-live="polite"></span>
+                </div>
+              </form>
+              {% else %}
+              <p class="book-recommend-status">荐书暂存服务尚未在本地预览环境接通；正式部署接入个人文库服务器后即可上传。</p>
+              {% endif %}
+            {% else %}
+            <div class="feedback-actions"><a class="mini-btn" href="{{ url_for('login', next='/#bookRecommendCard') }}">登陆后上传荐书</a></div>
+            {% endif %}
+          </section>
 
           <section class="feedback-card" id="feedbackCard">
             <h2>{{ site_text("index.feedback_title") }}</h2>
@@ -3075,7 +3222,8 @@
     remoteQuitEnabled: {{ state.remote_quit_enabled | tojson }},
     researchQuota: {{ (state.research_quota or {}) | tojson }},
     aiTokenQuota: {{ (state.ai_token_quota or {}) | tojson }},
-    aiCredits: {{ (state.ai_credits or {}) | tojson }}
+    aiCredits: {{ (state.ai_credits or {}) | tojson }},
+    searchExportContext: null
   };
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ search_chat_access_enabled | tojson }};
@@ -3097,7 +3245,8 @@
   const aiUnavailableMessage = {{ site_text("index.ai_unavailable") | tojson }};
   const feedbackEmptyMessage = {{ site_text("index.feedback_empty") | tojson }};
   const feedbackReplyNotice = {{ site_text("index.feedback_reply_notice") | tojson }};
-  const SEARCH_STATE_KEY = 'marx-search-state-v2';
+  // v3 不恢复旧版把全库 book_counts 当作当前范围的会话结果。
+  const SEARCH_STATE_KEY = 'marx-search-state-v3';
   const AI_STATE_KEY = 'marx-search-ai-state-v1';
   // 供全站导航判断「本页检索是否在飞」：结果区出现加载态即视为在飞（联想检索走 AI，较慢）。
   // 在飞时点其它导航标签改为新标签打开，不打断本页检索。
@@ -3124,13 +3273,18 @@
   // 出处串（后端 hit.citations）。用户在结果上方下拉里选定格式后，本地记忆并即时重排所有
   // 已渲染引文；新检索/恢复亦按当前格式渲染；「复制引文」复制的就是当前所选格式的文本。
   const CITE_FORMAT_KEY = 'marx-citation-format-v1';
-  const CITE_FORMAT_LABELS = { gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+  const CITE_FORMAT_LABELS = { {% if gb2025_approved %}gb2025: '国标 GB/T 7714—2025', {% endif %}gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
   const CITE_FORMAT_DEFAULT = 'gb2015';
   function loadCiteFormat() {
     try { const v = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[v] ? v : CITE_FORMAT_DEFAULT; }
     catch (_) { return CITE_FORMAT_DEFAULT; }
   }
   let citeFormat = loadCiteFormat();
+  // 取某条命中/引文在当前格式下的出处串（缺 citations 时回退到旧的单一 citation 字段）。
+  const SEARCH_EXPORT_JOB_KEY = 'marx-search-export-job-v1-' + (currentUid || 'guest');
+  const searchExportControls = document.getElementById('searchExportControls');
+  const searchExportStatus = document.getElementById('searchExportStatus');
+  let searchExportPollTimer = null;
   // 取某条命中/引文在当前格式下的出处串（缺 citations 时回退到旧的单一 citation 字段）。
   function pickCite(obj) {
     const m = obj && obj.citations;
@@ -3141,7 +3295,7 @@
   function citeDataAttr(obj) {
     let m = obj && obj.citations;
     if ((!m || !Object.keys(m).length) && obj && obj.citation) {
-      m = { gb2015: obj.citation, zgshkx: obj.citation, mkszyj: obj.citation };
+      m = { gb2025: obj.citation, gb2015: obj.citation, zgshkx: obj.citation, mkszyj: obj.citation };
     }
     return m ? escAttr(JSON.stringify(m)) : '';
   }
@@ -3172,6 +3326,126 @@
     if (out) new MutationObserver(toggle).observe(out, { childList: true, subtree: true });
     if (aiMessages) new MutationObserver(toggle).observe(aiMessages, { childList: true, subtree: true });
     toggle();
+  })();
+
+  function setSearchExportContext(payload) {
+    if (!payload || payload.mode !== 'results' || !payload.query) {
+      state.searchExportContext = null;
+      if (searchExportControls) searchExportControls.hidden = true;
+      return;
+    }
+    state.searchExportContext = {
+      q: payload.query,
+      mode: payload.searchCooc ? 'cooccurrence' : 'exact',
+      scope: Array.isArray(payload.requested_book_scope) ? payload.requested_book_scope.slice() : null,
+      book: payload.book_filter || ''
+    };
+    if (searchExportControls) searchExportControls.hidden = false;
+  }
+
+  function setSearchExportBusy(busy) {
+    if (!searchExportControls) return;
+    searchExportControls.querySelectorAll('[data-export-format]').forEach(btn => { btn.disabled = !!busy; });
+  }
+
+  function showSearchExportStatus(message, error) {
+    if (!searchExportStatus) return;
+    searchExportStatus.textContent = message || '';
+    searchExportStatus.classList.toggle('error', !!error);
+  }
+
+  function searchExportStatusText(job) {
+    const done = Number(job.progress_done || 0);
+    const total = Number(job.progress_total || job.result_count || 0);
+    if (job.status === 'queued') return '已加入导出队列，等待独立工作节点处理…';
+    if (job.status === 'counting') return '正在安全计数，确认未超过账号上限…';
+    if (job.status === 'collecting') return `正在整理引文${total ? `：${done} / ${total}` : '…'}`;
+    if (job.status === 'rendering') return `正在生成${job.format === 'docx' ? ' Word' : ' HTML'} 分册${total ? `：${done} / ${total}` : '…'}`;
+    if (job.status === 'packaging') return '正在压缩分册…';
+    if (job.status === 'complete') return '汇编已生成，正在下载。';
+    if (job.status === 'too_large') return job.error || `结果超过 ${job.result_limit || ''} 条，请缩小检索范围。`;
+    if (job.status === 'expired') return '导出文件已过期，请重新创建。';
+    return job.error || '导出失败，请稍后重试。';
+  }
+
+  function downloadSearchExport(job) {
+    if (!job || !job.download_url) return;
+    const link = document.createElement('a');
+    link.href = job.download_url;
+    link.download = job.output_name || '';
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    try { localStorage.removeItem(SEARCH_EXPORT_JOB_KEY); } catch (_) {}
+  }
+
+  async function pollSearchExport(jobId, immediate) {
+    if (searchExportPollTimer) clearTimeout(searchExportPollTimer);
+    try {
+      const response = await apiFetch(`/api/search/exports/${encodeURIComponent(jobId)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || '无法读取导出任务。');
+      const job = data.job || {};
+      if (searchExportControls) searchExportControls.hidden = false;
+      showSearchExportStatus(searchExportStatusText(job), ['failed', 'too_large', 'expired'].includes(job.status));
+      if (job.status === 'complete') {
+        setSearchExportBusy(false);
+        downloadSearchExport(job);
+        return;
+      }
+      if (['failed', 'too_large', 'expired'].includes(job.status)) {
+        setSearchExportBusy(false);
+        try { localStorage.removeItem(SEARCH_EXPORT_JOB_KEY); } catch (_) {}
+        return;
+      }
+      setSearchExportBusy(true);
+      searchExportPollTimer = setTimeout(() => pollSearchExport(jobId, false), immediate ? 800 : 2000);
+    } catch (error) {
+      setSearchExportBusy(false);
+      showSearchExportStatus(error.message || '导出状态读取失败。', true);
+    }
+  }
+
+  async function startSearchExport(format) {
+    if (!isLoggedIn) {
+      window.location.href = searchLoginUrl;
+      return;
+    }
+    const context = state.searchExportContext;
+    if (!context || !context.q) {
+      showSearchExportStatus('请先完成一次精确检索或同段多词检索。', true);
+      return;
+    }
+    setSearchExportBusy(true);
+    showSearchExportStatus('正在创建导出任务…', false);
+    try {
+      const body = Object.assign({}, context, { format, citation_style: citeFormat });
+      const response = await apiFetch('/api/search/exports', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || '导出任务创建失败。');
+      const job = data.job || {};
+      try { localStorage.setItem(SEARCH_EXPORT_JOB_KEY, job.id); } catch (_) {}
+      await pollSearchExport(job.id, true);
+    } catch (error) {
+      setSearchExportBusy(false);
+      showSearchExportStatus(error.message || '导出任务创建失败。', true);
+    }
+  }
+
+  if (searchExportControls) {
+    searchExportControls.addEventListener('click', event => {
+      const button = event.target.closest('[data-export-format]');
+      if (button) startSearchExport(button.dataset.exportFormat || '');
+    });
+  }
+  (function resumeSearchExport() {
+    if (!isLoggedIn) return;
+    let jobId = '';
+    try { jobId = localStorage.getItem(SEARCH_EXPORT_JOB_KEY) || ''; } catch (_) {}
+    if (jobId) pollSearchExport(jobId, true);
   })();
 
   // ===== 检索结果框：定位于检索面板正下方，随内容自适应 =====================
@@ -3703,10 +3977,12 @@
   }
 
   function renderEmpty(message) {
+    setSearchExportContext(null);
     out.innerHTML = `<div class="empty">${esc(message)}</div>`;
   }
 
   function renderSearchLoading(kind, message, steps) {
+    setSearchExportContext(null);
     const safeKind = ['standard', 'associative', 'research'].includes(kind) ? kind : 'standard';
     const stepHtml = (steps || []).map(item => `<span>${esc(item)}</span>`).join('');
     // 研究加载态也随「护眼/深色」背景偏好走（默认护眼），避免长达数十秒的等待盯着黑框。
@@ -3796,14 +4072,56 @@
     renderSearchHistory();
   }
 
+  function standardRequestedBookKeys(payload) {
+    const keys = new Set();
+    if (payload && payload.book_filter) keys.add(String(payload.book_filter));
+    let tokens = (payload && Array.isArray(payload.requested_book_scope))
+      ? payload.requested_book_scope
+      : null;
+    if (!tokens && bookScopeCtl && bookScopeCtl.hasSelection()) tokens = bookScopeCtl.getTokens();
+    (tokens || []).forEach(token => {
+      const text = String(token || '');
+      if (text.indexOf('book:') === 0) keys.add(text.slice(5));
+      else if (text.indexOf('vol:') === 0) {
+        const body = text.slice(4);
+        const cut = body.lastIndexOf(':');
+        if (cut > 0) keys.add(body.slice(0, cut));
+      }
+    });
+    return keys;
+  }
+
+  function standardVisibleBookCounts(payload) {
+    if (payload && Array.isArray(payload.visible_book_counts)) return payload.visible_book_counts;
+    const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
+    const keys = standardRequestedBookKeys(payload);
+    return keys.size ? counts.filter(item => keys.has(String(item.key || ''))) : counts;
+  }
+
+  function standardScopeApplied(payload) {
+    return !!(
+      (payload && payload.search_scope && payload.search_scope.applied) ||
+      standardRequestedBookKeys(payload).size
+    );
+  }
+
+  function standardScopeLabel(payload) {
+    if (payload && payload.search_scope && payload.search_scope.label) return payload.search_scope.label;
+    const keys = standardRequestedBookKeys(payload);
+    const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
+    return counts.filter(item => keys.has(String(item.key || '')))
+      .map(item => item.short_title || item.title || `《${item.key || ''}》`).join('、');
+  }
+
   function summarizeStandard(payload) {
     let hits = 0;
-    if (Array.isArray(payload.book_counts) && payload.book_counts.length) {
-      payload.book_counts.forEach(b => { hits += Number(b.count || 0); });
+    const visibleCounts = standardVisibleBookCounts(payload);
+    if (visibleCounts.length) {
+      visibleCounts.forEach(b => { hits += Number(b.count || 0); });
     } else {
       (payload.results || []).forEach(g => { hits += Number(g.count || 0); });
     }
-    return { hits, books: Array.isArray(payload.book_counts) ? payload.book_counts.length : 0 };
+    return { hits, books: visibleCounts.length };
   }
 
   function historyKindLabel(kind) {
@@ -3904,7 +4222,7 @@
 
   function updateBookTabs(payload) {
     if (!bookTabsEl) return;
-    const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
+    const counts = standardVisibleBookCounts(payload);
     // 只有跨多个书库命中时才显示筛选标签，单一书库无需筛选。
     if (counts.length < 2) {
       bookTabsEl.hidden = true;
@@ -3912,8 +4230,9 @@
       return;
     }
     const active = (payload && payload.book_filter) || '';
+    const scoped = standardScopeApplied(payload);
     const total = counts.reduce((sum, item) => sum + Number(item.count || 0), 0);
-    const allTab = `<button type="button" class="book-tab${active ? '' : ' active'}" data-action="search-book" data-book="">全部<span class="tab-count">${total}</span></button>`;
+    const allTab = scoped ? '' : `<button type="button" class="book-tab${active ? '' : ' active'}" data-action="search-book" data-book="">全部<span class="tab-count">${total}</span></button>`;
     const tabs = counts.map(item => {
       const label = item.short_title || item.title || ('《' + (item.key || '') + '》');
       const on = active === item.key ? ' active' : '';
@@ -3967,6 +4286,11 @@
     const weightBadge = hit.associative_weight != null
       ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
       : '';
+    const stageBadge = hit.associative_stage === 'textual'
+      ? '<span class="assoc-stage-badge textual">文本近似·优先</span>'
+      : hit.associative_stage === 'semantic'
+        ? '<span class="assoc-stage-badge semantic">语义联想·补充</span>'
+        : '';
     const fuzzyBadge = hit.match_type === 'fuzzy'
       ? `<span class="fuzzy-badge">近似匹配${hit.fuzzy_errors != null ? ` · 相差 ${esc(String(hit.fuzzy_errors))} 字` : ''}</span>`
       : '';
@@ -3976,7 +4300,7 @@
       : '';
     return `
       <article class="hit${weightBadge ? ' assoc-hit' : ''}${hit.subject_label ? ' subject-hit' : ''}">
-        <div class="loc">${bookTitle} 第 ${hit.volume} 卷 · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${weightBadge}${fuzzyBadge}</div>
+        <div class="loc">${bookTitle}${hit.personal ? '' : ` 第 ${hit.volume} 卷`} · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${hit.personal ? '<span class="mylib-badge">🔒 我的文库</span>' : ''}${stageBadge}${weightBadge}${fuzzyBadge}</div>
         ${subjectBadge}
         ${assocNote}
         ${section}
@@ -4148,7 +4472,33 @@
     `;
   }
 
+  // 个人文库命中单独成段置顶：与公共语料结果视觉区分，且不介入既有分组/分页逻辑。
+  function personalResultsHtml(payload) {
+    const items = Array.isArray(payload.personal_results) ? payload.personal_results : [];
+    if (!items.length) return '';
+    return `
+      <div class="result-head"><h2>我的文库 <span class="mylib-badge">🔒 仅你可见</span></h2></div>
+      ${items.map((hit, i) => renderHitRow(hit, `mylib-${i}`)).join('')}
+    `;
+  }
+
   function renderResults(payload) {
+    setSearchExportContext(payload);
+    const personalHtml = personalResultsHtml(payload);
+    const publicItems = Array.isArray(payload.results) ? payload.results : [];
+    if (personalHtml && !publicItems.length) {
+      out.innerHTML = personalHtml;
+      return;
+    }
+    renderResultsCore(payload);
+    if (standardScopeApplied(payload)) {
+      const label = standardScopeLabel(payload) || '已指定著作';
+      out.insertAdjacentHTML('afterbegin', `<div class="assoc-intent-banner">本次仅检索：${esc(label)} · 手动指定（清除范围后才恢复全库）</div>`);
+    }
+    if (personalHtml) out.insertAdjacentHTML('afterbegin', personalHtml);
+  }
+
+  function renderResultsCore(payload) {
     const displayMode = payload.display_mode || 'grouped';
     const groups = Array.isArray(payload.results) ? payload.results : [];
     if (payload.access_level === 'summary' || displayMode === 'summary') {
@@ -4220,26 +4570,12 @@
     `;
   }
 
-  // 「精确检索零命中 → 自动联想检索」兜底的门控与状态。
-  // autoAssocFallbackFrom 记下是哪一次精确检索触发的兜底，供结果页顶部加说明条——必须让读者
-  // 看清这批结果来自联想检索（凭大意召回的真实原文），不能与「逐字精确命中」混为一谈。
-  let autoAssocFallbackFrom = '';
-  // 说明条要跨「翻页重渲染」保留（renderAssociativePage 会被分页反复调用），故与上面那个
-  // 一次性触发标记分开存：触发标记用完即清，这个跟着本次联想结果一直显示。
-  let autoAssocNoticeQuery = '';
-  // 触发下限 4 字：中文短句信息密度高，「宗教是鸦片」这类少打几个字的引文只有 5 字，
-  // 6 字门槛会把它挡在兜底之外（实测该查询精确零命中、容错也够不着——5 字 < 容错下限 10 字，
-  // 而联想检索能凭 AI 补出原句「宗教是人民的鸦片」并召回文集/全集/选集等真实原文）。
-  // 再往下放到 2–3 字则多半是误打或生僻字，零命中很常见，不值得每次都烧一次 AI 额度。
-  const AUTO_ASSOC_MIN_LEN = 4;
+  // 仅对“登录用户主动发起的新精确检索”启用模糊兜底。翻页、书库切换、
+  // 同段多词和访客请求均不触发，避免重复请求或越权调用站方 AI。
   function shouldAutoAssoc(text, options, isCooc) {
-    if (!assocAccessEnabled) return false;          // 无联想检索权限的身份：保持原文案
-    if (isCooc) return false;                        // 同段多词是另一种意图，不转联想
-    if (options && (options.book || Number(options.groupPage || 1) > 1)) return false; // 翻页/切书库不是新检索
-    if (options && options.noAutoAssoc) return false;         // 恢复检索态等场景显式禁用
-    const t = String(text || '').replace(/\s+/g, '');
-    if (t.length < AUTO_ASSOC_MIN_LEN) return false;
-    if (/^(book:|vol:)/i.test(t)) return false;      // 纯范围限定 token，不是要检索的正文
+    if (!isLoggedIn || !assocAccessEnabled || isCooc || !options || options.record !== true) return false;
+    const normalized = String(text || '').replace(/\s+/g, '');
+    if (normalized.length < 4 || /^(book:|vol:)/i.test(normalized)) return false;
     return true;
   }
 
@@ -4271,25 +4607,33 @@
         body: JSON.stringify(searchBody)
       });
       const data = await resp.json();
+      // 把本次选择写入结果载荷，供分页、历史恢复与旧后端响应的前端隔离使用。
+      if (bscopeTokens && bscopeTokens.length) data.requested_book_scope = bscopeTokens.slice();
+      else if (book) data.requested_book_scope = [`book:${book}`];
       if (!data.ok) {
         renderEmpty(data.error || '未知错误');
         updateBookTabs(null);
         return;
       }
       const isCooc = (mode === 'cooccurrence');
-      if (!data.results.length) {
-        // 精确检索零命中 → 自动转 AI 联想检索兜底：读者手里的引文常与扫描原文有个别字出入
-        // （OCR 错字、版本差异、凭记忆默写），精确检索一个字都不能差，此时联想检索能凭大意
-        // 找回真正的原文。仅在「本次是新检索、查询够长、无同段多词、且该身份有联想检索权限」
-        // 时触发——否则每次打错字都会白烧一次 AI 额度；无权限身份保持原「未找到」文案。
+      const hasPersonalResults = Array.isArray(data.personal_results) && data.personal_results.length > 0;
+      if (!data.results.length && !hasPersonalResults) {
+        // 登录用户的首次精确检索零命中，自动转入站方出资的模糊 locate 链路。
+        // 这只是检索体验兜底：不改为 research，不进入用户 AI 额度闸门。
         if (shouldAutoAssoc(text, options, isCooc)) {
-          autoAssocFallbackFrom = text;
-          await doAssociativeSearch(text, 'locate');
+          // 结果链路已经切换为模糊检索，顶部标签/范围控件也必须同步，
+          // 避免在「精确检索」外观下展示模糊结果。
+          applySearchMode('associative');
+          await doAssociativeSearch(text, 'locate', { fallbackFrom: text });
           return;
         }
-        renderEmpty('未找到匹配结果。');
+        const scopeLabel = standardScopeLabel(data);
+        const emptyMessage = standardScopeApplied(data) && scopeLabel
+          ? `${scopeLabel}范围内未找到匹配结果。`
+          : '未找到匹配结果。';
+        renderEmpty(emptyMessage);
         updateBookTabs(data);
-        saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: '未找到匹配结果。' }, data));
+        saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: emptyMessage }, data));
         if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, empty: true });
         return;
       }
@@ -4357,6 +4701,42 @@
       if (!dataParts.length) continue;
       try { result = JSON.parse(dataParts.join('')); } catch (_) {}
     }
+    return result;
+  }
+
+  async function readSseResultStream(resp, onProgress) {
+    if (!resp.body) {
+      const fallback = parseSseResult(await resp.text());
+      if (!fallback) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+      return fallback;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result = null;
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done });
+      const blocks = buffer.split('\n\n');
+      buffer = chunk.done ? '' : (blocks.pop() || '');
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        const eventName = (lines.find(line => line.startsWith('event:')) || '').slice(6).trim();
+        const dataParts = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trim());
+        if (!dataParts.length) continue;
+        let data = null;
+        try { data = JSON.parse(dataParts.join('')); } catch (_) { continue; }
+        if (eventName === 'progress') {
+          if (onProgress) onProgress(data);
+        } else if (eventName === 'error') {
+          throw new Error(data.error || 'AI 请求失败');
+        } else if (eventName === 'done' || !eventName) {
+          result = data;
+        }
+      }
+      if (chunk.done) break;
+    }
+    if (!result) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
     return result;
   }
 
@@ -4453,7 +4833,7 @@
     });
   }
 
-  async function doAssociativeSearch(text, mode) {
+  async function doAssociativeSearch(text, mode, options = {}) {
     const isResearch = (mode === 'research');
     if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
       renderEmpty(isResearch ? {{ site_text('search.research_no_access') | tojson }} : {{ site_text('search.assoc_no_ai') | tojson }});
@@ -4490,7 +4870,7 @@
         // 研究综述走 SSE「心跳保活」流(绕开 Cloudflare ~100s 边缘超时)：整段读完，取最后一个
         // data: 事件的 JSON 负载；以 ':' 开头的心跳注释行自动忽略。读取方式不影响保活——保活靠
         // 服务端持续吐字节，这里只需把流读完即可。
-        data = parseSseResult(await resp.text());
+        data = await readSseResultStream(resp);
         if (!data) {
           renderEmpty('研究综述生成超时或返回异常，请稍后重试（如反复失败，可把研究论题写得更聚焦一些）。');
           return;
@@ -4512,6 +4892,7 @@
         renderEmpty(data.error || '未知错误');
         return;
       }
+      if (options.fallbackFrom) data.fallback_from = String(options.fallbackFrom);
       if (data.display_mode === 'research_review') {
         renderResearchReview(data);
         const cits = Array.isArray(data.review_citations) ? data.review_citations : [];
@@ -4526,13 +4907,20 @@
       } else {
         renderAssociativeResults(data);
         const results = Array.isArray(data.results) ? data.results : [];
+        const historyPayload = { kind: 'assoc', query: data.query || text, results, warnings: Array.isArray(data.warnings) ? data.warnings : [], intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null, retrieval_breakdown: data.retrieval_breakdown || null, fallback_from: data.fallback_from || '', message: data.message || '' };
         if (results.length) {
           recordSearchHistory({
             kind: 'assoc',
             query: data.query || text,
             intent: data.intent || '',
-            payload: { kind: 'assoc', query: data.query || text, results, warnings: Array.isArray(data.warnings) ? data.warnings : [], intent: data.intent || '', mode: data.mode || 'auto' },
+            payload: historyPayload,
             summary: { count: results.length }
+          });
+        } else if (options.fallbackFrom) {
+          // 自动兜底仍零命中也是一次完整检索：保存结果，防止刷新后回显上一次旧状态。
+          recordSearchHistory({
+            kind: 'assoc', query: data.query || text, intent: data.intent || '', empty: true,
+            payload: historyPayload, summary: { count: 0 }
           });
         }
       }
@@ -4548,30 +4936,26 @@
   let assocState = null;
 
   function renderAssociativeResults(data) {
+    setSearchExportContext(null);
     const results = Array.isArray(data.results) ? data.results : [];
     const warnings = Array.isArray(data.warnings) ? data.warnings : [];
-    // 由「精确检索零命中」自动转来的这一次：无论有没有结果，都要如实说明来路。
-    const fellBackFrom = autoAssocFallbackFrom;
-    autoAssocFallbackFrom = '';
     if (!results.length) {
       assocState = null;
-      if (fellBackFrom) {
-        renderEmpty('未找到与「' + fellBackFrom + '」逐字相符的原文；已自动改用联想检索，仍未找到接近的段落。'
-          + '可只保留其中最有特征的一句再试，或换用「随心问」描述这段话的大意。');
-      } else {
-        renderEmpty(data.message || {{ site_text('search.assoc_no_result') | tojson }});
-      }
+      const emptyMessage = data.fallback_from
+        ? `精确检索未命中，已自动改用模糊检索，仍未找到与“${data.fallback_from}”接近的段落。`
+        : (data.message || {{ site_text('search.assoc_no_result') | tojson }});
+      saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results: [], warnings, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null, retrieval_breakdown: data.retrieval_breakdown || null, fallback_from: data.fallback_from || '', message: emptyMessage });
+      renderEmpty(emptyMessage);
       return;
     }
-    // 每次都按本次来路重置：否则用户接着手动跑一次联想检索时，上一次的兜底说明条会残留误显。
-    autoAssocNoticeQuery = fellBackFrom || '';
-    assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null };
-    saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results, warnings, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null });
+    assocState = { results, warnings, page: 1, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null, retrievalBreakdown: data.retrieval_breakdown || null, fallbackFrom: data.fallback_from || '' };
+    saveSearchState({ kind: 'assoc', query: data.query || q.value.trim(), results, warnings, intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null, retrieval_breakdown: data.retrieval_breakdown || null, fallback_from: data.fallback_from || '' });
     renderAssociativePage();
   }
 
   // 研究型检索：综述输出框（依据真实原文接地生成，文中 [N] 标注）+ 下方简明引文条（真实可查）。
   function renderResearchReview(data, fromRestore) {
+    setSearchExportContext(null);
     assocState = null;
     const md = data.review_markdown || '';
     const cits = Array.isArray(data.review_citations) ? data.review_citations : [];
@@ -4645,10 +5029,14 @@
     const intentBanner = intentLabel
       ? `<div class="assoc-intent-banner">本次检索取向：${intentLabel}${assocState.mode === 'auto' ? ' · AI 自动判断（可在上方手动指定）' : ' · 已手动指定'}</div>`
       : '';
-    // 兜底说明条：这批结果是精确检索零命中后自动转联想检索得来的。必须写明「凭大意召回」，
-    // 读者才不会把它当成逐字精确命中——下面每条仍是语料里的真实原文，可照常引用。
-    const fallbackBanner = autoAssocNoticeQuery
-      ? `<div class="assoc-fallback-banner">未找到与「${esc(autoAssocNoticeQuery)}」<strong>逐字相符</strong>的原文，已自动改用<strong>联想检索</strong>按大意召回以下真实段落（可能与你手里的文字有个别字出入，请以原文为准）。</div>`
+    const breakdown = assocState.retrievalBreakdown || {};
+    const textualCount = Math.max(0, Number(breakdown.textual) || 0);
+    const semanticCount = Math.max(0, Number(breakdown.semantic) || 0);
+    const tierBanner = assocState.intent === 'locate' && (textualCount || semanticCount)
+      ? `<div class="assoc-note">结果顺序：先显示与输入文本近似的 ${textualCount} 段，再补充按大意联想的 ${semanticCount} 段。</div>`
+      : '';
+    const fallbackBanner = assocState.fallbackFrom
+      ? `<div class="assoc-fallback-banner">精确检索未命中，已为登录用户自动启用<strong>模糊检索兜底</strong>。先按文本近似度定位，再按大意联想补充；本次由网站承担 AI 费用，<strong>不消耗您的 AI 额度</strong>。</div>`
       : '';
     const scopeBanner = scopeBannerHtml(assocState.scope);
     const rows = slice.map((hit, i) => renderHitRow(hit, `assoc-${start + i}`)).join('');
@@ -4658,7 +5046,7 @@
         <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} 段</span>
         <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button>
       </div>` : '';
-    const ledeOrder = assocState.intent === 'research' ? '按相关度并兼顾著作多样性排序' : '按匹配权重排序';
+    const ledeOrder = assocState.intent === 'research' ? '按相关度并兼顾著作多样性排序' : '按“文本近似 → 语义联想”分层排序';
     const resultHeading = assocState.intent === 'research'
       ? {{ site_text('search.research_result_heading') | tojson }}
       : {{ site_text('search.assoc_result_heading') | tojson }};
@@ -4671,6 +5059,7 @@
         </div>
         ${fallbackBanner}
         ${intentBanner}
+        ${tierBanner}
         ${scopeBanner}
         ${warnHtml}
         ${pager}
@@ -4769,7 +5158,7 @@
       if (message.pending) {
         return `
           <div class="msg assistant pending" aria-live="polite">
-            <span class="msg-title">AI 正在思考</span>
+            <span class="msg-title">${esc(message.progress || 'AI 正在思考')}</span>
             <span class="typing-dots" aria-label="AI 正在生成回答">
               <span></span><span></span><span></span>
             </span>
@@ -4901,8 +5290,11 @@
       let data;
       const ctype = (resp.headers.get('content-type') || '').toLowerCase();
       if (ctype.indexOf('text/event-stream') >= 0) {
-        data = parseSseResult(await resp.text());
-        if (!data) throw new Error('回答生成超时或服务繁忙，请稍后重试。');
+        data = await readSseResultStream(resp, progress => {
+          const elapsed = Number(progress.elapsed_seconds || 0);
+          assistantMessage.progress = `${progress.message || '正在生成回答'}${elapsed ? `（${elapsed}秒）` : ''}`;
+          renderAiMessages();
+        });
       } else {
         data = await resp.json();
       }
@@ -5589,9 +5981,88 @@
   </script>
 
   <script>
-  // 注册用户省际分布卡片：内联 SVG choropleth + 实时总数 + 海外人数（仅总数）。
-  // 文案 + 配色全部走 site_text（控制台·内容运营·「首页 · 注册用户分布」分组可改），此处注入。
-  // 地图省界路径走 /static/geo（静态、可缓存）；计数走 /api/community/registry-geo（仅聚合）。
+  // 用户荐书：网站先接收并安全暂存，随后由后台线程转存到个人文库服务器的独立目录。
+  (function () {
+    var form = document.getElementById('bookRecommendForm');
+    if (!form) return;
+    var fileInput = document.getElementById('bookRecommendFile');
+    var fileLabel = document.getElementById('bookRecommendFileLabel');
+    var submit = document.getElementById('bookRecommendSubmit');
+    var status = document.getElementById('bookRecommendStatus');
+    fileInput.addEventListener('change', function () {
+      fileLabel.textContent = fileInput.files && fileInput.files[0]
+        ? '📄 ' + fileInput.files[0].name : '📄 选择 PDF';
+    });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      submit.disabled = true;
+      status.className = 'book-recommend-status';
+      status.textContent = '正在接收文件…';
+      fetch('/api/book-recommendations', {
+        method: 'POST', body: new FormData(form), credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+      }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.error || data.message || '上传失败，请稍后重试。');
+          return data;
+        });
+      }).then(function (data) {
+        status.className = 'book-recommend-status ok';
+        status.textContent = data.duplicate ? '这本书已在待审队列中。' : '已接收，正在安全转存给管理员。';
+        if (!data.duplicate) {
+          form.reset();
+          fileLabel.textContent = '📄 选择 PDF';
+        }
+      }).catch(function (error) {
+        status.className = 'book-recommend-status error';
+        status.textContent = error.message || '上传失败，请稍后重试。';
+      }).finally(function () { submit.disabled = false; });
+    });
+  })();
+  </script>
+
+  <script>
+  // 每周检索最多的六条词句；统计层在本周不足时从上周依次补齐。
+  (function () {
+    if (!{{ registry_geo_enabled | tojson }}) return;
+    var card = document.getElementById('weeklyTrendsCard');
+    if (!card) return;
+    var EMPTY_TEXT = {{ site_text("index.community_weekly_empty") | tojson }};
+    var elSearches = document.getElementById('weeklySearches');
+    var API_URL = '/api/community/weekly';
+
+    function renderRankedList(el, values) {
+      if (!el) return;
+      el.innerHTML = '';
+      if (!values.length) {
+        var empty = document.createElement('li'); empty.className = 'rg-empty'; empty.textContent = EMPTY_TEXT;
+        el.appendChild(empty); return;
+      }
+      values.forEach(function (value, i) {
+        var item = document.createElement('li');
+        var rank = document.createElement('span'); rank.className = 'rg-list-rank'; rank.textContent = String(i + 1).padStart(2, '0');
+        var label = document.createElement('span'); label.className = 'rg-list-label'; label.textContent = value; label.title = value;
+        item.appendChild(rank); item.appendChild(label); el.appendChild(item);
+      });
+    }
+
+    function loadStats() {
+      fetch(API_URL, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || j.ok === false) { card.style.display = 'none'; return; }
+          renderRankedList(elSearches, Array.isArray(j.top_searches) ? j.top_searches.slice(0, 6) : []);
+        })
+        .catch(function () { /* 保留上一次渲染 */ });
+    }
+
+    loadStats();
+    setInterval(loadStats, 60000);
+  })();
+  </script>
+
+  <script>
+  // 注册用户省际分布：内联 SVG 分级着色地图 + 实时总数；接口只返回省级聚合。
   (function () {
     if (!{{ registry_geo_enabled | tojson }}) return;
     var card = document.getElementById('registryGeoCard');
@@ -5619,7 +6090,6 @@
     var mapData = null, lastStats = null, shownTotal = 0;
     var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // 配色：可后台改，转成 RGB 供插值；图例渐变同步走 CSS 变量。
     function hexToRgb(h) {
       h = String(h || '').trim().replace('#', '');
       if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
@@ -5631,140 +6101,95 @@
     card.style.setProperty('--rg-c-zero', RG_CFG.colorZero);
     card.style.setProperty('--rg-c-low', RG_CFG.colorLow);
     card.style.setProperty('--rg-c-high', RG_CFG.colorHigh);
-
     function fmt(n) { return (Number(n) || 0).toLocaleString('en-US'); }
     function lerp(a, b, t) { return Math.round(a + (b - a) * t); }
     function fillFor(count, max) {
       if (!count || count <= 0) return RG_CFG.colorZero;
-      var t = 0.22 + 0.78 * Math.sqrt(count / Math.max(1, max));
+      var t = .22 + .78 * Math.sqrt(count / Math.max(1, max));
       return 'rgb(' + lerp(C_LOW[0], C_HIGH[0], t) + ',' + lerp(C_LOW[1], C_HIGH[1], t) + ',' + lerp(C_LOW[2], C_HIGH[2], t) + ')';
     }
-
     function animateCount(target) {
       target = Number(target) || 0;
       if (reduceMotion || shownTotal === target) { shownTotal = target; elTotal.textContent = fmt(target); return; }
       var from = shownTotal, start = null, dur = 750;
       function step(ts) {
         if (start === null) start = ts;
-        var p = Math.min(1, (ts - start) / dur);
-        var eased = 1 - Math.pow(1 - p, 3);
+        var p = Math.min(1, (ts - start) / dur), eased = 1 - Math.pow(1 - p, 3);
         elTotal.textContent = fmt(Math.round(from + (target - from) * eased));
         if (p < 1) requestAnimationFrame(step); else { shownTotal = target; elTotal.textContent = fmt(target); }
       }
       requestAnimationFrame(step);
     }
-
-    function moveTip(evt, name, count) {
+    function moveTip(event, name, count) {
       var rect = elMap.getBoundingClientRect();
       elTip.textContent = name + ' · ' + fmt(count) + ' 位';
-      elTip.style.left = (evt.clientX - rect.left) + 'px';
-      elTip.style.top = (evt.clientY - rect.top) + 'px';
+      elTip.style.left = (event.clientX - rect.left) + 'px';
+      elTip.style.top = (event.clientY - rect.top) + 'px';
       elTip.classList.add('show');
     }
     function hideTip() { elTip.classList.remove('show'); }
-
     function buildMap() {
       if (!mapData) return;
       var counts = {}, max = (lastStats && lastStats.province_max) || 0;
       if (lastStats && lastStats.provinces) lastStats.provinces.forEach(function (p) { counts[p.name] = p.count; });
       var svg = document.createElementNS(SVGNS, 'svg');
-      svg.setAttribute('viewBox', mapData.viewBox);
-      svg.setAttribute('class', 'rg-map');
-      svg.setAttribute('role', 'img');
-      svg.setAttribute('aria-label', card.getAttribute('aria-label') || '注册用户分布地图');
+      svg.setAttribute('viewBox', mapData.viewBox); svg.setAttribute('class', 'rg-map');
+      svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', card.getAttribute('aria-label') || '注册用户分布地图');
       Object.keys(mapData.provinces).forEach(function (name) {
-        var c = counts[name] || 0;
-        var path = document.createElementNS(SVGNS, 'path');
-        path.setAttribute('d', mapData.provinces[name]);
-        path.setAttribute('class', 'rg-prov');
-        path.setAttribute('fill', fillFor(c, max));
-        var title = document.createElementNS(SVGNS, 'title');
-        title.textContent = name + '：' + fmt(c) + ' 位';
+        var count = counts[name] || 0, path = document.createElementNS(SVGNS, 'path');
+        path.setAttribute('d', mapData.provinces[name]); path.setAttribute('class', 'rg-prov');
+        path.setAttribute('fill', fillFor(count, max));
+        var title = document.createElementNS(SVGNS, 'title'); title.textContent = name + '：' + fmt(count) + ' 位';
         path.appendChild(title);
-        path.addEventListener('pointermove', function (e) { moveTip(e, name, c); });
-        path.addEventListener('pointerleave', hideTip);
-        svg.appendChild(path);
+        path.addEventListener('pointermove', function (event) { moveTip(event, name, count); });
+        path.addEventListener('pointerleave', hideTip); svg.appendChild(path);
       });
       if (mapData.scs) {
-        var b = mapData.scs.box;
-        var rect = document.createElementNS(SVGNS, 'rect');
-        rect.setAttribute('x', b[0]); rect.setAttribute('y', b[1]);
-        rect.setAttribute('width', b[2]); rect.setAttribute('height', b[3]);
-        rect.setAttribute('class', 'rg-scs-box');
-        svg.appendChild(rect);
+        var box = mapData.scs.box, rect = document.createElementNS(SVGNS, 'rect');
+        rect.setAttribute('x', box[0]); rect.setAttribute('y', box[1]); rect.setAttribute('width', box[2]); rect.setAttribute('height', box[3]);
+        rect.setAttribute('class', 'rg-scs-box'); svg.appendChild(rect);
         (mapData.scs.paths || []).forEach(function (d) {
-          var p = document.createElementNS(SVGNS, 'path');
-          p.setAttribute('d', d); p.setAttribute('class', 'rg-scs');
-          svg.appendChild(p);
+          var path = document.createElementNS(SVGNS, 'path'); path.setAttribute('d', d); path.setAttribute('class', 'rg-scs'); svg.appendChild(path);
         });
       }
-      elMap.innerHTML = '';
-      elMap.appendChild(svg);
+      elMap.innerHTML = ''; elMap.appendChild(svg);
     }
-
-    function setNote(el, text) { el.innerHTML = ''; el.textContent = text; }
-
-    function renderStats(s) {
-      lastStats = s;
-      // 注册总数三种显示：exact 精确数字（带 count-up）/ fuzzy 模糊「800+」/ custom 自定义文本。
-      var mode = s.count_mode || 'exact';
-      if (s.total_display) {
-        elTotal.textContent = s.total_display;
-        shownTotal = Number(s.total_registered) || 0;
-      } else {
-        animateCount(s.total_registered);
-      }
-      // 自定义模式：隐藏「位注册用户」后缀与「实时」角标（此时不是实时数字）。
-      if (elNumLabel) elNumLabel.style.display = (mode === 'custom') ? 'none' : '';
-      if (elLive) elLive.style.display = (mode === 'custom') ? 'none' : '';
-      // 代表性省份排行榜：注册人数前 8 省渲染成 chip（元素存在才填充，缺失则整块跳过）。
+    function renderStats(stats) {
+      lastStats = stats;
+      var mode = stats.count_mode || 'exact';
+      if (stats.total_display) { elTotal.textContent = stats.total_display; shownTotal = Number(stats.total_registered) || 0; }
+      else animateCount(stats.total_registered);
+      if (elNumLabel) elNumLabel.style.display = mode === 'custom' ? 'none' : '';
+      if (elLive) elLive.style.display = mode === 'custom' ? 'none' : '';
       if (elRank) {
-        var top = (s.provinces || []).slice(0, 8);
-        elRank.innerHTML = '';
-        if (top.length) {
-          top.forEach(function (p, i) {
-            var w = Math.round(100 * Math.sqrt(p.count / Math.max(1, s.province_max || 1)));
-            var chip = document.createElement('div');
-            chip.className = 'rg-chip';
-            var bar = document.createElement('span'); bar.className = 'rg-chip-bar'; bar.style.width = w + '%';
-            var rk = document.createElement('span'); rk.className = 'rg-chip-rk'; rk.textContent = (i + 1);
-            var nm = document.createElement('b'); nm.textContent = p.short;
-            var num = document.createElement('span'); num.className = 'rg-chip-n'; num.textContent = fmt(p.count);
-            chip.appendChild(bar); chip.appendChild(rk); chip.appendChild(nm); chip.appendChild(num);
-            elRank.appendChild(chip);
-          });
-        } else {
-          var empty = document.createElement('div'); empty.className = 'rg-empty'; empty.textContent = RG_CFG.rankEmpty;
-          elRank.appendChild(empty);
-        }
+        var top = (stats.provinces || []).slice(0, 8); elRank.innerHTML = '';
+        if (top.length) top.forEach(function (province, index) {
+          var chip = document.createElement('div'); chip.className = 'rg-chip';
+          var bar = document.createElement('span'); bar.className = 'rg-chip-bar';
+          bar.style.width = Math.round(100 * Math.sqrt(province.count / Math.max(1, stats.province_max || 1))) + '%';
+          var rank = document.createElement('span'); rank.className = 'rg-chip-rk'; rank.textContent = index + 1;
+          var name = document.createElement('b'); name.textContent = province.short;
+          var count = document.createElement('span'); count.className = 'rg-chip-n'; count.textContent = fmt(province.count);
+          chip.appendChild(bar); chip.appendChild(rank); chip.appendChild(name); chip.appendChild(count); elRank.appendChild(chip);
+        });
+        else { var empty = document.createElement('div'); empty.className = 'rg-empty'; empty.textContent = RG_CFG.rankEmpty; elRank.appendChild(empty); }
       }
-      // 海外：仅显示总人数（不列具体国家）
-      if (s.overseas_total > 0) {
-        elOverseas.textContent = RG_CFG.overseasTpl.replace('{n}', fmt(s.overseas_total));
-        elOverseas.style.display = '';
-      } else { elOverseas.style.display = 'none'; }
-      if (s.unknown > 0) {
-        elUnknown.textContent = RG_CFG.unknownTpl.replace('{n}', fmt(s.unknown));
-        elUnknown.style.display = '';
-      } else { elUnknown.style.display = 'none'; }
+      if (stats.overseas_total > 0) { elOverseas.textContent = RG_CFG.overseasTpl.replace('{n}', fmt(stats.overseas_total)); elOverseas.style.display = ''; }
+      else elOverseas.style.display = 'none';
+      if (stats.unknown > 0) { elUnknown.textContent = RG_CFG.unknownTpl.replace('{n}', fmt(stats.unknown)); elUnknown.style.display = ''; }
+      else elUnknown.style.display = 'none';
       buildMap();
     }
-
+    fetch(GEO_URL).then(function (response) { return response.json(); }).then(function (data) { mapData = data; buildMap(); })
+      .catch(function () { var loading = elMap && elMap.querySelector('.rg-loading'); if (loading) loading.textContent = RG_CFG.mapUnavailable; });
     function loadStats() {
       fetch(API_URL, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
-        .then(function (r) { return r.json(); })
-        .then(function (j) {
-          if (!j || j.ok === false) { card.style.display = 'none'; return; }
-          renderStats(j);
-        })
-        .catch(function () { /* 保留上一次渲染 */ });
+        .then(function (response) { return response.json(); }).then(function (data) {
+          if (!data || data.ok === false) { card.style.display = 'none'; return; }
+          renderStats(data);
+        }).catch(function () {});
     }
-
-    fetch(GEO_URL).then(function (r) { return r.json(); })
-      .then(function (j) { mapData = j; buildMap(); })
-      .catch(function () { if (elMap) setNote(elMap.querySelector('.rg-loading') || elMap, RG_CFG.mapUnavailable); });
-    loadStats();
-    setInterval(loadStats, 60000);
+    loadStats(); setInterval(loadStats, 60000);
   })();
   </script>
   {% if sponsor_enabled %}

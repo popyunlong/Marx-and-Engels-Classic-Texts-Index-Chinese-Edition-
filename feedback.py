@@ -91,10 +91,14 @@ def init_feedback_db() -> Path:
             CREATE TABLE IF NOT EXISTS page_error_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reader TEXT NOT NULL DEFAULT '',          -- viewer(扫描) / liushi(流式) / wenku(文库)
+                issue_type TEXT NOT NULL DEFAULT 'page_number', -- page_number / text_error / punctuation / other
                 book_title TEXT NOT NULL DEFAULT '',
                 volume_label TEXT NOT NULL DEFAULT '',
                 page TEXT NOT NULL DEFAULT '',
+                corpus_page_id INTEGER,
                 source_ref TEXT NOT NULL DEFAULT '',       -- source_file(扫描) 或 文档路径(流式)
+                query_text TEXT NOT NULL DEFAULT '',
+                context_snippet TEXT NOT NULL DEFAULT '',
                 citation_text TEXT NOT NULL DEFAULT '',
                 note TEXT NOT NULL DEFAULT '',
                 user_id INTEGER,
@@ -110,6 +114,21 @@ def init_feedback_db() -> Path:
             CREATE INDEX IF NOT EXISTS idx_page_error_reports_status
                 ON page_error_reports(status, last_reported_at DESC, id DESC);
             """
+        )
+        # Existing installations get additive columns in place.  This database
+        # is user feedback, so migrations must preserve every prior report.
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(page_error_reports)")}
+        for name, declaration in (
+            ("issue_type", "TEXT NOT NULL DEFAULT 'page_number'"),
+            ("corpus_page_id", "INTEGER"),
+            ("query_text", "TEXT NOT NULL DEFAULT ''"),
+            ("context_snippet", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE page_error_reports ADD COLUMN {name} {declaration}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_page_error_reports_corpus_locator "
+            "ON page_error_reports(status, issue_type, corpus_page_id)"
         )
         conn.commit()
     return DB_PATH
@@ -331,10 +350,14 @@ def get_attachment(attachment_id: int) -> dict | None:
 def create_page_error_report(
     *,
     reader: str,
+    issue_type: str = "page_number",
     book_title: str,
     volume_label: str,
     page: str,
+    corpus_page_id: int | None = None,
     source_ref: str,
+    query_text: str = "",
+    context_snippet: str = "",
     citation_text: str,
     note: str = "",
     user_id: int | None = None,
@@ -342,22 +365,44 @@ def create_page_error_report(
     client_ip: str = "",
     user_agent: str = "",
 ) -> tuple[dict, bool]:
-    """记录一条页码报错。若同一 (reader, source_ref, page) 已有未处理报告，则累加计数、不新建，
+    """记录一条页码或文字报错。若同一定位和问题类型已有未处理报告，则累加计数、不新建，
     返回 (报告, is_new)——is_new=True 才给管理员发邮件（同一页多人报错不刷屏）。"""
     now = utc_now_text()
     reader = str(reader or "")[:24]
+    issue_type = str(issue_type or "page_number").strip().lower()
+    if issue_type not in {"page_number", "text_error", "punctuation", "other"}:
+        issue_type = "other"
     source_ref = str(source_ref or "")[:500]
     page = str(page or "")[:32]
     with _connect() as conn:
         existing = None
-        if source_ref and page:
+        if corpus_page_id and source_ref:
             existing = conn.execute(
                 """
                 SELECT * FROM page_error_reports
-                WHERE status = 'open' AND reader = ? AND source_ref = ? AND page = ?
+                WHERE status = 'open' AND reader = ? AND issue_type = ?
+                  AND corpus_page_id = ? AND source_ref = ?
                 ORDER BY id DESC LIMIT 1
                 """,
-                (reader, source_ref, page),
+                (reader, issue_type, int(corpus_page_id), source_ref),
+            ).fetchone()
+        elif corpus_page_id:
+            existing = conn.execute(
+                """
+                SELECT * FROM page_error_reports
+                WHERE status = 'open' AND reader = ? AND issue_type = ? AND corpus_page_id = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (reader, issue_type, int(corpus_page_id)),
+            ).fetchone()
+        elif source_ref and page:
+            existing = conn.execute(
+                """
+                SELECT * FROM page_error_reports
+                WHERE status = 'open' AND reader = ? AND issue_type = ? AND source_ref = ? AND page = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (reader, issue_type, source_ref, page),
             ).fetchone()
         if existing is not None:
             conn.execute(
@@ -370,16 +415,21 @@ def create_page_error_report(
         cur = conn.execute(
             """
             INSERT INTO page_error_reports(
-                reader, book_title, volume_label, page, source_ref, citation_text, note,
+                reader, issue_type, book_title, volume_label, page, corpus_page_id, source_ref,
+                query_text, context_snippet, citation_text, note,
                 user_id, user_email, client_ip, user_agent, status, report_count, created_at, last_reported_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', 1, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', 1, ?, ?)
             """,
             (
                 reader,
+                issue_type,
                 str(book_title or "")[:200],
                 str(volume_label or "")[:200],
                 page,
+                int(corpus_page_id) if corpus_page_id else None,
                 source_ref,
+                str(query_text or "")[:300],
+                str(context_snippet or "")[:1000],
                 str(citation_text or "")[:600],
                 str(note or "")[:800],
                 (int(user_id) if user_id else None),

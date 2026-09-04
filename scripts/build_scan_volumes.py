@@ -247,6 +247,91 @@ def _append_xuanbian_series_specs() -> None:
 
 _append_xuanbian_series_specs()
 
+
+# 2026-08-02 第三批：《资本论》3 卷 + 《习近平著作选读》2 卷 + 《习近平党建文选》2 卷
+# + 5 种扫描的专题论述摘编/纲要。全部 GLM-4V 转录（sidecar 前缀＝_ocr_xuanbian_glm.py 的
+# SERIES 键），从 manifest 自动生成 spec，免硬编码 12 条。
+# 目录一律不在这里建（toc="refresh_printed" 只注入正文＋众数法印刷页码），随后由
+# scripts/build_newbooks12_toc.py 按三种版式分别解析印刷目录页覆盖之：
+#   ① 资本论＝第X篇/第X章/罗马数字节 多级目录；
+#   ② 著作选读/党建文选＝「篇名（日期）」篇章目录；
+#   ③ 论述摘编/学习纲要＝「一、专题名（页码）」专题级目录。
+# 文本层的三部（力戒形式主义 / 生态文明 / 作风建设）走 build_textbook_index，不在此列。
+def _append_newbooks12_specs() -> None:
+    import yaml
+
+    manifest = ROOT / "config" / "manifest.yaml"
+    data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+    series = {
+        "资本论": "ziben",
+        "习近平著作选读": "xuandu",
+        "习近平党建文选": "dangjian_wx",
+        "习近平关于全面依法治国论述摘编": "zb_yifa",
+        "习近平关于全面从严治党论述摘编": "zb_congyan",
+        "习近平关于科技创新论述摘编": "zb_keji",
+        "习近平关于全面深化改革论述摘编": "zb_gaige",
+        "习近平外交思想学习纲要": "gy_waijiao",
+        "论坚持党对一切工作的领导": "xi_lingdao",
+        "论党的宣传思想工作": "xi_xuanchuan",
+        "论中国共产党历史": "xi_dangshi",
+        "论把握新发展阶段、贯彻新发展理念、构建新发展格局": "xi_xinfazhan",
+        "论党的自我革命": "xi_ziwogeming",
+        "习近平关于党的群众路线教育实践活动论述摘编": "zb_qunzhong",
+        "习近平关于总体国家安全观论述摘编": "zb_anquan",
+        "习近平关于网络强国论述摘编": "zb_wangluo",
+        "习近平关于社会主义精神文明建设论述摘编": "zb_jingshen",
+        "习近平关于树立和践行正确政绩观论述摘编": "zb_zhengji",
+    }
+    for book, prefix in series.items():
+        for item in data.get(book, []) or []:
+            vol = item.get("volume")
+            if not isinstance(vol, int):
+                continue
+            VOLUMES.append({
+                "id": f"{prefix}_vol{vol:02d}",
+                "book": book,
+                "volume": vol,
+                "source_file": item["file"],
+                "sidecar": f"data/{prefix}_vol{vol:02d}_glm.jsonl",
+                "toc": "refresh_printed",
+                # 这批书的版心页码常与页眉排在同一行（「专题名 7」/「62 书名」）。
+                # 只认独立数字行的话检出点会稀疏一个数量级，而这批扫描件**有漏页**
+                # （实测《依法治国》缺印刷第 68、70 页，《党建文选》第二卷缺第 157、158 页），
+                # 稀疏检出点在漏页处两侧无法各自锚定，整段只能留空。全族打开；
+                # 该判据是「独立数字行找不到时」才试的兜底，且下游还有
+                # 「偏移支持度 ≥3 才采信」把关，误检进不了库。
+                "header_page_numbers": True,
+            })
+
+
+_append_newbooks12_specs()
+
+
+# 黑格尔著作集 8 部 16 册：mimo-v2.5 严格 JSON Schema 逐页转录，目录随后由
+# scripts/build_hegel_toc.py 从同一份保真转录中的印刷目录构建。这里仅注入正文、
+# 归一化检索文本和印刷页码，并回填可能存在的旧目录（正式目录会被后续脚本原子覆盖）。
+def _append_hegel_specs() -> None:
+    import yaml
+
+    catalog = ROOT / "config" / "hegel_volumes.yaml"
+    data = yaml.safe_load(catalog.read_text(encoding="utf-8")) or {}
+    for item in data.get("volumes") or []:
+        volume_id = str(item.get("id") or "").strip()
+        volume = item.get("volume")
+        if not volume_id or not isinstance(volume, int):
+            continue
+        VOLUMES.append({
+            "id": volume_id,
+            "book": str(item["book"]),
+            "volume": volume,
+            "source_file": str(item["file"]),
+            "sidecar": f"data/hegel/{volume_id}.jsonl",
+            "toc": "refresh_printed",
+        })
+
+
+_append_hegel_specs()
+
 # 篇首页特征：开头(去页码后)即「篇名（一九××年…日/月）」。日期可为时间段
 # （如「一九四一年四月十五日—六月十日」），尾部放宽到 12 字。
 _DATE = re.compile(
@@ -302,9 +387,45 @@ def detect_page_number_cn(text: str, page_count: int) -> int | None:
     return None
 
 
-def detect_page_number(text: str, page_count: int, cn_numerals: bool = False) -> int | None:
+# ---- 页眉行内页码（习近平专题论述摘编一族）----
+# 这一族书的版心 folio 不单独成行，而是**排在页眉那一行里**：
+#   单页（recto）「一、依法治国是……的本质要求和重要保障 7」  ← 专题名 + 页码
+#   双页（verso）「62 习近平关于全面依法治国论述摘编」        ← 页码 + 书名
+# 只认独立数字行的话，这类书 130—243 页里只有零星几十页能检出，其余全靠邻居外推；
+# 而这批扫描件**有漏页**（实测《依法治国》缺印刷第 68、70 页），外推在漏页处必然错，
+# 于是整段只能留空 —— 46/134 页没有页码，引文一半标不出页。改为直接读页眉里的数字后，
+# 检出点密度上一个数量级，漏页处也能各自锚定，两侧偏移各自正确。
+# 安全边界：只看首尾各 2 行、行长 ≤44、除数字外须有 ≥4 个汉字、数字必须贴在行首或行尾。
+# 误检仍会被下游「偏移支持度 ≥3 才采信」的判据滤掉。
+_HEAD_NUM_TAIL = re.compile(r"^(?P<txt>.*?[^\d\s])\s*(?P<num>\d{1,4})$")
+# Require a real separator after a leading folio, but allow the running title
+# itself to begin with a year (for example ``2 1841年初版序言``).  The
+# existing short-line and >=4 Han-character checks below remain in force.
+_HEAD_NUM_LEAD = re.compile(r"^(?P<num>\d{1,4})\s+(?P<txt>\S.*)$")
+
+
+def detect_page_number_header(text: str, page_count: int) -> int | None:
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for l in lines[:2] + lines[-2:]:
+        if len(l) > 44:
+            continue
+        for rx in (_HEAD_NUM_TAIL, _HEAD_NUM_LEAD):
+            m = rx.match(l)
+            if not m:
+                continue
+            if len(re.findall(r"[一-鿿]", m.group("txt"))) < 4:
+                continue
+            v = int(m.group("num"))
+            if 1 <= v <= page_count + 60:
+                return v
+    return None
+
+
+def detect_page_number(text: str, page_count: int, cn_numerals: bool = False,
+                       header_numerals: bool = False) -> int | None:
     """从页眉/页脚找独立数字行（前 3 行与后 3 行），返回印刷页码。
-    cn_numerals=True 时，阿拉伯数字找不到再试汉字数字（仅繁体旧版书需要）。"""
+    cn_numerals=True 时，阿拉伯数字找不到再试汉字数字（仅繁体旧版书需要）。
+    header_numerals=True 时，再试「页眉行内数字」（习近平专题论述摘编一族）。"""
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     if not lines:
         return None
@@ -316,6 +437,8 @@ def detect_page_number(text: str, page_count: int, cn_numerals: bool = False) ->
                 return v
     if cn_numerals:
         return detect_page_number_cn(text, page_count)
+    if header_numerals:
+        return detect_page_number_header(text, page_count)
     return None
 
 
@@ -340,12 +463,33 @@ def build_rows(spec: dict, texts: dict[int, str]) -> tuple[list[tuple], str]:
     n = max(texts) if texts else 0
 
     cn_numerals = bool(spec.get("cn_page_numbers"))
+    header_numerals = bool(spec.get("header_page_numbers"))
     detections: list[tuple[int, int]] = []
     for i in range(1, n + 1):
-        v = detect_page_number(texts.get(i, ""), n, cn_numerals)
+        v = detect_page_number(texts.get(i, ""), n, cn_numerals, header_numerals)
         if v is not None:
             detections.append((i, v))
 
+    # 邻居一致性过滤：偏移与**前后两个检测点都不同**的孤立检测点一律丢弃。
+    # 起因：《党建文选》第二卷因扫描漏页而存在 10 和 8 两段偏移，两个偏移在全卷都
+    # 「有 ≥3 页支持」，于是 pdf346 把印刷的 338 误认成 336（恰好落在另一段的偏移上）
+    # 而通过了支持度判据 —— 重号 336、引文整整错 2 页。真正的分段切换处，新偏移会被
+    # **后一个**检测点认同，故不会被这条规则误伤；孤立的误读则前后都不认，稳稳被剔掉。
+    if len(detections) >= 3:
+        kept: list[tuple[int, int]] = []
+        for k, (i, v) in enumerate(detections):
+            off = i - v
+            prev_off = detections[k - 1][0] - detections[k - 1][1] if k > 0 else None
+            next_off = detections[k + 1][0] - detections[k + 1][1] if k + 1 < len(detections) else None
+            if prev_off is not None and next_off is not None and off != prev_off and off != next_off:
+                continue
+            kept.append((i, v))
+        dropped = len(detections) - len(kept)
+        detections = kept
+    else:
+        dropped = 0
+
+    det_map = dict(detections)
     offsets = Counter(i - v for i, v in detections)
     # 判定「是否恒定偏移」时，只把**得到 ≥3 页支持的偏移**计入分母。
     # 起因：《斯大林全集》页码印成汉字，OCR 会系统性丢位——三位数「一二三」读成「二三」
@@ -391,7 +535,11 @@ def build_rows(spec: dict, texts: dict[int, str]) -> tuple[list[tuple], str]:
         if const_offset is not None:
             printed = str(i - const_offset) if i - const_offset >= 1 else None
         else:
-            v = detect_page_number(raw, n, cn_numerals)
+            # 取**过滤后**的检测点，不要在这里重新 detect 一遍：重新检测会把上面刚被
+            # 「前后都不认」判掉的孤立误读原样放回来（《党建文选》卷二 pdf346 把印刷的
+            # 338 读成 336，因本卷同时存在 8 和 10 两段偏移，仅凭支持度判据拦不住，
+            # 于是重号 336、引文错 2 页）。
+            v = det_map.get(i)
             # 只采信「偏移得到 ≥3 页支持」的检测；孤立点多是 OCR 误读（汉字页码丢位尤甚），
             # 写进去就是一个错页码，不如留空交给下面的邻居偏移补全。
             if v is not None and offsets[i - v] < 3:
@@ -426,6 +574,8 @@ def build_rows(spec: dict, texts: dict[int, str]) -> tuple[list[tuple], str]:
                 rows[idx] = (b, v_, sf, i, str(i - off), raw, norm)
                 filled += 1
         strategy += f"，邻居偏移补全 {filled} 页"
+    if dropped:
+        strategy += f"（另剔除 {dropped} 个前后都不认的孤立误读）"
     return rows, strategy
 
 

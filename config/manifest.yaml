@@ -974,3 +974,373 @@
 - file: pdfs/陈云年谱/陈云年谱_下卷.pdf
   volume: 3
   display_title: 陈云年谱（下卷 1959—1995）
+
+# ---- 2026-08-02 新增 15 部（12 个书库）----
+# 《资本论》三卷「马克思诞辰 200 周年纪念版」（人民出版社）：高清扫描件无文本层，
+# 走 GLM-4V OCR + RapidOCR 兜底。文件原名是图书馆流水号（14430290/14430311/14430300），
+# 卷序按扉页「第一卷/第二卷/第三卷」核对后重命名，勿按流水号大小推断。
+资本论:
+- file: pdfs/资本论/资本论_第1卷.pdf
+  volume: 1
+  display_title: 资本论（第一卷）
+- file: pdfs/资本论/资本论_第2卷.pdf
+  volume: 2
+  display_title: 资本论（第二卷）
+- file: pdfs/资本论/资本论_第3卷.pdf
+  volume: 3
+  display_title: 资本论（第三卷）
+习近平著作选读:
+- file: pdfs/习近平著作选读/习近平著作选读_第1卷.pdf
+  volume: 1
+  display_title: 习近平著作选读（第一卷）
+- file: pdfs/习近平著作选读/习近平著作选读_第2卷.pdf
+  volume: 2
+  display_title: 习近平著作选读（第二卷）
+习近平党建文选:
+- file: pdfs/习近平党建文选/习近平党建文选_第1卷.pdf
+  volume: 1
+  display_title: 习近平党建文选（第一卷）
+- file: pdfs/习近平党建文选/习近平党建文选_第2卷.pdf
+  volume: 2
+  display_title: 习近平党建文选（第二卷）
+# 习近平专题论述 8 种单卷本（7 部论述摘编/选编 + 1 部学习纲要），同放 pdfs/习近平专题论述/。
+# 文本层可用者 3 部（力戒形式主义 / 生态文明 / 作风建设），其余 5 部为扫描件走 OCR。
+习近平关于全面依法治国论述摘编:
+- file: pdfs/习近平专题论述/习近平关于全面依法治国论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于全面依法治国论述摘编
+习近平关于全面从严治党论述摘编:
+- file: pdfs/习近平专题论述/习近平关于全面从严治党论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于全面从严治党论述摘编
+习近平关于科技创新论述摘编:
+- file: pdfs/习近平专题论述/习近平关于科技创新论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于科技创新论述摘编
+习近平关于全面深化改革论述摘编:
+- file: pdfs/习近平专题论述/习近平关于全面深化改革论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于全面深化改革论述摘编
+习近平关于社会主义生态文明建设论述摘编:
+- file: pdfs/习近平专题论述/习近平关于社会主义生态文明建设论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于社会主义生态文明建设论述摘编
+习近平关于力戒形式主义官僚主义重要论述选编:
+- file: pdfs/习近平专题论述/习近平关于力戒形式主义官僚主义重要论述选编.pdf
+  volume: 1
+  display_title: 习近平关于力戒形式主义官僚主义重要论述选编
+习近平关于加强党的作风建设论述摘编:
+- file: pdfs/习近平专题论述/习近平关于加强党的作风建设论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于加强党的作风建设论述摘编
+习近平外交思想学习纲要:
+- file: pdfs/习近平专题论述/习近平外交思想学习纲要.pdf
+  volume: 1
+  display_title: 习近平外交思想学习纲要
+论坚持党对一切工作的领导:
+- file: pdfs/习近平专题论述/论坚持党对一切工作的领导.pdf
+  volume: 1
+  display_title: 论坚持党对一切工作的领导
+论党的宣传思想工作:
+- file: pdfs/习近平专题论述/论党的宣传思想工作.pdf
+  volume: 1
+  display_title: 论党的宣传思想工作
+论中国共产党历史:
+- file: pdfs/习近平专题论述/论中国共产党历史.pdf
+  volume: 1
+  display_title: 论中国共产党历史
+论把握新发展阶段、贯彻新发展理念、构建新发展格局:
+- file: pdfs/习近平专题论述/论把握新发展阶段、贯彻新发展理念、构建新发展格局.pdf
+  volume: 1
+  display_title: 论把握新发展阶段、贯彻新发展理念、构建新发展格局
+论党的自我革命:
+- file: pdfs/习近平专题论述/论党的自我革命.pdf
+  volume: 1
+  display_title: 论党的自我革命
+习近平关于党的群众路线教育实践活动论述摘编:
+- file: pdfs/习近平专题论述/习近平关于党的群众路线教育实践活动论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于党的群众路线教育实践活动论述摘编
+习近平关于总体国家安全观论述摘编:
+- file: pdfs/习近平专题论述/习近平关于总体国家安全观论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于总体国家安全观论述摘编
+习近平关于网络强国论述摘编:
+- file: pdfs/习近平专题论述/习近平关于网络强国论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于网络强国论述摘编
+习近平关于社会主义精神文明建设论述摘编:
+- file: pdfs/习近平专题论述/习近平关于社会主义精神文明建设论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于社会主义精神文明建设论述摘编
+习近平关于树立和践行正确政绩观论述摘编:
+- file: pdfs/习近平专题论述/习近平关于树立和践行正确政绩观论述摘编.pdf
+  volume: 1
+  display_title: 习近平关于树立和践行正确政绩观论述摘编
+
+# ---- 2026-08-15 黑格尔著作集（商务印书馆 2017 年 120 周年纪念版）----
+黑格尔早期神学著作:
+- file: 'pdfs/黑格尔全集/14456906.pdf'
+  volume: 1
+  display_title: 黑格尔早期神学著作
+黑格尔精神现象学:
+- file: 'pdfs/黑格尔全集/精神现象学  上_14456946.pdf'
+  volume: 1
+  display_title: 精神现象学（上卷）
+- file: 'pdfs/黑格尔全集/精神现象学  下_14456942.pdf'
+  volume: 2
+  display_title: 精神现象学（下卷）
+黑格尔逻辑学:
+- file: 'pdfs/黑格尔全集/14456905.pdf'
+  volume: 1
+  display_title: 逻辑学（上卷）
+- file: 'pdfs/黑格尔全集/14456793.pdf'
+  volume: 2
+  display_title: 逻辑学（下卷）
+黑格尔小逻辑:
+- file: 'pdfs/黑格尔全集/小逻辑_14456833.pdf'
+  volume: 1
+  display_title: 小逻辑
+黑格尔自然哲学:
+- file: 'pdfs/黑格尔全集/自然哲学_14456846.pdf'
+  volume: 1
+  display_title: 自然哲学
+黑格尔法哲学原理:
+- file: 'pdfs/黑格尔全集/14456896_法哲学原理  或自然法和国家学纲要_p410.pdf'
+  volume: 1
+  display_title: 法哲学原理（或自然法和国家学纲要）
+黑格尔美学:
+- file: 'pdfs/黑格尔全集/《美学 第1卷》14456978.pdf'
+  volume: 1
+  display_title: 美学（第一卷）
+- file: 'pdfs/黑格尔全集/《美学 第2卷》14456977.pdf'
+  volume: 2
+  display_title: 美学（第二卷）
+- file: 'pdfs/黑格尔全集/《美学 第3卷 上_14456976.pdf'
+  volume: 3
+  display_title: 美学（第三卷·上册）
+- file: 'pdfs/黑格尔全集/美学 第3卷 下_14456832.pdf'
+  volume: 4
+  display_title: 美学（第三卷·下册）
+黑格尔哲学史讲演录:
+- file: 'pdfs/黑格尔全集/哲学史讲演录  第1卷_14456804.pdf'
+  volume: 1
+  display_title: 哲学史讲演录（第一卷）
+- file: 'pdfs/黑格尔全集/哲学史讲演录  第2卷_14456803.pdf'
+  volume: 2
+  display_title: 哲学史讲演录（第二卷）
+- file: 'pdfs/黑格尔全集/哲学史讲演录  第3卷_14456802.pdf'
+  volume: 3
+  display_title: 哲学史讲演录（第三卷）
+- file: 'pdfs/黑格尔全集/哲学史讲演录  第4卷_14456801.pdf'
+  volume: 4
+  display_title: 哲学史讲演录（第四卷）
+
+# ---- 2026-08-17 康德《著作全集》现有 8 册（原第 1—5、7—9 卷）----
+康德前批判时期著作:
+- file: pdfs/康德全集/13356399.pdf
+  volume: 1
+  display_title: 前批判时期著作 I（1747—1756）
+- file: pdfs/康德全集/13356400.pdf
+  volume: 2
+  display_title: 前批判时期著作 II（1757—1777）
+康德纯粹理性批判（第2版）:
+- file: pdfs/康德全集/13356401.pdf
+  volume: 1
+  display_title: 纯粹理性批判（第2版）
+康德纯粹理性批判（第1版）等:
+- file: pdfs/康德全集/13356402.pdf
+  volume: 1
+  display_title: 纯粹理性批判（第1版）·未来形而上学导论·道德形而上学的奠基·自然科学的形而上学初始根据
+康德实践理性批判与判断力批判:
+- file: pdfs/康德全集/13356403.pdf
+  volume: 1
+  display_title: 实践理性批判·判断力批判
+康德学科之争与实用人类学:
+- file: pdfs/康德全集/13356405.pdf
+  volume: 1
+  display_title: 学科之争·实用人类学
+康德1781年之后的论文:
+- file: pdfs/康德全集/13356406.pdf
+  volume: 1
+  display_title: 1781年之后的论文
+康德逻辑学自然地理学教育学:
+- file: pdfs/康德全集/13356407.pdf
+  volume: 1
+  display_title: 逻辑学·自然地理学·教育学
+
+# ---- 2026-08-17 商务印书馆《费尔巴哈文集》11 卷 ----
+费尔巴哈从培根到斯宾诺莎的近代哲学史:
+- file: pdfs/费尔巴哈/费尔巴哈文集 第01卷 从培根到斯宾诺莎的近代哲学史__15211644.pdf
+  volume: 1
+  display_title: 从培根到斯宾诺莎的近代哲学史
+费尔巴哈对莱布尼茨哲学的叙述分析和批判:
+- file: pdfs/费尔巴哈/15219149.pdf
+  volume: 1
+  display_title: 对莱布尼茨哲学的叙述、分析和批判
+费尔巴哈比埃尔培尔对哲学史和人类史的贡献:
+- file: pdfs/费尔巴哈/15230144.pdf
+  volume: 1
+  display_title: 比埃尔·培尔对哲学史和人类史的贡献
+费尔巴哈基督教的本质:
+- file: pdfs/费尔巴哈/15448552.pdf
+  volume: 1
+  display_title: 基督教的本质
+费尔巴哈宗教的本质:
+- file: pdfs/费尔巴哈/9787100201537.pdf
+  volume: 1
+  display_title: 宗教的本质
+费尔巴哈宗教本质讲演录:
+- file: pdfs/费尔巴哈/费尔巴哈文集 宗教本质讲演录---15225360.pdf
+  volume: 1
+  display_title: 宗教本质讲演录
+费尔巴哈从人本学观点论不死问题:
+- file: pdfs/费尔巴哈/从人本学观点论不死问题----15271450.pdf
+  volume: 1
+  display_title: 从人本学观点论不死问题
+费尔巴哈论唯灵主义和唯物主义:
+- file: pdfs/费尔巴哈/15195960.pdf
+  volume: 1
+  display_title: 论唯灵主义和唯物主义——特别是从意志自由方面着眼
+费尔巴哈幸福论:
+- file: pdfs/费尔巴哈/15195079.pdf
+  volume: 1
+  display_title: 幸福论
+费尔巴哈未来哲学原理:
+- file: pdfs/费尔巴哈/15193289.pdf
+  volume: 1
+  display_title: 未来哲学原理
+费尔巴哈哲学短篇集:
+- file: pdfs/费尔巴哈/15211645.pdf
+  volume: 1
+  display_title: 哲学短篇集
+公共领域的结构转型:
+- file: pdfs/西马文库/10393408.pdf
+  volume: 1
+西方左派图绘:
+- file: pdfs/西马文库/10653139.pdf
+  volume: 1
+科耶夫的新拉丁帝国:
+- file: pdfs/西马文库/12157847.pdf
+  volume: 1
+交锋地带:
+- file: pdfs/西马文库/12182380.pdf
+  volume: 1
+理论之后:
+- file: pdfs/西马文库/12325172理论之后.pdf
+  volume: 1
+思想的谱系:
+- file: pdfs/西马文库/13196503.pdf
+  volume: 1
+瓦尔特·本雅明或走向革命批评:
+- file: pdfs/西马文库/13815859_251.pdf
+  volume: 1
+绝对主义国家的系谱:
+- file: pdfs/西马文库/14018674.pdf
+  volume: 1
+从古代到封建主义的过渡:
+- file: pdfs/西马文库/14029254.pdf
+  volume: 1
+马克思主义与形式:
+- file: pdfs/西马文库/14419481_马克思主义与形式_p407.pdf
+  volume: 1
+马克思为什么是对的:
+- file: pdfs/西马文库/14427881.pdf
+  volume: 1
+政治无意识:
+- file: pdfs/西马文库/14452283.pdf
+  volume: 1
+文化:
+- file: pdfs/西马文库/14497119.pdf
+  volume: 1
+地理学中的解释:
+- file: pdfs/西马文库/14509406.pdf
+  volume: 1
+论再生产:
+- file: pdfs/西马文库/14703570.pdf
+  volume: 1
+黑格尔导读:
+- file: pdfs/西马文库/15001365.pdf
+  volume: 1
+论牺牲:
+- file: pdfs/西马文库/15027820.pdf
+  volume: 1
+知觉现象学:
+- file: pdfs/西马文库/15038883  81.pdf
+  volume: 1
+批评与意识形态:
+- file: pdfs/西马文库/15125747.pdf
+  volume: 1
+唯物主义:
+- file: pdfs/西马文库/15261525.pdf
+  volume: 1
+存在与时间:
+- file: pdfs/西马文库/_14608212(2).pdf
+  volume: 1
+新自由主义简史:
+- file: pdfs/西马文库/s  睿文馆  新自由主义简史_13964335.pdf
+  volume: 1
+美学与政治:
+- file: pdfs/西马文库/《美学与政治》_15644487.pdf
+  volume: 1
+一切坚固的东西都烟消云散了:
+- file: pdfs/西马文库/一切坚固的东西都烟消云散了  现代性体验_13489362.pdf
+  volume: 1
+二十世纪西方文学理论:
+- file: pdfs/西马文库/二十世纪西方文学理论  纪念版=TERRY  EAGLETON  LITERARY  THEORY  AN  INTRODUCTION  ANNIVERSARY  EDITION_14588637.pdf
+  volume: 1
+当代西方马克思主义:
+- file: pdfs/西马文库/当代西方马克思主义_10478782.pdf
+  volume: 1
+后现代主义或晚期资本主义的文化逻辑:
+- file: pdfs/西马文库/后现代主义或晚期资本主义的文化逻辑_10514792.pdf
+  volume: 1
+后现代主义的幻象:
+- file: pdfs/西马文库/后现代主义的幻象 81_13492822.pdf
+  volume: 1
+后现代的状况:
+- file: pdfs/西马文库/后现代的状况_13453971.pdf
+  volume: 1
+否定辩证法:
+- file: pdfs/西马文库/否定辩证法14675182.pdf
+  volume: 1
+存在与虚无:
+- file: pdfs/西马文库/存在与虚无  修订译本_13612339.pdf
+  volume: 1
+存在主义是一种人道主义:
+- file: pdfs/西马文库/存在主义是一种人道主义=EXISTENTIALISME EST UN HUMANISME_13090839.pdf
+  volume: 1
+希望的空间:
+- file: pdfs/西马文库/希望的空间_11649545.pdf
+  volume: 1
+文学阅读指南:
+- file: pdfs/西马文库/文学阅读指南_13827473.pdf
+  volume: 1
+新帝国主义:
+- file: pdfs/西马文库/新帝国主义_14536023(1).pdf
+  volume: 1
+日常生活批判:
+- file: pdfs/西马文库/日常生活批判 第一卷 概论_14407722.pdf
+  volume: 1
+  display_title: 日常生活批判（第一卷）
+- file: pdfs/西马文库/日常生活批判 第二卷 日常生活社会学基础_14407720.pdf
+  volume: 2
+  display_title: 日常生活批判（第二卷）
+- file: pdfs/西马文库/日常生活批判  第三卷  从现代化到现代主义（关于日常生活的哲学）_14407721.pdf
+  volume: 3
+  display_title: 日常生活批判（第三卷）
+景观社会:
+- file: pdfs/西马文库/景观社会=La societe du spectacle_14271688.pdf
+  volume: 1
+社会正义与城市:
+- file: pdfs/西马文库/社会正义与城市_15203994.pdf
+  volume: 1
+读资本论（第2版）:
+- file: pdfs/西马文库/读  资本论  第2版_14228606.pdf
+  volume: 1
+资本的城市化:
+- file: pdfs/西马文库/资本的城市化  资本主义城市化的历史与理论研究=The urbanization of capital studies in the history and theory of capitalist urbanization_14284932.pdf
+  volume: 1
+资本的限度:
+- file: pdfs/西马文库/资本的限度_14289781.pdf
+  volume: 1

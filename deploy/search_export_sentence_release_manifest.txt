@@ -1,0 +1,7 @@
+# Complete-sentence export hotfix only.  Build and apply this allowlist against
+# a freshly verified production baseline; never substitute a broad site list.
+search.py
+search_exports.py
+scripts/citation_assistant_worker.py
+deploy/search_export_sentence_release_manifest.txt
+tests/test_search_exports.py

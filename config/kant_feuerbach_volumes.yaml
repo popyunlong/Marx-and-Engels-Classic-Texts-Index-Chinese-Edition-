@@ -1,0 +1,180 @@
+schema: kant-feuerbach-mimo-catalog-v1
+model: mimo-v2.5
+prompt_version: philosophy-faithful-transcription-v1
+expected_files: 19
+expected_pages: 6940
+volumes:
+- id: kant-precritical-1
+  series_volume: 1
+  book: 康德前批判时期著作
+  volume: 1
+  display_title: 前批判时期著作 I（1747—1756）
+  file: pdfs/康德全集/13356399.pdf
+  pages: 510
+  sha256: 691de60f3b91008102970b60e3f914bf802ece3634cce779780ab5389c779abd
+  pilot_pages: [3, 4, 255]
+- id: kant-precritical-2
+  series_volume: 2
+  book: 康德前批判时期著作
+  volume: 2
+  display_title: 前批判时期著作 II（1757—1777）
+  file: pdfs/康德全集/13356400.pdf
+  pages: 479
+  sha256: ff7b30d6d8343d2d7fb49018d1b5c9cd583eea86ba4ef70e0c2ed0c6be4d2eb1
+  pilot_pages: [3, 4, 240]
+- id: kant-pure-reason-second
+  series_volume: 3
+  book: 康德纯粹理性批判（第2版）
+  volume: 1
+  display_title: 纯粹理性批判（第2版）
+  file: pdfs/康德全集/13356401.pdf
+  pages: 561
+  sha256: db892528ae5c07beabdbcd22a545fa1791cf22318bd2ad231212fce06b1f4eba
+  pilot_pages: [3, 4, 281]
+- id: kant-pure-reason-first-essays
+  series_volume: 4
+  book: 康德纯粹理性批判（第1版）等
+  volume: 1
+  display_title: 纯粹理性批判（第1版）·未来形而上学导论·道德形而上学的奠基·自然科学的形而上学初始根据
+  file: pdfs/康德全集/13356402.pdf
+  pages: 595
+  sha256: 13f5e8ebbde2482a95a3e71970ee3eff59c4fe7744067e3f8cca43035716e2e5
+  pilot_pages: [3, 4, 298]
+- id: kant-practical-judgment
+  series_volume: 5
+  book: 康德实践理性批判与判断力批判
+  volume: 1
+  display_title: 实践理性批判·判断力批判
+  file: pdfs/康德全集/13356403.pdf
+  pages: 525
+  sha256: 5e5b33248e6964aab496284610af3fbf31e51b65f8dbc062a8ca39da82b7cb83
+  pilot_pages: [3, 4, 263]
+- id: kant-conflict-anthropology
+  series_volume: 7
+  book: 康德学科之争与实用人类学
+  volume: 1
+  display_title: 学科之争·实用人类学
+  file: pdfs/康德全集/13356405.pdf
+  pages: 345
+  sha256: f67259265a94d0b17eb342fab0e477d9546064dbd654b0439230682db0b6c52d
+  pilot_pages: [3, 4, 173]
+  # The ten-page printed directory is numbered 1-10; the first work then
+  # visibly restarts at printed page 001 on physical PDF page 14.
+  printed_page_resets: [14]
+- id: kant-post-1781-essays
+  series_volume: 8
+  book: 康德1781年之后的论文
+  volume: 1
+  display_title: 1781年之后的论文
+  file: pdfs/康德全集/13356406.pdf
+  pages: 492
+  sha256: 06ea2167fa6ae6ab18bb9b67d39b3fbb76f96c732294fa871de316a6417b67cb
+  pilot_pages: [3, 4, 246]
+- id: kant-logic-geography-education
+  series_volume: 9
+  book: 康德逻辑学自然地理学教育学
+  volume: 1
+  display_title: 逻辑学·自然地理学·教育学
+  file: pdfs/康德全集/13356407.pdf
+  pages: 519
+  sha256: 1128b9d1a083ab39e3300a22bf37e54e0a18c8b2498183138e36d3aa1c3a121b
+  pilot_pages: [3, 4, 260]
+- id: feuerbach-modern-philosophy
+  series_volume: 1
+  book: 费尔巴哈从培根到斯宾诺莎的近代哲学史
+  volume: 1
+  display_title: 从培根到斯宾诺莎的近代哲学史
+  file: pdfs/费尔巴哈/费尔巴哈文集 第01卷 从培根到斯宾诺莎的近代哲学史__15211644.pdf
+  pages: 413
+  sha256: b5d1d804106016fc20a641264f0f8a4fd322deceda2a3c9d69c0be1d0a1bb38a
+  pilot_pages: [3, 6, 207]
+- id: feuerbach-leibniz
+  series_volume: 2
+  book: 费尔巴哈对莱布尼茨哲学的叙述分析和批判
+  volume: 1
+  display_title: 对莱布尼茨哲学的叙述、分析和批判
+  file: pdfs/费尔巴哈/15219149.pdf
+  pages: 390
+  sha256: a871a84dfa00af3f4533c04d1de23f65b7f6aa5965b7cc1d1c4090d1e07cb151
+  pilot_pages: [3, 6, 195]
+- id: feuerbach-bayle
+  series_volume: 3
+  book: 费尔巴哈比埃尔培尔对哲学史和人类史的贡献
+  volume: 1
+  display_title: 比埃尔·培尔对哲学史和人类史的贡献
+  file: pdfs/费尔巴哈/15230144.pdf
+  pages: 374
+  sha256: 36031ea1f6978d20a85335811145a663411a1e82051cd8aabc0cba5221fa3a73
+  pilot_pages: [3, 6, 187]
+- id: feuerbach-christianity
+  series_volume: 4
+  book: 费尔巴哈基督教的本质
+  volume: 1
+  display_title: 基督教的本质
+  file: pdfs/费尔巴哈/15448552.pdf
+  pages: 500
+  sha256: 7af9f62b9ffb48deb394dd1f9ad92c3145858c5a6b89ff3b601454f15621354b
+  pilot_pages: [4, 6, 250]
+- id: feuerbach-religion
+  series_volume: 5
+  book: 费尔巴哈宗教的本质
+  volume: 1
+  display_title: 宗教的本质
+  file: pdfs/费尔巴哈/9787100201537.pdf
+  pages: 87
+  sha256: aee4cfc5a2d49b0253923770600868ad4e091d37cb7ffe6ea0d8c9b70b9a2530
+  pilot_pages: [4, 6, 44]
+- id: feuerbach-religion-lectures
+  series_volume: 6
+  book: 费尔巴哈宗教本质讲演录
+  volume: 1
+  display_title: 宗教本质讲演录
+  file: pdfs/费尔巴哈/费尔巴哈文集 宗教本质讲演录---15225360.pdf
+  pages: 410
+  sha256: c469bc0e653fc0faf463ace333da050f392b999572d67ff8746e50c55806f380
+  pilot_pages: [4, 6, 205]
+- id: feuerbach-immortality
+  series_volume: 7
+  book: 费尔巴哈从人本学观点论不死问题
+  volume: 1
+  display_title: 从人本学观点论不死问题
+  file: pdfs/费尔巴哈/从人本学观点论不死问题----15271450.pdf
+  pages: 189
+  sha256: f068a4cd1f79d0942039fbb56a752d363600be23d4e8f711e25f599d832248b7
+  pilot_pages: [4, 6, 95]
+- id: feuerbach-spiritualism-materialism
+  series_volume: 8
+  book: 费尔巴哈论唯灵主义和唯物主义
+  volume: 1
+  display_title: 论唯灵主义和唯物主义——特别是从意志自由方面着眼
+  file: pdfs/费尔巴哈/15195960.pdf
+  pages: 163
+  sha256: 0f216c976d68a5851139a5fae59b81443f9e6975b47d45b7d92f65237965980a
+  pilot_pages: [3, 6, 82]
+- id: feuerbach-happiness
+  series_volume: 9
+  book: 费尔巴哈幸福论
+  volume: 1
+  display_title: 幸福论
+  file: pdfs/费尔巴哈/15195079.pdf
+  pages: 87
+  sha256: b029788440df1a946551bde768555ca49a64e19e0d110ea71004fec86c781e32
+  pilot_pages: [3, 6, 44]
+- id: feuerbach-future-philosophy
+  series_volume: 10
+  book: 费尔巴哈未来哲学原理
+  volume: 1
+  display_title: 未来哲学原理
+  file: pdfs/费尔巴哈/15193289.pdf
+  pages: 89
+  sha256: 0787ad53128b8af13c2431bd0eb65d42442341683352048c0fbee8ea665b63be
+  pilot_pages: [3, 6, 45]
+- id: feuerbach-philosophical-essays
+  series_volume: 11
+  book: 费尔巴哈哲学短篇集
+  volume: 1
+  display_title: 哲学短篇集
+  file: pdfs/费尔巴哈/15211645.pdf
+  pages: 212
+  sha256: cd691d845fe2222f3f6368837ec363451bc8e72b78c43a9da9ae52df10a69dc8
+  pilot_pages: [3, 6, 106]

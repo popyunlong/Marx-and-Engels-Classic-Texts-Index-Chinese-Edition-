@@ -85,15 +85,17 @@ books:
       - { n: 55, label: "Том 55 (Письма к родным 1893 – 1922)", index: "55/index.html", year: 1975 }
 
   - key: mega
-    title_zh: 马克思恩格斯《全集》历史考证版（MEGA²·第二部分）
+    title_zh: 马克思恩格斯《全集》历史考证版（MEGA²·第二部分旧版精选）
     title_ru: "Karl Marx · Friedrich Engels: Gesamtausgabe (MEGA²), Zweite Abteilung"
-    short_title: MEGA²
+    short_title: MEGA²旧版精选
     lang: de
     badge: DE
     # 内部备注（不对客户显示）：MEGA 德文文本系扫描件数字化，未经德文校订，准确性以原书为准；勿在 desc 等客户可见处写明转换来源。
-    desc: 德文原文 · 历史考证版（MEGA²）第二部分：《资本论》及其手稿 · 内嵌原书页码，可生成规范引文
+    desc: 既有旧版精选文字本 · MEGA²第二部分5卷：《资本论》及其手稿 · 内嵌原书页码，可生成规范引文
     folder: mega
     serve_prefix: /wenku/raw/mega
+    # 已由 mega-full 全量覆盖：从公共书目隐藏，但保留旧阅读器/raw URL 兼容既有书签。
+    catalog_hidden: true
     citation:
       author_zh: "马克思, 恩格斯"
       author_de: "Marx K., Engels F."
@@ -108,6 +110,139 @@ books:
       - { n: 10, label: "II/10: Das Kapital, Erster Band (Hamburg 1890)", index: "10/index.html", year: 1991, vol_zh: "第II部分第10卷", vol_de: "Abt. II, Bd. 10", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
       - { n: 13, label: "II/13: Das Kapital, Zweiter Band (Druckfassung 1885)", index: "13/index.html", year: 2008, vol_zh: "第II部分第13卷", vol_de: "Abt. II, Bd. 13", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
       - { n: 15, label: "II/15: Das Kapital, Dritter Band (Druckfassung 1894)", index: "15/index.html", year: 2004, vol_zh: "第II部分第15卷", vol_de: "Abt. II, Bd. 15", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+
+  # 发布准备：HTML 由 scripts/build_stream_mega2.py 原子生成至 static_library/mega-full/；
+  # 目录尚未生成时，static_library_web.load_books() 会按 folder 实存性隐藏这两个条目。
+  - key: mega-full
+    title_zh: "马克思恩格斯《全集》历史考证版（MEGA² / MEGA¹）"
+    title_ru: "Karl Marx · Friedrich Engels: Gesamtausgabe (MEGA² / MEGA¹)"
+    short_title: "MEGA 全卷集"
+    lang: de
+    badge: MEGA
+    desc: "MEGA²与MEGA¹历史考证版原文 · 63册原典＋1册研究导论 · 分卷标注德文、英文、法文或中文 · 内嵌原书页码，可生成规范引文"
+    volume_count_label: "63册原典＋1册研究导论"
+    folder: mega-full
+    serve_prefix: /wenku/raw/mega-full
+    # MEGA 的英/法/德卷都保留印本页锚；外文划词浮层同时提供翻译、引用与笔记。
+    has_page_labels: true
+    selection_citation: true
+    translation_enabled: true
+    citation:
+      author_zh: "马克思, 恩格斯"
+      author_de: "Marx K., Engels F."
+      work_zh: "马克思恩格斯全集：历史考证版（MEGA）"
+      work_de: "Marx-Engels-Gesamtausgabe (MEGA)"
+      alt_label: "原文版式"
+      tpl_zh: "{author_zh}. {work_zh}：{vol_zh}[M]. {publisher_zh}，{year}：{page}."
+      tpl_alt: "{author_de} {work_de}. {vol_de}. {publisher_de}, {year}. {page_prefix} {page}."
+    volumes:
+      - n: 0
+        source_id: "mega2-research-editing-history-zh"
+        tag: "研究导论"
+        nav_group: "研究导论"
+        title_zh: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究"
+        label: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究"
+        # 研究导论采用单篇连续全文；旧的自动分节目录仅保留为内部审计产物。
+        index: "mega2-research-editing-history-zh/full.html"
+        single_document: true
+        lang: "zh"
+        year: 2002
+        vol_zh: "研究导论"
+        publisher_zh: "中央编译出版社"
+        has_page_labels: true
+        selection_citation: true
+        translation_enabled: false
+        citation:
+          author_zh: "罗燕明"
+          book_title_zh: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究"
+          publisher_zh: "中央编译出版社"
+          alt_label: "中文原版式"
+          tpl_zh: "{author_zh}. {book_title_zh}[M]. {publisher_zh}，{year}：{page}."
+      - { n: 1, source_id: "mega2-i-1", tag: "MEGA² I/1", nav_group: "MEGA² 第一部分：著作、文章和草稿", label: "MEGA² I/1: Karl Marx. Artikel, Literarische, Versuche. bis März 1843", index: "mega2-i-1/index.html", lang: "de", year: 1975, vol_zh: "MEGA²第I部分第1卷", vol_de: "MEGA² Abt. I, Bd. 1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 2, source_id: "mega2-i-2", tag: "MEGA² I/2", label: "MEGA² I/2: Karl Marx. Artikel, Entwürfe. März 1843 bis August 1844", index: "mega2-i-2/index.html", lang: "de", year: 1982, vol_zh: "MEGA²第I部分第2卷", vol_de: "MEGA² Abt. I, Bd. 2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 3, source_id: "mega2-i-10", tag: "MEGA² I/10", label: "MEGA² I/10: Karl Marx. Artikel, Entwürfe. Juli 1849 bis Juni 1851", index: "mega2-i-10/index.html", lang: "de", year: 1977, vol_zh: "MEGA²第I部分第10卷", vol_de: "MEGA² Abt. I, Bd. 10", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 4, source_id: "mega2-i-11", tag: "MEGA² I/11", label: "MEGA² I/11: Karl Marx. Artikel, Entwürfe. Juli 1851 bis Dezember 1852", index: "mega2-i-11/index.html", lang: "de", year: 1985, vol_zh: "MEGA²第I部分第11卷", vol_de: "MEGA² Abt. I, Bd. 11", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 5, source_id: "mega2-i-12", tag: "MEGA² I/12", label: "MEGA² I/12: Karl Marx. Artikel, Entwürfe. Januar bis Dezember 1853", index: "mega2-i-12/index.html", lang: "en", year: 1984, vol_zh: "MEGA²第I部分第12卷", vol_de: "MEGA² Abt. I, Bd. 12", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 6, source_id: "mega2-i-13", tag: "MEGA² I/13", label: "MEGA² I/13: Karl Marx. Artikel, Entwürfe. Januar bis Dezember 1854", index: "mega2-i-13/index.html", lang: "en", year: 1985, vol_zh: "MEGA²第I部分第13卷", vol_de: "MEGA² Abt. I, Bd. 13", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 7, source_id: "mega2-i-14", tag: "MEGA² I/14", label: "MEGA² I/14: Karl Marx. Friedrich Engels. Werke, Artikel, Entwürfe. Januar bis Dezember 1855", index: "mega2-i-14/index.html", lang: "de", year: 2001, vol_zh: "MEGA²第I部分第14卷", vol_de: "MEGA² Abt. I, Bd. 14", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 8, source_id: "mega2-i-18", tag: "MEGA² I/18", label: "MEGA² I/18: Karl Marx. Artikel, Entwürfe. Oktober 1859 bis Dezember 1860", index: "mega2-i-18/index.html", lang: "de", year: 1984, vol_zh: "MEGA²第I部分第18卷", vol_de: "MEGA² Abt. I, Bd. 18", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 9, source_id: "mega2-i-20", tag: "MEGA² I/20", label: "MEGA² I/20: Karl Marx - Artikel, Entwürfe. September 1864 bis September 1867", index: "mega2-i-20/index.html", lang: "en", year: 1992, vol_zh: "MEGA²第I部分第20卷", vol_de: "MEGA² Abt. I, Bd. 20", publisher_zh: "柏林：Dietz Verlag；阿姆斯特丹：Internationales Institut für Sozialgeschichte", publisher_de: "Berlin: Dietz Verlag; Amsterdam: Internationales Institut für Sozialgeschichte" }
+      - { n: 10, source_id: "mega2-i-21", tag: "MEGA² I/21", label: "MEGA² I/21: Karl Marx. Friedrich Engels. Artikel, Entwürfe. September 1867 bis März 1871", index: "mega2-i-21/index.html", lang: "en", year: 2009, vol_zh: "MEGA²第I部分第21卷", vol_de: "MEGA² Abt. I, Bd. 21", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 11, source_id: "mega2-i-22", tag: "MEGA² I/22", label: "MEGA² I/22: Karl Marx - Artikel, Entwürfe. März bis November 1871", index: "mega2-i-22/index.html", lang: "en", year: 1978, vol_zh: "MEGA²第I部分第22卷", vol_de: "MEGA² Abt. I, Bd. 22", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 12, source_id: "mega2-i-25", tag: "MEGA² I/25", label: "MEGA² I/25: Karl Marx, Artikel, Entwürfe. Mai 1875 bis Mai 1883", index: "mega2-i-25/index.html", lang: "de", year: 1985, vol_zh: "MEGA²第I部分第25卷", vol_de: "MEGA² Abt. I, Bd. 25", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 13, source_id: "mega2-ii-1-1", tag: "MEGA² II/1.1", nav_group: "MEGA² 第二部分：《资本论》及其准备材料", label: "MEGA² II/1.1: Karl Marx. Ökonomische Manuskripte 1857-58. Teil 1", index: "mega2-ii-1-1/index.html", lang: "de", year: 1976, vol_zh: "MEGA²第II部分第1卷第1册", vol_de: "MEGA² Abt. II, Bd. 1.1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 14, source_id: "mega2-ii-1-2", tag: "MEGA² II/1.2", label: "MEGA² II/1.2: Ökonomische Manuskripte 1857-58 - Teil 2", index: "mega2-ii-1-2/index.html", lang: "de", year: 1981, vol_zh: "MEGA²第II部分第1卷第2册", vol_de: "MEGA² Abt. II, Bd. 1.2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 15, source_id: "mega2-ii-2", tag: "MEGA² II/2", label: "MEGA² II/2: Ökonomische Manuskripte und Schriften - 1858 - 1861", index: "mega2-ii-2/index.html", lang: "de", year: 1980, vol_zh: "MEGA²第II部分第2卷", vol_de: "MEGA² Abt. II, Bd. 2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 16, source_id: "mega2-ii-3-1", tag: "MEGA² II/3.1", label: "MEGA² II/3.1: Zur Kritik der politischen Ökonomie (Manuskript 1861–1863). Teil 1", index: "mega2-ii-3-1/index.html", lang: "de", year: 1976, vol_zh: "MEGA²第II部分第3卷第1册", vol_de: "MEGA² Abt. II, Bd. 3.1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 17, source_id: "mega2-ii-3-2", tag: "MEGA² II/3.2", label: "MEGA² II/3.2: Karl Marx, Zur Kritik der politischen Ökonomie (Manuskript 1861-1863). Teil 2", index: "mega2-ii-3-2/index.html", lang: "de", year: 1977, vol_zh: "MEGA²第II部分第3卷第2册", vol_de: "MEGA² Abt. II, Bd. 3.2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 18, source_id: "mega2-ii-3-3", tag: "MEGA² II/3.3", label: "MEGA² II/3.3: Zur Kritik der politischen Ökonomie (Manuskript 1861–1863). Teil 3", index: "mega2-ii-3-3/index.html", lang: "de", year: 1978, vol_zh: "MEGA²第II部分第3卷第3册", vol_de: "MEGA² Abt. II, Bd. 3.3", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 19, source_id: "mega2-ii-3-4", tag: "MEGA² II/3.4", label: "MEGA² II/3.4: Zur Kritik der politischen Ökonomie (Manuskript 1861–1863). Teil 4", index: "mega2-ii-3-4/index.html", lang: "de", year: 1979, vol_zh: "MEGA²第II部分第3卷第4册", vol_de: "MEGA² Abt. II, Bd. 3.4", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 20, source_id: "mega2-ii-3-5", tag: "MEGA² II/3.5", label: "MEGA² II/3.5: Zur Kritik der politischen Ökonomie (Manuskript 1861–1863). Teil 5", index: "mega2-ii-3-5/index.html", lang: "de", year: 1980, vol_zh: "MEGA²第II部分第3卷第5册", vol_de: "MEGA² Abt. II, Bd. 3.5", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 21, source_id: "mega2-ii-3-6", tag: "MEGA² II/3.6", label: "MEGA² II/3.6: Zur Kritik der politischen konomie (Manuskript 1861-1863). Teil 6", index: "mega2-ii-3-6/index.html", lang: "de", year: 1982, vol_zh: "MEGA²第II部分第3卷第6册", vol_de: "MEGA² Abt. II, Bd. 3.6", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 22, source_id: "mega2-ii-4-1", tag: "MEGA² II/4.1", label: "MEGA² II/4.1: Manuskripte 1863-1867 - Teil 1", index: "mega2-ii-4-1/index.html", lang: "de", year: 1988, vol_zh: "MEGA²第II部分第4卷第1册", vol_de: "MEGA² Abt. II, Bd. 4.1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 23, source_id: "mega2-ii-4-2", tag: "MEGA² II/4.2", label: "MEGA² II/4.2: Manuskripte 1863-1867 - Teil 2", index: "mega2-ii-4-2/index.html", lang: "de", year: 1992, vol_zh: "MEGA²第II部分第4卷第2册", vol_de: "MEGA² Abt. II, Bd. 4.2", publisher_zh: "柏林：Dietz Verlag；阿姆斯特丹：Internationales Institut für Sozialgeschichte", publisher_de: "Berlin: Dietz Verlag; Amsterdam: Internationales Institut für Sozialgeschichte" }
+      - { n: 24, source_id: "mega2-ii-4-3", tag: "MEGA² II/4.3", label: "MEGA² II/4.3: Manuskripte 1863-1868 - Teil 3", index: "mega2-ii-4-3/index.html", lang: "de", year: 2012, vol_zh: "MEGA²第II部分第4卷第3册", vol_de: "MEGA² Abt. II, Bd. 4.3", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 25, source_id: "mega2-ii-5", tag: "MEGA² II/5", label: "MEGA² II/5: Karl Marx - Das Kapital. Kritik der Politischen Ökonomie. Erster Band, Hamburg 1867", index: "mega2-ii-5/index.html", lang: "de", year: 1983, vol_zh: "MEGA²第II部分第5卷", vol_de: "MEGA² Abt. II, Bd. 5", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 26, source_id: "mega2-ii-6", tag: "MEGA² II/6", label: "MEGA² II/6: Karl Marx - Das Kapital. Kritik der Politischen Ökonomie. Erster Band, Hamburg 1872", index: "mega2-ii-6/index.html", lang: "de", year: 1987, vol_zh: "MEGA²第II部分第6卷", vol_de: "MEGA² Abt. II, Bd. 6", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 27, source_id: "mega2-ii-7", tag: "MEGA² II/7", label: "MEGA² II/7: Karl Marx - Le Capital, Paris 1872–1875", index: "mega2-ii-7/index.html", lang: "fr", year: 1989, vol_zh: "MEGA²第II部分第7卷", vol_de: "MEGA² Abt. II, Bd. 7", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 28, source_id: "mega2-ii-8", tag: "MEGA² II/8", label: "MEGA² II/8: Karl Marx - Das Kapital. Kritik der Politischen Ökonomie. Erster Band, Hamburg 1883", index: "mega2-ii-8/index.html", lang: "de", year: 1989, vol_zh: "MEGA²第II部分第8卷", vol_de: "MEGA² Abt. II, Bd. 8", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 29, source_id: "mega2-ii-9", tag: "MEGA² II/9", label: "MEGA² II/9: Karl Marx - Capital. A Critical Analysis of Capitalist Production, London 1887", index: "mega2-ii-9/index.html", lang: "en", year: 1990, vol_zh: "MEGA²第II部分第9卷", vol_de: "MEGA² Abt. II, Bd. 9", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 30, source_id: "mega2-ii-10", tag: "MEGA² II/10", label: "MEGA² II/10: Karl Marx - Das Kapital. Kritik der Politischen Ökonomie. Erster Band, Hamburg 1890-Dietz Verlag (1991)", index: "mega2-ii-10/index.html", lang: "de", year: 1991, vol_zh: "MEGA²第II部分第10卷", vol_de: "MEGA² Abt. II, Bd. 10", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 31, source_id: "mega2-ii-11", tag: "MEGA² II/11", label: "MEGA² II/11: Karl Marx - Manuskripte zum zweiten Buch des Kapitals; 1868 bis 1881", index: "mega2-ii-11/index.html", lang: "de", year: 2008, vol_zh: "MEGA²第II部分第11卷", vol_de: "MEGA² Abt. II, Bd. 11", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 32, source_id: "mega2-ii-12", tag: "MEGA² II/12", label: "MEGA² II/12: Karl Marx. Das Kapital. Kritik der Politischen Ökonomie. Zweites Buch. Redaktionsmanuskript von Friedrich Engels 1884-1885", index: "mega2-ii-12/index.html", lang: "de", year: 2005, vol_zh: "MEGA²第II部分第12卷", vol_de: "MEGA² Abt. II, Bd. 12", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 33, source_id: "mega2-ii-13", tag: "MEGA² II/13", label: "MEGA² II/13: Karl Marx. Das Kapital. Kritik der politischen Ökonomie. Zweiter Band. Hrsg. v. Friedrich Engels. Hamburg, 1885", index: "mega2-ii-13/index.html", lang: "de", year: 2008, vol_zh: "MEGA²第II部分第13卷", vol_de: "MEGA² Abt. II, Bd. 13", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 34, source_id: "mega2-ii-14", tag: "MEGA² II/14", label: "MEGA² II/14: Karl Marx - Manuskripte und redaktionelle Texte zum dritten Buch des Kapitals. 1871 bis 1895", index: "mega2-ii-14/index.html", lang: "de", year: 2003, vol_zh: "MEGA²第II部分第14卷", vol_de: "MEGA² Abt. II, Bd. 14", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 35, source_id: "mega2-ii-15", tag: "MEGA² II/15", label: "MEGA² II/15: Karl Marx - Das Kapital. Kritik der politischen Ökonomie. Dritter Band. Hrsg. v. Friedrich Engels. Hamburg, 1894", index: "mega2-ii-15/index.html", lang: "de", year: 2004, vol_zh: "MEGA²第II部分第15卷", vol_de: "MEGA² Abt. II, Bd. 15", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 36, source_id: "mega2-iii-1", tag: "MEGA² III/1", nav_group: "MEGA² 第三部分：书信", label: "MEGA² III/1: Karl Marx. Friedrich Engels. Bis April 1846", index: "mega2-iii-1/index.html", lang: "de", year: 1975, vol_zh: "MEGA²第III部分第1卷", vol_de: "MEGA² Abt. III, Bd. 1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 37, source_id: "mega2-iii-2", tag: "MEGA² III/2", label: "MEGA² III/2: Karl Marx. Friedrich Engels. Briefwechsel. Mai 1846 bis Dezember 1848", index: "mega2-iii-2/index.html", lang: "de", year: 1979, vol_zh: "MEGA²第III部分第2卷", vol_de: "MEGA² Abt. III, Bd. 2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 38, source_id: "mega2-iii-3", tag: "MEGA² III/3", label: "MEGA² III/3: Karl Marx. Friedrich Engels. Briefwechsel. Januar 1849 bis Dezember 1850", index: "mega2-iii-3/index.html", lang: "de", year: 1981, vol_zh: "MEGA²第III部分第3卷", vol_de: "MEGA² Abt. III, Bd. 3", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 39, source_id: "mega2-iii-4", tag: "MEGA² III/4", label: "MEGA² III/4: Karl Marx. Friedrich Engels. Briefwechsel. Januar bis Dezember 1851", index: "mega2-iii-4/index.html", lang: "de", year: 1984, vol_zh: "MEGA²第III部分第4卷", vol_de: "MEGA² Abt. III, Bd. 4", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 40, source_id: "mega2-iii-5", tag: "MEGA² III/5", label: "MEGA² III/5: Karl Marx. Friedrich Engels. Briefwechsel. Januar bis August 1852", index: "mega2-iii-5/index.html", lang: "de", year: 1987, vol_zh: "MEGA²第III部分第5卷", vol_de: "MEGA² Abt. III, Bd. 5", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 41, source_id: "mega2-iii-6", tag: "MEGA² III/6", label: "MEGA² III/6: Karl Marx. Friedrich Engels. Briefwechsel. September 1852 bis August 1853", index: "mega2-iii-6/index.html", lang: "de", year: 1987, vol_zh: "MEGA²第III部分第6卷", vol_de: "MEGA² Abt. III, Bd. 6", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 42, source_id: "mega2-iii-7", tag: "MEGA² III/7", label: "MEGA² III/7: Karl Marx. Friedrich Engels. Briefwechsel. September 1853 bis März 1856", index: "mega2-iii-7/index.html", lang: "de", year: 1989, vol_zh: "MEGA²第III部分第7卷", vol_de: "MEGA² Abt. III, Bd. 7", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 43, source_id: "mega2-iii-8", tag: "MEGA² III/8", label: "MEGA² III/8: Karl Marx. Friedrich Engels. Briefwechsel. April 1856 bis Dezember 1857", index: "mega2-iii-8/index.html", lang: "de", year: 1990, vol_zh: "MEGA²第III部分第8卷", vol_de: "MEGA² Abt. III, Bd. 8", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 44, source_id: "mega2-iii-9", tag: "MEGA² III/9", label: "MEGA² III/9: Karl Marx. Friedrich Engels. Briefwechsel. Januar 1858 bis August 1859", index: "mega2-iii-9/index.html", lang: "de", year: 2003, vol_zh: "MEGA²第III部分第9卷", vol_de: "MEGA² Abt. III, Bd. 9", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 45, source_id: "mega2-iii-10", tag: "MEGA² III/10", label: "MEGA² III/10: Karl Marx. Friedrich Engels. Briefwechsel. September 1859 bis Mai 1860", index: "mega2-iii-10/index.html", lang: "de", year: 2000, vol_zh: "MEGA²第III部分第10卷", vol_de: "MEGA² Abt. III, Bd. 10", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 46, source_id: "mega2-iii-11", tag: "MEGA² III/11", label: "MEGA² III/11: Karl Marx. Friedrich Engels. Briefwechsel. Juni 1860 bis Dezember 1861", index: "mega2-iii-11/index.html", lang: "de", year: 2005, vol_zh: "MEGA²第III部分第11卷", vol_de: "MEGA² Abt. III, Bd. 11", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 47, source_id: "mega2-iii-12", tag: "MEGA² III/12", label: "MEGA² III/12: Karl Marx. Friedrich Engels. Briefwechsel. Januar 1862 bis September 1864", index: "mega2-iii-12/index.html", lang: "de", year: 2013, vol_zh: "MEGA²第III部分第12卷", vol_de: "MEGA² Abt. III, Bd. 12", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 48, source_id: "mega2-iii-13", tag: "MEGA² III/13", label: "MEGA² III/13: Karl Marx. Friedrich Engels. Briefwechsel. Oktober 1864 bis Dezember 1865", index: "mega2-iii-13/index.html", lang: "de", year: 2002, vol_zh: "MEGA²第III部分第13卷", vol_de: "MEGA² Abt. III, Bd. 13", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 49, source_id: "mega2-iv-1", tag: "MEGA² IV/1", nav_group: "MEGA² 第四部分：摘录、笔记和批注", label: "MEGA² IV/1: Karl Marx - Friedrich Engels - Exzerpte und Notizen. Bis 1842-Dietz Verlag (1976)", index: "mega2-iv-1/index.html", lang: "de", year: 1976, vol_zh: "MEGA²第IV部分第1卷", vol_de: "MEGA² Abt. IV, Bd. 1", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 50, source_id: "mega2-iv-2", tag: "MEGA² IV/2", label: "MEGA² IV/2: Karl Marx - Friedrich Engels - Exzerpte und Notizen. 1843 bis Januar 1845", index: "mega2-iv-2/index.html", lang: "de", year: 1981, vol_zh: "MEGA²第IV部分第2卷", vol_de: "MEGA² Abt. IV, Bd. 2", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 51, source_id: "mega2-iv-3", tag: "MEGA² IV/3", label: "MEGA² IV/3: Karl Marx - Exzerpte und Notizen. Sommer 1844 bis Anfang 1847", index: "mega2-iv-3/index.html", lang: "fr", year: 1998, vol_zh: "MEGA²第IV部分第3卷", vol_de: "MEGA² Abt. IV, Bd. 3", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 52, source_id: "mega2-iv-4", tag: "MEGA² IV/4", label: "MEGA² IV/4: Karl Marx - Friedrich Engels - Exzerpte und Notizen. Juli bis August 1845", index: "mega2-iv-4/index.html", lang: "de", year: 1988, vol_zh: "MEGA²第IV部分第4卷", vol_de: "MEGA² Abt. IV, Bd. 4", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 53, source_id: "mega2-iv-5", tag: "MEGA² IV/5", label: "MEGA² IV/5: Karl Marx - Friedrich Engels - Exzerpte und Notizen. Juli 1845 bis Dezember 1850-De Gruyter Akademie Forschung (2015)", index: "mega2-iv-5/index.html", lang: "de", year: 2015, vol_zh: "MEGA²第IV部分第5卷", vol_de: "MEGA² Abt. IV, Bd. 5", publisher_zh: "柏林/慕尼黑/波士顿：Walter de Gruyter GmbH", publisher_de: "Berlin/München/Boston: Walter de Gruyter GmbH" }
+      - { n: 54, source_id: "mega2-iv-6", tag: "MEGA² IV/6", label: "MEGA² IV/6: Karl Marx - Exzerpte und Notizen. September 1846 bis Dezember 1847-Dietz Verlag (1983)", index: "mega2-iv-6/index.html", lang: "de", year: 1983, vol_zh: "MEGA²第IV部分第6卷", vol_de: "MEGA² Abt. IV, Bd. 6", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 55, source_id: "mega2-iv-7", tag: "MEGA² IV/7", label: "MEGA² IV/7: Karl Marx - Friedrich Engels - Exzerpte und Notizen. September 1849 bis Februar 1851-Dietz Verlag (1983)", index: "mega2-iv-7/index.html", lang: "de", year: 1983, vol_zh: "MEGA²第IV部分第7卷", vol_de: "MEGA² Abt. IV, Bd. 7", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 56, source_id: "mega2-iv-8", tag: "MEGA² IV/8", label: "MEGA² IV/8: Karl Marx - Exzerpte und Notizen. Exzerpte und Notizen. März bis Juni 1851-Dietz Verlag (1986)", index: "mega2-iv-8/index.html", lang: "en", year: 1986, vol_zh: "MEGA²第IV部分第8卷", vol_de: "MEGA² Abt. IV, Bd. 8", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 57, source_id: "mega2-iv-9", tag: "MEGA² IV/9", label: "MEGA² IV/9: Karl Marx - Exzerpte und Notizen. Juli bis September 1851-Dietz Verlag (1991)", index: "mega2-iv-9/index.html", lang: "en", year: 1991, vol_zh: "MEGA²第IV部分第9卷", vol_de: "MEGA² Abt. IV, Bd. 9", publisher_zh: "柏林：Dietz Verlag", publisher_de: "Berlin: Dietz Verlag" }
+      - { n: 58, source_id: "mega2-iv-12", tag: "MEGA² IV/12", label: "MEGA² IV/12: Karl Marx - Exzerpte und Notizen. September 1853 bis Januar 1855-Akademie Verlag (2007)", index: "mega2-iv-12/index.html", lang: "en", year: 2007, vol_zh: "MEGA²第IV部分第12卷", vol_de: "MEGA² Abt. IV, Bd. 12", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 59, source_id: "mega2-iv-26", tag: "MEGA² IV/26", label: "MEGA² IV/26: Karl Marx - Exzerpte und Notizen zur Geologie, Mineralogie und Agrikulturchemie. März bis September 1878-Akademie Verlag (2011)", index: "mega2-iv-26/index.html", lang: "de", year: 2011, vol_zh: "MEGA²第IV部分第26卷", vol_de: "MEGA² Abt. IV, Bd. 26", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 60, source_id: "mega2-iv-32", tag: "MEGA² IV/32", label: "MEGA² IV/32: Die Bibliotheken von Karl Marx und Friedrich Engels. Annotiertes Verzeichnis des ermittelten Bestandes (Vorauspublikation zu Band 32)", index: "mega2-iv-32/index.html", lang: "de", year: 1999, vol_zh: "MEGA²第IV部分第32卷", vol_de: "MEGA² Abt. IV, Bd. 32", publisher_zh: "柏林：Akademie Verlag", publisher_de: "Berlin: Akademie Verlag" }
+      - { n: 61, source_id: "mega1-i-5", tag: "MEGA¹ I/5", nav_group: "MEGA¹ 历史版本", label: "MEGA¹ I/5: Karl Marx. Friedrich Engels. Die Deutsche Ideologie (1845-1846)", index: "mega1-i-5/index.html", lang: "de", year: 1970, vol_zh: "MEGA¹第I部分第5卷", vol_de: "MEGA¹ Abt. I, Bd. 5", publisher_zh: "Glashütten im Taunus：Verlag Detlev Auvermann KG", publisher_de: "Glashütten im Taunus: Verlag Detlev Auvermann KG" }
+      - { n: 62, source_id: "mega1-iii-3", tag: "MEGA¹ III/3", label: "MEGA¹ III/3: Der Briefwechsel zwischen Marx und Engels. 1861-1867", index: "mega1-iii-3/index.html", lang: "de", year: 1970, vol_zh: "MEGA¹第III部分第3卷", vol_de: "MEGA¹ Abt. III, Bd. 3", publisher_zh: "Glashütten im Taunus：Verlag Detlev Auvermann KG", publisher_de: "Glashütten im Taunus: Verlag Detlev Auvermann KG" }
+      - { n: 63, source_id: "mega1-iii-4", tag: "MEGA¹ III/4", label: "MEGA¹ III/4: Der Briefwechsel zwischen Marx und Engels. 1868-1883", index: "mega1-iii-4/index.html", lang: "de", year: 1970, vol_zh: "MEGA¹第III部分第4卷", vol_de: "MEGA¹ Abt. III, Bd. 4", publisher_zh: "Glashütten im Taunus：Verlag Detlev Auvermann KG", publisher_de: "Glashütten im Taunus: Verlag Detlev Auvermann KG" }
+
+  - key: mega2-research-editing-history-zh
+    title_zh: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究"
+    short_title: "MEGA²编辑史研究"
+    lang: zh
+    badge: ZH
+    desc: "MEGA²历史考证版编辑史与编辑学中文研究专著 · 内嵌原书页码，可生成规范引文"
+    folder: mega-full/mega2-research-editing-history-zh
+    serve_prefix: /wenku/raw/mega2-research-editing-history-zh
+    has_page_labels: true
+    selection_citation: true
+    translation_enabled: false
+    # 不再显示独立书卡；只保留历史阅读器与 raw URL 兼容。
+    catalog_hidden: true
+    citation:
+      author_zh: "罗燕明"
+      book_title_zh: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究"
+      publisher_zh: "中央编译出版社"
+      alt_label: "中文原版式"
+      tpl_zh: "{author_zh}. {book_title_zh}[M]. {publisher_zh}，{year}：{page}."
+    volumes:
+      - { n: 1, source_id: "mega2-research-editing-history-zh", tag: "研究专著", label: "《马克思恩格斯全集》历史考证版编辑史与编辑学研究", index: "full.html", single_document: true, lang: "zh", year: 2002, vol_zh: "研究专著", publisher_zh: "中央编译出版社", publisher_de: "unknown" }
 
   - key: mew-de
     title_zh: 马克思恩格斯全集（德文版 MEW）

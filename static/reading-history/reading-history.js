@@ -72,7 +72,8 @@
     if (url.charAt(0) !== '/') return;  // 安全闸：只接受站内根相对 URL
     _pending = {
       book: String(entry.book),
-      kind: entry.kind === 'wenku' || entry.kind === 'liushi' ? entry.kind : 'viewer',
+      kind: (entry.kind === 'wenku' || entry.kind === 'liushi' || entry.kind === 'mylib')
+        ? entry.kind : 'viewer',
       title: String(entry.title).slice(0, 120),
       subtitle: String(entry.subtitle || '').slice(0, 120),
       url: url
@@ -113,7 +114,9 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function kindLabel(k) { return k === 'wenku' ? '文库' : k === 'liushi' ? '流式' : '阅读'; }
+  function kindLabel(k) {
+    return k === 'wenku' ? '文库' : k === 'liushi' ? '流式' : k === 'mylib' ? '个人' : '阅读';
+  }
   function relTime(ts) {
     var t = Number(ts || 0); if (!t) return '';
     var d = Date.now() - t;
@@ -146,6 +149,7 @@
       '.mrh-badge{flex:0 0 auto;font-size:.68rem;font-weight:700;color:#fff;background:var(--mrh-accent);' +
       'border-radius:6px;padding:2px 7px;letter-spacing:.04em;}' +
       '.mrh-badge.liushi{background:#264653;}.mrh-badge.wenku{background:#6b4f2a;}' +
+      '.mrh-badge.mylib{background:#3b5a3f;}' +
       '.mrh-main{min-width:0;display:flex;flex-direction:column;gap:2px;}' +
       '.mrh-name{font-size:.9rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
       '.mrh-meta{font-size:.75rem;color:var(--mrh-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +

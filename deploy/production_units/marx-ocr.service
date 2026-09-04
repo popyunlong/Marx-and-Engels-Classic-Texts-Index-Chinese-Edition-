@@ -1,0 +1,28 @@
+[Unit]
+Description=Marx corpus OCR (JianGuo vol8-20) - single-core isolated, website-first
+# 与网站同机运行的批处理作业。硬隔离要点见 [Service] 注释。
+After=marx-search.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+ExecStart=/bin/bash /opt/marx-search/scripts/_server_ocr_jianguo.sh
+
+# ---- 资源硬隔离：网站永远优先 ----
+# AllowedCPUs=3：cpuset 把 OCR 钉死在第 4 号核，网站的 0-2 号核永不被 OCR 争用。
+# 这是比 CPUQuota 更强的保证——2026-07-28 用 CPUQuota=200%（2 核）时，网站健康探针
+# 被拖到 10s 超时，看门狗连续两次重启网站，读者遇到 AI 对话超时。
+AllowedCPUs=3
+CPUQuota=80%
+CPUWeight=20
+Nice=19
+IOWeight=10
+MemoryHigh=1500M
+MemoryMax=2G
+# OCR 挂了不自动重启：宁可停工，也不要反复给生产机加压。
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ai import ZAIClient, load_ai_config
 from journal_alerts import (
     collect_batch,
     is_collect_due,
@@ -18,7 +17,10 @@ from journal_alerts import (
     public_base_url,
     run_journal_alerts_once,
     send_batch,
+    current_batch,
+    generate_batch_review,
 )
+from journal_fulltext import process_batch_fulltext, purge_source_pdfs
 from runtime_env import load_deployment_settings
 
 from datetime import datetime, timedelta, timezone
@@ -44,19 +46,19 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="Legacy: collect then send if due (one cycle).")
     parser.add_argument(
         "--stage",
-        choices=("collect", "send"),
-        help="collect: fetch a new batch the night before sending. send: deliver the approved review.",
+        choices=("collect", "process", "send"),
+        help="collect: discover metadata. process: build complete MiMo bilingual full text. send: deliver an approved issue.",
     )
     parser.add_argument(
         "--force",
         "--force-send",
         dest="force",
         action="store_true",
-        help="Bypass schedule gating (collect even if not the eve of a send day / send even if not the send day).",
+        help="Bypass schedule gating (collect outside the weekly collection day / send outside the send day).",
     )
     args = parser.parse_args()
     if not args.once and not args.stage:
-        parser.error("Provide --stage=collect|send (or legacy --once).")
+        parser.error("Provide --stage=collect|process|send (or legacy --once).")
 
     deployment = load_deployment_settings()
     settings = load_alert_settings()
@@ -69,12 +71,18 @@ def main() -> None:
     if args.stage == "collect":
         if not args.force and not is_collect_due(settings):
             print(
-                "journal-alerts stage=collect skipped: not the eve of a send day "
+                "journal-alerts stage=collect skipped: not the weekly collection day before sending "
                 f"(freq={settings.get('send_frequency')}, weekday={settings.get('send_weekday')})."
             )
             return
-        ai_client = ZAIClient(load_ai_config())
-        result = collect_batch(ai_client=ai_client, settings=settings)
+        issue = current_batch()
+        if issue and str(issue.get("status") or "") == "published":
+            print(
+                f"journal-alerts stage=collect skipped: issue {issue['id']} is approved and locked; "
+                "waiting for email delivery"
+            )
+            return
+        result = collect_batch(ai_client=None, settings=settings, reuse_open_batch=True)
         print(
             "journal-alerts stage=collect status={status} batch={batch_id} review={review_status} "
             "sources={sources_checked} found={articles_found} filtered={filtered_out} "
@@ -82,6 +90,35 @@ def main() -> None:
         )
         if result.get("error"):
             print(result["error"], file=sys.stderr)
+        return
+
+    if args.stage == "process":
+        batch = current_batch()
+        if not batch:
+            print("journal-alerts stage=process skipped: no open issue")
+            return
+        if str(batch.get("status") or "") == "published":
+            print(f"journal-alerts stage=process skipped: issue {batch['id']} is approved and locked")
+            return
+        result = process_batch_fulltext(
+            int(batch["id"]),
+            limit=5,
+            retry_unavailable=bool(args.force),
+            translate=True,
+        )
+        # Keep the website TOC and admin email preview synchronized as hourly
+        # processing admits more complete articles.  This is deterministic and
+        # never approves or sends the email; the final send remains human-only.
+        if int(result.get("publishable") or 0) > 0:
+            generate_batch_review(int(batch["id"]), ai_client=None, auto_approve=False)
+        retention = purge_source_pdfs(retain_issues=12)
+        print(
+            "journal-alerts stage=process batch={batch} processed={processed} ready={ready} "
+            "publishable={publishable} unavailable={unavailable} failed={failed} "
+            "mimo_unavailable={mimo_unavailable} purged_pdfs={purged}".format(
+                batch=batch["id"], purged=retention["pdfs"], **result
+            )
+        )
         return
 
     if args.stage == "send":
@@ -110,11 +147,12 @@ def main() -> None:
             print(err, file=sys.stderr)
         return
 
-    # Legacy --once: collect then send if due (preserves old behaviour for manual/cron use).
-    ai_client = ZAIClient(load_ai_config())
-    should_send = args.force or is_send_due(settings)
+    # Legacy --once is retained for metadata compatibility, but sending is
+    # deliberately disabled.  Email delivery must pass the console's explicit
+    # final-confirmation form.
+    should_send = False
     result = run_journal_alerts_once(
-        ai_client=ai_client,
+        ai_client=None,
         base_url=base_url,
         smtp_config=load_smtp_config(),
         send=should_send,

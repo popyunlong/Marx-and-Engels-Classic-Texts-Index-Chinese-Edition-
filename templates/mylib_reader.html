@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ book.title }} · 个人文库 - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/mylib/mylib.css?v=13">
+  {% if notes_access_enabled %}<link rel="stylesheet" href="/static/notes/notes.css?v=2">{% endif %}
+</head>
+<body class="mx-reader-page reader-ai">
+  <div class="layout">
+    <main class="viewer-panel" data-mylib-reader
+          data-sid="{{ book.id }}"
+          data-pages="{{ book.pages }}"
+          data-title="{{ book.title }}"
+          data-searchable="{{ '1' if book.searchable else '0' }}">
+      <header class="reader-head">
+        <div class="reader-title-row">
+          <h1 class="reader-title">{{ book.title }}</h1>
+          <div class="reader-actions">
+            <details class="toc-popover" id="mxTocPanel">
+              <summary class="tool-btn secondary">目录</summary>
+              <div class="toc-sheet">
+                <div class="toc-title">目录导航 <span id="mxTocCount"></span></div>
+                <ul class="toc" id="mxToc" aria-label="本书目录">
+                  <li class="toc-empty">正在加载目录…</li>
+                </ul>
+              </div>
+            </details>
+            <details class="toc-popover book-info-popover">
+              <summary class="tool-btn secondary">书目信息</summary>
+              <div class="toc-sheet book-info-sheet">
+                <div class="toc-title">本书信息</div>
+                <div class="book-info-lines">
+                  <b>{{ book.bibliographic.title or book.title }}</b>
+                  {% if book.bibliographic.authors %}<span>作者：{{ book.bibliographic.authors | join('、') }}</span>
+                  {% elif book.author %}<span>作者：{{ book.author }}</span>{% endif %}
+                  {% if book.bibliographic.translators %}<span>译者：{{ book.bibliographic.translators | join('、') }}</span>{% endif %}
+                  {% if book.bibliographic.publisher %}<span>出版：{{ book.bibliographic.place }}{% if book.bibliographic.place %}：{% endif %}{{ book.bibliographic.publisher }}{% if book.bibliographic.year %}，{{ book.bibliographic.year }}年{% endif %}</span>{% endif %}
+                  {% if book.bibliographic.isbn %}<span>ISBN：{{ book.bibliographic.isbn }}</span>{% elif book.bibliographic.standard_number %}<span>{{ book.bibliographic.standard_number_type or '统一书号' }}：{{ book.bibliographic.standard_number }}</span>{% endif %}
+                  {% if book.bibliographic.source == 'copyright_page' %}<span>版权页：PDF 第 {{ book.bibliographic.copyright_pdf_page }} 页</span>{% endif %}
+                  <span>全书：{{ book.pages }} 个 PDF 页面</span>
+                </div>
+              </div>
+            </details>
+            <a class="nav-btn" href="{{ url_for('mylib_home') }}">返回个人文库</a>
+            <a class="nav-btn" href="{{ url_for('index') }}?restore=1">返回检索</a>
+            {% if notes_access_enabled %}
+            <button type="button" class="tool-btn secondary" id="mxNoteBtn" title="本书笔记 / 记笔记">笔记</button>
+            {% endif %}
+            <a class="nav-btn" href="{{ url_for('account') }}">会员中心</a>
+          </div>
+        </div>
+        <div class="reader-meta">
+          <div>当前位置：<span id="mxCurrentPage">PDF 第 1 页</span></div>
+          <div>篇章：<span id="mxCurrentSection">未识别</span></div>
+          <div><span class="privacy-label">🔒 仅你可见</span></div>
+          {% if book.toc_count %}<div>目录：<span>{{ book.toc_count }} 条 · {{ book.quality.toc_label }}</span></div>{% endif %}
+          <div>页码：<span>{{ book.quality.page_label }}</span></div>
+        </div>
+      </header>
+
+      <nav class="viewer-bar" aria-label="翻页工具栏">
+        <button class="tool-btn" id="mxPrev" type="button">上一页</button>
+        <div class="page-indicator" id="mxPageLabel">PDF 第 1 / {{ book.pages }} 页</div>
+        {% if book.searchable %}
+        <button class="tool-btn secondary" id="mxFindToggle" type="button"
+                title="在本书中查找词句（Ctrl+F）">查找本书</button>
+        {% endif %}
+        <button class="tool-btn" id="mxNext" type="button">下一页</button>
+      </nav>
+
+      {% if book.searchable %}
+      <section class="reader-find" id="mxReaderFind" hidden>
+        <div class="reader-find-row">
+          <input type="search" id="mxBookSearchInput" maxlength="100"
+                 placeholder="在本书中查找词句…" autocomplete="off">
+          <button type="button" class="tool-btn secondary compact" id="mxFindPrevBtn" title="上一处">↑</button>
+          <button type="button" class="tool-btn secondary compact" id="mxFindNextBtn" title="下一处">↓</button>
+          <span class="reader-find-count" id="mxBookSearchStatus"></span>
+          <button type="button" class="tool-btn secondary compact" id="mxFindCloseBtn">关闭</button>
+        </div>
+        <div class="reader-find-results" id="mxBookSearchResults"></div>
+      </section>
+      {% endif %}
+
+      <div class="viewer-body" id="mxViewerBody">
+        <div class="page-frame">
+          <section class="page-image-wrap" id="mxPageWrap">
+            <img class="page-image" id="mxPage" alt="{{ book.title }} PDF 页面" decoding="async">
+            <div class="image-error" id="mxImageError"></div>
+          </section>
+
+          {% if book.searchable %}
+          <section class="page-cite" id="mxPageCite" hidden>
+            <div class="page-cite-head">
+              <span class="page-cite-label">本页引文定位</span>
+              <span class="page-cite-btns">
+                <button type="button" class="tool-btn secondary compact" id="mxCopyCitation">复制引文</button>
+                <button type="button" class="tool-btn secondary compact" id="mxReportPage">⚑ 一键报错</button>
+              </span>
+            </div>
+            <div class="page-cite-text" id="mxPageCitation"></div>
+            <div class="page-cite-note">引文采用本书中文版页码；书页正文边缘若另有数字，通常是原版旁码，不代表文字层错页。无法确认中文版页码时会明确标注 PDF 页码。</div>
+          </section>
+
+          <section class="page-text-wrap" aria-labelledby="mxPageTextTitle">
+            <div class="page-text-head">
+              <div>
+                <div class="page-text-title" id="mxPageTextTitle">本页可选择文字</div>
+                <div class="page-text-note" id="mxPageTextMeta">正在加载与上方 PDF 对应的文字层…</div>
+              </div>
+              <span class="page-text-actions">
+                <button class="tool-btn secondary compact" id="mxUsePageText" type="button">AI 解释本页</button>
+                <button class="tool-btn secondary compact" id="mxCopyPageText" type="button">复制本页</button>
+              </span>
+            </div>
+            <div class="page-text" id="mxPageText" tabindex="0"
+                 aria-label="本页可选择复制文字">正在加载当前页文本…</div>
+            {% if notes_access_enabled %}
+            <div class="page-text-tip">选择文字后可直接“记笔记”，摘录、页码、篇章和回看地址会自动保存。</div>
+            {% endif %}
+          </section>
+          {% endif %}
+
+          <div class="viewer-note">上方页图与下方文字层按同一 PDF 页码成对加载；引文采用中文版页码。目录、检索、引文和笔记均只在你的个人文库范围内运行。</div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="ai-panel mx-ai-panel" data-mylib-ai
+           data-sid="{{ book.id }}"
+           data-title="{{ book.title }}"
+           data-searchable="{{ '1' if book.searchable else '0' }}"
+           data-ai-access="{{ '1' if ai_access_enabled else '0' }}"
+           data-search-access="{{ '1' if search_chat_access_enabled else '0' }}"
+           data-web-access="{{ '1' if ai_web_access_enabled else '0' }}"
+           data-csrf="{{ csrf_token }}"
+           data-runtime="{{ ai_runtime | tojson | forceescape }}"
+           data-quota="{{ ai_token_quota | tojson | forceescape }}">
+      <div class="mx-ai-head">
+        <div class="mx-ai-title-row">
+          <div>
+            <h2>AI 导读</h2>
+            <p id="mxAiStatus">正在连接导读服务…</p>
+          </div>
+          <span class="mx-ai-private">🔒 当前私有书籍</span>
+        </div>
+        <div class="mx-ai-runtime-row">
+          <span class="mx-ai-badge" id="mxAiModelBadge">检查模型中</span>
+          <select id="mxAiProvider" aria-label="AI 模型来源" hidden></select>
+        </div>
+        <div class="mx-ai-quota" id="mxAiQuota" hidden>
+          <div class="mx-ai-quota-track"><span id="mxAiQuotaBar"></span></div>
+          <span id="mxAiQuotaText"></span>
+        </div>
+      </div>
+
+      <div class="mx-ai-actions">
+        <div class="mx-ai-selected" id="mxAiSelectedText">尚未选择文字。可在左侧文字层划选后解释。</div>
+        <div class="mx-ai-button-row">
+          <button type="button" class="tool-btn" id="mxAiExplainPage">解释本页</button>
+          <button type="button" class="tool-btn secondary" id="mxAiExplainSelection" disabled>解释所选</button>
+          <button type="button" class="tool-btn secondary compact" id="mxAiClearSelection">清除选择</button>
+        </div>
+      </div>
+
+      <div class="mx-ai-chat" id="mxAiMessages" aria-live="polite"></div>
+
+      <div class="mx-ai-compose">
+        <textarea id="mxAiPrompt" class="mx-ai-input" maxlength="2000"
+                  placeholder="围绕当前书籍提问；Ctrl+Enter 发送"
+                  {% if not ai_access_enabled %}disabled{% endif %}></textarea>
+        {% if search_chat_access_enabled %}
+        <label class="mx-ai-ground-row">
+          <input type="checkbox" id="mxAiGroundBook" checked>
+          <span>检索本书原文作答</span>
+          <small>仅检索《{{ book.title }}》，不会进入公共语料或他人的文库。</small>
+        </label>
+        {% endif %}
+        <div class="mx-ai-footer">
+          <button type="button" class="tool-btn secondary" id="mxAiClear">清空对话</button>
+          <button type="button" class="tool-btn" id="mxAiSend" {% if not ai_access_enabled %}disabled{% endif %}>发送</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="/static/reading-history/reading-history.js?v=1" data-marx-rh
+          data-uid="{{ (current_user.id if current_user else '') }}"></script>
+  {% if notes_access_enabled %}
+  <script src="/static/notes/notes.js?v=2" data-marx-notes
+          data-uid="{{ (current_user.id if current_user else '') }}"
+          data-csrf="{{ csrf_token }}"></script>
+  {% endif %}
+  <script src="/static/mylib/mylib.js?v=9"
+          data-uid="{{ (current_user.id if current_user else '') }}"
+          data-csrf="{{ csrf_token }}"></script>
+  <script src="/static/mylib/mylib-reader.js?v=11"></script>
+  <script src="/static/mylib/mylib-ai.js?v=12"></script>
+</body>
+</html>

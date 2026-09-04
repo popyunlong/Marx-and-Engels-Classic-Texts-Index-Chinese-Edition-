@@ -1,0 +1,100 @@
+schema: hegel-mimo-catalog-v1
+model: mimo-v2.5
+prompt_version: hegel-faithful-transcription-v1
+volumes:
+- id: hegel-theology-early
+  book: 黑格尔早期神学著作
+  volume: 1
+  display_title: 黑格尔早期神学著作
+  file: 'pdfs/黑格尔全集/14456906.pdf'
+  pages: 529
+- id: hegel-phenomenology-upper
+  book: 黑格尔精神现象学
+  volume: 1
+  display_title: 精神现象学（上卷）
+  file: 'pdfs/黑格尔全集/精神现象学  上_14456946.pdf'
+  pages: 393
+- id: hegel-phenomenology-lower
+  book: 黑格尔精神现象学
+  volume: 2
+  display_title: 精神现象学（下卷）
+  file: 'pdfs/黑格尔全集/精神现象学  下_14456942.pdf'
+  pages: 326
+- id: hegel-logic-upper
+  book: 黑格尔逻辑学
+  volume: 1
+  display_title: 逻辑学（上卷）
+  file: 'pdfs/黑格尔全集/14456905.pdf'
+  pages: 442
+- id: hegel-logic-lower
+  book: 黑格尔逻辑学
+  volume: 2
+  display_title: 逻辑学（下卷）
+  file: 'pdfs/黑格尔全集/14456793.pdf'
+  pages: 586
+- id: hegel-shorter-logic
+  book: 黑格尔小逻辑
+  volume: 1
+  display_title: 小逻辑
+  file: 'pdfs/黑格尔全集/小逻辑_14456833.pdf'
+  pages: 473
+- id: hegel-nature
+  book: 黑格尔自然哲学
+  volume: 1
+  display_title: 自然哲学
+  file: 'pdfs/黑格尔全集/自然哲学_14456846.pdf'
+  pages: 694
+- id: hegel-right
+  book: 黑格尔法哲学原理
+  volume: 1
+  display_title: 法哲学原理（或自然法和国家学纲要）
+  file: 'pdfs/黑格尔全集/14456896_法哲学原理  或自然法和国家学纲要_p410.pdf'
+  pages: 479
+- id: hegel-aesthetics-1
+  book: 黑格尔美学
+  volume: 1
+  display_title: 美学（第一卷）
+  file: 'pdfs/黑格尔全集/《美学 第1卷》14456978.pdf'
+  pages: 388
+- id: hegel-aesthetics-2
+  book: 黑格尔美学
+  volume: 2
+  display_title: 美学（第二卷）
+  file: 'pdfs/黑格尔全集/《美学 第2卷》14456977.pdf'
+  pages: 394
+- id: hegel-aesthetics-3-upper
+  book: 黑格尔美学
+  volume: 3
+  display_title: 美学（第三卷·上册）
+  file: 'pdfs/黑格尔全集/《美学 第3卷 上_14456976.pdf'
+  pages: 419
+- id: hegel-aesthetics-3-lower
+  book: 黑格尔美学
+  volume: 4
+  display_title: 美学（第三卷·下册）
+  file: 'pdfs/黑格尔全集/美学 第3卷 下_14456832.pdf'
+  pages: 372
+- id: hegel-history-1
+  book: 黑格尔哲学史讲演录
+  volume: 1
+  display_title: 哲学史讲演录（第一卷）
+  file: 'pdfs/黑格尔全集/哲学史讲演录  第1卷_14456804.pdf'
+  pages: 437
+- id: hegel-history-2
+  book: 黑格尔哲学史讲演录
+  volume: 2
+  display_title: 哲学史讲演录（第二卷）
+  file: 'pdfs/黑格尔全集/哲学史讲演录  第2卷_14456803.pdf'
+  pages: 421
+- id: hegel-history-3
+  book: 黑格尔哲学史讲演录
+  volume: 3
+  display_title: 哲学史讲演录（第三卷）
+  file: 'pdfs/黑格尔全集/哲学史讲演录  第3卷_14456802.pdf'
+  pages: 434
+- id: hegel-history-4
+  book: 黑格尔哲学史讲演录
+  volume: 4
+  display_title: 哲学史讲演录（第四卷）
+  file: 'pdfs/黑格尔全集/哲学史讲演录  第4卷_14456801.pdf'
+  pages: 509

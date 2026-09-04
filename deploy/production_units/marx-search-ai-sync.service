@@ -1,0 +1,18 @@
+[Unit]
+Description=Marx Search quick-chat JSON bridge
+After=network.target marx-search.service
+Requires=marx-search.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/ai_sync_bridge.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

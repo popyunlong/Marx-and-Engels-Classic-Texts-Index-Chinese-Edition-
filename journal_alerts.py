@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import secrets
@@ -18,14 +19,24 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable
 
-from admin_store import get_setting, init_admin_store_db
+import membership as membership_store
+from admin_store import get_setting as get_legacy_setting, init_admin_store_db
 from feature_access import feature_allowed_by_policy, load_access_policy
 from membership import init_membership_db, normalize_email
 from runtime_env import APPDATA_DIR, DeploymentSettings, secure_db_file
+from journal_storage import JOURNAL_DB_PATH, JOURNAL_TMP_DIR, ensure_journal_storage
 
 
-DB_PATH = APPDATA_DIR / "membership.sqlite3"
-DEFAULT_LOOKBACK_DAYS = 45
+LOGGER = logging.getLogger("marx_search.journal_alerts")
+_DISCOVERY_WARNINGS: dict[str, str] = {}
+
+
+# Journal records live in their own database on the journal data-disk mount.
+# ``DB_PATH`` remains assignable because the zero-network tests use a temporary
+# database, but production resolves it from ``MARX_JOURNAL_DATA_ROOT``.
+DB_PATH = JOURNAL_DB_PATH
+LEGACY_DB_PATH = APPDATA_DIR / "membership.sqlite3"
+DEFAULT_LOOKBACK_DAYS = 7
 HTTP_TIMEOUT_SECONDS = 25
 # 每轮最多调用多少次 NCPSSD 详情接口补全摘要。需足够大，使“新增文章内联补全”与
 # “历史缺摘要回填”都能在一轮内完成，避免大批量新增时把回填预算挤占干净造成长期缺摘要。
@@ -36,9 +47,16 @@ BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+JOURNAL_WEEKLY_TITLE = "国外文献精选周刊"
+JOURNAL_WEEKLY_TITLE_EN = "Selected International Scholarship Weekly"
+_LEGACY_DEFAULT_SUBJECT_PREFIXES = {
+    "马克思主义与哲学英文期刊周刊",
+    "英文期刊周刊",
+}
+
 DEFAULT_ALERT_SETTINGS = {
-    "subject_prefix": "期刊新文每日摘要",
-    "intro_text": "您好，以下是今日汇总的新公开发表相关期刊文章：",
+    "subject_prefix": JOURNAL_WEEKLY_TITLE,
+    "intro_text": "您好，以下为本周已经取得公开 PDF 并完成中英双语处理的英文期刊文章。",
     "include_title": True,
     "include_journal": True,
     "include_authors": True,
@@ -46,30 +64,28 @@ DEFAULT_ALERT_SETTINGS = {
     "include_abstract": True,
     "include_citation": True,
     "include_url": True,
-    # 全局自动发送：开启后每日抓取的新文章无需人工审核，直接进入发送队列。
+    # 仅指元数据采集；对外发布仍必须经过全文完整性门槛和整期人工批准。
     "auto_publish_all": False,
-    # 发送频率：daily/weekly/biweekly/monthly；weekly/biweekly 在 send_weekday(0=周一..6=周日) 当天发送。
+    # 产品固定每周发送；send_weekday(0=周一..6=周日) 选择发送日。
     "send_frequency": "weekly",
     "send_weekday": 0,
-    # 抓取时间范围（天）：只收录最近 N 天内发表的文章，保证时效性（对 OpenAlex/Crossref 生效）。
-    "lookback_days": 30,
+    # 周刊固定覆盖采集日及此前 6 个北京时间自然日。
+    "lookback_days": 7,
     # 发送日的发送时间（北京时间 HH:MM）。采集在发送日前一天 19:00（由 systemd timer 控制）。
     "send_time": "08:00",
-    # 综述生成的自动化分级开关（按发送批次快照）：
-    "auto_approve_articles": False,  # 抓到的文章自动批准（跳过人工审核）
-    "auto_generate_review": False,   # 采集后自动调用 AI 生成文献综述
-    "auto_send": False,              # 综述自动批准并在发送日自动群发（全流程自动化）
+    # 旧版兼容键：归一化时固定关闭；发布必须经过整期人工批准。
+    "auto_approve_articles": False,
+    "auto_generate_review": False,
+    "auto_send": False,
     # 总闸：开启后采集/综述/发送各阶段一律暂停，便于随时人工干预。
     "automation_paused": False,
     # 归档的旧批次文章是否在下次采集时硬删除（默认仅归档保留）。
     "hard_delete_archived": False,
-    # 单期发布上限：每期综述最多纳入多少篇文章（中英搭配）。超出的转入 deferred 待办，
-    # 由后续各批次按此上限逐周释放，避免一次性涌入（如国内中继首次全量投递）压垮综述生成；
-    # 顺延的文章不会丢弃。0=不限（全部纳入本期）。
+    # 固定每期最多 45 篇完整英文文章，超额按期刊轮转后顺延。
     "weekly_release_cap": 45,
-    # 综述专用模型（留空=沿用 ai.override.yaml 的运行时生效模型，自动适配 flash/pro）。
+    # 旧版综述模型键，只为迁移读取；新系统目录不调用综述模型。
     "review_model": "",
-    # 定时自动发送的默认受众：subscribers（邮箱订阅者，按权限）/ members（付费会员）/ registered（全部注册用户）。
+    # 定时自动发送的默认受众仅限：subscribers（已订阅且仍为有效会员）/ members（全部有效会员）。
     "send_audience": "subscribers",
     # 当 send_audience=members 时，限定的套餐 code 列表；为空=全部有效付费会员。
     "send_audience_plans": [],
@@ -241,6 +257,79 @@ DEFAULT_JOURNAL_SOURCES: tuple[dict[str, Any], ...] = (
     {"name": "Economy and Society", "language": "en", "issn": "0308-5147", "source_type": "openalex"},
 )
 
+# The Chinese rows above are retained as migration/audit knowledge only.  The
+# active registry is English-only: the existing 21 titles plus 24 philosophy
+# and critical-theory titles.  Source discovery is metadata-only; publication
+# still requires a verified public PDF and a complete bilingual document.
+LEGACY_JOURNAL_SOURCES = DEFAULT_JOURNAL_SOURCES
+_EXISTING_ENGLISH_SOURCES = tuple(
+    source for source in LEGACY_JOURNAL_SOURCES
+    if str(source.get("language") or "").lower().startswith("en")
+)
+_PHILOSOPHY_SOURCE_ADDITIONS: tuple[dict[str, Any], ...] = (
+    {"name": "Radical Philosophy", "language": "en", "issn": "0300-211X", "source_type": "openalex"},
+    {"name": "Philosophy & Social Criticism", "language": "en", "issn": "0191-4537", "source_type": "openalex",
+     "config": {"alternate_issn": ["1461-734X"]}},
+    {"name": "Constellations", "language": "en", "issn": "1351-0487", "source_type": "openalex",
+     "config": {"alternate_issn": ["1467-8675"]}},
+    {"name": "Critical Horizons", "language": "en", "issn": "1440-9917", "source_type": "openalex"},
+    {"name": "Theory, Culture & Society", "language": "en", "issn": "0263-2764", "source_type": "openalex"},
+    {"name": "Thesis Eleven", "language": "en", "issn": "0725-5136", "source_type": "openalex"},
+    {"name": "European Journal of Philosophy", "language": "en", "issn": "0966-8373", "source_type": "openalex",
+     "config": {"alternate_issn": ["1468-0378"]}},
+    {"name": "Hegel Bulletin", "language": "en", "issn": "0263-5232", "source_type": "openalex"},
+    {"name": "Continental Philosophy Review", "language": "en", "issn": "1387-2842", "source_type": "openalex",
+     "config": {"alternate_issn": ["1573-1103"]}},
+    {"name": "Inquiry", "language": "en", "issn": "0020-174X", "source_type": "openalex"},
+    {"name": "Mind", "language": "en", "issn": "0026-4423", "source_type": "openalex"},
+    {"name": "The Philosophical Review", "language": "en", "issn": "0031-8108", "source_type": "openalex"},
+    {"name": "The Journal of Philosophy", "language": "en", "issn": "0022-362X", "source_type": "openalex"},
+    {"name": "Noûs", "language": "en", "issn": "0029-4624", "source_type": "openalex"},
+    {"name": "Philosophy and Phenomenological Research", "language": "en", "issn": "0031-8205", "source_type": "openalex"},
+    {"name": "Ethics", "language": "en", "issn": "0014-1704", "source_type": "openalex"},
+    {"name": "Philosophy & Public Affairs", "language": "en", "issn": "0048-3915", "source_type": "openalex"},
+    {"name": "Journal of Political Philosophy", "language": "en", "issn": "0963-8016", "source_type": "openalex"},
+    {"name": "The Philosophical Quarterly", "language": "en", "issn": "0031-8094", "source_type": "openalex"},
+    {"name": "Analysis", "language": "en", "issn": "0003-2638", "source_type": "openalex"},
+    {"name": "Australasian Journal of Philosophy", "language": "en", "issn": "0004-8402", "source_type": "openalex"},
+    {"name": "Philosophical Studies", "language": "en", "issn": "0031-8116", "source_type": "openalex"},
+    {"name": "British Journal for the History of Philosophy", "language": "en", "issn": "0960-8788", "source_type": "openalex"},
+    {"name": "Journal of the History of Philosophy", "language": "en", "issn": "0022-5053", "source_type": "openalex",
+     "config": {"alternate_issn": ["1538-4586"]}},
+)
+DEFAULT_JOURNAL_SOURCES = _EXISTING_ENGLISH_SOURCES + _PHILOSOPHY_SOURCE_ADDITIONS
+
+_JOURNAL_CATALOG_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "马克思主义与批判理论",
+        "MARXISM & CRITICAL THEORY",
+        (
+            "Historical Materialism: Research in Critical Marxist Theory", "Rethinking Marxism",
+            "Science & Society: A Journal of Marxist Thought and Analysis", "Monthly Review",
+            "New Left Review", "Critique: Journal of Socialist Theory", "Socialist Register",
+            "International Critical Thought", "Radical Philosophy", "Philosophy & Social Criticism",
+            "Constellations", "Critical Horizons", "Theory, Culture & Society", "Thesis Eleven",
+        ),
+    ),
+    (
+        "政治经济学与社会研究",
+        "POLITICAL ECONOMY & SOCIETY",
+        (
+            "Capital & Class", "Capitalism Nature Socialism", "Cambridge Journal of Economics",
+            "Review of Radical Political Economics", "Review of Political Economy",
+            "Journal of Economic Issues", "Structural Change and Economic Dynamics",
+            "Economic Geography", "Journal of Institutional Economics",
+            "International Journal of Political Economy", "New Political Economy",
+            "Review of Development Economics", "Economy and Society",
+        ),
+    ),
+    (
+        "哲学核心期刊",
+        "CORE PHILOSOPHY",
+        tuple(str(source["name"]) for source in _PHILOSOPHY_SOURCE_ADDITIONS[6:]),
+    ),
+)
+
 
 @dataclass(frozen=True)
 class SMTPConfig:
@@ -278,12 +367,24 @@ def _parse_utc(value: str) -> datetime | None:
 
 
 def _connect() -> sqlite3.Connection:
-    APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+    if Path(DB_PATH) == JOURNAL_DB_PATH:
+        ensure_journal_storage()
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     secure_db_file(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _membership_schema(conn: sqlite3.Connection) -> str:
+    """Attach the account database for read-only cross-database user joins."""
+    membership_store.init_membership_db()
+    membership_path = Path(membership_store.DB_PATH).resolve()
+    if membership_path == Path(DB_PATH).resolve():
+        return "main"
+    conn.execute("ATTACH DATABASE ? AS membership_accounts", (str(membership_path),))
+    return "membership_accounts"
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
@@ -360,7 +461,7 @@ def normalize_alert_settings(raw: dict | None = None) -> dict:
                     values[key] = str(raw.get(key) or "").strip()
             elif key == "send_audience":
                 aud = str(raw.get(key) or "").strip().lower()
-                if aud in {"subscribers", "members", "registered"}:
+                if aud in {"subscribers", "members"}:
                     values[key] = aud
             elif key == "send_audience_plans":
                 if key in raw:
@@ -396,12 +497,66 @@ def normalize_alert_settings(raw: dict | None = None) -> dict:
                         pass
             elif key in raw:
                 values[key] = bool(raw[key])
+    # Migrate only historical built-in names; an administrator's custom subject
+    # remains untouched.
+    if values["subject_prefix"] in _LEGACY_DEFAULT_SUBJECT_PREFIXES:
+        values["subject_prefix"] = JOURNAL_WEEKLY_TITLE
+    # Product invariants for the bilingual weekly journal.  Legacy settings are
+    # read for migration but cannot re-enable daily delivery, AI reviews,
+    # automatic publication, or destructive archive deletion.
+    values["send_frequency"] = "weekly"
+    values["lookback_days"] = 7
+    values["weekly_release_cap"] = 45
+    values["auto_publish_all"] = False
+    values["auto_approve_articles"] = False
+    values["auto_generate_review"] = False
+    values["auto_send"] = False
+    values["hard_delete_archived"] = False
     return values
 
 
 def load_alert_settings() -> dict:
-    init_admin_store_db()
-    return normalize_alert_settings(get_setting("journal_alerts_settings", {}))
+    """Load journal-owned settings from the data-disk journal database.
+
+    On the first production read only, copy the legacy unified-setting value;
+    subsequent reads and all writes are journal-local.
+    """
+    init_journal_alerts_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT value FROM journal_meta WHERE key='alert_settings_v2'"
+        ).fetchone()
+    if row is not None:
+        try:
+            return normalize_alert_settings(json.loads(str(row["value"] or "{}")))
+        except (TypeError, ValueError):
+            return normalize_alert_settings({})
+    legacy: dict = {}
+    if Path(DB_PATH).resolve() == Path(JOURNAL_DB_PATH).resolve():
+        try:
+            init_admin_store_db()
+            raw = get_legacy_setting("journal_alerts_settings", {})
+            legacy = raw if isinstance(raw, dict) else {}
+        except Exception:
+            legacy = {}
+    return save_alert_settings(legacy)
+
+
+def save_alert_settings(raw: dict | None) -> dict:
+    values = normalize_alert_settings(raw)
+    init_journal_alerts_db()
+    now = utc_now_text()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO journal_meta(key, value, updated_at)
+            VALUES('alert_settings_v2', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """,
+            (_json_dumps(values), now),
+        )
+        conn.commit()
+    return values
 
 
 def last_email_run_at() -> datetime | None:
@@ -449,26 +604,26 @@ def _normalize_hhmm(value: Any, fallback: str = "08:00") -> str:
 
 
 def is_collect_due(settings: dict | None = None, now: datetime | None = None) -> bool:
-    """采集阶段在「发送日的前一天」执行。daily 每天采集；biweekly/monthly 还需距上次开批足够久，
-    保证 14/28 天的真实节奏（用「上次开批时间」节流，不受人工发送影响）。"""
+    """Collect once weekly, on the Beijing-calendar day before the send day.
+
+    The systemd timer checks this predicate daily at 19:00 Beijing time so a
+    console change to ``send_weekday`` takes effect without rewriting the timer.
+    """
     settings = settings or load_alert_settings()
     if bool(settings.get("automation_paused")):
         return False
-    freq = str(settings.get("send_frequency") or "weekly").lower()
-    if freq == "daily":
-        return True
-    now_utc = now or utc_now()
-    now_bj = now_utc.astimezone(BEIJING_TZ)
-    tomorrow = now_bj + timedelta(days=1)
-    if freq in {"weekly", "biweekly"} and tomorrow.weekday() != int(settings.get("send_weekday") or 0):
-        return False
-    # biweekly/monthly 节流：距上次开批不足 (interval-2) 天则跳过本次，避免每周/每天都开新批。
-    if freq in {"biweekly", "monthly"}:
-        interval_days = _SEND_INTERVAL_DAYS.get(freq, 14)
-        last = last_batch_created_at()
-        if last is not None and (now_utc - last).total_seconds() < (interval_days - 2) * 86400:
-            return False
-    return True
+    now = now or utc_now()
+    send_weekday = max(0, min(6, int(settings.get("send_weekday") or 0)))
+    collect_weekday = (send_weekday - 1) % 7
+    return now.astimezone(BEIJING_TZ).weekday() == collect_weekday
+
+
+def weekly_collection_window(now: datetime | None = None, days: int = 7) -> tuple[datetime, datetime]:
+    """Return the inclusive Beijing-calendar window represented by one issue."""
+    end = (now or utc_now()).astimezone(BEIJING_TZ)
+    count = max(1, int(days))
+    start = end.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=count - 1)
+    return start, end
 
 
 def _default_source_by_name() -> dict[str, dict[str, Any]]:
@@ -529,6 +684,14 @@ def backfill_default_journal_sources() -> int:
     changed = 0
     now = utc_now_text()
     with _connect() as conn:
+        # Historical Chinese sources remain in the audit database but are never
+        # collected or exposed by the English-only product.
+        disabled = conn.execute(
+            "UPDATE journal_sources SET is_enabled = 0, updated_at = ? "
+            "WHERE lower(language) LIKE 'zh%' AND is_enabled != 0",
+            (now,),
+        )
+        changed += int(disabled.rowcount or 0)
         for source in DEFAULT_JOURNAL_SOURCES:
             cur = conn.execute(
                 """
@@ -551,6 +714,27 @@ def backfill_default_journal_sources() -> int:
                 ),
             )
             changed += int(cur.rowcount > 0)
+
+            # The curated registry is authoritative.  Re-enable titles that an
+            # older deployment may have disabled and refresh their identifiers.
+            cur = conn.execute(
+                """
+                UPDATE journal_sources
+                SET language = 'en', issn = ?, source_type = ?, source_url = ?,
+                    config_json = ?, is_enabled = 1, updated_at = ?
+                WHERE name = ? AND (
+                    language != 'en' OR issn != ? OR source_type != ? OR
+                    source_url != ? OR config_json != ? OR is_enabled != 1
+                )
+                """,
+                (
+                    source.get("issn", ""), source.get("source_type", "openalex"),
+                    source.get("source_url", ""), _json_dumps(source.get("config", {})), now,
+                    source["name"], source.get("issn", ""), source.get("source_type", "openalex"),
+                    source.get("source_url", ""), _json_dumps(source.get("config", {})),
+                ),
+            )
+            changed += int(cur.rowcount or 0)
 
         rows = conn.execute("SELECT * FROM journal_sources").fetchall()
         for row in rows:
@@ -613,14 +797,99 @@ def backfill_default_journal_sources() -> int:
 
 def journal_source_catalog() -> dict[str, Any]:
     sources = list_journal_sources(limit=240)
-    zh = [source for source in sources if str(source.get("language") or "").lower().startswith("zh")]
-    en = [source for source in sources if not str(source.get("language") or "").lower().startswith("zh")]
+    en = [
+        source for source in sources
+        if int(source.get("is_enabled") or 0)
+        and str(source.get("language") or "").lower().startswith("en")
+    ]
+    by_name = {str(source.get("name") or ""): source for source in en}
+    grouped_names: set[str] = set()
+    groups: list[dict[str, Any]] = []
+    for title, subtitle, names in _JOURNAL_CATALOG_GROUPS:
+        items = [by_name[name] for name in names if name in by_name]
+        grouped_names.update(str(item.get("name") or "") for item in items)
+        if items:
+            groups.append({"title": title, "subtitle": subtitle, "sources": items, "count": len(items)})
+    other = [source for source in en if str(source.get("name") or "") not in grouped_names]
+    if other:
+        groups.append({
+            "title": "其他英文期刊", "subtitle": "OTHER ENGLISH JOURNALS",
+            "sources": other, "count": len(other),
+        })
     return {
-        "zh": zh,
+        "zh": [],
         "en": en,
-        "total": len(sources),
-        "auto_count": sum(1 for source in sources if source.get("completeness", {}).get("complete")),
+        "en_groups": groups,
+        "total": len(en),
+        "auto_count": sum(1 for source in en if source.get("completeness", {}).get("complete")),
+        "legacy_hidden": sum(1 for source in sources if source not in en),
     }
+
+
+_LEGACY_JOURNAL_TABLES = (
+    "journal_sources",
+    "journal_subscriptions",
+    "journal_digests",
+    "journal_articles",
+    "journal_delivery_logs",
+    "journal_runs",
+    "journal_digest_deliveries",
+)
+
+
+def _migrate_legacy_journal_tables() -> bool:
+    """Copy journal-owned rows out of the legacy membership database once.
+
+    The migration preserves primary keys and copies only columns common to the
+    old and new schemas.  It never deletes the legacy tables, so rollback and
+    audit remain possible.
+    """
+    target = Path(DB_PATH).resolve()
+    # Test suites and maintenance tools may temporarily point DB_PATH at an
+    # isolated database.  Legacy production data must never leak into those
+    # databases; the one-time copy is only valid for the configured journal DB.
+    if target != Path(JOURNAL_DB_PATH).resolve():
+        return False
+    legacy = Path(LEGACY_DB_PATH).resolve()
+    if target == legacy or not legacy.exists():
+        return False
+    with _connect() as conn:
+        marker = conn.execute(
+            "SELECT value FROM journal_meta WHERE key = 'legacy_membership_copy_v1'"
+        ).fetchone()
+        if marker:
+            return False
+        conn.execute("ATTACH DATABASE ? AS legacy", (str(legacy),))
+        try:
+            for table in _LEGACY_JOURNAL_TABLES:
+                exists = conn.execute(
+                    "SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone()
+                if not exists:
+                    continue
+                target_cols = {
+                    str(row[1]) for row in conn.execute(f"PRAGMA main.table_info({table})").fetchall()
+                }
+                legacy_cols = [
+                    str(row[1]) for row in conn.execute(f"PRAGMA legacy.table_info({table})").fetchall()
+                ]
+                columns = [column for column in legacy_cols if column in target_cols]
+                if not columns:
+                    continue
+                quoted = ", ".join(f'"{column}"' for column in columns)
+                conn.execute(
+                    f"INSERT OR IGNORE INTO main.{table}({quoted}) "
+                    f"SELECT {quoted} FROM legacy.{table}"
+                )
+            conn.execute(
+                "INSERT INTO journal_meta(key, value, updated_at) VALUES(?, ?, ?)",
+                ("legacy_membership_copy_v1", str(legacy), utc_now_text()),
+            )
+            conn.commit()
+        finally:
+            conn.execute("DETACH DATABASE legacy")
+    return True
 
 
 def init_journal_alerts_db() -> Path:
@@ -641,8 +910,7 @@ def init_journal_alerts_db() -> Path:
                 updated_at TEXT NOT NULL,
                 last_sent_at TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
-                UNIQUE(user_id, email),
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                UNIQUE(user_id, email)
             );
 
             CREATE INDEX IF NOT EXISTS idx_journal_subscriptions_email
@@ -767,6 +1035,61 @@ def init_journal_alerts_db() -> Path:
 
             CREATE INDEX IF NOT EXISTS idx_journal_digest_deliveries_status
                 ON journal_digest_deliveries(digest_id, status);
+
+            CREATE TABLE IF NOT EXISTS journal_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS journal_model_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                article_id INTEGER,
+                feature TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'mimo',
+                model TEXT NOT NULL DEFAULT 'mimo-v2.5',
+                reasoning_effort TEXT NOT NULL DEFAULT 'off',
+                success INTEGER NOT NULL DEFAULT 0,
+                error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS journal_takedowns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                article_id INTEGER NOT NULL,
+                reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(article_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS journal_fulltext (
+                article_id INTEGER PRIMARY KEY,
+                batch_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                pdf_url TEXT NOT NULL DEFAULT '',
+                pdf_host_type TEXT NOT NULL DEFAULT '',
+                pdf_bytes INTEGER NOT NULL DEFAULT 0,
+                pdf_sha256 TEXT NOT NULL DEFAULT '',
+                page_count INTEGER NOT NULL DEFAULT 0,
+                para_count INTEGER NOT NULL DEFAULT 0,
+                translated INTEGER NOT NULL DEFAULT 0,
+                required_translations INTEGER NOT NULL DEFAULT 0,
+                src_lang TEXT NOT NULL DEFAULT 'en',
+                ocr_pages INTEGER NOT NULL DEFAULT 0,
+                provider TEXT NOT NULL DEFAULT 'mimo',
+                model TEXT NOT NULL DEFAULT 'mimo-v2.5',
+                reasoning_effort TEXT NOT NULL DEFAULT 'off',
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_retry_at TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_journal_fulltext_status
+                ON journal_fulltext(status);
+            CREATE INDEX IF NOT EXISTS idx_journal_fulltext_batch
+                ON journal_fulltext(batch_id);
             """
         )
         # 幂等补列（线上旧库通过启动迁移补齐，绝不重建/丢数据）。
@@ -775,34 +1098,26 @@ def init_journal_alerts_db() -> Path:
         _ensure_column(conn, "journal_articles", "ai_problem_type", "TEXT NOT NULL DEFAULT ''")
         # 文献 PDF 下载链接（OpenAlex 开放获取 / NCPSSD 全文，尽力而为；为空则前端不显示下载按钮）。
         _ensure_column(conn, "journal_articles", "pdf_url", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "journal_articles", "journal_name_zh", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "journal_articles", "authors_zh_json", "TEXT NOT NULL DEFAULT '[]'")
+        _ensure_column(conn, "journal_articles", "citation_gb2015_zh", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "journal_articles", "citation_mks_en", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "journal_articles", "citation_mks_zh", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "journal_articles", "public_pdf_verified", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "journal_digests", "issue_key", "TEXT NOT NULL DEFAULT ''")
+        # 2026-08：英文论文已成为统一入口，不再按作者/语种另设“国外马克思主义研究”。
+        # 历史数据迁入最接近的主题桶，避免目录里残留已下线分类。
+        conn.execute(
+            "UPDATE journal_articles SET ai_discipline = '马克思主义思想史与文本研究' "
+            "WHERE ai_discipline = '国外马克思主义研究'"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_journal_articles_batch ON journal_articles(batch_id, status)"
         )
         # 投递表迁移：支持非订阅收件人（付费会员/注册用户/特定邮箱），去重改为按邮箱。
         _migrate_digest_deliveries(conn)
-        now = utc_now_text()
-        for source in DEFAULT_JOURNAL_SOURCES:
-            conn.execute(
-                """
-                INSERT INTO journal_sources(
-                    name, language, issn, source_type, source_url, config_json,
-                    is_enabled, created_at, updated_at
-                )
-                VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
-                ON CONFLICT(name) DO NOTHING
-                """,
-                (
-                    source["name"],
-                    source.get("language", "zh"),
-                    source.get("issn", ""),
-                    source.get("source_type", "manual"),
-                    source.get("source_url", ""),
-                    _json_dumps(source.get("config", {})),
-                    now,
-                    now,
-                ),
-            )
         conn.commit()
+    _migrate_legacy_journal_tables()
     backfill_default_journal_sources()
     return DB_PATH
 
@@ -903,11 +1218,12 @@ def list_subscriptions_for_user(user_id: int) -> list[dict]:
 
 def list_recent_subscriptions(limit: int = 80) -> list[dict]:
     with _connect() as conn:
+        user_schema = _membership_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT s.*, u.email AS user_account_email, u.display_name, u.role, u.is_active
             FROM journal_subscriptions s
-            JOIN users u ON u.id = s.user_id
+            JOIN {user_schema}.users u ON u.id = s.user_id
             ORDER BY s.updated_at DESC, s.id DESC
             LIMIT ?
             """,
@@ -1053,6 +1369,41 @@ def update_article_review_status(article_id: int, status: str) -> dict | None:
     return _article_row(row) if row is not None else None
 
 
+def set_article_takedown(article_id: int, reason: str = "") -> dict:
+    """Immediately hide a public article without deleting its audit artifacts."""
+    reason = (reason or "管理员紧急下架").strip()[:1000]
+    now = utc_now_text()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM journal_articles WHERE id = ?", (int(article_id),)
+        ).fetchone()
+        if row is None:
+            raise ValueError("文章不存在。")
+        conn.execute(
+            """
+            INSERT INTO journal_takedowns(article_id, reason, created_at)
+            VALUES(?, ?, ?)
+            ON CONFLICT(article_id) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at
+            """,
+            (int(article_id), reason, now),
+        )
+        conn.commit()
+    return _article_row(row) or {}
+
+
+def clear_article_takedown(article_id: int) -> dict:
+    """Restore visibility; the normal complete/full-text/public-issue gates still apply."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM journal_articles WHERE id = ?", (int(article_id),)
+        ).fetchone()
+        if row is None:
+            raise ValueError("文章不存在。")
+        conn.execute("DELETE FROM journal_takedowns WHERE article_id = ?", (int(article_id),))
+        conn.commit()
+    return _article_row(row) or {}
+
+
 def approve_all_pending_articles() -> int:
     """一键批准：把所有待审核文章置为 ready（进入发送队列）。返回批准的数量。"""
     with _connect() as conn:
@@ -1107,6 +1458,13 @@ def update_journal_source(
         raise ValueError("来源类型只支持 manual、openalex、crossref、rss、web_html。")
     config_json = _json_dumps(config or {})
     with _connect() as conn:
+        row = conn.execute(
+            "SELECT language FROM journal_sources WHERE id = ?", (int(source_id),)
+        ).fetchone()
+        if row is None:
+            raise ValueError("期刊来源不存在。")
+        if str(row["language"] or "").strip().lower() != "en" and is_enabled:
+            raise ValueError("中文及其他非英文期刊只能保留为历史审计记录，不能重新启用。")
         conn.execute(
             """
             UPDATE journal_sources
@@ -1129,7 +1487,7 @@ def update_journal_source(
 def add_journal_source(
     *,
     name: str,
-    language: str = "zh",
+    language: str = "en",
     source_type: str = "manual",
     issn: str = "",
     source_url: str = "",
@@ -1139,9 +1497,9 @@ def add_journal_source(
     name = (name or "").strip()
     if not name:
         raise ValueError("期刊名称不能为空。")
-    language = (language or "zh").strip().lower()
-    if language not in {"zh", "en"}:
-        language = "zh"
+    language = (language or "en").strip().lower()
+    if language != "en":
+        raise ValueError("期刊订阅仅允许新增英文期刊来源。")
     source_type = (source_type or "manual").strip().lower()
     if source_type not in {"manual", "openalex", "crossref", "rss", "web_html"}:
         raise ValueError("来源类型只支持 manual、openalex、crossref、rss、web_html。")
@@ -1178,6 +1536,7 @@ def add_journal_source(
 def _article_row(row: sqlite3.Row) -> dict:
     data = _row_to_dict(row) or {}
     data["authors"] = _json_loads(str(data.get("authors_json") or "[]"), [])
+    data["authors_zh"] = _json_loads(str(data.get("authors_zh_json") or "[]"), [])
     data["metadata"] = _json_loads(str(data.get("metadata_json") or "{}"), {})
     return data
 
@@ -1191,12 +1550,12 @@ def _digest_row(row: sqlite3.Row | None) -> dict | None:
 
 
 def current_batch() -> dict | None:
-    """最近一个尚未发送/归档的批次（collecting/reviewing/ready_to_send）。"""
+    """Most recent issue that is still collecting, under review, or awaiting email."""
     with _connect() as conn:
         row = conn.execute(
             """
             SELECT * FROM journal_digests
-            WHERE status IN ('collecting', 'reviewing', 'ready_to_send')
+            WHERE status IN ('collecting', 'reviewing', 'ready_to_send', 'published')
             ORDER BY id DESC LIMIT 1
             """
         ).fetchone()
@@ -1213,9 +1572,9 @@ def last_sent_batch() -> dict | None:
 
 
 def latest_public_batch() -> dict | None:
-    """首页「查看本周新文」展示的批次：优先最近一次已发送批次（发送后留存到下次发送），
-    尚无发送时退回当前在建批次（便于审核期预览）。"""
-    return last_sent_batch() or current_batch()
+    """Latest member-visible issue, including an explicitly curated sample issue."""
+    batches = list_public_batches(limit=1)
+    return batches[0] if batches else None
 
 
 def archive_sent_batches_before(keep_digest_id: int) -> None:
@@ -1257,26 +1616,41 @@ def list_recent_batches(limit: int = 12) -> list[dict]:
 
 
 def list_public_batches(limit: int = 60) -> list[dict]:
-    """对外可翻阅的历史期：已发送（当前留存的本期）+ 已归档（更早各期），按 id 新→旧。
+    """对会员可翻阅的期数：样刊 + 自动形成的待发送期 + 已发送/归档期。
 
-    在建批次（collecting/reviewing/ready_to_send）不在此列——它们尚未对外发送，
-    只能在审核预览中出现，不应作为「历史期数」被枚举。供前台「翻阅历史期数」用。"""
+    collecting/reviewing 尚未产出完整文章，不在此列；ready_to_send 已通过
+    公开 PDF、正文完整性与逐段双语门槛，可先在网站供会员阅读，但邮件仍须
+    管理员最终确认。sample 是人工明确标记的独立样刊，不会被采集器
+    当作当周在建批次，也不会通过邮件批准门槛。"""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM journal_digests WHERE status IN ('sent', 'archived') "
-            "ORDER BY id DESC LIMIT ?",
+            """
+            SELECT d.* FROM journal_digests d
+            WHERE d.status IN ('sample', 'ready_to_send', 'published', 'sent', 'archived')
+              AND EXISTS (
+                  SELECT 1 FROM journal_articles a
+                  JOIN journal_fulltext f ON f.article_id = a.id AND f.status = 'ready'
+                    AND f.required_translations > 0 AND f.translated = f.required_translations
+                  LEFT JOIN journal_takedowns t ON t.article_id = a.id
+                  WHERE a.batch_id = d.id AND a.language = 'en' AND t.article_id IS NULL
+              )
+            ORDER BY d.id DESC LIMIT ?
+            """,
             (max(1, int(limit)),),
         ).fetchall()
-    return [_digest_row(row) or {} for row in rows]
+    candidates = [_digest_row(row) or {} for row in rows]
+    return [batch for batch in candidates if public_batch_articles(int(batch["id"]))]
 
 
 def open_batch(settings: dict | None = None, *, period_days: int | None = None) -> dict:
     """开新批次：归档之前未发送的批次及其文章，再插入一行 collecting 批次。"""
     settings = settings or load_alert_settings()
-    now = utc_now()
     days = int(period_days if period_days is not None else (settings.get("lookback_days") or DEFAULT_LOOKBACK_DAYS))
-    period_start = (now - timedelta(days=days)).isoformat(timespec="seconds")
-    period_end = now.isoformat(timespec="seconds")
+    period_start_dt, period_end_dt = weekly_collection_window(days=days)
+    period_start = period_start_dt.isoformat(timespec="seconds")
+    period_end = period_end_dt.isoformat(timespec="seconds")
+    iso_year, iso_week, _ = period_end_dt.isocalendar()
+    issue_key = f"{iso_year}-W{iso_week:02d}"
     hard_delete = bool(settings.get("hard_delete_archived"))
     archive_previous_batches(hard_delete=hard_delete)
     now_text = utc_now_text()
@@ -1284,15 +1658,16 @@ def open_batch(settings: dict | None = None, *, period_days: int | None = None) 
         cur = conn.execute(
             """
             INSERT INTO journal_digests(
-                period_start, period_end, frequency, status,
+                period_start, period_end, issue_key, frequency, status,
                 auto_approve_articles, auto_generate_review, auto_send,
                 created_at, updated_at
             )
-            VALUES(?, ?, ?, 'collecting', ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, 'collecting', ?, ?, ?, ?, ?)
             """,
             (
                 period_start,
                 period_end,
+                issue_key,
                 str(settings.get("send_frequency") or "weekly"),
                 1 if settings.get("auto_approve_articles") else 0,
                 1 if settings.get("auto_generate_review") else 0,
@@ -1378,18 +1753,68 @@ def batch_articles(digest_id: int, statuses: tuple[str, ...] | None = None) -> l
     return [_article_row(row) for row in rows]
 
 
+def public_batch_articles(digest_id: int) -> list[dict]:
+    """Only complete English full-text articles belonging to a published issue."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT a.* FROM journal_articles a
+            JOIN journal_fulltext f ON f.article_id = a.id AND f.status = 'ready'
+              AND f.required_translations > 0 AND f.translated = f.required_translations
+            LEFT JOIN journal_takedowns t ON t.article_id = a.id
+            WHERE a.batch_id = ? AND a.language = 'en'
+              AND a.status IN ('ready', 'archived')
+              AND a.public_pdf_verified = 1
+              AND t.article_id IS NULL
+            ORDER BY a.ai_discipline ASC, a.first_seen_at ASC, a.id ASC
+            """,
+            (int(digest_id),),
+        ).fetchall()
+    return [article for row in rows if _public_article_complete(article := _article_row(row))]
+
+
+def _public_article_complete(article: dict) -> bool:
+    required = (
+        "title", "title_zh", "journal_name", "journal_name_zh", "abstract", "abstract_zh",
+        "citation_gb2015", "citation_mks_en",
+    )
+    if not all(str(article.get(key) or "").strip() for key in required):
+        return False
+    if not (article.get("authors") and article.get("authors_zh")):
+        return False
+    try:
+        from journal_fulltext import load_document
+
+        document = load_document(int(article["id"])) or {}
+    except Exception:
+        return False
+    if int(document.get("schema_version") or 0) < 2:
+        return False
+    paragraphs = document.get("paragraphs")
+    if not isinstance(paragraphs, list) or not paragraphs:
+        return False
+    translatable = [
+        block for block in paragraphs
+        if str(block.get("kind") or "body") != "reference"
+        and len(str(block.get("text") or "").strip()) >= 2
+    ]
+    return bool(translatable) and all(str(block.get("zh") or "").strip() for block in translatable)
+
+
 # ----------------------------------------------------------------------------
-# 单期发布上限与顺延（deferred）待办：把一次涌入的大量文章按每期上限逐周释放
+# 单期发布上限：仅在本期严格 7 天窗口内取舍，绝不跨周顺延
 # ----------------------------------------------------------------------------
-# 「中英搭配」：英文文章通常稀缺，充足时至多占单期上限的这个比例，其余名额给中文。
-_RELEASE_EN_SHARE = 0.4
+# Compatibility constant retained for older imports.  The live registry is
+# English-only, so release selection no longer reserves a Chinese quota.
+_RELEASE_EN_SHARE = 1.0
 
 
 def count_deferred_articles() -> int:
-    """当前顺延（deferred）待办的文章数——尚未纳入任何一期、等待后续批次逐步释放。"""
+    """Compatibility metric for English rows still marked deferred in an issue."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM journal_articles WHERE status = 'deferred'"
+            "SELECT COUNT(*) AS n FROM journal_articles "
+            "WHERE status = 'deferred' AND language = 'en' AND batch_id IS NOT NULL"
         ).fetchone()
     return int(row["n"]) if row else 0
 
@@ -1428,57 +1853,43 @@ def _roundrobin_by_journal(articles: list[dict], quota: int) -> list[dict]:
 
 
 def _select_release_articles(pool: list[dict], cap: int) -> tuple[list[dict], list[dict]]:
-    """从候选池挑选一期要发布的文章（中英搭配 + 按期刊轮转铺开），返回 (选中, 顺延)。
-
-    - 英文稀缺，优先保证「中英搭配」：英文至多占 cap*_RELEASE_EN_SHARE（不足则全收），
-      其余名额给中文；任一语种不足时名额回补给另一语种。
-    - 同语种内按期刊轮转挑选（见 _roundrobin_by_journal）。
-    - cap<=0 或池内不超上限：全部选中、无顺延。
-    """
+    """Select an English-only issue by journal round-robin; return overflow."""
+    pool = [a for a in pool if _release_language_bucket(a) == "en"]
     if cap <= 0 or len(pool) <= cap:
         return list(pool), []
-    en = [a for a in pool if _release_language_bucket(a) == "en"]
-    zh = [a for a in pool if _release_language_bucket(a) == "zh"]
-    en_quota = min(len(en), max(0, round(cap * _RELEASE_EN_SHARE)))
-    zh_quota = cap - en_quota
-    if zh_quota > len(zh):  # 中文不足，名额回补英文
-        en_quota = min(len(en), cap - len(zh))
-        zh_quota = len(zh)
-    selected = _roundrobin_by_journal(en, en_quota) + _roundrobin_by_journal(zh, zh_quota)
+    selected = _roundrobin_by_journal(pool, cap)
     selected_ids = {int(a["id"]) for a in selected}
     deferred = [a for a in pool if int(a["id"]) not in selected_ids]
     return selected, deferred
 
 
 def apply_release_cap(batch_id: int, settings: dict | None = None) -> dict:
-    """把本批次在办文章 + 历史顺延（deferred）文章合池，按每期上限挑一批纳入本期，
-    其余转入 deferred 待后续批次释放。返回统计 {selected, deferred, backlog_remaining, cap}。
+    """Apply the issue cap only to English articles in this exact weekly window.
 
-    即便某次采集一次性涌入大量文章（如国内中继首次全量投递），单期综述体量也可控、生成稳定，
-    且没有任何文章被丢弃——顺延的会在后续各期按上限逐步释放。deferred 文章仍在库中，
-    因此去重（_article_seen_before）照常生效，不会被源站重复采回。"""
+    Overflow remains attached to the issue as ``ignored`` audit data and is
+    never recycled into a later issue; that preserves the strict seven-day
+    editorial boundary.  The legacy return keys remain for callers/tests.
+    """
     settings = settings or load_alert_settings()
     cap = int(settings.get("weekly_release_cap") or 0)
     auto_approve = bool(settings.get("auto_approve_articles") or settings.get("auto_publish_all"))
     now = utc_now_text()
     with _connect() as conn:
         active_rows = conn.execute(
-            "SELECT * FROM journal_articles WHERE batch_id = ? AND status IN ('ready', 'pending_review') "
-            "ORDER BY first_seen_at ASC, id ASC",
+            "SELECT * FROM journal_articles WHERE batch_id = ? "
+            "AND status IN ('ready', 'pending_review', 'translation_pending') "
+            "AND language = 'en' ORDER BY first_seen_at ASC, id ASC",
             (int(batch_id),),
         ).fetchall()
-        backlog_rows = conn.execute(
-            "SELECT * FROM journal_articles WHERE status = 'deferred' ORDER BY first_seen_at ASC, id ASC"
-        ).fetchall()
-    pool = [_article_row(r) for r in active_rows] + [_article_row(r) for r in backlog_rows]
+    pool = [_article_row(r) for r in active_rows]
     selected, deferred = _select_release_articles(pool, cap)
     selected_ids = {int(a["id"]) for a in selected}
     deferred_ids = {int(a["id"]) for a in deferred}
     with _connect() as conn:
         for a in selected:
             cur_status = str(a.get("status") or "")
-            # 顺延释放/新纳入：auto_approve 直接 ready，否则待审；已在办的保持原态。
-            new_status = cur_status if cur_status in ("ready", "pending_review") else (
+            # 本期已在办状态保持不变；仅兼容历史未知状态。
+            new_status = cur_status if cur_status in ("ready", "pending_review", "translation_pending") else (
                 "ready" if auto_approve else "pending_review"
             )
             conn.execute(
@@ -1487,32 +1898,56 @@ def apply_release_cap(batch_id: int, settings: dict | None = None) -> dict:
             )
         for aid in deferred_ids:
             conn.execute(
-                "UPDATE journal_articles SET status = 'deferred', batch_id = NULL, updated_at = ? WHERE id = ?",
-                (now, int(aid)),
+                "UPDATE journal_articles SET status = 'ignored', batch_id = ?, updated_at = ? WHERE id = ?",
+                (int(batch_id), now, int(aid)),
             )
         conn.commit()
     return {
         "selected": len(selected_ids),
         "deferred": len(deferred_ids),
-        "backlog_remaining": count_deferred_articles(),
+        "backlog_remaining": 0,
         "cap": cap,
     }
 
 
 # 可对外（含 PDF 下载）开放的文章状态：已发布/审核预览/已归档（旧邮件链接仍可用），
 # 排除草稿态（待翻译）与人工忽略，避免越权枚举未发布稿件。
-_PUBLIC_ARTICLE_STATUSES = ("ready", "pending_review", "archived")
+_PUBLIC_ARTICLE_STATUSES = ("ready", "archived")
 
 
 def get_public_article(article_id: int) -> dict | None:
-    """按 id 取一篇“可对外”的文章（供 PDF 下载路由用），非公开态返回 None。"""
+    """Return a complete English article from a member-visible issue or sample."""
     placeholders = ",".join("?" for _ in _PUBLIC_ARTICLE_STATUSES)
     with _connect() as conn:
         row = conn.execute(
-            f"SELECT * FROM journal_articles WHERE id = ? AND status IN ({placeholders})",
+            f"""
+            SELECT a.* FROM journal_articles a
+            JOIN journal_digests d ON d.id = a.batch_id AND d.status IN ('sample', 'ready_to_send', 'published', 'sent', 'archived')
+            JOIN journal_fulltext f ON f.article_id = a.id AND f.status = 'ready'
+              AND f.required_translations > 0 AND f.translated = f.required_translations
+            LEFT JOIN journal_takedowns t ON t.article_id = a.id
+            WHERE a.id = ? AND a.language = 'en'
+              AND a.status IN ({placeholders})
+              AND a.public_pdf_verified = 1
+              AND t.article_id IS NULL
+            """,
             (int(article_id), *_PUBLIC_ARTICLE_STATUSES),
         ).fetchone()
-    return _article_row(row) if row else None
+    if not row:
+        return None
+    article = _article_row(row)
+    return article if _public_article_complete(article) else None
+
+
+def get_issue_neighbors(article_id: int, digest_id: int) -> tuple[dict | None, dict | None]:
+    articles = public_batch_articles(digest_id)
+    ids = [int(item["id"]) for item in articles]
+    if int(article_id) not in ids:
+        return None, None
+    index = ids.index(int(article_id))
+    previous = articles[index - 1] if index > 0 else None
+    following = articles[index + 1] if index + 1 < len(articles) else None
+    return previous, following
 
 
 def set_article_classification(article_id: int, discipline: str, problem_type: str) -> None:
@@ -1532,6 +1967,7 @@ def update_batch_review(
     review_status: str | None = None,
     review_model: str | None = None,
     status: str | None = None,
+    auto_send: bool | None = None,
     mark_generated: bool = False,
     mark_approved: bool = False,
 ) -> dict | None:
@@ -1548,6 +1984,8 @@ def update_batch_review(
         sets.append("review_model = ?"); params.append(review_model)
     if status is not None:
         sets.append("status = ?"); params.append(status)
+    if auto_send is not None:
+        sets.append("auto_send = ?"); params.append(1 if auto_send else 0)
     if mark_generated:
         sets.append("review_generated_at = ?"); params.append(now)
     if mark_approved:
@@ -1591,7 +2029,7 @@ def _urlopen_text_final(url: str, user_agent: str = USER_AGENT) -> tuple[str, st
 # 字典」打包成 JSON 推到服务器本文件路径；服务器采集时对 web_html 源**中继优先**：
 # 中继里有该源且足够新鲜 → 直接采用（零外网请求）；否则回退直抓（并对 NCPSSD 重定向
 # 显式报错，不再静默空手）。批次/去重/时间窗/翻译/审核等管线完全不变。
-RELAY_PATH = APPDATA_DIR / "journal_relay.json"
+RELAY_PATH = JOURNAL_TMP_DIR / "legacy-journal-relay.json"
 RELAY_MAX_AGE_DAYS = max(1, int(os.environ.get("MARX_JOURNAL_RELAY_MAX_AGE_DAYS", "10") or "10"))
 # 中继超过该天数未更新时，采集轮在 run 错误里附一条提醒（不影响成功状态判定的 warning 级）。
 RELAY_STALE_WARN_DAYS = 3
@@ -1727,6 +2165,49 @@ def _fetch_from_relay(source: dict) -> list[dict] | None:
 def fetch_source_articles(source: dict, lookback_days: int | None = None) -> list[dict]:
     days = int(lookback_days) if lookback_days else DEFAULT_LOOKBACK_DAYS
     source_type = str(source.get("source_type") or "manual").strip().lower()
+    language = str(source.get("language") or "").strip().lower()
+    # The English weekly uses independent indexes in parallel.  OpenAlex remains
+    # the primary discovery index, while Crossref catches publisher deposits that
+    # OpenAlex has not indexed yet and DOAJ contributes OA-journal records/links.
+    # One provider failing must not erase successful results from the others.
+    if language.startswith("en") and source_type in {"openalex", "crossref", "doaj"}:
+        warning_key = str(source.get("id") or source.get("name") or "")
+        _DISCOVERY_WARNINGS.pop(warning_key, None)
+        config = _source_config(source)
+        configured = config.get("discovery_providers")
+        providers = (
+            [str(value).strip().lower() for value in configured if str(value).strip()]
+            if isinstance(configured, list)
+            else ["openalex", "crossref", "doaj"]
+        )
+        fetchers = {
+            "openalex": _fetch_openalex,
+            "crossref": _fetch_crossref,
+            "doaj": _fetch_doaj,
+        }
+        batches: list[tuple[str, list[dict]]] = []
+        errors: list[str] = []
+        for provider in providers:
+            fetcher = fetchers.get(provider)
+            if fetcher is None:
+                errors.append(f"{provider}: unsupported discovery provider")
+                continue
+            try:
+                batches.append((provider, fetcher(source, days)))
+            except Exception as exc:
+                errors.append(f"{provider}: {type(exc).__name__}: {exc}")
+        if batches:
+            articles = _merge_discovery_articles(batches)
+            if errors:
+                _DISCOVERY_WARNINGS[warning_key] = "; ".join(errors)[:1200]
+                for article in articles:
+                    article.setdefault("metadata", {})["discovery_warnings"] = errors[:6]
+                LOGGER.warning("partial discovery failure for %s: %s", source.get("name"), "; ".join(errors))
+            return articles
+        if errors:
+            _DISCOVERY_WARNINGS[warning_key] = "; ".join(errors)[:1200]
+            raise RuntimeError("; ".join(errors)[:1200])
+        return []
     if source_type == "openalex":
         return _fetch_openalex(source, days)
     if source_type == "crossref":
@@ -1739,6 +2220,94 @@ def fetch_source_articles(source: dict, lookback_days: int | None = None) -> lis
             return relayed
         return _fetch_web_html(source)
     return []
+
+
+def _normalized_doi(value: Any) -> str:
+    doi = str(value or "").strip()
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", doi, flags=re.I)
+    return urllib.parse.unquote(doi).strip().lower()
+
+
+def _discovery_identity(article: dict) -> str:
+    doi = _normalized_doi(article.get("doi"))
+    if doi:
+        return "doi:" + doi
+    title = re.sub(r"\W+", " ", _strip_tags(str(article.get("title") or "")).lower()).strip()
+    journal = re.sub(r"\W+", " ", str(article.get("journal_name") or "").lower()).strip()
+    date = str(article.get("published_at") or "").strip()
+    return f"title:{journal}|{title}|{date}"
+
+
+def _merge_discovery_articles(batches: list[tuple[str, list[dict]]]) -> list[dict]:
+    """Merge independent index records without losing alternate OA/PDF locations."""
+    merged: dict[str, dict] = {}
+    ordered: list[str] = []
+    scalar_fields = ("journal_name", "language", "title", "abstract", "doi", "url", "pdf_url",
+                     "published_at", "volume", "issue", "pages")
+    for provider, articles in batches:
+        for raw in articles or []:
+            if not isinstance(raw, dict) or not str(raw.get("title") or "").strip():
+                continue
+            article = dict(raw)
+            article["doi"] = _normalized_doi(article.get("doi"))
+            key = _discovery_identity(article)
+            if key not in merged:
+                meta = dict(article.get("metadata") or {})
+                meta["discovery_sources"] = [provider]
+                article["metadata"] = meta
+                merged[key] = article
+                ordered.append(key)
+                continue
+            current = merged[key]
+            meta = dict(current.get("metadata") or {})
+            sources = list(meta.get("discovery_sources") or [])
+            if provider not in sources:
+                sources.append(provider)
+            meta["discovery_sources"] = sources
+            incoming_meta = dict(article.get("metadata") or {})
+            for name, value in incoming_meta.items():
+                if name not in meta or not meta.get(name):
+                    meta[name] = value
+                elif isinstance(meta.get(name), list) and isinstance(value, list):
+                    combined = list(meta[name])
+                    for item in value:
+                        if item not in combined:
+                            combined.append(item)
+                    meta[name] = combined
+            alternate_urls = list(meta.get("discovery_urls") or [])
+            for name in ("pdf_url", "url"):
+                value = str(article.get(name) or "").strip()
+                if value and value not in alternate_urls:
+                    alternate_urls.append(value)
+            if alternate_urls:
+                meta["discovery_urls"] = alternate_urls
+            for field in scalar_fields:
+                incoming = article.get(field)
+                if not current.get(field) and incoming:
+                    current[field] = incoming
+            if len(str(article.get("abstract") or "")) > len(str(current.get("abstract") or "")):
+                current["abstract"] = article.get("abstract") or ""
+            if len(article.get("authors") or []) > len(current.get("authors") or []):
+                current["authors"] = article.get("authors") or []
+            current["metadata"] = meta
+    return [merged[key] for key in ordered]
+
+
+def _merge_metadata_dicts(existing: dict, incoming: dict) -> dict:
+    """Merge new provenance/candidate lists into an existing database record."""
+    merged = dict(existing or {})
+    for name, value in (incoming or {}).items():
+        if name not in merged or not merged.get(name):
+            merged[name] = value
+        elif isinstance(merged.get(name), list) and isinstance(value, list):
+            combined = list(merged[name])
+            for item in value:
+                if item not in combined:
+                    combined.append(item)
+            merged[name] = combined
+        elif isinstance(merged.get(name), dict) and isinstance(value, dict):
+            merged[name] = _merge_metadata_dicts(merged[name], value)
+    return merged
 
 
 def _candidate_source_urls(source: dict) -> list[str]:
@@ -1800,24 +2369,59 @@ def _fetch_web_html(source: dict) -> list[dict]:
     return []
 
 
+def _source_issns(source: dict) -> list[str]:
+    values: list[str] = []
+    primary = str(source.get("issn") or "").strip()
+    if primary:
+        values.append(primary)
+    alternate = _source_config(source).get("alternate_issn")
+    if isinstance(alternate, list):
+        for value in alternate:
+            text = str(value or "").strip()
+            if text and text not in values:
+                values.append(text)
+    return values
+
+
 def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> list[dict]:
-    issn = str(source.get("issn") or "").strip()
-    if not issn:
+    issns = _source_issns(source)
+    if not issns:
         return []
-    from_date = (utc_now() - timedelta(days=int(lookback_days or DEFAULT_LOOKBACK_DAYS))).date().isoformat()
-    params = urllib.parse.urlencode(
-        {
+    days = max(1, int(lookback_days or DEFAULT_LOOKBACK_DAYS))
+    from_date = (utc_now().astimezone(BEIJING_TZ).date() - timedelta(days=days - 1)).isoformat()
+    api_key = str(os.environ.get("OPENALEX_API_KEY") or "").strip()
+    items: list[dict] = []
+    seen_ids: set[str] = set()
+    request_errors: list[Exception] = []
+    successful_requests = 0
+    for issn in issns:
+        values = {
             "filter": f"locations.source.issn:{issn},from_publication_date:{from_date}",
             "sort": "publication_date:desc",
-            "per-page": "25",
+            "per-page": "50",
+            "mailto": str(os.environ.get("MARX_JOURNAL_CONTACT_EMAIL") or "journal-alerts@makesizhuyi.com"),
         }
-    )
-    data = _urlopen_json(f"https://api.openalex.org/works?{params}")
+        if api_key:
+            values["api_key"] = api_key
+        try:
+            data = _urlopen_json(f"https://api.openalex.org/works?{urllib.parse.urlencode(values)}")
+            successful_requests += 1
+        except Exception as exc:
+            request_errors.append(exc)
+            continue
+        for item in data.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+            identity = str(item.get("id") or item.get("doi") or item.get("title") or "")
+            if identity in seen_ids:
+                continue
+            seen_ids.add(identity)
+            items.append(item)
+    if not successful_requests and request_errors:
+        raise request_errors[0]
     articles = []
     crossref_budget = 15  # 仅对缺摘要且有 DOI 的文章用 Crossref 兜底，限量以控制请求数。
-    for item in data.get("results") or []:
-        if not isinstance(item, dict):
-            continue
+    for item in items:
         # 只保留正式期刊论文；剔除 book-chapter/dataset/editorial/erratum 等。
         if not _is_allowed_work_type(item.get("type"), _OPENALEX_ARTICLE_TYPES):
             continue
@@ -1831,9 +2435,7 @@ def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
         ]
         location = item.get("primary_location") or {}
         source_info = location.get("source") or {}
-        doi = str(item.get("doi") or "").strip()
-        if doi.lower().startswith("https://doi.org/"):
-            doi = doi[16:]
+        doi = _normalized_doi(item.get("doi"))
         # 开放获取 PDF：best_oa_location 优先，其次 open_access.oa_url / primary_location.pdf_url。
         best_oa = item.get("best_oa_location") or {}
         pdf_url = str(
@@ -1846,6 +2448,21 @@ def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
         if not abstract and doi and crossref_budget > 0:
             crossref_budget -= 1
             abstract = _crossref_abstract(doi)
+        locations: list[dict[str, str]] = []
+        for oa_location in item.get("locations") or []:
+            if not isinstance(oa_location, dict):
+                continue
+            oa_source = oa_location.get("source") or {}
+            compact = {
+                "pdf_url": str(oa_location.get("pdf_url") or "").strip(),
+                "landing_page_url": str(oa_location.get("landing_page_url") or "").strip(),
+                "host_type": str(oa_source.get("type") or "").strip(),
+                "license": str(oa_location.get("license") or "").strip(),
+                "version": str(oa_location.get("version") or "").strip(),
+                "is_oa": bool(oa_location.get("is_oa")),
+            }
+            if compact["pdf_url"] or compact["landing_page_url"]:
+                locations.append(compact)
         articles.append(
             {
                 "journal_name": str(source_info.get("display_name") or source.get("name") or "").strip(),
@@ -1860,7 +2477,16 @@ def _fetch_openalex(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
                 "volume": str((item.get("biblio") or {}).get("volume") or "").strip(),
                 "issue": str((item.get("biblio") or {}).get("issue") or "").strip(),
                 "pages": _openalex_pages(item.get("biblio") or {}),
-                "metadata": {"openalex_id": item.get("id"), "work_type": item.get("type")},
+                "metadata": {
+                    "openalex_id": item.get("id"),
+                    "work_type": item.get("type"),
+                    "is_oa": bool((item.get("open_access") or {}).get("is_oa")),
+                    "oa_status": str((item.get("open_access") or {}).get("oa_status") or ""),
+                    "oa_license": str(best_oa.get("license") or ""),
+                    "oa_version": str(best_oa.get("version") or ""),
+                    "oa_landing_page_url": str(best_oa.get("landing_page_url") or ""),
+                    "openalex_locations": locations,
+                },
             }
         )
     return articles
@@ -1890,13 +2516,41 @@ def _openalex_pages(biblio: dict) -> str:
 
 
 def _fetch_crossref(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> list[dict]:
-    issn = str(source.get("issn") or "").strip()
-    if not issn:
+    issns = _source_issns(source)
+    if not issns:
         return []
-    from_date = (utc_now() - timedelta(days=int(lookback_days or DEFAULT_LOOKBACK_DAYS))).date().isoformat()
-    params = urllib.parse.urlencode({"filter": f"from-pub-date:{from_date}", "sort": "published", "order": "desc", "rows": "25"})
-    data = _urlopen_json(f"https://api.crossref.org/journals/{urllib.parse.quote(issn)}/works?{params}")
-    items = ((data.get("message") or {}).get("items") or [])
+    days = max(1, int(lookback_days or DEFAULT_LOOKBACK_DAYS))
+    from_date = (utc_now().astimezone(BEIJING_TZ).date() - timedelta(days=days - 1)).isoformat()
+    items: list[dict] = []
+    seen: set[str] = set()
+    request_errors: list[Exception] = []
+    successful_requests = 0
+    for issn in issns:
+        params = urllib.parse.urlencode(
+            {
+                "filter": f"from-pub-date:{from_date}",
+                "sort": "published",
+                "order": "desc",
+                "rows": "50",
+                "mailto": str(os.environ.get("MARX_JOURNAL_CONTACT_EMAIL") or "journal-alerts@makesizhuyi.com"),
+            }
+        )
+        try:
+            data = _urlopen_json(f"https://api.crossref.org/journals/{urllib.parse.quote(issn)}/works?{params}")
+            successful_requests += 1
+        except Exception as exc:
+            request_errors.append(exc)
+            continue
+        for item in (data.get("message") or {}).get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            identity = _normalized_doi(item.get("DOI")) or str(item.get("URL") or item.get("title") or "")
+            if identity in seen:
+                continue
+            seen.add(identity)
+            items.append(item)
+    if not successful_requests and request_errors:
+        raise request_errors[0]
     articles = []
     for item in items:
         if not isinstance(item, dict):
@@ -1904,11 +2558,28 @@ def _fetch_crossref(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
         # 只保留正式期刊论文；剔除 book/journal-issue/editorial 等非论文条目。
         if not _is_allowed_work_type(item.get("type"), _CROSSREF_ARTICLE_TYPES):
             continue
-        title = " ".join(item.get("title") or []).strip()
+        title = _strip_tags(" ".join(item.get("title") or [])).strip()
         if not title or not _looks_like_article_title(title):
             continue
         authors = [_crossref_author_name(author) for author in item.get("author") or [] if isinstance(author, dict)]
         published = _crossref_date(item)
+        links = [
+            {
+                "url": str(link.get("URL") or "").strip(),
+                "content_type": str(link.get("content-type") or "").strip(),
+                "content_version": str(link.get("content-version") or "").strip(),
+                "intended_application": str(link.get("intended-application") or "").strip(),
+            }
+            for link in item.get("link") or []
+            if isinstance(link, dict) and str(link.get("URL") or "").strip()
+        ]
+        pdf_url = next(
+            (
+                link["url"] for link in links
+                if "pdf" in link["content_type"].lower() or ".pdf" in link["url"].lower()
+            ),
+            "",
+        )
         articles.append(
             {
                 "journal_name": " ".join(item.get("container-title") or []).strip() or source.get("name") or "",
@@ -1918,14 +2589,121 @@ def _fetch_crossref(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) ->
                 "authors": [a for a in authors if a],
                 "doi": str(item.get("DOI") or "").strip(),
                 "url": str(item.get("URL") or "").strip(),
+                "pdf_url": pdf_url,
                 "published_at": published,
                 "volume": str(item.get("volume") or "").strip(),
                 "issue": str(item.get("issue") or "").strip(),
                 "pages": str(item.get("page") or "").strip(),
-                "metadata": {"crossref_type": item.get("type")},
+                "metadata": {
+                    "crossref_type": item.get("type"),
+                    "crossref_links": links,
+                    "crossref_resource_url": str(((item.get("resource") or {}).get("primary") or {}).get("URL") or ""),
+                },
             }
         )
     return articles
+
+
+def _fetch_doaj(source: dict, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> list[dict]:
+    """Discover DOAJ-indexed records and retain every advertised full-text link.
+
+    DOAJ article metadata normally has only year/month, so those records enrich
+    matching OpenAlex/Crossref DOI rows; a DOAJ-only row enters an issue only if
+    the source happens to provide a complete publication date.
+    """
+    issns = _source_issns(source)
+    if not issns:
+        return []
+    today = utc_now().astimezone(BEIJING_TZ).date()
+    first_day = today - timedelta(days=max(1, int(lookback_days or DEFAULT_LOOKBACK_DAYS)) - 1)
+    years = list(range(first_day.year, today.year + 1))
+    records: list[dict] = []
+    seen: set[str] = set()
+    request_errors: list[Exception] = []
+    successful_requests = 0
+    for issn in issns:
+        for year_filter in years:
+            query = f"index.issn.exact:{issn} AND bibjson.year:{year_filter}"
+            url = (
+                "https://doaj.org/api/search/articles/"
+                + urllib.parse.quote(query, safe="")
+                + "?pageSize=50&sort=created_date%3Adesc"
+            )
+            try:
+                data = _urlopen_json(url)
+                successful_requests += 1
+            except Exception as exc:
+                request_errors.append(exc)
+                continue
+            for result in data.get("results") or []:
+                records.append(result)
+    if not successful_requests and request_errors:
+        raise request_errors[0]
+    raw_records = records
+    records = []
+    for result in raw_records:
+        bib = (result or {}).get("bibjson") or {}
+        if not isinstance(bib, dict):
+            continue
+        identifiers = bib.get("identifier") or []
+        doi = next(
+            (
+                _normalized_doi(identifier.get("id"))
+                for identifier in identifiers
+                if isinstance(identifier, dict) and str(identifier.get("type") or "").lower() == "doi"
+            ),
+            "",
+        )
+        title = _strip_tags(str(bib.get("title") or "")).strip()
+        identity = doi or title.lower()
+        if not title or not identity or identity in seen:
+            continue
+        seen.add(identity)
+        links = [
+            {
+                "url": str(link.get("url") or "").strip(),
+                "content_type": str(link.get("content_type") or "").strip(),
+                "type": str(link.get("type") or "").strip(),
+            }
+            for link in bib.get("link") or []
+            if isinstance(link, dict) and str(link.get("url") or "").strip()
+        ]
+        pdf_url = next(
+            (
+                link["url"] for link in links
+                if "pdf" in link["content_type"].lower() or ".pdf" in link["url"].lower()
+            ),
+            "",
+        )
+        landing_url = next((link["url"] for link in links if link["url"] != pdf_url), pdf_url)
+        month = str(bib.get("month") or "").strip()
+        year = str(bib.get("year") or "").strip()
+        published = f"{year}-{int(month):02d}" if year.isdigit() and month.isdigit() else year
+        journal = bib.get("journal") or {}
+        start_page = str(bib.get("start_page") or "").strip()
+        end_page = str(bib.get("end_page") or "").strip()
+        records.append(
+            {
+                "journal_name": str(journal.get("title") or source.get("name") or "").strip(),
+                "language": source.get("language") or "en",
+                "title": title,
+                "abstract": _strip_tags(str(bib.get("abstract") or "")),
+                "authors": [
+                    str(author.get("name") or "").strip()
+                    for author in bib.get("author") or []
+                    if isinstance(author, dict) and str(author.get("name") or "").strip()
+                ],
+                "doi": doi,
+                "url": landing_url,
+                "pdf_url": pdf_url,
+                "published_at": published,
+                "volume": str(journal.get("volume") or "").strip(),
+                "issue": str(journal.get("number") or "").strip(),
+                "pages": f"{start_page}-{end_page}" if start_page and end_page and start_page != end_page else start_page or end_page,
+                "metadata": {"doaj_id": str(result.get("id") or ""), "doaj_links": links},
+            }
+        )
+    return records
 
 
 def _crossref_abstract(doi: str) -> str:
@@ -2415,6 +3193,7 @@ _NON_ARTICLE_SUBSTRINGS_EN = (
     "call for papers", "announcement", "in memoriam", "erratum", "corrigendum",
     "correction to", "list of contributors", "acknowledgment",
     "advertisement", "cover image", "frontispiece", "index to volume",
+    "book review", "abstracts in chinese", "abstracts in spanish", ": a tribute", "tribute to ",
 )
 
 
@@ -2506,6 +3285,111 @@ def gb2015_citation(article: dict) -> str:
     return f"{author_text}. {title}[J]. {journal}, {year}{vol_issue}{page_text}{doi_text}."
 
 
+def _citation_authors(authors: list[str], *, chinese: bool) -> str:
+    cleaned = [str(name or "").strip() for name in authors if str(name or "").strip()]
+    if not cleaned:
+        return "佚名" if chinese else "Anonymous"
+    text = ("、" if chinese else ", ").join(cleaned[:3])
+    if len(cleaned) > 3:
+        text += "，等" if chinese else ", et al."
+    return text
+
+
+def citation_variants(article: dict) -> dict[str, str]:
+    """Generate the two original-English citation formats exposed to readers."""
+    authors_en = list(article.get("authors") or [])
+    title_en = str(article.get("title") or "").strip()
+    journal_en = str(article.get("journal_name") or "").strip()
+    year = str(article.get("published_at") or "")[:4] or "n.d."
+    volume = str(article.get("volume") or "").strip()
+    issue = str(article.get("issue") or "").strip()
+    pages = str(article.get("pages") or "").strip()
+    doi = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", str(article.get("doi") or "").strip(), flags=re.I)
+
+    def gb() -> str:
+        names = _citation_authors(authors_en, chinese=False)
+        vol_issue = f", {volume}({issue})" if volume and issue else f", {volume}" if volume else f", ({issue})" if issue else ""
+        page_text = f": {pages}" if pages else ""
+        doi_text = f". DOI: {doi}" if doi else ""
+        return f"{names}. {title_en}[J]. {journal_en}, {year}{vol_issue}{page_text}{doi_text}."
+
+    def mks() -> str:
+        names = _citation_authors(authors_en, chinese=False)
+        details = []
+        if volume:
+            details.append(f"Vol. {volume}")
+        if issue:
+            details.append(f"No. {issue}")
+        details.append(year)
+        tail = ", ".join(details)
+        return f'{names}, “{title_en},” {journal_en}, {tail}.'
+
+    return {
+        "citation_gb2015": gb(),
+        "citation_mks_en": mks(),
+    }
+
+
+def update_article_bilingual_metadata(
+    article_id: int,
+    *,
+    title_zh: str,
+    journal_name_zh: str,
+    authors_zh: list[str],
+    abstract_zh: str,
+    discipline: str,
+    abstract_en: str | None = None,
+    keywords_en: list[str] | None = None,
+    keywords_zh: list[str] | None = None,
+    abstract_source: str | None = None,
+) -> dict | None:
+    """Persist translated metadata and deterministic citations after MiMo QA."""
+    from journal_taxonomy import is_valid_discipline
+
+    if not is_valid_discipline(discipline):
+        raise ValueError(f"invalid journal discipline: {discipline!r}")
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM journal_articles WHERE id = ?", (int(article_id),)).fetchone()
+        if not row:
+            return None
+        article = _article_row(row)
+        article.update(
+            {
+                "title_zh": str(title_zh or "").strip(),
+                "journal_name_zh": str(journal_name_zh or "").strip(),
+                "authors_zh": [str(name).strip() for name in authors_zh if str(name).strip()],
+                "abstract_zh": str(abstract_zh or "").strip(),
+            }
+        )
+        if abstract_en is not None:
+            article["abstract"] = str(abstract_en or "").strip()
+        metadata = dict(article.get("metadata") or {})
+        if keywords_en is not None:
+            metadata["keywords_en"] = [str(item).strip() for item in keywords_en if str(item).strip()]
+        if keywords_zh is not None:
+            metadata["keywords_zh"] = [str(item).strip() for item in keywords_zh if str(item).strip()]
+        if abstract_source is not None:
+            metadata["abstract_source"] = str(abstract_source or "original").strip() or "original"
+        citations = citation_variants(article)
+        conn.execute(
+            """
+            UPDATE journal_articles SET
+                title_zh = ?, journal_name_zh = ?, authors_zh_json = ?, abstract = ?, abstract_zh = ?,
+                ai_discipline = ?, citation_gb2015 = ?, citation_gb2015_zh = '',
+                citation_mks_en = ?, citation_mks_zh = '', metadata_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                article["title_zh"], article["journal_name_zh"], _json_dumps(article["authors_zh"]),
+                article.get("abstract") or "", article["abstract_zh"], discipline, citations["citation_gb2015"],
+                citations["citation_mks_en"], _json_dumps(metadata), utc_now_text(), int(article_id),
+            ),
+        )
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM journal_articles WHERE id = ?", (int(article_id),)).fetchone()
+    return _article_row(refreshed) if refreshed else None
+
+
 def _needs_translation(article: dict) -> bool:
     return str(article.get("language") or "").lower().startswith("en")
 
@@ -2522,7 +3406,10 @@ def _translate_article(article: dict, translate: Callable[[dict], dict] | None) 
 
 
 def make_ai_translator(ai_client: Any) -> Callable[[dict], dict] | None:
-    if not ai_client or not getattr(getattr(ai_client, "config", None), "enabled", False):
+    config = getattr(ai_client, "config", None)
+    if not ai_client or not (
+        getattr(config, "mimo_enabled", False) or getattr(config, "enabled", False)
+    ):
         return None
 
     def _translate(article: dict) -> dict:
@@ -2530,23 +3417,32 @@ def make_ai_translator(ai_client: Any) -> Callable[[dict], dict] | None:
             "title": article.get("title") or "",
             "abstract": article.get("abstract") or "",
         }
-        content = ai_client.chat_complete(
-            [
-                {
-                    "role": "system",
-                    "content": "你是严谨的学术翻译助手。请把英文论文题名和摘要译为中文，只返回 JSON。",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "请返回形如 {\"title_zh\":\"...\",\"abstract_zh\":\"...\"} 的 JSON，"
-                        "不要添加解释。\n\n"
-                        + json.dumps(prompt, ensure_ascii=False)
-                    ),
-                },
-            ],
-            max_tokens=1200,
-        )
+        from ai import ai_call_context
+
+        with ai_call_context(feature="journal_metadata_translate", charge_user=False):
+            content = ai_client.chat_complete(
+                [
+                    {
+                        "role": "system",
+                        "content": "你是严谨的学术翻译助手。请把英文论文题名和摘要译为中文，只返回 JSON。",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "请返回形如 {\"title_zh\":\"...\",\"abstract_zh\":\"...\"} 的 JSON，"
+                            "不要添加解释。\n\n"
+                            + json.dumps(prompt, ensure_ascii=False)
+                        ),
+                    },
+                ],
+                max_tokens=2400,
+                temperature=0.1,
+                provider="mimo",
+                model="mimo-v2.5",
+                disable_thinking=True,
+                reasoning_effort="off",
+                allow_reasoning_fallback=False,
+            )
         try:
             parsed = json.loads(_extract_json_object(content))
         except json.JSONDecodeError:
@@ -2637,6 +3533,58 @@ def upsert_article(
             return _article_row(row), True
         existing_id = int(existing["id"])
         existing_status = str(existing["status"] or "")
+        # Independent indexes often enrich a DOI days after its first sighting.
+        # Refresh metadata and alternate full-text candidates even when product
+        # status/batch assignment is immutable (ignored/archived/deferred).
+        existing_article = _article_row(existing)
+        merged_metadata = _merge_metadata_dicts(
+            dict(existing_article.get("metadata") or {}),
+            dict(normalized.get("metadata") or {}),
+        )
+        incoming_title = _strip_tags(str(normalized.get("title") or "")).strip()
+        stored_title = str(existing_article.get("title") or "").strip()
+        refreshed_title = incoming_title if incoming_title and (not stored_title or "<" in stored_title) else stored_title
+        stored_abstract = str(existing_article.get("abstract") or "").strip()
+        incoming_abstract = str(normalized.get("abstract") or "").strip()
+        refreshed_abstract = incoming_abstract if len(incoming_abstract) > len(stored_abstract) else stored_abstract
+        stored_authors = list(existing_article.get("authors") or [])
+        incoming_authors = list(normalized.get("authors") or [])
+        refreshed_authors = incoming_authors if len(incoming_authors) > len(stored_authors) else stored_authors
+        citation_input = {
+            **normalized,
+            "title": refreshed_title,
+            "abstract": refreshed_abstract,
+            "authors": refreshed_authors,
+        }
+        conn.execute(
+            """
+            UPDATE journal_articles
+            SET title = ?, abstract = ?, authors_json = ?, citation_gb2015 = ?,
+                doi = ?, url = ?, pdf_url = ?, published_at = ?, volume = ?, issue = ?, pages = ?,
+                metadata_json = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                refreshed_title,
+                refreshed_abstract,
+                _json_dumps(refreshed_authors),
+                gb2015_citation(citation_input),
+                existing_article.get("doi") or normalized.get("doi") or "",
+                existing_article.get("url") or normalized.get("url") or "",
+                existing_article.get("pdf_url") or normalized.get("pdf_url") or "",
+                existing_article.get("published_at") or normalized.get("published_at") or "",
+                existing_article.get("volume") or normalized.get("volume") or "",
+                existing_article.get("issue") or normalized.get("issue") or "",
+                existing_article.get("pages") or normalized.get("pages") or "",
+                _json_dumps(merged_metadata),
+                now,
+                existing_id,
+            ),
+        )
+        existing = conn.execute(
+            "SELECT * FROM journal_articles WHERE id = ?", (existing_id,)
+        ).fetchone()
+        conn.commit()
         if existing_status == "translation_pending" and translate is not None:
             title_zh, abstract_zh, status = _translate_article(normalized, translate)
             conn.execute(
@@ -2651,18 +3599,15 @@ def upsert_article(
             row = conn.execute("SELECT * FROM journal_articles WHERE id = ?", (existing_id,)).fetchone()
             conn.commit()
             return _article_row(row), False
-        # 采集场景：把本窗口内已存在的文章并入当前批次；之前被归档的文章恢复到审核/发送队列。
-        # 已被人工「忽略」的文章保持忽略，不再重新浮现，尊重人工决定。
+        # Repeated feeds commonly return the same works for many weeks.  An
+        # archived work must not float into a new issue again, and deferred
+        # overflow is released only by apply_release_cap's FIFO backlog path.
+        if existing_status in {"archived", "deferred", "ignored"}:
+            return _article_row(existing), False
+        # Rows already attached to the current issue may be refreshed while it
+        # is collecting.  This does not cross an issue boundary.
         if batch_id is not None and existing_status != "ignored":
-            if existing_status == "archived":
-                if requested_status:
-                    restored = requested_status
-                elif article.get("requires_review") and not force_publish:
-                    restored = "pending_review"
-                else:
-                    restored = translated_status
-            else:
-                restored = existing_status
+            restored = existing_status
             conn.execute(
                 "UPDATE journal_articles SET batch_id = ?, status = ?, updated_at = ? WHERE id = ?",
                 (int(batch_id), restored, now, existing_id),
@@ -2720,6 +3665,18 @@ def _pub_date_bound(value: str) -> datetime | None:
         except ValueError:
             return None
     return None
+
+
+def _publication_calendar_date(value: str):
+    """Parse an exact YYYY-MM-DD publication date; partial/unknown dates are ineligible."""
+    text = str(value or "").strip()
+    match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", text)
+    if not match:
+        return None
+    try:
+        return datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))).date()
+    except ValueError:
+        return None
 
 
 def _apply_article_detail(article: dict, detail: dict) -> dict | None:
@@ -2804,11 +3761,12 @@ def backfill_ncpssd_abstracts(limit: int) -> int:
 
 def active_subscriptions() -> list[dict]:
     with _connect() as conn:
+        user_schema = _membership_schema(conn)
         rows = conn.execute(
-            """
+            f"""
             SELECT s.*, u.email AS user_account_email, u.display_name, u.role, u.is_active
             FROM journal_subscriptions s
-            JOIN users u ON u.id = s.user_id
+            JOIN {user_schema}.users u ON u.id = s.user_id
             WHERE s.status = 'active' AND u.is_active = 1
             ORDER BY s.created_at ASC, s.id ASC
             """
@@ -2870,10 +3828,10 @@ def send_confirmation_email(subscription: dict, base_url: str, smtp_config: SMTP
     if not base_url:
         raise RuntimeError("JOURNAL_ALERT_BASE_URL 或 PUBLIC_BASE_URL 未配置。")
     confirm_url = f"{base_url}/journal-alerts/confirm/{subscription['confirm_token']}" if base_url else ""
-    subject = "请确认期刊新文提醒订阅"
+    subject = f"请确认{JOURNAL_WEEKLY_TITLE}邮件订阅"
     body = (
         "您好：\n\n"
-        "请点击下面的链接确认期刊新文提醒订阅：\n"
+        f"请点击下面的链接确认{JOURNAL_WEEKLY_TITLE}邮件订阅：\n"
         f"{confirm_url}\n\n"
         "如果这不是您本人操作，可以忽略本邮件。"
     )
@@ -2992,7 +3950,7 @@ def deliver_ready_articles(base_url: str = "", smtp_config: SMTPConfig | None = 
                     int(subscription["id"]),
                     str(subscription["email"]),
                     "skipped",
-                    "期刊提醒权限未开放、会员已过期或账号已停用。",
+                    f"{JOURNAL_WEEKLY_TITLE}仅供有效会员使用；会员已过期或账号已停用。",
                 )
             continue
         subject = f"{alert_settings['subject_prefix']}：{len(remaining)} 篇新文章"
@@ -3107,7 +4065,7 @@ def render_articles_email(
         html_parts.append(article_html)
     if unsubscribe_url:
         lines.extend(["退订链接：", unsubscribe_url])
-        html_parts.append(f"<p><a href=\"{html.escape(unsubscribe_url)}\">退订期刊新文提醒</a></p>")
+        html_parts.append(f"<p><a href=\"{html.escape(unsubscribe_url)}\">退订{JOURNAL_WEEKLY_TITLE}邮件</a></p>")
     return "\n".join(lines), "\n".join(html_parts)
 
 
@@ -3162,6 +4120,7 @@ def collect_batch(
     """
     init_journal_alerts_db()
     settings = settings or load_alert_settings()
+    reusable_batch = current_batch() if reuse_open_batch else None
     started = utc_now_text()
     with _connect() as conn:
         cur = conn.execute("INSERT INTO journal_runs(started_at) VALUES(?)", (started,))
@@ -3177,15 +4136,32 @@ def collect_batch(
     force_publish = bool(settings.get("auto_approve_articles") or settings.get("auto_publish_all"))
     lookback_days = int(settings.get("lookback_days") or DEFAULT_LOOKBACK_DAYS)
     enrich_budget = NCPSSD_ENRICH_PER_RUN
-    # 时间窗：只收录发表日期在最近 lookback_days 天内的文章（中英文期刊统一生效）。
-    cutoff_dt = utc_now() - timedelta(days=lookback_days)
+    # 时间窗：周刊只收录采集日及此前 6 个北京时间自然日；发布日期不精确则不进入本期。
+    window_start, window_end = weekly_collection_window(days=lookback_days)
+    window_start_date, window_end_date = window_start.date(), window_end.date()
+    if reusable_batch:
+        same_window = (
+            str(reusable_batch.get("period_start") or "")[:10] == window_start_date.isoformat()
+            and str(reusable_batch.get("period_end") or "")[:10] == window_end_date.isoformat()
+        )
+        if not same_window:
+            # Never mix a missed/unsent issue with the next seven-day window.
+            # open_batch() will archive the old draft while retaining its public
+            # article data and create an independent weekly issue.
+            reusable_batch = None
+    if reusable_batch and str(reusable_batch.get("status") or "") == "published":
+        raise RuntimeError("本期已整期批准并锁定；请先完成邮件发送，再采集下一期。")
     filtered_out = 0
-    batch = current_batch() if reuse_open_batch else None
+    batch = reusable_batch
     if batch is None:
         batch = open_batch(settings, period_days=lookback_days)
     batch_id = int(batch["id"])
     try:
-        sources = [source for source in list_journal_sources(limit=200) if int(source.get("is_enabled") or 0)]
+        sources = [
+            source for source in list_journal_sources(limit=240)
+            if int(source.get("is_enabled") or 0)
+            and str(source.get("language") or "").lower().startswith("en")
+        ]
         for source in sources:
             try:
                 articles = fetch_source_articles(source, lookback_days=lookback_days)
@@ -3204,25 +4180,15 @@ def collect_batch(
                         enrich_budget -= 1
                         if detail_cache and detail_cache.get("published_at"):
                             article["published_at"] = detail_cache["published_at"]
-                    # 窗口判断：能解析到具体日期则严格比较；只到年份/未知则仅保留不早于窗口起始年的。
-                    # NCPSSD 的日期天然只有年精度（列表与详情接口都只给年份 → YYYY-01-01 占位），
-                    # 严格比较会把它们全部滤掉（7 天窗口 vs 1 月 1 日）——2026-07 实测正是如此。
-                    # 占位日期改按「年份粗滤 + 只收库里没见过的新文章」：新文照收，且当期目录
-                    # 长期驻留的旧文不会每周重浮进批次。
-                    bound = _pub_date_bound(article.get("published_at"))
+                    # 英文周刊按准确自然日严格过滤；仅年份、仅月份、空日期和占位日期
+                    # 都无法证明属于本周，因此不进入处理队列。
                     placeholder = _is_placeholder_pub_date(article.get("published_at"), ncpssd_id)
-                    if bound is not None and not placeholder:
-                        if bound < cutoff_dt:
-                            filtered_out += 1
-                            continue
-                    else:
-                        year_match = re.match(r"^(\d{4})", str(article.get("published_at") or ""))
-                        if year_match and int(year_match.group(1)) < cutoff_dt.year:
-                            filtered_out += 1
-                            continue
-                        if placeholder and _article_seen_before(source, article):
-                            filtered_out += 1
-                            continue
+                    publication_date = _publication_calendar_date(article.get("published_at"))
+                    if placeholder or publication_date is None or not (
+                        window_start_date <= publication_date <= window_end_date
+                    ):
+                        filtered_out += 1
+                        continue
                     row, created = upsert_article(
                         source, article, translate, force_publish=force_publish, batch_id=batch_id
                     )
@@ -3245,48 +4211,30 @@ def collect_batch(
                                 _apply_article_detail(row, detail_cache)
                             except Exception:
                                 pass
-                _mark_source_checked(int(source["id"]), "")
+                warning_key = str(source.get("id") or source.get("name") or "")
+                _mark_source_checked(int(source["id"]), _DISCOVERY_WARNINGS.pop(warning_key, ""))
             except Exception as exc:
                 sources_checked += 1
                 errors.append(f"{source.get('name')}: {exc}")
+                _DISCOVERY_WARNINGS.pop(str(source.get("id") or source.get("name") or ""), None)
                 _mark_source_checked(int(source["id"]), str(exc))
-        # 回填历史遗留、仍缺摘要的中文文章（独立预算）。
-        # 中继模式下跳过：回填要直连 NCPSSD 详情接口，境外服务器必失败（徒增错误噪音）；
-        # 新文章的摘要/真实日期已由国内中继在推送前补全。
-        relay_age = relay_generated_age_days()
-        if relay_age is None or relay_age > RELAY_MAX_AGE_DAYS:
-            try:
-                backfill_ncpssd_abstracts(NCPSSD_ENRICH_PER_RUN)
-            except Exception as exc:
-                errors.append(f"abstract-backfill: {exc}")
-        if relay_age is not None and relay_age > RELAY_STALE_WARN_DAYS:
-            errors.append(
-                f"journal-relay: 国内中继数据已 {relay_age:.1f} 天未更新"
-                f"（超过 {RELAY_MAX_AGE_DAYS} 天将失效回退直抓）——请检查站长本机的定时推送任务"
-            )
+        # Chinese relay/backfill remains available only for historical audit
+        # tooling.  The live collector never calls it in the English-only mode.
         # 单期发布上限：把本批在办文章 + 历史顺延文章按上限挑一批纳入本期，其余顺延后续批次。
         # 放在综述生成之前，确保综述只面对可控体量（避免中继首次全量投递等一次性涌入压垮生成）。
         try:
             cap_result = apply_release_cap(batch_id, settings)
-            if cap_result.get("deferred") or cap_result.get("backlog_remaining"):
+            if cap_result.get("deferred"):
                 errors.append(
                     f"release-cap: 本期纳入 {cap_result['selected']} 篇，"
-                    f"另有 {cap_result['backlog_remaining']} 篇顺延，后续批次按每期上限逐步释放"
+                    f"超出上限的 {cap_result['deferred']} 篇仅保留为本期审计记录，不跨周顺延"
                 )
         except Exception as exc:
             errors.append(f"release-cap: {exc}")
 
-        # 自动生成综述：auto_generate_review 或 auto_send 任一开启即生成（auto_send 隐含需要综述）。
-        # auto_send 时连带自动批准综述，从而发送日定时器可直接群发，实现全流程自动化。
-        want_review = settings.get("auto_generate_review") or settings.get("auto_send")
-        if want_review and not settings.get("automation_paused"):
-            try:
-                generate_batch_review(
-                    batch_id, ai_client=ai_client, settings=settings,
-                    auto_approve=bool(settings.get("auto_send")),
-                )
-            except Exception as exc:
-                errors.append(f"review: {exc}")
+        # The former long AI literature review is retired.  A separate worker
+        # now resolves public PDFs and prepares complete bilingual issue cards;
+        # the issue moves to manual approval only after that gate passes.
         status = "warning" if errors else "success"
     except Exception as exc:
         errors.append(str(exc))
@@ -3309,9 +4257,17 @@ def collect_batch(
     refreshed = get_batch(batch_id) or {}
     result["batch_status"] = refreshed.get("status")
     result["review_status"] = refreshed.get("review_status")
-    # 本批次实际纳入的文章数（含本窗口内复用的已有文章；新增数仅统计首次入库）。
-    result["batch_total"] = len(batch_articles(batch_id))
-    result["batch_pending"] = len(batch_articles(batch_id, statuses=("pending_review",)))
+    # 本期实际进入处理/发布管线的文章数；超额 ignored 行仍挂在本期供审计，
+    # 但不计入周刊体量，也不会跨周漂移。
+    result["batch_total"] = len(
+        batch_articles(
+            batch_id,
+            statuses=("ready", "pending_review", "translation_pending"),
+        )
+    )
+    result["batch_pending"] = len(
+        batch_articles(batch_id, statuses=("pending_review", "translation_pending"))
+    )
     result["filtered_out"] = filtered_out
     return result
 
@@ -3323,29 +4279,56 @@ def generate_batch_review(
     settings: dict | None = None,
     auto_approve: bool = False,
 ) -> dict:
-    """调用 AI 为某批次生成文献综述并写回批次。auto_approve=True 时直接批准（全自动）。"""
-    # 延迟导入，避免与 journal_review 形成模块级循环依赖。
-    from journal_review import build_literature_review
+    """Build a deterministic admin issue preview (legacy function name)."""
+    from journal_taxonomy import DISCIPLINES
 
-    settings = settings or load_alert_settings()
-    articles = batch_articles(digest_id, statuses=("ready", "pending_review"))
-    review_md, review_html, model_used = build_literature_review(
-        articles, ai_client=ai_client, settings=settings
-    )
+    articles = public_batch_articles(digest_id)
+    lines = ["# 双语电子期刊整期预览", "", f"共 {len(articles)} 篇完整文章。", ""]
+    for discipline in DISCIPLINES:
+        items = [item for item in articles if item.get("ai_discipline") == discipline]
+        if not items:
+            continue
+        lines.extend([f"## {discipline}", ""])
+        for item in items:
+            lines.append(f"- {item.get('title_zh')}  ")
+            lines.append(f"  {item.get('title')}")
+        lines.append("")
+    review_md = "\n".join(lines).strip()
+    review_html = _markdown_to_html(review_md)
+    current = get_batch(digest_id) or {}
+    # A curated sample remains visible while its deterministic TOC is refreshed.
+    # It is deliberately not approved, sent, or reused as the next weekly batch.
+    current_status = str(current.get("status") or "")
+    current_review = str(current.get("review_status") or "")
+    if auto_approve:
+        next_status = "published"
+        next_review = "approved"
+    elif current_status == "sample":
+        next_status = "sample"
+        next_review = "pending"
+    elif current_status in {"published", "sent", "archived"}:
+        # A harmless preview refresh must never reopen or unapprove a locked issue.
+        next_status = current_status
+        next_review = current_review or "approved"
+    else:
+        # Complete articles become member-visible immediately, while the email
+        # remains blocked until the administrator performs the final send check.
+        next_status = "ready_to_send" if articles else "reviewing"
+        next_review = "pending"
     update_batch_review(
         digest_id,
         review_md=review_md,
         review_html=review_html,
-        review_model=model_used,
-        review_status="approved" if auto_approve else "pending",
-        status="ready_to_send" if auto_approve else "reviewing",
+        review_model="deterministic-issue-preview-v1",
+        review_status=next_review,
+        status=next_status,
         mark_generated=True,
         mark_approved=auto_approve,
     )
     return get_batch(digest_id) or {}
 
 
-RECIPIENT_MODES = ("subscribers", "members", "registered", "specific")
+RECIPIENT_MODES = ("subscribers", "members")
 
 
 def resolve_recipients(
@@ -3357,8 +4340,8 @@ def resolve_recipients(
     """把受众模式解析为收件人列表，并返回是否需要按 journal_alerts 权限过滤。
 
     返回 (recipients, enforce_permission)。recipients 每项 {email, user_id?, subscription_id?, unsubscribe_token?}。
-    - subscribers：邮箱订阅者，**需权限校验**；
-    - members/registered/specific：管理员强制群发，**忽略权限**。
+    - subscribers：邮箱订阅者，并在发送前再次校验有效会员权限；
+    - members：全部有效旧版与新版会员，可选套餐范围。
     """
     mode = (mode or "subscribers").strip().lower()
     if mode == "members":
@@ -3366,20 +4349,8 @@ def resolve_recipients(
 
         rows = list_active_member_emails(plan_codes)
         return ([{"email": r["email"], "user_id": r.get("user_id")} for r in rows if r.get("email")], False)
-    if mode == "registered":
-        from membership import list_active_user_emails
-
-        rows = list_active_user_emails()
-        return ([{"email": r["email"], "user_id": r.get("user_id")} for r in rows if r.get("email")], False)
-    if mode == "specific":
-        seen: set[str] = set()
-        out: list[dict] = []
-        for raw in emails or []:
-            addr = normalize_email(str(raw))
-            if addr and addr not in seen:
-                seen.add(addr)
-                out.append({"email": addr})
-        return (out, False)
+    if mode not in RECIPIENT_MODES:
+        raise ValueError("国外文献精选周刊只能发送给有效会员或已订阅的有效会员。")
     # 默认：邮箱订阅者，保留权限校验。
     out = [
         {
@@ -3404,7 +4375,7 @@ def send_batch(
     recipients: list[dict] | None = None,
     enforce_permission: bool = True,
 ) -> dict:
-    """发送阶段：把已批准批次的文献综述发给给定收件人（默认=按设置受众解析），按邮箱去重。
+    """Send an approved issue's short introduction and article cards, deduplicated by email.
 
     recipients=None 时按 settings.send_audience（自动发送）解析；显式传入则用之（控制台手选受众）。
     """
@@ -3416,12 +4387,17 @@ def send_batch(
         return {"sent": 0, "reason": "no_batch"}
     batch_id = int(batch["id"])
     approved = str(batch.get("review_status") or "") == "approved"
-    if not approved and not force:
-        return {"sent": 0, "batch_id": batch_id, "reason": "review_not_approved"}
-    review_html = str(batch.get("review_html") or "").strip()
-    review_md = str(batch.get("review_md") or "").strip()
-    if not review_html and not review_md:
-        return {"sent": 0, "batch_id": batch_id, "reason": "review_empty"}
+    if not approved:
+        return {"sent": 0, "batch_id": batch_id, "reason": "issue_not_approved"}
+    if not force and not bool(batch.get("auto_send")):
+        return {
+            "sent": 0,
+            "batch_id": batch_id,
+            "reason": "scheduled_send_not_approved",
+        }
+    complete_articles = public_batch_articles(batch_id)
+    if not complete_articles:
+        return {"sent": 0, "batch_id": batch_id, "reason": "no_complete_articles"}
     if recipients is None:
         recipients, enforce_permission = resolve_recipients(
             str(settings.get("send_audience") or "subscribers"),
@@ -3436,7 +4412,7 @@ def send_batch(
         conn.commit()
     sent = 0
     errors: list[str] = []
-    subject = f"{settings['subject_prefix']}：本期文献综述"
+    subject = f"{settings['subject_prefix']}：{batch.get('issue_key') or '本期'}（{len(complete_articles)}篇）"
     for recipient in recipients:
         email = normalize_email(str(recipient.get("email") or ""))
         if not email or email in already:
@@ -3448,7 +4424,7 @@ def send_batch(
             sub = recipient.get("_subscription") or {}
             if not subscription_is_deliverable(sub, policy):
                 record_digest_delivery(batch_id, email, "skipped",
-                                       "期刊提醒权限未开放、会员已过期或账号已停用。",
+                                       f"{JOURNAL_WEEKLY_TITLE}仅供有效会员使用；会员已过期或账号已停用。",
                                        subscription_id=sub_id, user_id=user_id)
                 continue
         text_body, html_body = render_review_email(batch, recipient, base_url, settings)
@@ -3462,7 +4438,7 @@ def send_batch(
         if sub_id:
             mark_subscription_sent(int(sub_id), utc_now_text())
         sent += 1
-    if sent > 0 or approved:
+    if sent > 0 or not errors:
         update_batch_review(batch_id, status="sent")
         with _connect() as conn:
             conn.execute(
@@ -3472,6 +4448,13 @@ def send_batch(
             conn.commit()
         # 归档更早的已发送批次，使首页只留存最新一期（本期内容留存到下一期发送）。
         archive_sent_batches_before(batch_id)
+        try:
+            from journal_fulltext import purge_source_pdfs, write_issue_snapshot
+
+            write_issue_snapshot(get_batch(batch_id) or batch, complete_articles)
+            purge_source_pdfs(retain_issues=12)
+        except Exception as exc:
+            errors.append(f"issue-snapshot/retention: {exc}")
     finished = utc_now_text()
     with _connect() as conn:
         conn.execute(
@@ -3557,31 +4540,149 @@ def render_review_email(
     base_url: str,
     settings: dict | None = None,
 ) -> tuple[str, str]:
+    """Render the weekly short introduction and metadata cards (no AI review)."""
+    from journal_taxonomy import DISCIPLINES
+
     settings = normalize_alert_settings(settings)
     token = str(subscription.get("unsubscribe_token") or "")
     unsubscribe_url = f"{base_url}/journal-alerts/unsubscribe/{token}" if (base_url and token) else ""
-    latest_url = f"{base_url}/journal-alerts/latest" if base_url else ""
-    review_md = str(digest.get("review_md") or "")
-    review_html = str(digest.get("review_html") or "").strip() or _markdown_to_html(review_md)
-    intro = str(settings["intro_text"])
-    text_body = f"{intro}\n\n{review_md}"
-    html_body = (
-        f'<p style="line-height:1.85;color:#231d17">{html.escape(intro)}</p>\n'
-        + _email_styled_html(review_html)
+    issue_key = str(digest.get("issue_key") or f"第{digest.get('id')}期")
+    articles = public_batch_articles(int(digest["id"]))
+    groups: dict[str, list[dict]] = {name: [] for name in DISCIPLINES}
+    for article in articles:
+        groups.setdefault(str(article.get("ai_discipline") or ""), []).append(article)
+    intro = f"{settings['intro_text']} 本期 {issue_key} 共收录 {len(articles)} 篇，分属 {sum(bool(v) for v in groups.values())} 个研究领域。"
+    period_start = str(digest.get("period_start") or "")[:10]
+    period_end = str(digest.get("period_end") or "")[:10]
+    period_text = f"{period_start} — {period_end}" if period_start and period_end else period_start or period_end
+    lines = [
+        JOURNAL_WEEKLY_TITLE,
+        JOURNAL_WEEKLY_TITLE_EN,
+        " · ".join(part for part in (issue_key, period_text, f"{len(articles)} 篇完整双语文章") if part),
+        "",
+        intro,
+        "",
+        "本期目录 / CONTENTS",
+        "=================",
+        "",
+    ]
+    html_parts = [
+        '<div style="font-family:\'Microsoft YaHei\',\'Noto Sans CJK SC\',sans-serif;max-width:760px;margin:0 auto;color:#231d17">',
+        '<header style="text-align:center;border-top:4px double #231d17;border-bottom:4px double #231d17;padding:28px 18px 24px;background:#fffaf3">',
+        '<div style="font-size:12px;font-weight:700;letter-spacing:.18em;color:#8f1d1d">马克思主义 · 哲学 · 批判理论</div>',
+        f'<h1 style="font-family:\'Songti SC\',SimSun,serif;font-size:38px;letter-spacing:.08em;margin:8px 0 2px">{JOURNAL_WEEKLY_TITLE}</h1>',
+        f'<p style="font-family:Georgia,serif;font-size:16px;font-style:italic;color:#72675d;margin:0 0 16px">{JOURNAL_WEEKLY_TITLE_EN}</p>',
+        f'<div style="font-size:13px;color:#4f463f">{html.escape(" · ".join(part for part in (issue_key, period_text, f"{len(articles)} 篇完整双语文章") if part))}</div>',
+        '</header>',
+        f'<p style="line-height:1.85">{html.escape(intro)}</p>',
+        '<section style="border:1px solid #decfbd;background:#fffdf9;padding:22px 24px;margin:20px 0 28px">',
+        '<h2 style="font-family:\'Songti SC\',SimSun,serif;text-align:center;font-size:25px;letter-spacing:.14em;margin:0">本期目录</h2>',
+        '<p style="font-family:Georgia,serif;text-align:center;font-style:italic;color:#72675d;margin:5px 0 20px">Contents · English original with Chinese translation</p>',
+    ]
+    for discipline in DISCIPLINES:
+        items = groups.get(discipline) or []
+        if not items:
+            continue
+        lines.extend([f"【{discipline}】", ""])
+        html_parts.append(
+            f'<h3 style="font-size:16px;color:#651313;border-bottom:2px solid #8f1d1d;padding-bottom:6px;margin:18px 0 8px">{html.escape(discipline)} '
+            f'<span style="font-size:10px;color:#72675d;font-weight:400">{len(items)} ARTICLES</span></h3><ol style="margin:0;padding-left:24px">'
+        )
+        for article in items:
+            title_zh = str(article.get("title_zh") or "")
+            title_en = str(article.get("title") or "")
+            read_url = f"{base_url}/journal-alerts/articles/{int(article['id'])}" if base_url else ""
+            lines.extend([f"- {title_zh}", f"  {title_en}"])
+            title_html = (
+                f'<a href="{html.escape(read_url)}" style="color:#231d17;text-decoration:none">{html.escape(title_zh)}</a>'
+                if read_url else html.escape(title_zh)
+            )
+            html_parts.append(
+                '<li style="padding:6px 0 8px;line-height:1.55">'
+                f'<strong>{title_html}</strong><br>'
+                f'<span style="font-family:Georgia,serif;font-style:italic;color:#62574e">{html.escape(title_en)}</span>'
+                '</li>'
+            )
+        lines.append("")
+        html_parts.append('</ol>')
+    lines.extend(["文章简介 / ARTICLE DIGESTS", "=====================", ""])
+    html_parts.extend(
+        [
+            '</section>',
+            '<h2 style="font-family:\'Songti SC\',SimSun,serif;text-align:center;font-size:25px;letter-spacing:.12em;margin:0 0 22px">文章简介</h2>',
+        ]
     )
+    for discipline in DISCIPLINES:
+        items = groups.get(discipline) or []
+        if not items:
+            continue
+        lines.extend([discipline, "=" * len(discipline), ""])
+        html_parts.append(
+            f'<h2 style="font-size:18px;color:#651313;border-left:4px solid #8f1d1d;padding-left:10px;margin:24px 0 12px">{html.escape(discipline)}</h2>'
+        )
+        for index, article in enumerate(items, 1):
+            authors_en = ", ".join(article.get("authors") or []) or "Unknown"
+            authors_zh = "、".join(article.get("authors_zh") or []) or authors_en
+            read_url = f"{base_url}/journal-alerts/articles/{int(article['id'])}" if base_url else ""
+            source_url = str(article.get("pdf_url") or article.get("url") or "")
+            citations = (
+                ("GB/T 7714—2015（英文原始）", article.get("citation_gb2015") or ""),
+                ("《马克思主义研究》（英文原始）", article.get("citation_mks_en") or ""),
+            )
+            lines.extend(
+                [
+                    f"{index}. {article.get('title_zh') or ''}",
+                    f"   {article.get('title') or ''}",
+                    f"期刊：{article.get('journal_name_zh') or ''} / {article.get('journal_name') or ''}",
+                    f"作者：{authors_zh} / {authors_en}",
+                    f"摘要（中）：{article.get('abstract_zh') or ''}",
+                    f"Abstract: {article.get('abstract') or ''}",
+                    *(f"{label}：{value}" for label, value in citations),
+                    *( [f"流式阅读：{read_url}"] if read_url else [] ),
+                    *( [f"公开PDF来源：{source_url}"] if source_url else [] ),
+                    "",
+                ]
+            )
+            html_parts.append(
+                '<section style="border:1px solid #decfbd;border-radius:12px;background:#fffdf9;padding:18px;margin:0 0 14px">'
+                f'<h3 style="font-size:18px;margin:0 0 5px;color:#231d17">{html.escape(article.get("title_zh") or "")}</h3>'
+                f'<p style="font-family:Georgia,serif;margin:0 0 12px;color:#62574e">{html.escape(article.get("title") or "")}</p>'
+                f'<p style="line-height:1.7"><strong>期刊：</strong>{html.escape(article.get("journal_name_zh") or "")}<br><span style="color:#72675d">{html.escape(article.get("journal_name") or "")}</span></p>'
+                f'<p style="line-height:1.7"><strong>作者：</strong>{html.escape(authors_zh)}<br><span style="color:#72675d">{html.escape(authors_en)}</span></p>'
+                f'<p style="line-height:1.8"><strong>摘要：</strong>{html.escape(article.get("abstract_zh") or "")}</p>'
+                f'<p style="line-height:1.75;color:#62574e"><strong>Abstract:</strong> {html.escape(article.get("abstract") or "")}</p>'
+            )
+            for label, value in citations:
+                html_parts.append(
+                    f'<p style="font-size:13px;line-height:1.65;color:#62574e"><strong>{html.escape(label)}：</strong>{html.escape(value)}</p>'
+                )
+            links = []
+            if read_url:
+                links.append(
+                    f'<a href="{html.escape(read_url)}" style="display:inline-block;background:#8f1d1d;color:#fff;text-decoration:none;border-radius:999px;padding:9px 16px;margin-right:8px">流式阅读</a>'
+                )
+            if source_url:
+                links.append(
+                    f'<a href="{html.escape(source_url)}" style="display:inline-block;color:#8f1d1d;text-decoration:none;border:1px solid #8f1d1d;border-radius:999px;padding:8px 15px">公开 PDF 来源</a>'
+                )
+            html_parts.append(f'<p>{"".join(links)}</p></section>')
+
+    latest_url = f"{base_url}/journal-alerts/latest" if base_url else ""
+    text_body = "\n".join(lines)
     footer_links = []
     if latest_url:
         text_body += f"\n\n查看本期全部文章：{latest_url}"
         footer_links.append(f'<a href="{html.escape(latest_url)}" style="color:#8f1d1d">查看本期全部文章</a>')
     if unsubscribe_url:
         text_body += f"\n\n退订链接：{unsubscribe_url}"
-        footer_links.append(f'<a href="{html.escape(unsubscribe_url)}" style="color:#72675d">退订期刊新文提醒</a>')
+        footer_links.append(f'<a href="{html.escape(unsubscribe_url)}" style="color:#72675d">退订{JOURNAL_WEEKLY_TITLE}邮件</a>')
     if footer_links:
-        html_body += (
+        html_parts.append(
             '<p style="margin-top:16px;padding-top:12px;border-top:1px solid #e7dccb;'
             'font-size:13px;color:#72675d">' + " &nbsp;·&nbsp; ".join(footer_links) + "</p>"
         )
-    return text_body, html_body
+    html_parts.append("</div>")
+    return text_body, "\n".join(html_parts)
 
 
 def run_journal_alerts_once(
@@ -3591,7 +4692,7 @@ def run_journal_alerts_once(
     smtp_config: SMTPConfig | None = None,
     send: bool = True,
 ) -> dict:
-    """兼容入口：采集一个批次；send=True 时尝试发送当前批次（仅在综述已批准时实际发出）。"""
+    """Legacy entry point: collect metadata, then send only an approved complete issue."""
     result = collect_batch(ai_client=ai_client)
     if send:
         try:

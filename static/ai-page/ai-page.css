@@ -72,7 +72,7 @@
 }
 .aip-title-text p {
   margin: 2px 0 0; font-size: .82rem; color: rgba(255, 244, 230, 0.82);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.55; white-space: normal; overflow-wrap: anywhere;
 }
 .aip-model {
   flex: none;
@@ -95,38 +95,76 @@
 
 /* ===== 本地会话记录侧栏 ===== */
 .aip-sessions {
-  flex: none; width: 244px; align-self: flex-start;
-  position: sticky; top: 74px; max-height: calc(100vh - 90px);
+  flex: none; width: clamp(360px, 28vw, 420px); align-self: flex-start;
+  position: sticky; top: 74px; height: calc(100vh - 90px); max-height: calc(100vh - 90px);
   display: flex; flex-direction: column;
   background: rgba(255, 253, 248, 0.92); border: 1px solid rgba(143, 29, 29, 0.14);
   border-radius: 16px; overflow: hidden;
 }
-.aip-sessions-head { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid rgba(143, 29, 29, 0.1); }
-.aip-newchat { flex: 1; border: 1px solid var(--aip-accent); background: var(--aip-accent); color: #fff; font: inherit; font-weight: 700; font-size: .92rem; padding: 9px 12px; border-radius: 10px; cursor: pointer; }
+.aip-sessions-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid rgba(143, 29, 29, 0.1); }
+.aip-newchat { flex: 1; border: 1px solid var(--aip-accent); background: var(--aip-accent); color: #fff; font: inherit; font-weight: 700; font-size: .92rem; padding: 8px 12px; border-radius: 10px; cursor: pointer; }
 .aip-newchat:hover { background: var(--aip-accent-deep, #6f1717); }
 .aip-sessions-close { display: none; border: 0; background: none; font-size: 1.5rem; line-height: 1; color: var(--aip-muted); cursor: pointer; padding: 0 4px; }
-.aip-sessions-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
-.aip-session { display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-radius: 9px; cursor: pointer; }
+.aip-storage-manager { flex: none; padding: 7px 12px 8px; border-top: 1px solid rgba(143, 29, 29, 0.1); background: rgba(250, 246, 238, .76); }
+.aip-cloud-consent { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--aip-ink); }
+.aip-cloud-consent input { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--aip-accent); }
+.aip-cloud-consent span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 8px; min-width: 0; }
+.aip-cloud-consent strong { font-size: .82rem; }
+.aip-cloud-consent small { color: var(--aip-muted); font-size: .69rem; line-height: 1.3; }
+.aip-cloud-consent.is-disabled { cursor: default; opacity: .78; }
+.aip-privacy-note { margin: 3px 0 0 23px; color: #6f5b42; font-size: .66rem; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aip-cloud-status { margin-top: 3px; color: var(--aip-muted); font-size: .68rem; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aip-cloud-status:empty { display: none; }
+.aip-cloud-status.ok { color: #286b3c; }
+.aip-cloud-status.warn { color: #8a5b00; white-space: normal; }
+.aip-storage-usage { display: grid; gap: 2px; margin-top: 4px; color: var(--aip-muted); font-size: .68rem; }
+.aip-storage-meter { display: block; height: 5px; border-radius: 99px; overflow: hidden; background: rgba(143, 29, 29, .11); }
+.aip-storage-meter i { display: block; width: 0; height: 100%; background: #6d9d63; transition: width .2s; }
+.aip-storage-usage.warn .aip-storage-meter i { background: #d49a24; }
+.aip-storage-usage.danger .aip-storage-meter i { background: #b22727; }
+.aip-cleanup-row { display: grid; gap: 3px; margin-top: 6px; }
+.aip-cleanup-row > label { color: var(--aip-muted); font-size: .68rem; }
+.aip-cleanup-row > div { display: flex; gap: 5px; }
+.aip-cleanup-row input { min-width: 0; width: 128px; padding: 5px 6px; border: 1px solid var(--aip-line); border-radius: 7px; background: #fff; color: var(--aip-text); font: inherit; font-size: .7rem; }
+.aip-cleanup-row button { flex: 1; border: 1px solid rgba(143, 29, 29, .34); border-radius: 7px; background: #fff; color: var(--aip-accent); font: inherit; font-size: .7rem; font-weight: 700; cursor: pointer; }
+.aip-cleanup-row button:disabled { opacity: .5; cursor: wait; }
+.aip-export-range { display: grid; gap: 3px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(143, 29, 29, .1); }
+.aip-export-range > label { color: var(--aip-muted); font-size: .68rem; }
+.aip-export-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 5px; }
+.aip-export-controls span { color: var(--aip-muted); font-size: .68rem; }
+.aip-export-controls input { min-width: 0; width: 100%; box-sizing: border-box; padding: 5px 4px; border: 1px solid var(--aip-line); border-radius: 7px; background: #fff; color: var(--aip-text); font: inherit; font-size: .66rem; }
+.aip-export-controls button { border: 1px solid rgba(143, 29, 29, .34); border-radius: 7px; background: var(--aip-accent); color: #fff; padding: 6px 9px; font: inherit; font-size: .7rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.aip-export-controls button:hover { background: var(--aip-accent-deep, #6f1717); }
+.aip-export-controls button:disabled { opacity: .5; cursor: wait; }
+.aip-sessions-list { flex: 1 1 auto; min-height: 220px; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 3px; }
+.aip-session { display: flex; align-items: flex-start; gap: 6px; padding: 9px 10px; border-radius: 9px; cursor: pointer; }
 .aip-session:hover { background: rgba(143, 29, 29, 0.06); }
 .aip-session.active { background: var(--aip-soft); }
 .aip-session-main { flex: 1; min-width: 0; }
-.aip-session-title { font-size: .9rem; color: var(--aip-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aip-session-title { font-size: .9rem; line-height: 1.45; color: var(--aip-ink); white-space: normal; overflow-wrap: anywhere; }
 .aip-session-time { font-size: .72rem; color: var(--aip-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
-.aip-session-acts { flex: none; display: flex; gap: 1px; opacity: 0; transition: opacity .12s; }
+.aip-session-expiry { color: #986600; font-weight: 700; }
+.aip-session-side { flex: none; display: grid; justify-items: end; gap: 3px; min-width: 108px; }
+.aip-session-acts { display: flex; justify-content: flex-end; gap: 1px; opacity: 0; transition: opacity .12s; }
 .aip-session:hover .aip-session-acts, .aip-session.active .aip-session-acts { opacity: 1; }
 .aip-session-acts button { border: 0; background: none; cursor: pointer; color: var(--aip-muted); font-size: .82rem; padding: 3px 5px; border-radius: 6px; }
 .aip-session-acts button:hover { background: rgba(0, 0, 0, .07); color: var(--aip-accent); }
+.aip-session-acts .aip-session-export { font-size: .68rem; font-weight: 800; letter-spacing: 0; white-space: nowrap; }
+.aip-session-cloud-badge { box-sizing: border-box; max-width: 108px; padding: 2px 7px; border: 1px solid rgba(45, 112, 65, .38); border-radius: 7px; background: rgba(239, 249, 240, .8); color: #286b3c; font-size: .64rem; font-weight: 750; line-height: 1.35; text-align: center; white-space: nowrap; }
+.aip-session-cloud-badge.grace { border-color: rgba(168, 112, 9, .42); background: #fff7e4; color: #8a5b00; }
+.aip-session-cloud-badge.expired, .aip-session-cloud-badge.local { border-color: rgba(120, 105, 88, .28); background: rgba(245, 241, 235, .82); color: #776957; }
+.aip-session-cloud-badge.pending { border-color: rgba(72, 104, 139, .34); background: #f1f6fb; color: #486b8c; }
 .aip-session-rename { flex: 1; min-width: 0; font: inherit; font-size: .9rem; border: 1px solid var(--aip-accent); border-radius: 6px; padding: 4px 6px; }
-.aip-sessions-foot { padding: 8px 12px; border-top: 1px solid rgba(143, 29, 29, 0.1); font-size: .72rem; color: var(--aip-muted); }
+.aip-sessions-foot { flex: none; padding: 5px 12px 6px; border-top: 1px solid rgba(143, 29, 29, 0.1); font-size: .68rem; line-height: 1.3; color: var(--aip-muted); }
 .aip-sessions-empty { padding: 14px 10px; color: var(--aip-muted); font-size: .85rem; line-height: 1.7; }
 .aip-sessions-toggle { display: none; }
 .aip-sessions-scrim { display: none; }
 
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   .aip-main { gap: 0; }
   .aip-sessions {
-    position: fixed; top: 0; bottom: 0; left: 0; z-index: 60; width: min(300px, 86vw);
-    max-height: none; border-radius: 0; border-left: 0;
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 60; width: min(420px, 92vw);
+    height: 100vh; height: 100dvh; max-height: none; border-radius: 0; border-left: 0;
     transform: translateX(-100%); transition: transform .24s ease;
   }
   .aip-sessions.open { transform: none; box-shadow: 16px 0 44px rgba(60, 40, 20, .2); }
@@ -266,6 +304,18 @@
 #aip-root .msg.assistant.pending { width: fit-content; max-width: 84%; min-width: 132px; }
 #aip-root .msg-title { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 7px; font-weight: 700; color: var(--aip-accent); }
 #aip-root .msg.research .msg-title { color: #8a6a12; }
+#aip-root .msg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+#aip-root .msg-head .msg-title { margin-bottom: 0; }
+#aip-root .aip-answer-tools { display: inline-flex; align-items: center; justify-content: flex-end; gap: 10px; flex: none; flex-wrap: wrap; }
+#aip-root .aip-answer-export { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; flex-wrap: wrap; }
+#aip-root .aip-answer-export button { border: 1px solid rgba(143, 29, 29, .42); border-radius: 999px; padding: 7px 12px; font: inherit; font-size: .82rem; font-weight: 800; line-height: 1.35; cursor: pointer; box-shadow: 0 2px 7px rgba(83, 30, 20, .08); }
+#aip-root .aip-answer-export button[data-export-word="footnote"] { background: var(--aip-accent); color: #fff; }
+#aip-root .aip-answer-export button[data-export-word="footnote"]:hover { background: var(--aip-accent-deep, #6f1717); }
+#aip-root .aip-answer-export button[data-export-word="endnote"] { background: #fff0cf; color: #743f0b; border-color: rgba(172, 118, 17, .55); }
+#aip-root .aip-answer-export button[data-export-word="endnote"]:hover { background: #f5dfa9; }
+#aip-root .msg.research .aip-answer-export button[data-export-word="footnote"] { background: #8a6710; border-color: #8a6710; color: #fff; }
+#aip-root .msg.research .aip-answer-export button[data-export-word="endnote"] { color: #6f5310; border-color: rgba(201, 162, 39, .65); }
+#aip-root .aip-answer-export button:disabled { opacity: .5; cursor: wait; }
 #aip-root .msg-kind {
   font-size: .7rem; font-weight: 800; letter-spacing: .04em; padding: 1px 7px; border-radius: 999px;
   color: #4d0f0f; background: var(--aip-gold-hi);
@@ -305,6 +355,13 @@
 #aip-root .typing-dots span:nth-child(3) { animation-delay: .32s; }
 @keyframes aipTypingDot { 0%, 80%, 100% { transform: translateY(0); opacity: .34; } 40% { transform: translateY(-5px); opacity: .9; } }
 @keyframes aipReveal { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+@media (max-width: 620px) {
+  #aip-root .msg-head { align-items: flex-start; flex-direction: column; }
+  #aip-root .aip-answer-tools { align-self: stretch; justify-content: flex-start; }
+  #aip-root .aip-answer-export { flex: 1 1 100%; }
+  #aip-root .aip-answer-export button { flex: 1; }
+}
 
 /* 来源 / 警告 / 引文（沿用抽屉命名） */
 #aip-root .sources { display: grid; gap: 8px; margin-top: 10px; }
@@ -366,6 +423,7 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
   font: inherit; font-size: .82rem; padding: 4px 8px; border-radius: 8px;
   border: 1px solid var(--aip-line); background: #fff; color: var(--aip-text); cursor: pointer;
 }
+#aip-root .msg-head .aip-cite-fmt-select { height: 34px; padding: 5px 10px; }
 #aip-root .msg.research .aip-cite-fmt-select { border-color: rgba(201, 162, 39, 0.5); }
 #aip-root .aip-cite-fmt-select:focus { outline: none; border-color: var(--aip-accent); }
 
@@ -420,7 +478,7 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
 
 @media (max-width: 640px) {
   .aip-topbar { gap: 10px; padding: 10px 12px; }
-  .aip-title-text p { display: none; }
+  .aip-title-text p { font-size: .76rem; }
   .aip-depth { grid-template-columns: 1fr; }
   .aip-main { padding: 10px 8px 12px; }
 }

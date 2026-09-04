@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>上传书籍 · 个人文库 - {{ app_name }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/mylib/mylib.css?v=9">
+</head>
+<body>
+  <div class="topbar">
+    <a class="back" href="{{ url_for('mylib_home') }}">← 个人文库</a>
+    <h1>上传书籍</h1>
+    <span class="spacer"></span>
+    <a class="acct" href="{{ url_for('account') }}">会员中心</a>
+  </div>
+
+  <div class="mx-wrap" style="max-width:720px">
+    <div class="mx-card" data-mylib-upload data-max-mb="{{ max_mb }}">
+      <div class="mx-field">
+        <label class="t" for="mxTitle">书名 <span class="mx-req">*</span></label>
+        <input class="mx-inp" id="mxTitle" placeholder="例：1844 年经济学哲学手稿（我的批注版）" maxlength="120">
+      </div>
+
+      <div class="mx-field">
+        <label class="t" for="mxAuthor">作者 / 编者（选填）</label>
+        <input class="mx-inp" id="mxAuthor" placeholder="例：马克思" maxlength="80">
+      </div>
+
+      <div class="mx-field">
+        <label class="t">选择 PDF 文件 <span class="mx-req">*</span></label>
+        <div class="mx-drop" id="mxDrop">
+          <div style="font-size:1.5rem">⬆</div>
+          点击选择 PDF 文件<br>
+          <span style="font-size:.76rem">单本 ≤ {{ max_mb }} MB · 每人最多 {{ max_books }} 本 · 目前仅支持 PDF</span>
+        </div>
+        <input type="file" id="mxFile" accept="application/pdf,.pdf" hidden>
+        <div id="mxFileInfo"></div>
+      </div>
+
+      <div class="mx-field" id="mxOcrRow" hidden>
+        <label class="mx-check">
+          <input type="checkbox" id="mxOcr">
+          <span>若该文件是<b>扫描件</b>（无可靠文字层），同意在个人文库存储节点上执行本地忠实 OCR，
+            以便进入检索与 AI 问答。<b>不勾选则该书仅可阅读、不进入检索</b>，其余功能不受影响。</span>
+        </label>
+      </div>
+
+      <div class="mx-field">
+        <label class="mx-check">
+          <input type="checkbox" id="mxAttest">
+          <span>我声明对该文件拥有合法使用权，上传内容不侵犯他人著作权。个人文库为私有存储，
+            仅本人可见；如涉侵权或违规，管理员有权退回或删除。</span>
+        </label>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+        <a class="mx-btn" href="{{ url_for('mylib_home') }}">取消</a>
+        <button class="mx-btn pri" id="mxSubmit" type="button">提交审核</button>
+      </div>
+      <div class="mx-err" id="mxErr"></div>
+
+      <div class="mx-note">
+        提交后进入管理员审核队列。通过后系统会分别验收原图、文字层、书目、目录和页码映射；
+        扫描件经授权后会执行本地忠实 OCR。解析完成会邮件通知你。
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/mylib/mylib.js?v=9"
+          data-uid="{{ (current_user.id if current_user else '') }}"
+          data-csrf="{{ csrf_token }}"></script>
+</body>
+</html>

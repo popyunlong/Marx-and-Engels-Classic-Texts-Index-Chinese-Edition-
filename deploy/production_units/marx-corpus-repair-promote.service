@@ -1,0 +1,36 @@
+[Unit]
+Description=Promote an explicitly confirmed corpus repair candidate with blue/green cutover
+After=network-online.target marx-search.service caddy.service
+Wants=network-online.target
+ConditionPathExists=/home/data/marx-search-corpus-repair/review.sqlite3
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+EnvironmentFile=-/etc/marx-corpus-repair.env
+Environment=MARX_APP_DIR=/opt/marx-search
+Environment=MARX_CORPUS_REPAIR_ROOT=/home/data/marx-search-corpus-repair
+ExecStart=/opt/marx-search/deploy/promote_corpus_repair_candidate.sh
+TimeoutStartSec=20min
+Nice=10
+CPUAccounting=true
+CPUWeight=1
+CPUQuota=25%
+IOAccounting=true
+IOWeight=1
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+MemoryAccounting=true
+MemoryHigh=256M
+MemoryMax=512M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/home/data/marx-search-corpus-repair
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

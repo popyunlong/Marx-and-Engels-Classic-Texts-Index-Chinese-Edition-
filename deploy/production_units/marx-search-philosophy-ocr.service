@@ -1,0 +1,20 @@
+[Unit]
+Description=Kant and Feuerbach MiMo OCR build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUTF8=1
+ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/ocr_philosophy_mimo.py --all --workers 8
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target

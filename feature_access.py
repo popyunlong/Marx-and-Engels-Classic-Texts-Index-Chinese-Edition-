@@ -4,7 +4,7 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "ai", "search_chat", "associative", "research", "ai_web")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "ai", "search_chat", "associative", "research", "ai_web")
 FEATURE_ACCESS_LABELS = {
     "search": "检索",
     "viewer": "检索结果正文",
@@ -12,8 +12,10 @@ FEATURE_ACCESS_LABELS = {
     "dictionary": "马克思主义大辞典",
     "static_library": "原文文库",
     "stream_reading": "流式阅读",
-    "journal_alerts": "期刊提醒",
+    "journal_alerts": "国外文献精选周刊",
     "notes": "笔记与知识库",
+    "personal_library": "个人文库",
+    "citation_assistant": "论文引文助手",
     "ai": "AI 导学（阅读器）",
     "search_chat": "AI 随心问",
     "associative": "联想检索",
@@ -28,28 +30,34 @@ FEATURE_ACCESS_HINTS = {
     "dictionary": "马克思主义大辞典查词",
     "static_library": "中外文原著文库",
     "stream_reading": "《马克思恩格斯文集》网页适配阅读",
-    "journal_alerts": "期刊订阅与提醒",
+    "journal_alerts": "固定向所有有效旧版与新版会员开放",
     "notes": "阅读器记笔记 + 「我的知识库」跨书聚合",
+    "personal_library": "上传自有书籍，审核后私有阅读与检索",
+    "citation_assistant": "上传 DOCX，建议补注、校对注释并导出副本",
     "ai": "阅读器内 AI 导学讲解",
     "search_chat": "首页右下「AI 随心问」对话",
     "associative": "凭大意/残句定位特定原文",
     "research": "研究命题铺开多部相关引文",
     "ai_web": "智谱 GLM 联网检索通道",
 }
-# 控制台权限分组：把同类功能聚到一张子表里，避免十余项平铺难辨。每个键必须且只属于一组。
+# 控制台权限分组：把可配置功能聚到一张子表里，避免十余项平铺难辨。
+# journal_alerts 是面向所有有效会员的固定独立栏目，故不进入套餐/个人功能开关表。
 FEATURE_ACCESS_GROUPS = (
-    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes")},
+    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant")},
     {"label": "AI 功能（由「AI 导学」拆分而来，可分别开放）", "features": ("ai", "search_chat", "associative", "research", "ai_web")},
 )
-# ai_web（智谱联网通道）默认全站关闭：仅管理员显式勾选（全站/套餐/个人任一层）后才放开。
+# 论文插注校注已经正式上线，默认作为会员功能开放；ai_web（智谱联网通道）仍默认关闭，
+# 由套餐或个人权限单独放开。控制台显式关闭任一功能时仍以保存值为准。
 DEFAULT_FEATURE_ACCESS = {key: key != "ai_web" for key in FEATURE_ACCESS_KEYS}
 AUDIENCE_ACCESS_LABELS = {
     "guest": "访客",
     "registered": "注册用户",
 }
 DEFAULT_AUDIENCE_ACCESS = {
-    "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False},
-    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False},
+    "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False, "personal_library": False, "citation_assistant": False},
+    # 登录用户保留每周 2 万 DeepSeek Flash 非思考 token 体验：放开四个站内 AI 场景，
+    # 但不开放智谱联网通道。其中联想检索自身仍是站方成本，不占用户的 2 万 token 池。
+    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": True, "search_chat": True, "associative": True, "research": True, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False, "personal_library": False, "citation_assistant": False},
 }
 
 
@@ -175,6 +183,12 @@ def feature_allowed_by_policy(policy: dict, feature: str, user: dict | None = No
         return True
     if not user:
         return bool((policy.get("audience") or {}).get("guest", {}).get(feature, False))
+
+    # 「国外文献精选周刊」是独立的会员栏目，不再随某个套餐功能矩阵开关。
+    # 旧版会员与新版会员都由 membership snapshot 归一为有效 plan_code；
+    # 普通注册用户、已过期会员仍会得到空值。管理员保留运营预览权限。
+    if feature == "journal_alerts":
+        return is_admin_user(user) or bool(membership_plan_code_for_user(user))
 
     if not is_admin_user(user):
         plan_code = membership_plan_code_for_user(user)

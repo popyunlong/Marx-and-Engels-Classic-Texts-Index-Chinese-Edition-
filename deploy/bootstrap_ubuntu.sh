@@ -258,12 +258,15 @@ check_repo_layout() {
     "admin_store.py"
     "desktop_sync.py"
     "journal_alerts.py"
+    "citation_assistant.py"
     "zpay.py"
     "requirements.txt"
     "scripts/journal_alert_worker.py"
+    "scripts/citation_assistant_worker.py"
     "deploy/marx-search.service"
     "deploy/marx-search-journal-alerts.service"
     "deploy/marx-search-journal-alerts.timer"
+    "deploy/marx-search-citation-worker.service"
     "deploy/Caddyfile.example"
     "deploy/marx-search.env.example"
     "config"
@@ -284,7 +287,10 @@ check_repo_layout() {
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y python3 python3-venv python3-pip caddy curl
+  apt-get install -y python3 python3-venv python3-pip caddy curl fonts-noto-cjk
+  # Citation PDFs are rendered from a comment-annotated DOCX by the isolated
+  # single-concurrency worker; avoid GUI/Java recommendations on the server.
+  apt-get install -y --no-install-recommends libreoffice-core libreoffice-writer
   if [[ "${CONFIGURE_UFW}" == "1" ]]; then
     apt-get install -y ufw
   fi
@@ -343,6 +349,14 @@ SMTP_PASSWORD=
 SMTP_FROM_EMAIL=
 SMTP_FROM_NAME=期刊新文提醒
 SMTP_USE_TLS=1
+CITATION_ASSISTANT_INLINE_WORKER=0
+CITATION_ASSISTANT_MATCH_CONCURRENCY=1
+CITATION_ASSISTANT_MAX_DOCX_MB=30
+CITATION_ASSISTANT_MAX_EXPANDED_MB=250
+CITATION_ASSISTANT_MAX_CHARS=300000
+CITATION_ASSISTANT_MAX_ACTIVE=2
+CITATION_ASSISTANT_MAX_JOBS_DAY=5
+CITATION_ASSISTANT_RETENTION_DAYS=7
 EOF
   chmod 640 "${ENV_PATH}"
 }
@@ -365,6 +379,13 @@ install_systemd_service() {
     -e "s|marx-search-journal-alerts.service|${SERVICE_NAME}-journal-alerts.service|g" \
     "${APP_DIR}/deploy/marx-search-journal-alerts.timer" > "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.timer"
   chmod 644 "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.service" "/etc/systemd/system/${SERVICE_NAME}-journal-alerts.timer"
+
+  sed \
+    -e "s|/opt/marx-search|${escaped_app_dir}|g" \
+    -e "s|User=www-data|User=${APP_USER}|g" \
+    -e "s|Group=www-data|Group=${APP_GROUP}|g" \
+    "${APP_DIR}/deploy/marx-search-citation-worker.service" > "/etc/systemd/system/${SERVICE_NAME}-citation-worker.service"
+  chmod 644 "/etc/systemd/system/${SERVICE_NAME}-citation-worker.service"
 
   sed \
     -e "s|/opt/marx-search|${escaped_app_dir}|g" \
@@ -412,6 +433,7 @@ enable_services() {
     systemctl start "${SERVICE_NAME}.service"
   fi
   systemctl enable --now "${SERVICE_NAME}-journal-alerts.timer"
+  systemctl enable --now "${SERVICE_NAME}-citation-worker.service"
   systemctl enable --now "${SERVICE_NAME}-backup.timer"
 
   systemctl enable caddy
@@ -427,6 +449,7 @@ Bootstrap completed.
 
 Recommended verification:
   systemctl status ${SERVICE_NAME}.service --no-pager
+  systemctl status ${SERVICE_NAME}-citation-worker.service --no-pager
   systemctl status caddy --no-pager
   curl http://127.0.0.1:8000/api/runtime
   journalctl -u ${SERVICE_NAME}.service -n 50 --no-pager

@@ -208,26 +208,55 @@
     }
     .catalog {
       margin-top: 18px;
-      padding: 22px;
+      padding: clamp(22px, 4vw, 36px);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,250,242,.96)),
+        var(--card);
     }
+    .catalog-head { display:flex; justify-content:space-between; align-items:flex-end; gap:18px; margin-bottom:22px; }
+    .catalog-head h2 { margin:0 0 7px; font-size:clamp(1.65rem,3vw,2.15rem); }
+    .catalog-head p { margin:0; max-width:760px; }
+    .catalog-total { flex:0 0 auto; min-width:96px; padding:10px 14px; color:var(--accent); background:var(--soft); border:1px solid rgba(143,29,29,.16); border-radius:16px; text-align:center; }
+    .catalog-total strong { display:block; font:700 1.7rem/1 Georgia,"Times New Roman",serif; }
+    .catalog-total span { font-size:.78rem; letter-spacing:.08em; }
     .catalog-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 16px;
-      margin-top: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
     }
+    .journal-group { padding:20px; border:1px solid rgba(222,207,189,.9); border-radius:18px; background:rgba(255,253,249,.82); box-shadow:0 10px 25px rgba(64,44,27,.045); }
+    .journal-group:nth-child(3) { grid-column:1 / -1; }
+    .journal-group-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding-bottom:13px; border-bottom:2px solid var(--accent); }
+    .journal-group h3 { margin:0; font-size:1.08rem; }
+    .journal-group-subtitle { display:block; margin-top:5px; color:var(--muted); font:italic .74rem/1.4 Georgia,"Times New Roman",serif; letter-spacing:.08em; }
+    .journal-count { flex:0 0 auto; padding:3px 9px; border-radius:999px; color:var(--accent); background:var(--soft); font-size:.78rem; font-weight:700; }
     .journal-list {
       display: grid;
-      gap: 8px;
-      margin-top: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 14px;
     }
-    .journal-row {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 10px;
-      align-items: center;
-      padding: 9px 0;
-      border-top: 1px solid rgba(222, 207, 189, .72);
+    .journal-chip {
+      position:relative;
+      display:flex;
+      align-items:center;
+      min-height:48px;
+      padding:9px 11px 9px 25px;
+      border:1px solid rgba(222,207,189,.76);
+      border-radius:11px;
+      background:#fffefa;
+      font:600 .88rem/1.42 Georgia,"Times New Roman",serif;
+    }
+    .journal-chip::before { content:""; position:absolute; left:11px; width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(143,29,29,.08); }
+    @media (max-width: 760px) {
+      .catalog-head { align-items:flex-start; }
+      .catalog-grid { grid-template-columns:1fr; }
+      .journal-group:nth-child(3) { grid-column:auto; }
+      .journal-list { grid-template-columns:1fr; }
+    }
+    @media (max-width: 480px) {
+      .catalog-head { flex-direction:column; }
+      .catalog-total { min-width:84px; }
     }
   </style>
 </head>
@@ -263,6 +292,10 @@
       {% else %}
       {{ site_text("pricing.payment_disabled") }}
       {% endif %}
+      <br><strong>购买规则：</strong>已生效的旧套餐与一个新套餐可以并行；基础 / Plus / Pro / Max 四档之间互斥。
+      同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。资源包可独立叠加，且不解锁会员内容。
+      月套餐 AI 研学额度购买时开放 50%，第 15 天开放余下 50%，第 30 天失效。
+      页面中的典型 token 容量按缓存未命中、80% 输入与 20% 输出估算；实际可用量会随模型、思考深度、峰谷时段和缓存命中情况变化。
     </div>
 
     <section class="plan-list">
@@ -276,9 +309,9 @@
           <h2>{{ plan.name }}</h2>
           <div class="price">{{ format_price(plan.price_cents, plan.currency) }}</div>
           {% if is_pack %}
-          <div class="muted">一次性购买 · 永久有效，可叠加</div>
+          <div class="muted">一次性购买 · 90 天有效，可叠加</div>
           {% else %}
-          <div class="muted">周期：{{ plan.interval_months }} 个月</div>
+          <div class="muted">周期：30 天 · 不自动续费</div>
           {% endif %}
         </div>
         <div class="plan-row-body">
@@ -292,7 +325,7 @@
             {% if plan.research_credits %}<li>研究级检索 {{ plan.research_credits }} 次</li>{% endif %}
             {% if plan.chat_credits %}<li>AI随心问 {{ plan.chat_credits }} 次</li>{% endif %}
             {% if plan.reader_credits %}<li>AI 导学问答 {{ plan.reader_credits }} 次（DeepSeek-V4-Pro）</li>{% endif %}
-            <li>永久有效，可叠加购买</li>
+            <li>购买后 90 天有效，可叠加</li>
             {% else %}
             <li>{{ site_text("pricing.feature_viewer") }}</li>
             <li>{{ site_text("pricing.feature_pdf") }}</li>
@@ -321,29 +354,27 @@
     </section>
 
     <section class="card catalog">
-      <h2>可订阅期刊目录</h2>
-      <p class="muted">会员可订阅期刊新文摘要。当前收录 {{ journal_catalog.total }} 种期刊，后台审核后再进入邮件摘要。</p>
+      <div class="catalog-head">
+        <div>
+          <h2>可订阅英文期刊</h2>
+          <p class="muted">按研究方向整理。网站与邮件仅呈现经公开渠道取得完整 PDF、并已完成双语处理的英文文章。</p>
+        </div>
+        <div class="catalog-total"><strong>{{ journal_catalog.total }}</strong><span>JOURNALS</span></div>
+      </div>
       <div class="catalog-grid">
-        <div>
-          <h3>中文理论期刊</h3>
+        {% for group in journal_catalog.en_groups %}
+        <section class="journal-group">
+          <div class="journal-group-head">
+            <div><h3>{{ group.title }}</h3><span class="journal-group-subtitle">{{ group.subtitle }}</span></div>
+            <span class="journal-count">{{ group.count }} 种</span>
+          </div>
           <div class="journal-list">
-            {% for source in journal_catalog.zh %}
-            <div class="journal-row">
-              <span>{{ source.name }}</span>
-            </div>
+            {% for source in group.sources %}
+            <div class="journal-chip"><span>{{ source.name }}</span></div>
             {% endfor %}
           </div>
-        </div>
-        <div>
-          <h3>英文马克思主义与政治经济学期刊</h3>
-          <div class="journal-list">
-            {% for source in journal_catalog.en %}
-            <div class="journal-row">
-              <span>{{ source.name }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
+        </section>
+        {% endfor %}
       </div>
     </section>
   </div>

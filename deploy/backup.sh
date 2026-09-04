@@ -16,6 +16,7 @@ APPDATA_DIR="${APPDATA_DIR:-/var/www/.marx_search_full}"
 ENV_FILE="${ENV_FILE:-/etc/marx-search.env}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/marx-search}"
 KEEP="${BACKUP_KEEP:-14}"
+JOURNAL_DATA_ROOT="${MARX_JOURNAL_DATA_ROOT:-/var/www/.marx_search_full/journal}"
 
 stamp="$(date +%Y%m%d-%H%M%S)"
 dest="${BACKUP_ROOT}/${stamp}"
@@ -47,6 +48,36 @@ for db in membership.sqlite3 feedback.sqlite3; do
     echo "[backup] 已备份 ${db}"
   fi
 done
+
+# Journal backups also stay on the server data disk.  Source PDFs are a
+# reproducible 12-issue cache and are excluded; the permanent bilingual JSON,
+# provenance, issue manifests and journal database are retained.
+if [ -d "${JOURNAL_DATA_ROOT}" ]; then
+  journal_dest="${JOURNAL_DATA_ROOT}/backups/${stamp}"
+  mkdir -p "${journal_dest}"
+  if [ -f "${JOURNAL_DATA_ROOT}/db/journal.sqlite3" ]; then
+    backup_db "${JOURNAL_DATA_ROOT}/db/journal.sqlite3" "${journal_dest}/journal.sqlite3"
+  fi
+  journal_rel=()
+  [ -d "${JOURNAL_DATA_ROOT}/articles" ] && journal_rel+=(articles)
+  [ -d "${JOURNAL_DATA_ROOT}/issues" ] && journal_rel+=(issues)
+  if [ ${#journal_rel[@]} -gt 0 ]; then
+    tar --exclude='*/source.pdf' --exclude='*/doc.json.tmp' --exclude='*/provenance.json.tmp' \
+      -czpf "${journal_dest}/journal-documents.tar.gz" -C "${JOURNAL_DATA_ROOT}" "${journal_rel[@]}"
+  fi
+  mapfile -t old_journal < <(ls -1dt "${JOURNAL_DATA_ROOT}/backups"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) || true)
+  if [ ${#old_journal[@]} -gt 0 ]; then
+    journal_backup_root_resolved="$(realpath -m "${JOURNAL_DATA_ROOT}/backups")"
+    for old_path in "${old_journal[@]}"; do
+      old_resolved="$(realpath -m "${old_path}")"
+      case "${old_resolved}" in
+        "${journal_backup_root_resolved}"/*) rm -rf -- "${old_resolved}" ;;
+        *) echo "[backup] 拒绝清理数据盘备份目录之外的路径：${old_resolved}" >&2 ;;
+      esac
+    done
+  fi
+  echo "[backup] 已在数据盘备份期刊数据库与永久文档"
+fi
 
 # 2) 密钥/配置/反馈图片等文件型数据（tar 相对根目录，便于按原路径恢复）
 rel=()

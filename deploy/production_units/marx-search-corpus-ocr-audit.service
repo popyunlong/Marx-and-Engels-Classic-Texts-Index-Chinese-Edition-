@@ -1,0 +1,49 @@
+[Unit]
+Description=Marx corpus 24-hour OCR audit (read-only production pilot)
+After=network-online.target marx-search.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUTF8=1
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+UMask=0077
+ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/marx_ocr_audit.py run --database /opt/marx-search/data/corpus.sqlite --project-root /opt/marx-search --feedback-db /var/www/.marx_search_full/feedback.sqlite3 --output-root /home/data/marx-search-ocr-audit --hours 24 --max-success 1000 --per-hour 42 --expected-sources 62 --health-url http://127.0.0.1:8000/
+RuntimeMaxSec=25h
+TimeoutStartSec=30s
+Restart=on-failure
+RestartSec=90s
+RestartPreventExitStatus=78
+
+CPUAccounting=true
+CPUQuota=25%
+MemoryAccounting=true
+MemoryHigh=512M
+MemoryMax=768M
+Nice=15
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+IOAccounting=true
+IOWeight=10
+IOReadBandwidthMax=/dev/vda 5M
+TasksMax=32
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/marx-search /var/www/.marx_search_full
+ReadWritePaths=/home/data/marx-search-ocr-audit
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

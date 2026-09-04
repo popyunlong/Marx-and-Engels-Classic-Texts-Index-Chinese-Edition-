@@ -24,14 +24,15 @@
     .book .sub{color:var(--muted);font-size:.88em;margin:2px 0 0;font-style:italic;}
     .book .desc{color:var(--muted);font-size:.88em;margin:12px 0 18px;padding-top:14px;border-top:1px dashed var(--line);}
 
-    .grp{font-size:.82em;color:var(--accent);font-weight:600;margin:18px 0 10px;letter-spacing:.04em;}
+    .grp{font-size:.88em;color:var(--accent);font-weight:800;margin:22px 0 10px;padding:0 2px 7px;border-bottom:1px solid var(--line);letter-spacing:.02em;}
     .grp:first-of-type{margin-top:0;}
     .vols{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:10px;}
-    .vol{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:11px;padding:10px 13px;background:#fff;color:var(--text);text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s;min-height:54px;}
+    .vol{display:flex;align-items:flex-start;gap:11px;min-width:0;border:1px solid var(--line);border-radius:11px;padding:10px 13px;background:#fff;color:var(--text);text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s;min-height:54px;}
     .vol:hover{border-color:var(--accent);box-shadow:0 3px 12px rgba(143,29,29,.10);transform:translateY(-1px);}
     .vol .vnum{flex:0 0 auto;display:flex;align-items:center;justify-content:center;min-width:46px;height:34px;padding:0 8px;background:var(--accent-soft);color:var(--accent);border-radius:8px;font-weight:700;font-size:.86em;white-space:nowrap;}
-    .vol .vdetail{font-size:.85em;line-height:1.35;color:var(--text);overflow:hidden;}
+    .vol .vdetail{min-width:0;font-size:.85em;line-height:1.45;color:var(--text);overflow-wrap:anywhere;word-break:normal;}
     .empty{color:var(--muted);}
+    @media(max-width:600px){.wrap{padding-inline:14px}.book{padding:19px 15px 21px}.vols{grid-template-columns:minmax(0,1fr)}.vcount{margin-left:0}.vol .vnum{min-width:0;max-width:42%;height:auto;min-height:34px;overflow-wrap:anywhere;text-align:center}}
   </style>
 </head>
 <body>
@@ -47,15 +48,26 @@
       <div class="book-head">
         <h2>{{ book.title_zh }}</h2>
         {% if book.badge %}<span class="badge">{{ book.badge }}</span>{% endif %}
-        {% if book.volumes %}<span class="vcount">共 {{ book.volumes|length }} 卷</span>{% endif %}
+        {% if book.volumes %}<span class="vcount">{{ book.volume_count_label or ('共 ' ~ book.volumes|length ~ ' 卷') }}</span>{% endif %}
       </div>
       {% if book.title_ru %}<p class="sub">{{ book.title_ru }}</p>{% endif %}
       {% if book.desc %}<p class="desc">{{ book.desc }}</p>{% endif %}
 
       {% set ns = namespace(grp='') %}
       {% for v in book.volumes %}
-        {# 列宁分「著作」「书信」两组，按 label 含 Письма 切换 #}
-        {% if book.lang == 'ru' %}
+        {# MEGA 按版次/分部分组；旧 5 卷 MEGA² 明确归入第二部分。 #}
+        {% set mega_ref = (v.source_id|default('') ~ ' ' ~ v.tag|default('') ~ ' ' ~ v.label|default('')) %}
+        {% if book.key == 'mega-full' %}
+          {% if v.nav_group %}{% set cur = v.nav_group %}
+          {% elif v.n == 0 or 'editing-history' in mega_ref or '编辑学研究' in mega_ref %}{% set cur = '研究导论' %}
+          {% elif 'MEGA¹' in mega_ref or 'mega1-' in mega_ref %}{% set cur = 'MEGA¹ 历史版' %}
+          {% elif ' IV/' in mega_ref or 'mega2-iv-' in mega_ref %}{% set cur = 'MEGA² 第四部分 · 摘录、笔记和批注' %}
+          {% elif ' III/' in mega_ref or 'mega2-iii-' in mega_ref %}{% set cur = 'MEGA² 第三部分 · 书信' %}
+          {% elif ' II/' in mega_ref or 'mega2-ii-' in mega_ref %}{% set cur = 'MEGA² 第二部分 ·《资本论》及其准备材料' %}
+          {% else %}{% set cur = 'MEGA² 第一部分 · 著作、文章和草稿' %}{% endif %}
+        {% elif book.key == 'mega' %}
+          {% set cur = '经典五卷 · MEGA² 第二部分（既有网页版）' %}
+        {% elif book.lang == 'ru' %}
           {% set cur = '书信卷' if 'Письма' in v.label else '著作卷' %}
         {% else %}
           {% set cur = '' %}
@@ -78,7 +90,9 @@
         {% else %}
           {% set tag = ('Т.' ~ v.n) if book.lang == 'ru' else ('II/' ~ v.n) %}
         {% endif %}
-        {% if '(' in v.label %}
+        {% if book.key == 'mega-full' and ': ' in v.label %}
+          {% set detail = v.label.split(': ', 1)[1] %}
+        {% elif '(' in v.label %}
           {% set detail = v.label.split('(', 1)[1] %}
           {% set detail = detail[:-1] if detail.endswith(')') else detail %}
         {% elif ': ' in v.label %}

@@ -1,6 +1,6 @@
 /* 「AI 研究对话」全屏页 —— 自包含脚本（命名空间 aip*，与全站抽屉零冲突）。
  *
- * 一条连续会话线程（复用抽屉的 localStorage 键 marx-ai-thread-v1，跨页/跨标签连贯），
+ * 浏览器 IndexedDB 保存本机副本；会员明确勾选后同步到独立的个人文库服务器。
  * 每条提问可选两档深度：
  *   · 快速问答 → /api/ai/search-chat（多轮、可选检索引文库接地）；扣「随心问」token 额度。
  *   · 研究综述 → /api/search/associative?mode=research（一次性深度长文 + 20–24 条真实引用）；
@@ -48,6 +48,20 @@
   var sessionsToggle = $("#aipSessionsToggle");
   var sessionsClose = $("#aipSessionsClose");
   var sessionsScrim = $("#aipSessionsScrim");
+  var cloudConsentRow = $("#aipCloudConsentRow");
+  var cloudConsentEl = $("#aipCloudConsent");
+  var cloudConsentHint = $("#aipCloudConsentHint");
+  var cloudPrivacyEl = $("#aipCloudPrivacy");
+  var cloudStatusEl = $("#aipCloudStatus");
+  var storageUsageEl = $("#aipStorageUsage");
+  var storageUsageText = $("#aipStorageUsageText");
+  var storageUsageFill = $("#aipStorageUsageFill");
+  var cleanupDateEl = $("#aipCleanupDate");
+  var cleanupOldBtn = $("#aipCleanupOld");
+  var exportStartEl = $("#aipExportStart");
+  var exportEndEl = $("#aipExportEnd");
+  var exportRangeBtn = $("#aipExportRange");
+  var sessionsFootEl = $("#aipSessionsFoot");
 
   // 共用记忆键（与抽屉一致，体验连贯）
   var AI_THREAD_KEY = "marx-ai-thread-v1";
@@ -57,7 +71,9 @@
   var AI_DB_SESSION_STORE = "sessions";
   var AI_DB_META_STORE = "meta";
   var AI_SYNC_KEY = "marx-ai-sessions-sync-v3";  // Safari 等无 BroadcastChannel 时的轻量通知
-  var AI_MODEL_KEY = "marx-ai-model-v1";       // /ai 页「模型选择」：flash/pro/zhipu，默认 flash
+  var AI_BACKUP_INDEX_KEY = "marx-ai-session-backups-v4"; // 同步写入的正文应急副本索引
+  var AI_BACKUP_PREFIX = "marx-ai-session-backup-v4:";
+  var AI_CLOUD_DELETE_OUTBOX_KEY = "marx-ai-cloud-delete-outbox-v1";
   var AI_GROUNDING_KEY = "marx-ai-grounding-v1";
   var AI_SCOPE_KEY = "marx-ai-scope-v2";
   var AI_DEPTH_KEY = "marx-ai-depth-v1";       // 本页专属
@@ -79,6 +95,15 @@
   var sessionMessageSeq = 0;
   var sessionTabId = "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   var sessionSyncChannel = null;
+  var sessionsReady = false;
+  var sessionsLoadPromise = null;
+  var cloudSync = {
+    loaded: false, available: false, eligible: false, enabled: false, busy: false,
+    retentionDays: 30, warningDays: 5, recoveryDays: 7, serverNow: 0,
+    canCreate: false, canUpdateExisting: false, membershipExpired: false,
+    graceActive: false, graceUntil: 0,
+  };
+  var cloudWriteQueue = Promise.resolve();
   var config = null;
   var configLoading = false;
   var messages = [];            // [{role, content, sources, citations, warnings, groundingScope, kind, pending}]
@@ -116,6 +141,45 @@
       if (!dataParts.length) continue;
       try { result = JSON.parse(dataParts.join("")); } catch (_) {}
     }
+    return result;
+  }
+  async function readSseResultStream(resp, onProgress) {
+    if (!resp.body) {
+      var fallback = parseSseResult(await resp.text());
+      if (!fallback) throw new Error("回答生成超时或服务繁忙，请稍后重试。");
+      return fallback;
+    }
+    var reader = resp.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = "";
+    var result = null;
+    while (true) {
+      var chunk = await reader.read();
+      buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done });
+      var blocks = buffer.split("\n\n");
+      buffer = chunk.done ? "" : (blocks.pop() || "");
+      for (var bi = 0; bi < blocks.length; bi++) {
+        var lines = blocks[bi].split("\n");
+        var eventName = "";
+        var dataParts = [];
+        for (var li = 0; li < lines.length; li++) {
+          if (lines[li].indexOf("event:") === 0) eventName = lines[li].slice(6).trim();
+          if (lines[li].indexOf("data:") === 0) dataParts.push(lines[li].slice(5).trim());
+        }
+        if (!dataParts.length) continue;
+        var data = null;
+        try { data = JSON.parse(dataParts.join("")); } catch (_) { continue; }
+        if (eventName === "progress") {
+          if (onProgress) onProgress(data);
+        } else if (eventName === "error") {
+          throw new Error(data.error || "AI 请求失败");
+        } else if (eventName === "done" || !eventName) {
+          result = data;
+        }
+      }
+      if (chunk.done) break;
+    }
+    if (!result) throw new Error("回答生成超时或服务繁忙，请稍后重试。");
     return result;
   }
   function parseJsonResponse(resp) {
@@ -476,7 +540,6 @@
           '<span class="ai-citations-title">' + title + "</span>" +
           '<span class="aip-cite-hint">展开</span>' +
         "</button>" +
-        citeFormatSelectHtml() +
       "</div>" +
       '<div class="ai-citations-body">' + cardsHtml + "</div>" +
     "</div>";
@@ -492,22 +555,561 @@
   }
   function renderMessages() {
     if (!messages.length) { messagesEl.innerHTML = emptyStateHtml(); return; }
-    messagesEl.innerHTML = messages.map(function (message) {
+    messagesEl.innerHTML = messages.map(function (message, messageIndex) {
       if (message.role === "user") return '<div class="msg user">' + esc(message.content) + "</div>";
       var isResearch = message.kind === "research";
       if (message.pending) {
-        var pendMsg = isResearch ? "正在检索原著并生成研究综述（较慢，请稍候）" : "AI 正在思考";
+        var pendMsg = message.progress || (isResearch ? "正在检索原著并生成研究综述（较慢，请稍候）" : "AI 正在思考");
         return '<div class="msg assistant pending' + (isResearch ? " research" : "") + '" aria-live="polite">' +
           '<span class="msg-title">' + esc(pendMsg) + '</span>' +
           '<span class="typing-dots" aria-label="生成中"><span></span><span></span><span></span></span></div>';
       }
       var kindPill = '<span class="msg-kind">' + (isResearch ? "研究综述" : "快速问答") + "</span>";
+      var citeTools = Array.isArray(message.citations) && message.citations.length ? citeFormatSelectHtml() : "";
+      var exportTools = '<span class="aip-answer-tools">' + citeTools +
+        '<span class="aip-answer-export" aria-label="下载本条 AI 回复为 Word">' +
+          '<button type="button" data-export-word="footnote" data-message-index="' + messageIndex + '">a.导出脚注版word</button>' +
+          '<button type="button" data-export-word="endnote" data-message-index="' + messageIndex + '">b.导出尾注版word</button>' +
+        '</span></span>';
       return '<div class="msg assistant' + (isResearch ? " research" : "") + '">' +
-        '<span class="msg-title">' + kindPill + "AI 回答</span>" +
+        '<div class="msg-head"><span class="msg-title">' + kindPill + "AI 回答</span>" + exportTools + "</div>" +
         '<div class="msg-body' + (isResearch ? " aip-essay" : "") + '">' + renderBasicMarkdown(stripInlineCitations(message.content)) + "</div>" +
         renderWarnings(message.warnings) + renderCitations(message) + renderSources(message.sources) + "</div>";
     }).join("");
   }
+
+  // ===================== 本地导出（HTML / ZIP / 学术排版 DOCX） =====================
+  // 所有文件都在浏览器内由当前已加载的会话副本生成，不把正文发送到任何导出接口。
+  function pad2(n) { return String(n).padStart(2, "0"); }
+  function localDateValue(ts) {
+    var d = new Date(Number(ts || nowTs()));
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function localDateTime(ts) {
+    var d = new Date(Number(ts || nowTs()));
+    return localDateValue(d.getTime()) + " " + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+  function safeFilePart(text, fallback) {
+    var out = String(text || "").replace(/[<>:\"/\\|?*\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
+    out = out.replace(/[. ]+$/g, "");
+    if (!out) out = fallback || "AI研究对话";
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(out)) out = "_" + out;
+    return out.slice(0, 72);
+  }
+  function plainTitle(text, fallback) {
+    var out = String(text || "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[`*_~#>|]/g, " ").replace(/\s+/g, " ").trim();
+    if (!out) out = fallback || "AI研究对话";
+    if (out.length > 80) out = out.slice(0, 79) + "…";
+    return out;
+  }
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url; link.download = filename; link.style.display = "none";
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+  }
+  function utf8Bytes(text) {
+    if (window.TextEncoder) return new TextEncoder().encode(String(text));
+    var encoded = unescape(encodeURIComponent(String(text))), out = new Uint8Array(encoded.length);
+    for (var i = 0; i < encoded.length; i++) out[i] = encoded.charCodeAt(i);
+    return out;
+  }
+  function concatBytes(parts) {
+    var total = parts.reduce(function (sum, part) { return sum + part.length; }, 0);
+    var out = new Uint8Array(total), offset = 0;
+    parts.forEach(function (part) { out.set(part, offset); offset += part.length; });
+    return out;
+  }
+  function pushU16(out, value) { out.push(value & 255, (value >>> 8) & 255); }
+  function pushU32(out, value) { out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
+  var ZIP_CRC_TABLE = (function () {
+    var table = new Uint32Array(256);
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+  function crc32(bytes) {
+    var crc = 0xffffffff;
+    for (var i = 0; i < bytes.length; i++) crc = ZIP_CRC_TABLE[(crc ^ bytes[i]) & 255] ^ (crc >>> 8);
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+  function zipDosTime(date) {
+    var d = date || new Date(), year = Math.max(1980, d.getFullYear());
+    return {
+      time: ((d.getHours() & 31) << 11) | ((d.getMinutes() & 63) << 5) | ((Math.floor(d.getSeconds() / 2)) & 31),
+      date: (((year - 1980) & 127) << 9) | (((d.getMonth() + 1) & 15) << 5) | (d.getDate() & 31),
+    };
+  }
+  function StoreZip() { this.entries = []; }
+  StoreZip.prototype.add = function (name, value) {
+    var data = value instanceof Uint8Array ? value : utf8Bytes(value);
+    this.entries.push({ name: String(name), nameBytes: utf8Bytes(String(name)), data: data, crc: crc32(data), stamp: zipDosTime(new Date()) });
+  };
+  StoreZip.prototype.blob = function (mime) {
+    var locals = [], centrals = [], offset = 0;
+    this.entries.forEach(function (entry) {
+      var localHead = [];
+      pushU32(localHead, 0x04034b50); pushU16(localHead, 20); pushU16(localHead, 0x0800); pushU16(localHead, 0);
+      pushU16(localHead, entry.stamp.time); pushU16(localHead, entry.stamp.date); pushU32(localHead, entry.crc);
+      pushU32(localHead, entry.data.length); pushU32(localHead, entry.data.length); pushU16(localHead, entry.nameBytes.length); pushU16(localHead, 0);
+      var local = concatBytes([new Uint8Array(localHead), entry.nameBytes, entry.data]);
+      var centralHead = [];
+      pushU32(centralHead, 0x02014b50); pushU16(centralHead, 20); pushU16(centralHead, 20); pushU16(centralHead, 0x0800); pushU16(centralHead, 0);
+      pushU16(centralHead, entry.stamp.time); pushU16(centralHead, entry.stamp.date); pushU32(centralHead, entry.crc);
+      pushU32(centralHead, entry.data.length); pushU32(centralHead, entry.data.length); pushU16(centralHead, entry.nameBytes.length);
+      pushU16(centralHead, 0); pushU16(centralHead, 0); pushU16(centralHead, 0); pushU16(centralHead, 0); pushU32(centralHead, 0); pushU32(centralHead, offset);
+      locals.push(local); centrals.push(concatBytes([new Uint8Array(centralHead), entry.nameBytes])); offset += local.length;
+    });
+    var centralBytes = concatBytes(centrals), end = [];
+    pushU32(end, 0x06054b50); pushU16(end, 0); pushU16(end, 0); pushU16(end, this.entries.length); pushU16(end, this.entries.length);
+    pushU32(end, centralBytes.length); pushU32(end, offset); pushU16(end, 0);
+    return new Blob(locals.concat([centralBytes, new Uint8Array(end)]), { type: mime || "application/zip" });
+  };
+
+  function exportUrl(url) {
+    var safe = safeMarkdownUrl(url || "");
+    if (safe.charAt(0) === "/") return window.location.origin + safe;
+    return safe;
+  }
+  function renderExportMarkdown(markdown) {
+    return renderBasicMarkdown(stripInlineCitations(markdown || "")).replace(/href="(\/[^\"]*)"/g, function (_, path) {
+      return 'href="' + escAttr(window.location.origin + path.replace(/&amp;/g, "&")) + '"';
+    });
+  }
+
+  function exportCitationHtml(message) {
+    var citations = Array.isArray(message.citations) ? message.citations : [];
+    if (!citations.length) return "";
+    return '<section class="citations"><h3>引用原文与出处</h3><ol>' + citations.map(function (citation, index) {
+      var number = citation.grounding_index || citation.review_index || (index + 1);
+      var context = String(citation.context || "").replace(/\[\[\/?H\]\]/g, "").trim();
+      var url = exportUrl(citation.viewer_url || "");
+      return '<li value="' + Number(number || index + 1) + '"><p class="cite">' + esc(pickCite(citation) || "出处未提供") + '</p>' +
+        (context ? '<blockquote>' + esc(context) + '</blockquote>' : '') +
+        (url ? '<a href="' + escAttr(url) + '" target="_blank" rel="noopener noreferrer">打开原文页</a>' : '') + '</li>';
+    }).join("") + "</ol></section>";
+  }
+  function exportSourcesHtml(sources) {
+    if (!Array.isArray(sources) || !sources.length) return "";
+    return '<section class="sources"><h3>网络来源</h3><ol>' + sources.map(function (source) {
+      var url = exportUrl(source.link || "");
+      var title = esc(source.title || "未命名来源");
+      return '<li>' + (url ? '<a href="' + escAttr(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : title) +
+        '<small>' + esc([source.site, source.date].filter(Boolean).join(" · ")) + '</small></li>';
+    }).join("") + "</ol></section>";
+  }
+  function exportMessageHtml(message, answerNo) {
+    if (!message || message.pending) return "";
+    if (message.role === "user") return '<section class="turn user"><div class="turn-label">用户</div><div class="user-text">' + esc(message.content || "") + "</div></section>";
+    var kind = message.kind === "research" ? "研究综述" : "快速问答";
+    var warnings = Array.isArray(message.warnings) && message.warnings.length
+      ? '<ul class="warnings">' + message.warnings.map(function (item) { return "<li>" + esc(item) + "</li>"; }).join("") + "</ul>" : "";
+    return '<section class="turn assistant"><div class="turn-label">' + esc(kind) + ' · AI 回复 ' + answerNo + '</div>' +
+      '<div class="answer">' + renderExportMarkdown(message.content || "") + '</div>' + warnings +
+      exportCitationHtml(message) + exportSourcesHtml(message.sources) + "</section>";
+  }
+  function buildSessionHtml(session) {
+    var title = session.title || deriveTitle(session.messages || []), answerNo = 0;
+    var turns = (session.messages || []).map(function (message) {
+      if (message && message.role === "assistant" && !message.pending) answerNo += 1;
+      return exportMessageHtml(message, answerNo);
+    }).join("");
+    var css = "*{box-sizing:border-box}body{margin:0;background:#f4efe7;color:#29211b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;line-height:1.8}.page{max-width:920px;margin:32px auto;padding:0 20px 64px}.doc-head{background:#fffdf8;border:1px solid #e5d8ca;border-radius:18px;padding:28px 32px;margin-bottom:18px;box-shadow:0 10px 30px rgba(70,45,25,.06)}h1{margin:0 0 8px;font-family:'Songti SC','SimSun',serif;font-size:28px;line-height:1.4}.meta{color:#806f61;font-size:13px}.turn{border-radius:18px;margin:14px 0;padding:22px 26px;border:1px solid #e6d9cc}.turn.user{margin-left:14%;background:#eee3d7}.turn.assistant{background:#fffdf9}.turn-label{color:#8f1d1d;font-size:13px;font-weight:700;margin-bottom:10px}.user-text{white-space:pre-wrap}.answer{font-family:'Songti SC','SimSun',serif;font-size:16px}.answer h3{font-size:19px;border-left:4px solid #8f1d1d;padding-left:10px;margin:25px 0 12px}.answer h4,.answer h5{font-size:17px;margin:22px 0 10px}.answer p,.answer ul,.answer ol,.answer blockquote{margin:10px 0}.answer blockquote,.citations blockquote{margin:8px 0;padding:9px 12px;border-left:3px solid #c9a227;background:#faf4e7}.answer table{width:100%;border-collapse:collapse}.answer th,.answer td{border:1px solid #d9c9ba;padding:7px 9px}.answer pre{overflow:auto;background:#2f2925;color:#fff;padding:14px;border-radius:10px}.citations,.sources{margin-top:20px;padding-top:14px;border-top:1px solid #eadfd4}.citations h3,.sources h3{font-size:16px;margin:0 0 8px}.citations li,.sources li{margin:9px 0}.cite{font-weight:700;margin:0}.citations a,.sources a,.answer a{color:#8f1d1d}.sources small{display:block;color:#806f61}.warnings{color:#805f00}.empty{padding:24px;color:#806f61;background:#fffdf9;border-radius:16px}@media(max-width:640px){.page{margin:0;padding:12px}.doc-head,.turn{padding:18px}.turn.user{margin-left:5%}}@media print{body{background:#fff}.page{max-width:none;margin:0;padding:0}.doc-head,.turn{box-shadow:none;break-inside:avoid}.turn.user{margin-left:8%}}";
+    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) +
+      '</title><style>' + css + '</style></head><body><main class="page"><header class="doc-head"><h1>' + esc(title) + '</h1><div class="meta">最后更新：' +
+      esc(localDateTime(session.updatedAt)) + '　·　本文件由 AI 研究对话在本地生成</div></header>' + (turns || '<div class="empty">此会话暂无可导出的内容。</div>') + "</main></body></html>";
+  }
+  function sessionById(id) { return sessionsData.sessions.find(function (session) { return session.id === id; }); }
+  function exportSessionHtml(id) {
+    var session = sessionById(id);
+    if (!session) return;
+    if (!(session.messages || []).some(function (message) { return message && !message.pending; })) { setCloudStatus("这段会话暂无可导出的内容。", "warn"); return; }
+    var filename = safeFilePart(session.title || deriveTitle(session.messages || []), "AI研究对话") + "_" + localDateValue(session.updatedAt) + ".html";
+    downloadBlob(new Blob(["\ufeff", buildSessionHtml(session)], { type: "text/html;charset=utf-8" }), filename);
+    setCloudStatus("已导出当前会话的本地 HTML 文件。", "ok");
+  }
+  function ensureExportDateDefaults() {
+    if (!exportStartEl || !exportEndEl) return;
+    var end = new Date(), start = new Date(end.getTime() - 29 * 86400000);
+    if (!exportStartEl.value) exportStartEl.value = localDateValue(start.getTime());
+    if (!exportEndEl.value) exportEndEl.value = localDateValue(end.getTime());
+  }
+  function exportSessionsInRange() {
+    if (!exportStartEl || !exportEndEl || !exportRangeBtn || streaming) return;
+    var startValue = exportStartEl.value, endValue = exportEndEl.value;
+    var start = new Date(startValue + "T00:00:00").getTime();
+    var end = new Date(endValue + "T23:59:59.999").getTime();
+    if (!startValue || !endValue || !Number.isFinite(start) || !Number.isFinite(end) || start > end) {
+      showStorageWarning("请选择有效的开始日期和结束日期，且开始日期不能晚于结束日期。"); return;
+    }
+    var selected = sessionsData.sessions.filter(function (session) {
+      var updated = Number(session.updatedAt || 0);
+      return updated >= start && updated <= end && (session.messages || []).some(function (message) { return message && !message.pending; });
+    }).sort(function (a, b) { return Number(a.updatedAt || 0) - Number(b.updatedAt || 0); });
+    if (!selected.length) { setCloudStatus("所选时间段内没有可导出的会话。", "warn"); return; }
+    exportRangeBtn.disabled = true; exportRangeBtn.textContent = "正在整理…";
+    setTimeout(function () {
+      try {
+        var zip = new StoreZip(), used = {};
+        selected.forEach(function (session, index) {
+          var base = localDateValue(session.updatedAt) + "_" + String(index + 1).padStart(3, "0") + "_" + safeFilePart(session.title || deriveTitle(session.messages || []), "AI研究对话");
+          var name = base + ".html", serial = 2;
+          while (used[name]) { name = base + "_" + serial + ".html"; serial += 1; }
+          used[name] = true; zip.add(name, "\ufeff" + buildSessionHtml(session));
+        });
+        downloadBlob(zip.blob("application/zip"), "AI研究对话_" + startValue + "_至_" + endValue + ".zip");
+        setCloudStatus("已导出 " + selected.length + " 段会话；ZIP 内每段会话一个 HTML 文件。", "ok");
+      } catch (_) {
+        setCloudStatus("批量导出失败，请缩短时间范围后重试。", "warn");
+      } finally {
+        exportRangeBtn.disabled = false; exportRangeBtn.textContent = "导出 ZIP";
+      }
+    }, 30);
+  }
+
+  function xmlText(text) { return String(text == null ? "" : text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function xmlAttr(text) { return xmlText(text).replace(/\"/g, "&quot;").replace(/'/g, "&apos;"); }
+  function wordNormalizeChinesePunctuation(text) {
+    var source = String(text == null ? "" : text);
+    function isCjk(ch) { return !!ch && /[\u3400-\u9fff\uf900-\ufaff]/.test(ch); }
+    function nearest(index, step) {
+      for (var i = index + step; i >= 0 && i < source.length; i += step) {
+        if (!/\s/.test(source.charAt(i))) return source.charAt(i);
+      }
+      return "";
+    }
+    function hasNearbyCjk(index, radius) {
+      var start = Math.max(0, index - radius), end = Math.min(source.length, index + radius + 1);
+      return /[\u3400-\u9fff\uf900-\ufaff]/.test(source.slice(start, end));
+    }
+    function pairContainsCjk(index, open, close, direction) {
+      var end = direction > 0 ? source.indexOf(close, index + 1) : source.lastIndexOf(open, index - 1);
+      if (end < 0 || Math.abs(end - index) > 120) return false;
+      var left = Math.min(index, end), right = Math.max(index, end);
+      return /[\u3400-\u9fff\uf900-\ufaff]/.test(source.slice(left + 1, right));
+    }
+    // 中文引号先成对处理，英文缩写和所有格不动。
+    source = source.replace(/\"([^\"\r\n]*[\u3400-\u9fff\uf900-\ufaff][^\"\r\n]*)\"/g, "“$1”");
+    source = source.replace(/'([^'\r\n]*[\u3400-\u9fff\uf900-\ufaff][^'\r\n]*)'/g, "‘$1’");
+    // 中文句子中包围英文、数字或被 Markdown 标记拆开的直引号，也必须使用中文弯引号。
+    // 这里补齐未被上面的成对规则覆盖的引号；英文单词内部的撇号仍保持半角。
+    var doubleQuoteOpen = false, singleQuoteOpen = false;
+    source = source.replace(/[\"＂]/g, function (mark, index) {
+      if (!hasNearbyCjk(index, 24)) return mark;
+      var previous = nearest(index, -1), next = nearest(index, 1);
+      var closes = doubleQuoteOpen;
+      if (!previous || /[（【〔《〈“‘]/.test(previous)) closes = false;
+      else if (!next || /[，。；：！？、）】〕》〉”’]/.test(next)) closes = true;
+      doubleQuoteOpen = !closes;
+      return closes ? "”" : "“";
+    });
+    source = source.replace(/['＇]/g, function (mark, index) {
+      var previous = nearest(index, -1), next = nearest(index, 1);
+      if (/[A-Za-z0-9]/.test(previous) && /[A-Za-z0-9]/.test(next)) return mark;
+      if (!hasNearbyCjk(index, 24)) return mark;
+      var closes = singleQuoteOpen;
+      if (!previous || /[（【〔《〈“‘]/.test(previous)) closes = false;
+      else if (!next || /[，。；：！？、）】〕》〉”’]/.test(next)) closes = true;
+      singleQuoteOpen = !closes;
+      return closes ? "’" : "‘";
+    });
+    // 中文语境的三个及以上英文句点统一为两个全角省略号。
+    source = source.replace(/\.{3,}/g, function (dots, index) {
+      return hasNearbyCjk(index, 16) ? "……" : dots;
+    });
+    return source.replace(/[,:;!?().]/g, function (mark, index) {
+      var previous = nearest(index, -1), next = nearest(index, 1);
+      // 小数、千分位、时间与端口号保持半角，与数字一样使用 Times New Roman。
+      if ((mark === "." || mark === "," || mark === ":") && /\d/.test(previous) && /\d/.test(next)) return mark;
+      // URL、Windows 路径及西文词内部的标点不转换，避免损坏可识别的西文结构。
+      var before = source.slice(Math.max(0, index - 20), index);
+      var after = source.slice(index + 1, Math.min(source.length, index + 4));
+      if (mark === ":" && (
+        (/[a-z][a-z0-9+.-]*$/i.test(before) && after.indexOf("//") === 0) ||
+        (/[a-z]$/i.test(before) && after.indexOf("\\") === 0)
+      )) return mark;
+      if (mark === "." && /[A-Za-z0-9]/.test(previous) && /[A-Za-z0-9]/.test(next)) return mark;
+      var chineseContext = isCjk(previous) || isCjk(next) || hasNearbyCjk(index, 16);
+      if (!chineseContext) return mark;
+      if (mark === "(" && !(pairContainsCjk(index, "(", ")", 1) || isCjk(previous) || isCjk(next))) return mark;
+      if (mark === ")" && !(pairContainsCjk(index, "(", ")", -1) || isCjk(previous) || isCjk(next))) return mark;
+      return { ",": "，", ":": "：", ";": "；", "!": "！", "?": "？", "(": "（", ")": "）", ".": "。" }[mark] || mark;
+    });
+  }
+  function wordUsesEastAsiaFont(ch) {
+    return !!ch && /[\u3000-\u303f\u3400-\u9fff\uf900-\ufaff\ufe10-\ufe1f\ufe30-\ufe4f\uff01-\uff65\u2014\u2018\u2019\u201c\u201d\u2026]/.test(ch);
+  }
+  function wordRunXml(text, options) {
+    options = options || {};
+    var eastAsiaFont = options.eastAsiaFont || (options.code ? "仿宋" : "宋体");
+    var value = String(text == null ? "" : text).replace(/\[\[\/?H\]\]/g, "");
+    if (!options.code) value = wordNormalizeChinesePunctuation(value);
+    var chars = Array.from(value), groups = [];
+    chars.forEach(function (ch, index) {
+      var east = wordUsesEastAsiaFont(ch);
+      if (/\s/.test(ch)) {
+        if (groups.length) east = groups[groups.length - 1].east;
+        else {
+          for (var lookahead = index + 1; lookahead < chars.length; lookahead++) {
+            if (!/\s/.test(chars[lookahead])) { east = wordUsesEastAsiaFont(chars[lookahead]); break; }
+          }
+        }
+      }
+      var group = groups[groups.length - 1];
+      if (!group || group.east !== east) { group = { east: east, text: "" }; groups.push(group); }
+      group.text += ch;
+    });
+    if (!groups.length) groups.push({ east: false, text: "" });
+    return groups.map(function (group) {
+      // 中文、全角标点和中文弯引号显式绑定东亚字体；英文、数字及其内部标点保持 Times New Roman。
+      var westernFont = group.east ? eastAsiaFont : "Times New Roman";
+      var props = [
+        '<w:rFonts w:ascii="' + xmlAttr(westernFont) + '" w:hAnsi="' + xmlAttr(westernFont) +
+        '" w:eastAsia="' + xmlAttr(eastAsiaFont) + '" w:cs="' + xmlAttr(westernFont) + '"/>'
+      ];
+      if (options.bold) props.push("<w:b/>");
+      if (options.italic) props.push("<w:i/>");
+      if (options.code) props.push('<w:sz w:val="21"/><w:shd w:val="clear" w:color="auto" w:fill="F3F3F3"/>');
+      return "<w:r><w:rPr>" + props.join("") + '</w:rPr><w:t xml:space="preserve">' + xmlText(group.text) + "</w:t></w:r>";
+    }).join("");
+  }
+  function mkszyjCitation(citation) {
+    var formats = citation && citation.citations;
+    return String((formats && formats.mkszyj) || (citation && citation.citation) || pickCite(citation || {}) || "").replace(/^\s*\[\d+\]\s*/, "").trim();
+  }
+  function wordCitationMap(message) {
+    var map = {};
+    (Array.isArray(message.citations) ? message.citations : []).forEach(function (citation, index) {
+      var number = String(citation.grounding_index || citation.review_index || (index + 1));
+      var text = mkszyjCitation(citation);
+      if (text) map[number] = text;
+    });
+    return map;
+  }
+  function wordNoteReferenceXml(id, kind) {
+    var tag = kind === "endnote" ? "endnoteReference" : "footnoteReference";
+    var style = kind === "endnote" ? "EndnoteReference" : "FootnoteReference";
+    if (kind === "endnote") {
+      // 尾注版用明文 [1][2] 和文末注释段落。Word 与 LibreOffice 对自定义真尾注
+      // 标记的兼容结果不一致，会出现「¹[1]」重号；明文方案可保证学术排版始终只显示 [N]。
+      return wordRunXml("[" + id + "]");
+    }
+    return '<w:r><w:rPr><w:rStyle w:val="' + style + '"/></w:rPr><w:' + tag + ' w:id="' + id + '"/></w:r>';
+  }
+  function wordInlineXml(text, state, runOptions) {
+    runOptions = runOptions || {};
+    function run(value, extras) { return wordRunXml(value, Object.assign({}, runOptions, extras || {})); }
+    // 先在整段文本上处理标点，避免引号被粗体、链接或注释标记拆成多个运行后无法成对识别。
+    var source = wordNormalizeChinesePunctuation(String(text || "")), out = [], cursor = 0;
+    var re = /(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(`[^`]+`)|(\*[^*]+\*)|(\[\d+\])/g, match;
+    while ((match = re.exec(source))) {
+      if (match.index > cursor) out.push(run(source.slice(cursor, match.index)));
+      var token = match[0], link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/), citation = token.match(/^\[(\d+)\]$/);
+      if (link) out.push(run(link[1]));
+      else if (citation && state.citationMap[citation[1]]) {
+        var noteId = state.notes.length + 1;
+        state.notes.push({ id: noteId, text: state.citationMap[citation[1]] });
+        out.push(wordNoteReferenceXml(noteId, state.kind));
+      } else if (/^\*\*/.test(token)) out.push(run(token.slice(2, -2), { bold: true }));
+      else if (/^`/.test(token)) out.push(run(token.slice(1, -1), { code: true, eastAsiaFont: "仿宋" }));
+      else if (/^\*/.test(token)) out.push(run(token.slice(1, -1), { italic: true }));
+      else out.push(run(token));
+      cursor = re.lastIndex;
+    }
+    if (cursor < source.length) out.push(run(source.slice(cursor)));
+    return out.join("") || run("");
+  }
+  function wordParagraphXml(text, state, style, options) {
+    options = options || {};
+    var ppr = ['<w:pStyle w:val="' + (style || "Normal") + '"/>'];
+    if (options.numId) ppr.push('<w:numPr><w:ilvl w:val="0"/><w:numId w:val="' + options.numId + '"/></w:numPr>');
+    if (options.keepNext) ppr.push("<w:keepNext/>");
+    var eastAsiaFont = style === "Title" ? "黑体" : (style === "Code" ? "仿宋" : "宋体");
+    var inlineOptions = { eastAsiaFont: eastAsiaFont };
+    return "<w:p><w:pPr>" + ppr.join("") + "</w:pPr>" +
+      (options.literal
+        ? wordRunXml(text, Object.assign({}, inlineOptions, options.literal))
+        : wordInlineXml(text, state, inlineOptions)) + "</w:p>";
+  }
+  function parseWordBlocks(markdown) {
+    var lines = stripInlineCitations(markdown || "").replace(/\r\n?/g, "\n").split("\n"), blocks = [], paragraph = [];
+    function flushParagraph() { if (paragraph.length) { blocks.push({ type: "p", text: paragraph.join(" ") }); paragraph = []; } }
+    for (var i = 0; i < lines.length; i++) {
+      var raw = lines[i], trimmed = raw.trim();
+      if (!trimmed) { flushParagraph(); continue; }
+      var fence = trimmed.match(/^(`{3,}|~{3,})/);
+      if (fence) {
+        flushParagraph(); var code = [], marker = fence[1].charAt(0), length = fence[1].length; i += 1;
+        while (i < lines.length && lines[i].trim().indexOf(marker.repeat(length)) !== 0) { code.push(lines[i]); i += 1; }
+        blocks.push({ type: "code", text: code.join("\n") }); continue;
+      }
+      var header = splitMarkdownTableRow(trimmed), separator = lines[i + 1] || "";
+      if (header && isMarkdownTableSeparator(separator)) {
+        flushParagraph(); var rows = []; i += 2;
+        while (i < lines.length) {
+          var cells = splitMarkdownTableRow(lines[i].trim());
+          if (!cells || isMarkdownTableSeparator(lines[i].trim())) break;
+          rows.push(cells); i += 1;
+        }
+        i -= 1; blocks.push({ type: "table", header: header, rows: rows }); continue;
+      }
+      var atx = trimmed.replace(/^\*\*(.+?)\*\*$/, "$1").match(/^(#{1,6})\s+(.+)$/);
+      if (atx) { flushParagraph(); blocks.push({ type: "h", level: Math.min(3, atx[1].length), text: atx[2].replace(/\s*#+\s*$/, "") }); continue; }
+      if (/^([-*_])\s*\1\s*\1(?:\s*\1)*$/.test(trimmed)) { flushParagraph(); continue; }
+      var quote = trimmed.match(/^[>＞]\s*(.+)$/), unordered = trimmed.match(/^[-*+]\s+(.+)$/), ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+      if (quote) { flushParagraph(); blocks.push({ type: "quote", text: quote[1] }); continue; }
+      if (unordered || ordered) { flushParagraph(); blocks.push({ type: "list", ordered: !!ordered, text: (ordered || unordered)[1] }); continue; }
+      paragraph.push(trimmed);
+    }
+    flushParagraph(); return blocks;
+  }
+  function wordTableWidths(header, rows) {
+    var count = Math.max(1, header.length), weights = [], totalWeight = 0, total = 9638;
+    for (var c = 0; c < count; c++) {
+      var max = String(header[c] || "").length;
+      rows.forEach(function (row) { max = Math.max(max, String(row[c] || "").length); });
+      var weight = Math.max(6, Math.min(30, max)); weights.push(weight); totalWeight += weight;
+    }
+    var widths = [], used = 0;
+    for (var i = 0; i < count; i++) { var width = i === count - 1 ? total - used : Math.round(total * weights[i] / totalWeight); widths.push(width); used += width; }
+    return widths;
+  }
+  function wordTableXml(block, state) {
+    var count = Math.max(1, block.header.length), rows = [block.header].concat(block.rows || []), widths = wordTableWidths(block.header, block.rows || []);
+    var grid = widths.map(function (width) { return '<w:gridCol w:w="' + width + '"/>'; }).join("");
+    var rowXml = rows.map(function (row, rowIndex) {
+      var cells = [];
+      for (var c = 0; c < count; c++) {
+        cells.push('<w:tc><w:tcPr><w:tcW w:w="' + widths[c] + '" w:type="dxa"/>' + (rowIndex === 0 ? '<w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/>' : '') +
+          '</w:tcPr>' + wordParagraphXml(rowIndex === 0 ? ("**" + (row[c] || "") + "**") : (row[c] || ""), state, "TableText") + '</w:tc>');
+      }
+      return '<w:tr>' + (rowIndex === 0 ? '<w:trPr><w:tblHeader/></w:trPr>' : '') + cells.join("") + '</w:tr>';
+    }).join("");
+    return '<w:tbl><w:tblPr><w:tblW w:w="9638" w:type="dxa"/><w:tblInd w:w="0" w:type="dxa"/>' +
+      '<w:tblBorders><w:top w:val="single" w:sz="4" w:color="B7B7B7"/><w:left w:val="single" w:sz="4" w:color="B7B7B7"/><w:bottom w:val="single" w:sz="4" w:color="B7B7B7"/><w:right w:val="single" w:sz="4" w:color="B7B7B7"/><w:insideH w:val="single" w:sz="4" w:color="D0D0D0"/><w:insideV w:val="single" w:sz="4" w:color="D0D0D0"/></w:tblBorders>' +
+      '<w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:start w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:end w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>' + grid + '</w:tblGrid>' + rowXml + '</w:tbl>';
+  }
+  function wordBodyXml(message, state) {
+    return parseWordBlocks(message.content || "").map(function (block) {
+      if (block.type === "h") return wordParagraphXml(block.text, state, "Heading" + block.level, { keepNext: true });
+      if (block.type === "list") return wordParagraphXml(block.text, state, "ListParagraph", { numId: block.ordered ? 2 : 1 });
+      if (block.type === "quote") return wordParagraphXml(block.text, state, "Quote");
+      if (block.type === "code") return wordParagraphXml(block.text, state, "Code", { literal: { code: true } });
+      if (block.type === "table") return wordTableXml(block, state);
+      return wordParagraphXml(block.text, state, "Normal");
+    }).join("");
+  }
+  function wordStylesXml() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="zh-CN" w:eastAsia="zh-CN"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="360" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>' +
+      '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="正文"/><w:qFormat/><w:pPr><w:spacing w:before="0" w:after="0" w:line="360" w:lineRule="auto"/><w:ind w:firstLine="480"/><w:jc w:val="both"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="24"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="标题"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="360" w:line="360" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="黑体"/><w:b/><w:sz w:val="32"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="一级标题"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="280" w:after="140" w:line="336" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:b/><w:sz w:val="28"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="二级标题"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="100" w:line="320" w:lineRule="auto"/><w:ind w:firstLine="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:b/><w:sz w:val="24"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="三级标题"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="180" w:after="80" w:line="320" w:lineRule="auto"/><w:ind w:firstLine="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:b/><w:sz w:val="24"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="列表正文"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="360" w:lineRule="auto"/><w:ind w:firstLine="0"/></w:pPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="引文"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="80" w:after="80" w:line="336" w:lineRule="auto"/><w:ind w:left="480" w:right="480" w:firstLine="0"/></w:pPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="Code"><w:name w:val="代码"/><w:basedOn w:val="Normal"/><w:pPr><w:shd w:val="clear" w:color="auto" w:fill="F3F3F3"/><w:spacing w:before="80" w:after="80" w:line="300" w:lineRule="auto"/><w:ind w:left="360" w:right="360" w:firstLine="0"/></w:pPr><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:eastAsia="仿宋"/><w:sz w:val="21"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="TableText"><w:name w:val="表格正文"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="0" w:after="0" w:line="300" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="left"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="21"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="脚注文本"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="both"/></w:pPr><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="宋体"/><w:sz w:val="15"/></w:rPr></w:style>' +
+      '<w:style w:type="paragraph" w:styleId="EndnoteText"><w:name w:val="尾注文本"/><w:basedOn w:val="FootnoteText"/></w:style>' +
+      '<w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="脚注引用"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>' +
+      '<w:style w:type="character" w:styleId="EndnoteReference"><w:name w:val="尾注引用"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>';
+  }
+  function wordNumberingXml() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      '<w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:tabs><w:tab w:val="num" w:pos="720"/></w:tabs><w:ind w:left="720" w:hanging="360"/></w:pPr><w:rPr><w:rFonts w:ascii="宋体" w:hAnsi="宋体" w:eastAsia="宋体"/></w:rPr></w:lvl></w:abstractNum>' +
+      '<w:abstractNum w:abstractNumId="2"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:tabs><w:tab w:val="num" w:pos="720"/></w:tabs><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum>' +
+      '<w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="2"/></w:num></w:numbering>';
+  }
+  function wordNotesXml(kind, notes) {
+    var plural = kind === "endnote" ? "endnotes" : "footnotes", item = kind === "endnote" ? "endnote" : "footnote";
+    var ref = kind === "endnote" ? "endnoteRef" : "footnoteRef", style = kind === "endnote" ? "EndnoteText" : "FootnoteText", refStyle = kind === "endnote" ? "EndnoteReference" : "FootnoteReference";
+    var entries = '<w:' + item + ' w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:' + item + '>' +
+      '<w:' + item + ' w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:' + item + '>';
+    entries += notes.map(function (note) {
+      var markerAndText = kind === "endnote"
+        ? '<w:r><w:rPr><w:rStyle w:val="' + refStyle + '"/><w:color w:val="FFFFFF"/><w:sz w:val="1"/><w:szCs w:val="1"/></w:rPr><w:' + ref + '/></w:r>' +
+          wordRunXml("[" + note.id + "] " + note.text)
+        : '<w:r><w:rPr><w:rStyle w:val="' + refStyle + '"/></w:rPr><w:' + ref + '/></w:r>' + wordRunXml(" " + note.text);
+      return '<w:' + item + ' w:id="' + note.id + '"><w:p><w:pPr><w:pStyle w:val="' + style + '"/></w:pPr>' +
+        markerAndText + '</w:p></w:' + item + '>';
+    }).join("");
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:' + plural + ' xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' + entries + '</w:' + plural + '>';
+  }
+  function wordEndnoteSectionXml(notes) {
+    if (!Array.isArray(notes) || !notes.length) return "";
+    var separator = '<w:p><w:pPr><w:spacing w:before="180" w:after="80"/><w:pBdr><w:top w:val="single" w:sz="6" w:space="8" w:color="777777"/></w:pBdr></w:pPr></w:p>';
+    return separator + notes.map(function (note) {
+      return '<w:p><w:pPr><w:pStyle w:val="EndnoteText"/></w:pPr>' + wordRunXml("[" + note.id + "] " + note.text) + "</w:p>";
+    }).join("");
+  }
+  function buildAnswerDocx(message, title, kind) {
+    if (kind !== "footnote" && kind !== "endnote") throw new Error("invalid Word note kind");
+    var state = { kind: kind, citationMap: wordCitationMap(message), notes: [] };
+    var body = wordParagraphXml(title, state, "Title") + wordBodyXml(message, state);
+    var isEndnote = kind === "endnote", notePart = "footnotes";
+    if (isEndnote) body += wordEndnoteSectionXml(state.notes);
+    var footnoteOptions = '<w:pos w:val="pageBottom"/><w:numFmt w:val="decimalEnclosedCircle"/><w:numRestart w:val="eachPage"/>';
+    var noteProperties = isEndnote ? "" : '<w:footnotePr>' + footnoteOptions + '</w:footnotePr>';
+    var sect = '<w:sectPr>' + noteProperties + '<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1134" w:bottom="1417" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="425"/></w:sectPr>';
+    var documentXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>' + body + sect + '</w:body></w:document>';
+    var footnoteContentType = isEndnote ? "" : '<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>';
+    var contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>' + footnoteContentType + '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
+    var rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>';
+    var footnoteRelationship = isEndnote ? "" : '<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>';
+    var docRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>' + footnoteRelationship + '</Relationships>';
+    var packageMismatch = isEndnote
+      ? (documentXml.indexOf("footnoteReference") >= 0 || documentXml.indexOf("endnoteReference") >= 0 ||
+         docRels.indexOf("/relationships/footnotes") >= 0 || docRels.indexOf("/relationships/endnotes") >= 0 ||
+         (state.notes.length && documentXml.indexOf('<w:pStyle w:val="EndnoteText"/>') < 0))
+      : (documentXml.indexOf("endnoteReference") >= 0 || docRels.indexOf("/relationships/footnotes") < 0 ||
+         contentTypes.indexOf('PartName="/word/footnotes.xml"') < 0 ||
+         (state.notes.length && documentXml.indexOf("<w:footnoteReference") < 0));
+    if (packageMismatch) {
+      throw new Error("Word note package kind mismatch");
+    }
+    var settings = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:defaultTabStop w:val="420"/><w:characterSpacingControl w:val="doNotCompress"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>';
+    var created = new Date().toISOString();
+    var core = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>' + xmlText(title) + '</dc:title><dc:creator>AI研究对话用户</dc:creator><cp:lastModifiedBy>AI研究对话用户</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">' + created + '</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">' + created + '</dcterms:modified></cp:coreProperties>';
+    var app = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>AI研究对话</Application><AppVersion>1.0</AppVersion></Properties>';
+    var zip = new StoreZip();
+    zip.add("[Content_Types].xml", contentTypes); zip.add("_rels/.rels", rootRels); zip.add("docProps/core.xml", core); zip.add("docProps/app.xml", app);
+    zip.add("word/document.xml", documentXml); zip.add("word/_rels/document.xml.rels", docRels); zip.add("word/styles.xml", wordStylesXml());
+    zip.add("word/numbering.xml", wordNumberingXml()); zip.add("word/settings.xml", settings);
+    if (!isEndnote) zip.add("word/footnotes.xml", wordNotesXml("footnote", state.notes));
+    return zip.blob("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  }
+  function precedingQuestion(index) {
+    for (var i = Number(index) - 1; i >= 0; i--) if (messages[i] && messages[i].role === "user") return messages[i].content || "";
+    return "";
+  }
+  function exportAnswerWord(index, kind, button) {
+    if (kind !== "footnote" && kind !== "endnote") { setCloudStatus("Word 导出类型无效，请刷新后重试。", "warn"); return; }
+    index = Number(index); var message = messages[index];
+    if (!message || message.role !== "assistant" || message.pending || !String(message.content || "").trim()) return;
+    var session = currentSession(), fallback = session ? (session.title || "AI研究回答") : "AI研究回答";
+    var title = plainTitle(precedingQuestion(index), fallback), label = kind === "endnote" ? "尾注版" : "脚注版";
+    var oldText = button ? button.textContent : "";
+    if (button) { button.disabled = true; button.textContent = "生成中…"; }
+    setTimeout(function () {
+      try {
+        downloadBlob(buildAnswerDocx(message, title, kind), safeFilePart(title, "AI研究回答") + "_" + label + ".docx");
+        setCloudStatus("已在本地生成该条 AI 回复的 Word " + label + "。", "ok");
+      } catch (_) {
+        setCloudStatus("Word 文件生成失败，请刷新页面后重试。", "warn");
+      } finally {
+        if (button) { button.disabled = false; button.textContent = oldText; }
+      }
+    }, 30);
+  }
+
   // 整页滚动模式：发问后把「本次提问」滚到顶部，答案在其下方自上而下平铺，便于从头读长综述。
   function scrollToLatestQuestion() {
     var nodes = messagesEl.querySelectorAll(".msg.user");
@@ -533,6 +1135,110 @@
   function requestedCurrent() {
     try { return sessionStorage.getItem(tabCurrentKey()) || ""; } catch (_) { return ""; }
   }
+  function emergencyBackupKey(id) { return AI_BACKUP_PREFIX + encodeURIComponent(storeSlot()) + ":" + encodeURIComponent(id); }
+  function loadEmergencyBackupIndex() {
+    try { return JSON.parse(localStorage.getItem(AI_BACKUP_INDEX_KEY) || "{}") || {}; } catch (_) { return {}; }
+  }
+  function saveEmergencyBackupIndex(index) {
+    try { localStorage.setItem(AI_BACKUP_INDEX_KEY, JSON.stringify(index || {})); return true; } catch (_) { return false; }
+  }
+  function pruneEmergencyBackups(keepId, maxCount) {
+    var index = loadEmergencyBackupIndex();
+    var mine = Array.isArray(index[storeSlot()]) ? index[storeSlot()].slice() : [];
+    mine.sort(function (a, b) { return Number(b.updatedAt || 0) - Number(a.updatedAt || 0); });
+    var kept = [], removed = [];
+    mine.forEach(function (item) {
+      if (item.id === keepId || kept.length < maxCount) kept.push(item); else removed.push(item);
+    });
+    removed.forEach(function (item) { try { localStorage.removeItem(emergencyBackupKey(item.id)); } catch (_) {} });
+    index[storeSlot()] = kept;
+    saveEmergencyBackupIndex(index);
+  }
+  function writeEmergencyTextBackup(session) {
+    if (!session || !session.id) return false;
+    var record = {
+      id: session.id, title: session.title || deriveTitle(session.messages || []),
+      updatedAt: Number(session.updatedAt || nowTs()), clearedAt: Number(session.clearedAt || 0),
+      titleUpdatedAt: Number(session.titleUpdatedAt || session.updatedAt || nowTs()), titleManual: !!session.titleManual,
+      messages: storedMessages(session.messages || [], 3), storageLevel: 3,
+    };
+    var index = loadEmergencyBackupIndex();
+    var mine = Array.isArray(index[storeSlot()]) ? index[storeSlot()].filter(function (x) { return x.id !== session.id; }) : [];
+    mine.unshift({ id: session.id, updatedAt: record.updatedAt });
+    index[storeSlot()] = mine.slice(0, 20);
+    try {
+      localStorage.setItem(emergencyBackupKey(session.id), JSON.stringify(record));
+      saveEmergencyBackupIndex(index);
+      pruneEmergencyBackups(session.id, 12);
+      return true;
+    } catch (_) {
+      // 先清掉旧版“整库正文副本”和最旧应急副本，给当前会话留出同步落盘空间。
+      try { localStorage.removeItem(AI_SESSIONS_KEY); } catch (_) {}
+      pruneEmergencyBackups(session.id, 4);
+      try {
+        localStorage.setItem(emergencyBackupKey(session.id), JSON.stringify(record));
+        index[storeSlot()] = [{ id: session.id, updatedAt: record.updatedAt }];
+        saveEmergencyBackupIndex(index);
+        return true;
+      } catch (_) {
+        showStorageWarning("浏览器已无法写入本机应急副本；请立即复制当前回答，并使用“快捷清理”释放空间。");
+        return false;
+      }
+    }
+  }
+  function readEmergencyTextBackups() {
+    var index = loadEmergencyBackupIndex();
+    var mine = Array.isArray(index[storeSlot()]) ? index[storeSlot()] : [];
+    var out = [];
+    mine.forEach(function (item) {
+      try {
+        var record = JSON.parse(localStorage.getItem(emergencyBackupKey(item.id)) || "null");
+        if (record && record.id && Array.isArray(record.messages)) out.push(record);
+      } catch (_) {}
+    });
+    return out;
+  }
+  function removeEmergencyBackup(id) {
+    try { localStorage.removeItem(emergencyBackupKey(id)); } catch (_) {}
+    var index = loadEmergencyBackupIndex();
+    if (Array.isArray(index[storeSlot()])) {
+      index[storeSlot()] = index[storeSlot()].filter(function (item) { return item.id !== id; });
+      saveEmergencyBackupIndex(index);
+    }
+  }
+  function loadCloudDeleteOutbox() {
+    try { return JSON.parse(localStorage.getItem(AI_CLOUD_DELETE_OUTBOX_KEY) || "{}") || {}; } catch (_) { return {}; }
+  }
+  function queueCloudDelete(id) {
+    var box = loadCloudDeleteOutbox();
+    var mine = box[storeSlot()] || {};
+    mine[id] = nowTs(); box[storeSlot()] = mine;
+    try { localStorage.setItem(AI_CLOUD_DELETE_OUTBOX_KEY, JSON.stringify(box)); } catch (_) {}
+  }
+  function clearCloudDelete(id) {
+    var box = loadCloudDeleteOutbox();
+    var mine = box[storeSlot()] || {};
+    delete mine[id]; box[storeSlot()] = mine;
+    try { localStorage.setItem(AI_CLOUD_DELETE_OUTBOX_KEY, JSON.stringify(box)); } catch (_) {}
+  }
+  function checkStorageCapacity() {
+    if (!navigator.storage || !navigator.storage.estimate) return Promise.resolve();
+    return navigator.storage.estimate().then(function (estimate) {
+      var usage = Number(estimate.usage || 0), quota = Number(estimate.quota || 0);
+      if (!quota || !storageUsageEl) return;
+      var ratio = Math.max(0, Math.min(1, usage / quota));
+      storageUsageEl.hidden = false;
+      storageUsageEl.classList.toggle("warn", ratio >= .75 && ratio < .9);
+      storageUsageEl.classList.toggle("danger", ratio >= .9);
+      if (storageUsageFill) storageUsageFill.style.width = Math.max(2, Math.round(ratio * 100)) + "%";
+      if (storageUsageText) storageUsageText.textContent = "本浏览器网站存储已使用 " + Math.round(ratio * 100) + "%";
+      if (ratio >= .75) showStorageWarning(
+        ratio >= .9
+          ? "本浏览器的网站存储已接近上限，请尽快使用“快捷清理”删除较早会话。"
+          : "本浏览器的网站存储使用较高，建议适时清理不再需要的较早会话。"
+      );
+    }).catch(function () {});
+  }
   function currentSession() {
     for (var i = 0; i < sessionsData.sessions.length; i++) if (sessionsData.sessions[i].id === sessionsData.current) return sessionsData.sessions[i];
     return null;
@@ -545,6 +1251,27 @@
       }
     }
     return "新会话";
+  }
+  function normalizeSessionRecord(record) {
+    if (!record || !record.id) return record;
+    // 老版记录可能没有 _mid。用「会话 id + 原始顺序」生成稳定身份，避免
+    // 相同文本的两条消息被合并为一条，也避免不同标签页各自生成随机 id 后重复。
+    (Array.isArray(record.messages) ? record.messages : []).forEach(function (message, index) {
+      if (!message || typeof message !== "object") return;
+      if (!message._mid) message._mid = "legacy-" + String(record.id) + "-" + String(index);
+      if (!message._createdAt) {
+        var base = Number(record.updatedAt || nowTs()) - Math.max(0, (record.messages.length - index) * 2);
+        message._createdAt = base + index;
+      }
+    });
+    var automatic = deriveTitle(record.messages || []);
+    if (!record.title) record.title = automatic;
+    if (!record.titleUpdatedAt) record.titleUpdatedAt = Number(record.updatedAt || nowTs());
+    if (record.titleManual === undefined) record.titleManual = !!(record.title !== automatic && record.title !== "新会话");
+    record.clearedAt = Number(record.clearedAt || 0);
+    record.expiresAt = Number(record.expiresAt || 0);
+    if (!record.cloudState && record.expiresAt) record.cloudState = "backed_up";
+    return record;
   }
 
   function openSessionDb() {
@@ -581,34 +1308,58 @@
     if (!message._createdAt) message._createdAt = nowTs() + sessionMessageSeq;
     return message;
   }
-  function mergeMessages(existing, incoming) {
+  function payloadScore(value) {
+    if (value === undefined || value === null) return -1;
+    try { return JSON.stringify(value).length; } catch (_) { return 0; }
+  }
+  function mergeMessageVersions(existing, incoming) {
+    if (!existing || typeof existing !== "object") return incoming;
+    if (!incoming || typeof incoming !== "object") return existing;
+    var merged = Object.assign({}, existing, incoming);
+    // 消息正文是不可变的；同一 _mid 的多份副本中，引文、来源和警告必须保留
+    // 信息量更大的版本，不得让纯正文应急副本或云端精简副本反向覆盖。
+    ["citations", "sources", "warnings"].forEach(function (key) {
+      if (payloadScore(existing[key]) > payloadScore(incoming[key])) merged[key] = existing[key];
+    });
+    if (payloadScore(existing.groundingScope) > payloadScore(incoming.groundingScope)) merged.groundingScope = existing.groundingScope;
+    if (existing._mid) merged._mid = existing._mid;
+    var oldCreated = Number(existing._createdAt || 0), newCreated = Number(incoming._createdAt || 0);
+    if (oldCreated && newCreated) merged._createdAt = Math.min(oldCreated, newCreated);
+    else merged._createdAt = oldCreated || newCreated || merged._createdAt;
+    return merged;
+  }
+  function mergeMessages(existing, incoming, clearedAt) {
     var oldList = Array.isArray(existing) ? existing.slice() : [];
     var newList = Array.isArray(incoming) ? incoming.slice() : [];
-    if (!oldList.length) return newList;
-    if (!newList.length) return oldList;
+    if (!oldList.length) return newList.filter(function (m) { return !(clearedAt && Number(m && m._createdAt || 0) <= clearedAt); });
+    if (!newList.length) return oldList.filter(function (m) { return !(clearedAt && Number(m && m._createdAt || 0) <= clearedAt); });
     var common = 0;
     while (common < oldList.length && common < newList.length &&
-           messageIdentity(oldList[common]) === messageIdentity(newList[common])) common++;
+           messageIdentity(oldList[common]) === messageIdentity(newList[common])) {
+      oldList[common] = mergeMessageVersions(oldList[common], newList[common]);
+      common++;
+    }
     var out = oldList.slice();
     var positions = {};
     for (var i = 0; i < out.length; i++) positions[messageIdentity(out[i])] = i;
     var start = common > 0 ? common : 0;
     for (var j = start; j < newList.length; j++) {
       var key = messageIdentity(newList[j]);
-      if (positions[key] !== undefined) out[positions[key]] = newList[j];
+      if (positions[key] !== undefined) out[positions[key]] = mergeMessageVersions(out[positions[key]], newList[j]);
       else { positions[key] = out.length; out.push(newList[j]); }
     }
-    return out;
+    return out.filter(function (m) { return !(clearedAt && Number(m && m._createdAt || 0) <= clearedAt); });
   }
   function compactCitation(citation, textOnly) {
     if (!citation || typeof citation !== "object") return null;
-    if (textOnly) return null;
+    // 最紧凑层仍保留引文序号、三种出处格式和原文链接；只省略占空间较大的
+    // 上下文与 evidence。这样容量降级后仍能显示「引用原文」索引和引用格式选择。
     var keep = ["grounding_index", "review_index", "citation", "citations", "viewer_url", "book", "volume",
-      "title", "source_file", "pdf_page", "printed_page", "subject_label", "review_quoted", "review_quote_unmatched"];
+      "title", "source_file", "pdf_page", "pdf_pages", "printed_page", "subject_label", "review_quoted", "review_quote_unmatched"];
     var out = {};
     keep.forEach(function (key) { if (citation[key] !== undefined) out[key] = citation[key]; });
-    if (citation.context) out.context = String(citation.context).slice(0, 360);
-    if (Array.isArray(citation.evidence)) {
+    if (!textOnly && citation.context) out.context = String(citation.context).slice(0, 360);
+    if (!textOnly && Array.isArray(citation.evidence)) {
       out.evidence = citation.evidence.slice(0, 3).map(function (ev) {
         return compactCitation(ev, false) || {};
       });
@@ -618,9 +1369,11 @@
   function compactSource(source) {
     if (!source || typeof source !== "object") return null;
     var out = {};
-    ["title", "url", "citation", "site_name", "date"].forEach(function (key) {
+    ["title", "link", "url", "citation", "site", "site_name", "date"].forEach(function (key) {
       if (source[key] !== undefined) out[key] = source[key];
     });
+    if (!out.link && out.url) out.link = out.url;
+    if (!out.site && out.site_name) out.site = out.site_name;
     return out;
   }
   function storedMessages(list, level) {
@@ -636,8 +1389,8 @@
       };
       if (message.groundingScope) out.groundingScope = message.groundingScope;
       if (Array.isArray(message.warnings) && message.warnings.length) out.warnings = message.warnings.slice(0, 8);
-      if (level === 1) {
-        if (Array.isArray(message.citations)) out.citations = message.citations.map(function (c) { return compactCitation(c, false); }).filter(Boolean);
+      if (level === 1 || level === 2) {
+        if (Array.isArray(message.citations)) out.citations = message.citations.map(function (c) { return compactCitation(c, level === 2); }).filter(Boolean);
         if (Array.isArray(message.sources)) out.sources = message.sources.map(compactSource).filter(Boolean);
       }
       return out;
@@ -674,6 +1427,8 @@
             imported.push({
               key: dbSessionKey(s.id), uid: storeSlot(), id: s.id,
               title: s.title || deriveTitle(s.messages || []), updatedAt: Number(s.updatedAt || nowTs()),
+              clearedAt: Number(s.clearedAt || 0), titleUpdatedAt: Number(s.titleUpdatedAt || s.updatedAt || nowTs()),
+              titleManual: s.titleManual !== undefined ? !!s.titleManual : (String(s.title || "") !== deriveTitle(s.messages || [])),
               messages: storedMessages(s.messages || [], 0), storageLevel: 0,
             });
           });
@@ -687,7 +1442,8 @@
             var recoveredId = "legacy-" + nowTs().toString(36);
             imported.push({
               key: dbSessionKey(recoveredId), uid: storeSlot(), id: recoveredId,
-              title: "恢复的旧会话 · " + deriveTitle(oldThread), updatedAt: nowTs() - 1,
+              title: "恢复的旧会话 · " + deriveTitle(oldThread), updatedAt: nowTs() - 1, clearedAt: 0,
+              titleUpdatedAt: nowTs() - 1, titleManual: true,
               messages: storedMessages(oldThread, 0), storageLevel: 0,
             });
           }
@@ -711,6 +1467,35 @@
       req.onerror = function () { resolve({}); };
     });
   }
+  function importEmergencyBackups() {
+    var backups = readEmergencyTextBackups();
+    if (!backups.length) return Promise.resolve();
+    return readDbSessions().then(function (existingRecords) {
+      var existingById = {};
+      (existingRecords || []).forEach(function (record) { existingById[record.id] = record; });
+      return backups.reduce(function (chain, record) {
+        return chain.then(function () {
+          var existing = existingById[record.id];
+          var snapshot = {
+            id: record.id, title: record.title || deriveTitle(record.messages || []),
+            updatedAt: Number(record.updatedAt || 0), clearedAt: Number(record.clearedAt || 0),
+            titleUpdatedAt: Number(record.titleUpdatedAt || record.updatedAt || 0), titleManual: !!record.titleManual,
+            messages: record.messages || [],
+          };
+          if (!existing) {
+            // 主存储确实缺失时才用纯正文副本整体恢复。
+            return writeDbSession(snapshot, false, 3).catch(function () { return null; });
+          }
+          var known = {};
+          (existing.messages || []).forEach(function (message) { known[messageIdentity(message)] = true; });
+          var hasMissingMessages = (snapshot.messages || []).some(function (message) { return !known[messageIdentity(message)]; });
+          if (!hasMissingMessages) return null;
+          // 应急副本只可补入主存储没来得及落盘的新消息，不得把已有引文降级。
+          return writeDbSession(snapshot, false, 0).catch(function () { return null; });
+        });
+      }, Promise.resolve());
+    });
+  }
   function writeDbSession(snapshot, replaceMessages, level) {
     return new Promise(function (resolve, reject) {
       var tx = sessionDb.transaction(AI_DB_SESSION_STORE, "readwrite");
@@ -720,12 +1505,25 @@
       req.onsuccess = function () {
         var existing = req.result || null;
         if (existing && existing.deletedAt) return;  // 另一标签页已删除：旧标签页不得用迟到写入将其复活
-        var merged = replaceMessages ? snapshot.messages : mergeMessages(existing && existing.messages, snapshot.messages);
+        var clearedAt = Math.max(Number(existing && existing.clearedAt || 0), Number(snapshot.clearedAt || 0));
+        var merged = replaceMessages && Number(snapshot.clearedAt || 0) >= Number(existing && existing.clearedAt || 0)
+          ? snapshot.messages : mergeMessages(existing && existing.messages, snapshot.messages, clearedAt);
         merged = storedMessages(merged, level);
+        var existingTitleAt = Number(existing && existing.titleUpdatedAt || existing && existing.updatedAt || 0);
+        var snapshotTitleAt = Number(snapshot.titleUpdatedAt || snapshot.updatedAt || 0);
+        var snapshotTitleWins = !existing || snapshotTitleAt >= existingTitleAt;
         saved = {
           key: dbSessionKey(snapshot.id), uid: storeSlot(), id: snapshot.id,
-          title: snapshot.title || deriveTitle(merged), updatedAt: Number(snapshot.updatedAt || nowTs()),
+          title: snapshotTitleWins ? (snapshot.title || deriveTitle(merged)) : (existing.title || deriveTitle(merged)),
+          titleUpdatedAt: Math.max(existingTitleAt, snapshotTitleAt),
+          titleManual: snapshotTitleWins ? !!snapshot.titleManual : !!existing.titleManual,
+          updatedAt: Math.max(Number(existing && existing.updatedAt || 0), Number(snapshot.updatedAt || nowTs())),
+          clearedAt: clearedAt,
           messages: merged, storageLevel: level,
+          expiresAt: snapshot.cloudState === "expired" ? 0 : Number(snapshot.expiresAt || existing && existing.expiresAt || 0),
+          serverRevision: snapshot.cloudState === "expired" ? 0 : Number(snapshot.serverRevision || existing && existing.serverRevision || 0),
+          cloudState: snapshot.cloudState !== undefined ? String(snapshot.cloudState || "") : String(existing && existing.cloudState || ""),
+          cloudExpiredAt: Number(snapshot.cloudExpiredAt || existing && existing.cloudExpiredAt || 0),
         };
         store.put(saved);
       };
@@ -746,7 +1544,7 @@
       if (saved && saved.storageLevel > 0) {
         showStorageWarning(saved.storageLevel === 1
           ? "浏览器存储空间较紧张：会话正文已完整保存，引文展开上下文已自动精简。"
-          : "浏览器存储空间不足：会话正文已完整保存，引文附件未继续保存。建议删除不需要的旧会话。"
+          : "浏览器存储空间不足：会话正文和引文索引已保存，展开上下文已省略。建议删除不需要的旧会话。"
         );
       }
       return saved;
@@ -757,28 +1555,23 @@
       current: sessionsData.current,
       sessions: sessionsData.sessions.map(function (s) {
         return {
-          id: s.id, title: s.title, updatedAt: s.updatedAt,
+          id: s.id, title: s.title, updatedAt: s.updatedAt, clearedAt: Number(s.clearedAt || 0),
+          titleUpdatedAt: Number(s.titleUpdatedAt || s.updatedAt || 0), titleManual: !!s.titleManual,
           messages: storedMessages(s.messages || [], level), storageLevel: level,
         };
       }),
     };
   }
   function writeLegacyTextBackup(records, currentId) {
-    // 迁移成功后把旧 localStorage 副本收缩为“正文保险箱”：保留可读对话、释放大段引文上下文占用。
-    // IndexedDB 是主存储；此副本仅在浏览器禁用 IndexedDB 时兜底，不再参与日常多标签写入。
-    try {
-      var store = loadStore();
-      store[storeSlot()] = {
-        current: currentId || "",
-        sessions: (records || []).filter(function (r) { return !r.deletedAt; }).map(function (r) {
-          return {
-            id: r.id, title: r.title, updatedAt: r.updatedAt,
-            messages: storedMessages(r.messages || [], 2), storageLevel: 2,
-          };
-        }),
-      };
-      localStorage.setItem(AI_SESSIONS_KEY, JSON.stringify(store));
-    } catch (_) {}
+    // IndexedDB 正常时不用一个 localStorage 大对象镜像整库（那会再次触发 5MB 配额灾难）。
+    // 仅为最近会话逐条保留同步写入的纯正文应急副本，关闭页面前也能可靠落盘。
+    var sorted = (records || []).filter(function (r) { return !r.deletedAt; }).slice().sort(function (a, b) {
+      if (a.id === currentId) return -1;
+      if (b.id === currentId) return 1;
+      return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+    });
+    sorted.slice(0, 12).forEach(writeEmergencyTextBackup);
+    try { localStorage.removeItem(AI_SESSIONS_KEY); } catch (_) {}
   }
   function persistLegacySafely() {
     var store = loadStore();
@@ -786,7 +1579,7 @@
       try {
         store[storeSlot()] = legacySnapshot(level);
         localStorage.setItem(AI_SESSIONS_KEY, JSON.stringify(store));
-        if (level > 0) showStorageWarning("浏览器大容量会话存储不可用；已保留正文并精简引文附件。请勿清理浏览器数据。");
+      if (level > 0) showStorageWarning("浏览器大容量会话存储不可用；已保留正文并精简引文附件。请勿清理浏览器数据。");
         return true;
       } catch (_) {}
     }
@@ -813,6 +1606,10 @@
     options = options || {};
     var snapshot = {
       id: session.id, title: session.title, updatedAt: session.updatedAt,
+      clearedAt: Number(session.clearedAt || 0),
+      titleUpdatedAt: Number(session.titleUpdatedAt || session.updatedAt || 0), titleManual: !!session.titleManual,
+      expiresAt: Number(session.expiresAt || 0), serverRevision: Number(session.serverRevision || 0),
+      cloudState: String(session.cloudState || ""), cloudExpiredAt: Number(session.cloudExpiredAt || 0),
       messages: (session.messages || []).slice(),
     };
     sessionWriteQueue = sessionWriteQueue.catch(function () {}).then(function () {
@@ -820,7 +1617,14 @@
       persistLegacySafely();
       return snapshot;
     }).then(function (saved) {
+      if (!saved) {
+        showStorageWarning("该会话已在另一个标签页删除，本标签页的迟到写入未覆盖删除结果。");
+        removeLocalConversation(snapshot.id, nowTs()); renderSidebar();
+        return;
+      }
       updateLocalSession(saved);
+      writeEmergencyTextBackup(saved);
+      enqueueCloudWrite(saved, options);
       notifySessionChange("save", snapshot.id);
       renderSidebar();
     }).catch(function (error) {
@@ -836,24 +1640,32 @@
   // 把当前 messages 存回当前会话。IndexedDB 逐会话事务写入；同会话被多个标签页追加时按消息合并。
   function saveMessages(options) {
     var s = currentSession();
-    if (!s) { s = { id: genId(), title: "新会话", updatedAt: nowTs(), messages: [] }; sessionsData.sessions.unshift(s); sessionsData.current = s.id; }
+    if (!s) { s = { id: genId(), title: "新会话", updatedAt: nowTs(), titleUpdatedAt: nowTs(), titleManual: false, clearedAt: 0, messages: [] }; sessionsData.sessions.unshift(s); sessionsData.current = s.id; }
     s.messages = messages.filter(function (m) { return m && !m.pending; }).map(ensureMessageIdentity);
-    s.title = deriveTitle(s.messages);
-    s.updatedAt = nowTs();
+    var autoTitle = deriveTitle(s.messages), saveAt = nowTs();
+    if (s.titleManual === undefined) s.titleManual = !!(s.title && s.title !== autoTitle && s.title !== "新会话");
+    if (!s.titleManual && s.title !== autoTitle) { s.title = autoTitle; s.titleUpdatedAt = saveAt; }
+    if (!s.titleUpdatedAt) s.titleUpdatedAt = saveAt;
+    s.updatedAt = saveAt;
     rememberCurrent();
     requestPersistentStorage();
+    // localStorage 的逐会话纯正文副本是同步写：即使用户马上关闭页面，也不会等异步 IDB 事务。
+    writeEmergencyTextBackup(s);
     enqueueSessionWrite(s, options || {});
+    checkStorageCapacity();
     renderSidebar();
   }
   function legacyLoadSessions() {
     var store = loadStore();
     var mine = store[storeSlot()];
     if (mine && mine.sessions && mine.sessions.length) {
+      mine.sessions = mine.sessions.map(normalizeSessionRecord);
       sessionsData = mine;
     } else {
       var legacy = [];
       try { legacy = (JSON.parse(localStorage.getItem(AI_THREAD_KEY) || "[]") || []).filter(function (m) { return m && !m.pending; }); } catch (_) {}
-      var first = { id: genId(), title: legacy.length ? deriveTitle(legacy) : "新会话", updatedAt: nowTs(), messages: legacy };
+      var firstAt = nowTs();
+      var first = { id: genId(), title: legacy.length ? deriveTitle(legacy) : "新会话", updatedAt: firstAt, titleUpdatedAt: firstAt, titleManual: false, clearedAt: 0, messages: legacy };
       sessionsData = { current: first.id, sessions: [first] };
       persistLegacySafely();
     }
@@ -866,14 +1678,18 @@
       sessionDb = db;
       return migrateLegacySessions();
     }).then(function () {
+      return importEmergencyBackups();
+    }).then(function () {
       return Promise.all([readDbSessions(), readMigrationMeta()]);
     }).then(function (parts) {
       var records = parts[0] || [];
+      records = records.map(normalizeSessionRecord);
       var meta = parts[1] || {};
       records.sort(function (a, b) { return Number(b.updatedAt || 0) - Number(a.updatedAt || 0); });
       if (!records.length) {
         var firstId = genId();
-        var first = { key: dbSessionKey(firstId), uid: storeSlot(), id: firstId, title: "新会话", updatedAt: nowTs(), messages: [], storageLevel: 0 };
+        var firstAt = nowTs();
+        var first = { key: dbSessionKey(firstId), uid: storeSlot(), id: firstId, title: "新会话", updatedAt: firstAt, titleUpdatedAt: firstAt, titleManual: false, clearedAt: 0, messages: [], storageLevel: 0 };
         sessionsData = { current: first.id, sessions: [first] };
         enqueueSessionWrite(first, { replaceMessages: true });
       } else {
@@ -942,8 +1758,330 @@
       }
     });
   }
+
+  // ===================== 会员可选：个人文库服务器会话备份 =====================
+  function apiJson(url, options) {
+    return apiFetch(url, options || {}).then(function (resp) {
+      return parseJsonResponse(resp).then(function (data) {
+        if (!resp.ok || !data || data.ok === false) {
+          var error = new Error((data && data.error) || ("请求失败（HTTP " + resp.status + "）"));
+          error.status = resp.status;
+          error.payload = data || {};
+          throw error;
+        }
+        return data;
+      });
+    });
+  }
+  function setCloudStatus(text, kind) {
+    if (!cloudStatusEl) return;
+    cloudStatusEl.textContent = text || "";
+    cloudStatusEl.classList.toggle("ok", kind === "ok");
+    cloudStatusEl.classList.toggle("warn", kind === "warn");
+  }
+  function renderCloudControls() {
+    if (!cloudConsentEl) return;
+    cloudConsentEl.checked = !!cloudSync.enabled;
+    cloudConsentEl.disabled = !!cloudSync.busy || !cloudSync.loaded || !cloudSync.available || (!cloudSync.eligible && !cloudSync.enabled);
+    if (cloudConsentRow) cloudConsentRow.classList.toggle("is-disabled", cloudConsentEl.disabled);
+    if (cloudConsentHint) {
+      if (!aiUid) cloudConsentHint.textContent = "登录后可设置";
+      else if (!cloudSync.available) cloudConsentHint.textContent = "服务器暂不可用";
+      else if (cloudSync.graceActive && cloudSync.enabled) cloudConsentHint.textContent = "既有会话宽限至 " + new Date(cloudSync.graceUntil).toLocaleDateString();
+      else if (cloudSync.membershipExpired) cloudConsentHint.textContent = "会员宽限期已结束";
+      else if (!cloudSync.eligible) cloudConsentHint.textContent = "有效会员可开启";
+      else if (cloudSync.enabled) cloudConsentHint.textContent = "已开启 · " + cloudSync.retentionDays + "天保留";
+      else cloudConsentHint.textContent = "默认关闭";
+    }
+    if (cloudPrivacyEl) {
+      cloudPrivacyEl.textContent = "独立个人文库服务器 · 账号隔离 · 仅本人可见 · 可申请找回";
+    }
+    if (sessionsFootEl) sessionsFootEl.textContent = cloudSync.graceActive
+      ? "既有云端会话宽限保留；新会话仅存本机"
+      : (cloudSync.membershipExpired ? "云端宽限期已结束；本机会话不受影响" : (cloudSync.enabled
+      ? "本机＋个人文库服务器备份"
+      : (hasCloudRecords() ? "云端保存已停；既有记录保留至到期" : "本机副本")));
+  }
+  function updateExpiryWarnings() {
+    var now = Number(cloudSync.serverNow || nowTs());
+    var warningMs = Number(cloudSync.warningDays || 5) * 86400000;
+    var expiring = sessionsData.sessions.filter(function (s) {
+      var expires = Number(s.expiresAt || 0);
+      return expires && expires > now && expires - now <= warningMs;
+    });
+    if (cloudSync.graceActive) {
+      var graceDays = Math.max(0, Math.ceil((Number(cloudSync.graceUntil || 0) - now) / 86400000));
+      setCloudStatus("会员已到期；既有云端会话仍可修改并宽限保留 " + graceDays + " 天，新会话只存本机。", "warn");
+      if (graceDays <= Number(cloudSync.warningDays || 5)) showStorageWarning("云端会话宽限期即将结束，请及时导出需要长期保留的内容；本机会话不会被删除。");
+    } else if (cloudSync.membershipExpired) {
+      setCloudStatus("云端保存宽限期已结束；本机会话仍可正常查看和导出。", "warn");
+    } else if (expiring.length) {
+      setCloudStatus(expiring.length + " 条云端会话将在 " + cloudSync.warningDays + " 天内清理，可在记录右侧点击“续”延长。", "warn");
+      showStorageWarning(expiring.length + " 条保存在个人文库服务器的会话即将到期，请及时延长或导出需要保留的内容。");
+    } else if (cloudSync.enabled) {
+      setCloudStatus("云端保存正常；每次更新会自动续期 " + cloudSync.retentionDays + " 天。", "ok");
+    }
+  }
+  function hasCloudRecords() {
+    return sessionsData.sessions.some(function (session) { return Number(session.expiresAt || 0) > 0; });
+  }
+  function flushCloudDeletes() {
+    if (!aiUid || !cloudSync.available) return Promise.resolve();
+    var box = loadCloudDeleteOutbox();
+    var ids = Object.keys(box[storeSlot()] || {});
+    return ids.reduce(function (chain, id) {
+      return chain.then(function () {
+        return apiJson("/api/ai/conversations/" + encodeURIComponent(id), { method: "DELETE" })
+          .then(function () { clearCloudDelete(id); })
+          .catch(function () {});
+      });
+    }, Promise.resolve());
+  }
+  function enqueueCloudDelete(id) {
+    queueCloudDelete(id);
+    cloudWriteQueue = cloudWriteQueue.catch(function () {}).then(function () {
+      return apiJson("/api/ai/conversations/" + encodeURIComponent(id), { method: "DELETE" });
+    }).then(function (data) {
+      clearCloudDelete(id);
+      setCloudStatus("已删除；云端回收区保留至 " + new Date(Number(data.recovery_until_ms || 0)).toLocaleDateString() + "。", "ok");
+      return data;
+    }).catch(function () {
+      setCloudStatus("本机记录已删除，但云端删除暂未完成；联网后会自动重试。", "warn");
+      return null;
+    });
+    return cloudWriteQueue;
+  }
+  function loadCloudStatus() {
+    if (!aiUid) {
+      cloudSync.loaded = true; cloudSync.available = false; cloudSync.eligible = false; cloudSync.enabled = false;
+      renderCloudControls(); return Promise.resolve();
+    }
+    return apiJson("/api/ai/conversations/status", { headers: { Accept: "application/json" } }).then(function (data) {
+      cloudSync.loaded = true;
+      cloudSync.available = data.available !== false;
+      cloudSync.eligible = !!data.eligible;
+      cloudSync.canCreate = data.can_create !== undefined ? !!data.can_create : !!data.eligible;
+      cloudSync.canUpdateExisting = data.can_update_existing !== undefined ? !!data.can_update_existing : !!data.eligible;
+      cloudSync.membershipExpired = !!data.membership_expired;
+      cloudSync.graceActive = !!data.grace_active;
+      cloudSync.graceUntil = Number(data.grace_until_ms || 0);
+      cloudSync.enabled = !!data.enabled;
+      cloudSync.retentionDays = Number(data.retention_days || 30);
+      cloudSync.warningDays = Number(data.warning_days || 5);
+      cloudSync.recoveryDays = Number(data.recovery_days || 7);
+      cloudSync.serverNow = Number(data.server_now_ms || nowTs());
+      renderCloudControls();
+      return syncCloudSessions({ uploadMissing: cloudSync.enabled && cloudSync.canCreate });
+    }).catch(function () {
+      cloudSync.loaded = true; cloudSync.available = false; cloudSync.enabled = false;
+      renderCloudControls();
+      setCloudStatus("个人文库服务器暂时不可用；当前会话仍会保存到本机。", "warn");
+    });
+  }
+  function cloudConversationSnapshot(session, level) {
+    return {
+      id: session.id, title: session.title || deriveTitle(session.messages || []),
+      updatedAt: Number(session.updatedAt || nowTs()), clearedAt: Number(session.clearedAt || 0),
+      titleUpdatedAt: Number(session.titleUpdatedAt || session.updatedAt || nowTs()), titleManual: !!session.titleManual,
+      messages: storedMessages(session.messages || [], level || 0), storageLevel: Number(level || 0),
+    };
+  }
+  function cloudPayloadLevel(session) {
+    try {
+      var bytes = new Blob([JSON.stringify(cloudConversationSnapshot(session, 0))]).size;
+      if (bytes > 4400000) return bytes > 4900000 ? 2 : 1;
+    } catch (_) {}
+    return 0;
+  }
+  function applyCloudMetadata(id, cloudRecord) {
+    for (var i = 0; i < sessionsData.sessions.length; i++) {
+      var session = sessionsData.sessions[i];
+      if (session.id !== id) continue;
+      session.expiresAt = Number(cloudRecord.expiresAt || cloudRecord.expires_at_ms || session.expiresAt || 0);
+      session.serverRevision = Number(cloudRecord.serverRevision || session.serverRevision || 0);
+      session.cloudState = "backed_up";
+      session.cloudExpiredAt = 0;
+      if (Number(cloudRecord.titleUpdatedAt || 0) >= Number(session.titleUpdatedAt || 0)) {
+        session.title = cloudRecord.title || session.title;
+        session.titleUpdatedAt = Number(cloudRecord.titleUpdatedAt || session.titleUpdatedAt || 0);
+        session.titleManual = !!cloudRecord.titleManual;
+      }
+      if (Array.isArray(cloudRecord.messages)) session.messages = mergeMessages(session.messages, cloudRecord.messages, Number(cloudRecord.clearedAt || session.clearedAt || 0));
+      if (!streaming && sessionsData.current === id) messages = (session.messages || []).slice();
+      return session;
+    }
+    return null;
+  }
+  function enqueueCloudWrite(session, options) {
+    if (!session || !session.id || !cloudSync.enabled) return Promise.resolve();
+    var existingCloudCopy = Number(session.expiresAt || 0) > Number(cloudSync.serverNow || nowTs()) && session.cloudState !== "expired";
+    if (!cloudSync.canCreate && !(cloudSync.graceActive && cloudSync.canUpdateExisting && existingCloudCopy)) return Promise.resolve();
+    var snapshot = {
+      id: session.id, title: session.title, updatedAt: session.updatedAt,
+      clearedAt: Number(session.clearedAt || 0), messages: (session.messages || []).slice(),
+      titleUpdatedAt: Number(session.titleUpdatedAt || session.updatedAt || 0), titleManual: !!session.titleManual,
+    };
+    var level = cloudPayloadLevel(snapshot);
+    cloudWriteQueue = cloudWriteQueue.catch(function () {}).then(function () {
+      if (!cloudSync.enabled) return null;
+      return apiJson("/api/ai/conversations/" + encodeURIComponent(snapshot.id), {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation: cloudConversationSnapshot(snapshot, level), replace_messages: !!(options && options.replaceMessages) }),
+      });
+    }).then(function (data) {
+      if (!data || !data.conversation) return;
+      var saved = applyCloudMetadata(snapshot.id, data.conversation);
+      if (saved && sessionDb && !sessionDbFailed) persistDbSession(saved, false).catch(function () {});
+      if (level > 0) showStorageWarning(level === 1
+        ? "本条会话较大：云端已完整保存正文，并精简部分引文展开附件。"
+        : "本条会话很大：云端已完整保存正文，未同步引文展开附件。"
+      );
+      cloudSync.serverNow = nowTs();
+      updateExpiryWarnings(); renderSidebar();
+    }).catch(function (error) {
+      setCloudStatus("云端暂未同步成功，本机副本仍然完整；稍后更新会自动重试。", "warn");
+      // 云端自然到期、回收区冲突和临时权限变化都不得反向删除本机副本。
+      // 真正的跨设备主动删除由列表接口中带 reason 的删除标记统一处理。
+    });
+    return cloudWriteQueue;
+  }
+  function removeLocalConversation(id, deletedAt) {
+    var idx = sessionsData.sessions.findIndex(function (s) { return s.id === id; });
+    if (idx >= 0) sessionsData.sessions.splice(idx, 1);
+    removeEmergencyBackup(id);
+    if (sessionDb && !sessionDbFailed) {
+      try {
+        var tx = sessionDb.transaction(AI_DB_SESSION_STORE, "readwrite");
+        tx.objectStore(AI_DB_SESSION_STORE).put({
+          key: dbSessionKey(id), uid: storeSlot(), id: id, deletedAt: Number(deletedAt || nowTs()),
+          updatedAt: Number(deletedAt || nowTs()), messages: [], title: "",
+        });
+      } catch (_) {}
+    }
+  }
+  function markLocalCloudExpired(id, expiredAt) {
+    var session = sessionsData.sessions.find(function (s) { return s.id === id; });
+    if (!session) return;
+    session.expiresAt = 0;
+    session.serverRevision = 0;
+    session.cloudState = "expired";
+    session.cloudExpiredAt = Number(expiredAt || nowTs());
+    writeEmergencyTextBackup(session);
+    if (sessionDb && !sessionDbFailed) persistDbSession(session, false).catch(function () {});
+  }
+  function syncCloudSessions(options) {
+    options = options || {};
+    if (!cloudSync.available || !sessionsReady || !aiUid) return Promise.resolve();
+    return flushCloudDeletes().then(function () {
+      return apiJson("/api/ai/conversations", { headers: { Accept: "application/json" } });
+    }).then(function (data) {
+      cloudSync.serverNow = Number(data.server_now_ms || nowTs());
+      cloudSync.retentionDays = Number(data.retention_days || cloudSync.retentionDays);
+      cloudSync.warningDays = Number(data.warning_days || cloudSync.warningDays);
+      cloudSync.recoveryDays = Number(data.recovery_days || cloudSync.recoveryDays);
+      (data.deleted || []).forEach(function (deleted) {
+        var deletionReason = String(deleted.reason || "unknown");
+        if (deletionReason === "user" || deletionReason === "user_cleanup") removeLocalConversation(deleted.id, deleted.deletedAt);
+        else markLocalCloudExpired(deleted.id, deleted.deletedAt);
+      });
+      var remoteIds = {};
+      (data.conversations || []).forEach(function (remote) {
+        remoteIds[remote.id] = true;
+        remote.cloudState = "backed_up";
+        remote.cloudExpiredAt = 0;
+        var local = sessionsData.sessions.find(function (s) { return s.id === remote.id; });
+        if (!local) {
+          local = normalizeSessionRecord(remote); sessionsData.sessions.push(local);
+        } else {
+          var clearedAt = Math.max(Number(local.clearedAt || 0), Number(remote.clearedAt || 0));
+          local.messages = mergeMessages(remote.messages || [], local.messages || [], clearedAt);
+          if (Number(remote.titleUpdatedAt || remote.updatedAt || 0) >= Number(local.titleUpdatedAt || local.updatedAt || 0)) {
+            local.title = remote.title || local.title;
+            local.titleUpdatedAt = Number(remote.titleUpdatedAt || remote.updatedAt || 0);
+            local.titleManual = !!remote.titleManual;
+          }
+          local.updatedAt = Math.max(Number(local.updatedAt || 0), Number(remote.updatedAt || 0));
+          local.clearedAt = clearedAt;
+          local.expiresAt = Number(remote.expiresAt || 0);
+          local.serverRevision = Number(remote.serverRevision || 0);
+          local.cloudState = "backed_up";
+          local.cloudExpiredAt = 0;
+        }
+        writeEmergencyTextBackup(local);
+        if (sessionDb && !sessionDbFailed) persistDbSession(local, false).catch(function () {});
+      });
+      sessionsData.sessions.sort(function (a, b) { return Number(b.updatedAt || 0) - Number(a.updatedAt || 0); });
+      if (!currentSession() && sessionsData.sessions.length) sessionsData.current = sessionsData.sessions[0].id;
+      var cur = currentSession(); messages = cur ? (cur.messages || []).slice() : [];
+      rememberCurrent(); renderMessages(); renderSidebar(); renderCloudControls(); updateExpiryWarnings();
+      // 首次授权时把现有本机记录逐条上传；已存在的记录也用并集合并，避免任何一端覆盖另一端。
+      if (options.uploadMissing) sessionsData.sessions.forEach(function (session) { if (!remoteIds[session.id]) enqueueCloudWrite(session, {}); });
+    }).catch(function () {
+      setCloudStatus("云端记录暂时读取失败，本机副本仍可正常使用。", "warn");
+    });
+  }
+  function setCloudConsent(enabled) {
+    if (cloudSync.busy || (enabled && !cloudSync.eligible)) { renderCloudControls(); return; }
+    var message = enabled
+      ? "确认将会话保存到独立的个人文库服务器？记录按账号隔离，只有你登录后可查看；保留 " + cloudSync.retentionDays + " 天，删除后有 " + cloudSync.recoveryDays + " 天管理员协助找回期。"
+      : "确认停止新增云端保存？已保存记录仍保留到各自到期日，你仍可查看、导出或删除。";
+    if (!window.confirm(message)) { renderCloudControls(); return; }
+    var previousEnabled = cloudSync.enabled;
+    cloudSync.enabled = !!enabled; // 勾选状态立即稳定显示；失败时再回滚，避免请求期间视觉跳回。
+    cloudSync.busy = true; renderCloudControls();
+    apiJson("/api/ai/conversations/consent", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !!enabled }),
+    }).then(function (data) {
+      cloudSync.enabled = !!data.enabled;
+      cloudSync.retentionDays = Number(data.retention_days || cloudSync.retentionDays);
+      cloudSync.warningDays = Number(data.warning_days || cloudSync.warningDays);
+      cloudSync.recoveryDays = Number(data.recovery_days || cloudSync.recoveryDays);
+      setCloudStatus(cloudSync.enabled ? "已授权，正在把本机记录安全同步到个人文库服务器…" : "已停止新增云端保存。", cloudSync.enabled ? "ok" : "");
+      if (cloudSync.enabled) return syncCloudSessions({ uploadMissing: true });
+    }).catch(function () {
+      cloudSync.enabled = previousEnabled;
+      setCloudStatus("保存设置未能更新，请稍后重试。", "warn");
+    }).then(function () {
+      cloudSync.busy = false; renderCloudControls();
+    });
+  }
+  function extendCloudConversation(id) {
+    if (!cloudSync.available || !cloudSync.eligible || cloudSync.graceActive) return;
+    apiJson("/api/ai/conversations/" + encodeURIComponent(id) + "/extend", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    }).then(function (data) {
+      var session = sessionsData.sessions.find(function (s) { return s.id === id; });
+      if (session) session.expiresAt = Number(data.expires_at_ms || 0);
+      setCloudStatus("已延长保留 " + cloudSync.retentionDays + " 天。", "ok"); renderSidebar();
+    }).catch(function () { setCloudStatus("延长保留失败，请稍后重试。", "warn"); });
+  }
+  function cleanupBeforeSelectedDate() {
+    if (!cleanupDateEl || !cleanupDateEl.value || streaming) return;
+    var before = new Date(cleanupDateEl.value + "T00:00:00").getTime();
+    if (!before || before > nowTs()) { showStorageWarning("请选择今天以前的有效日期。"); return; }
+    var ids = sessionsData.sessions.filter(function (s) {
+      return s.id !== sessionsData.current && Number(s.updatedAt || 0) < before;
+    }).map(function (s) { return s.id; });
+    if (!ids.length) { setCloudStatus("该日期以前没有可清理的会话；当前会话已自动保护。", ""); return; }
+    var recoveryText = hasCloudRecords() ? "云端记录会进入 " + cloudSync.recoveryDays + " 天回收区。" : "未启用云端保存的本机记录删除后无法恢复。";
+    if (!window.confirm("将删除 " + ids.length + " 条较早会话，当前会话不会删除。" + recoveryText + "是否继续？")) return;
+    if (cleanupOldBtn) cleanupOldBtn.disabled = true;
+    var cloudStep = hasCloudRecords() ? cloudWriteQueue.catch(function () {}).then(function () {
+      return apiJson("/api/ai/conversations/cleanup-before", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ before_ms: before, keep_ids: [sessionsData.current] }),
+      });
+    }) : Promise.resolve({ ok: true });
+    cloudStep.then(function () {
+      ids.forEach(function (id) { deleteSession(id, { skipCloud: true, silent: true }); });
+      setCloudStatus("已清理 " + ids.length + " 条较早会话。", "ok");
+      checkStorageCapacity(); renderSidebar();
+    }).catch(function () {
+      setCloudStatus("云端清理失败，为避免两端不一致，本机记录尚未删除。", "warn");
+    }).then(function () { if (cleanupOldBtn) cleanupOldBtn.disabled = false; });
+  }
   function switchSession(id) {
-    if (streaming) { closeSessionsDrawer(); return; }
+    if (!sessionsReady || streaming) { closeSessionsDrawer(); return; }
     if (id !== sessionsData.current) {
       sessionsData.current = id; rememberCurrent();
       var s = currentSession();
@@ -954,24 +2092,35 @@
     try { messagesEl.scrollIntoView({ block: "start" }); } catch (_) {}
   }
   function newSession() {
-    if (streaming) return;
+    if (!sessionsReady || streaming) return;
     var cur = currentSession();
     if (!(cur && (!cur.messages || !cur.messages.length))) {   // 当前已是空新会话则复用，不堆叠空会话
-      var s = { id: genId(), title: "新会话", updatedAt: nowTs(), messages: [] };
+      var createdAt = nowTs();
+      var s = { id: genId(), title: "新会话", updatedAt: createdAt, titleUpdatedAt: createdAt, titleManual: false, clearedAt: 0, messages: [] };
       sessionsData.sessions.unshift(s); sessionsData.current = s.id; rememberCurrent();
       enqueueSessionWrite(s, { replaceMessages: true });
     }
     messages = []; renderMessages(); renderSidebar(); closeSessionsDrawer();
     if (promptEl) { try { promptEl.focus(); } catch (_) {} }
   }
-  function deleteSession(id) {
+  function deleteSession(id, options) {
+    options = options || {};
+    if (!sessionsReady) return;
     var idx = -1, i;
     for (i = 0; i < sessionsData.sessions.length; i++) if (sessionsData.sessions[i].id === id) idx = i;
     if (idx < 0) return;
+    var hadCloudCopy = Number(sessionsData.sessions[idx].expiresAt || 0) > 0;
     sessionsData.sessions.splice(idx, 1);
+    removeEmergencyBackup(id);
     deleteDbSession(id);
+    if ((cloudSync.enabled || hadCloudCopy) && !options.skipCloud) {
+      enqueueCloudDelete(id);
+    }
     if (sessionsData.current === id) {
-      if (!sessionsData.sessions.length) sessionsData.sessions.unshift({ id: genId(), title: "新会话", updatedAt: nowTs(), messages: [] });
+      if (!sessionsData.sessions.length) {
+        var createdAt = nowTs();
+        sessionsData.sessions.unshift({ id: genId(), title: "新会话", updatedAt: createdAt, titleUpdatedAt: createdAt, titleManual: false, clearedAt: 0, messages: [] });
+      }
       sessionsData.current = sessionsData.sessions[0].id;
       var s = currentSession(); messages = s ? (s.messages || []).slice() : [];
       renderMessages();
@@ -981,6 +2130,7 @@
     renderSidebar();
   }
   function renameSession(id) {
+    if (!sessionsReady) return;
     var s = null, i;
     for (i = 0; i < sessionsData.sessions.length; i++) if (sessionsData.sessions[i].id === id) s = sessionsData.sessions[i];
     if (!s) return;
@@ -989,7 +2139,15 @@
     var input = document.createElement("input");
     input.className = "aip-session-rename"; input.value = s.title || "";
     row.innerHTML = ""; row.appendChild(input); input.focus(); input.select();
-    function commit() { s.title = (input.value || "").trim() || s.title; s.updatedAt = nowTs(); enqueueSessionWrite(s, { replaceMessages: true }); renderSidebar(); }
+    // 重命名只更新标题；绝不能用旧标签页的 messages 整段替换服务器/IndexedDB 中的新内容。
+    var committed = false;
+    function commit() {
+      if (committed) return; committed = true;
+      var renamedAt = nowTs();
+      s.title = (input.value || "").trim() || s.title; s.titleManual = true;
+      s.titleUpdatedAt = renamedAt; s.updatedAt = renamedAt;
+      enqueueSessionWrite(s, { replaceMessages: false }); renderSidebar();
+    }
     input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); commit(); } else if (e.key === "Escape") { renderSidebar(); } });
     input.addEventListener("blur", commit);
   }
@@ -1005,13 +2163,26 @@
     var arr = sessionsData.sessions.slice().sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
     if (!arr.length) { sessionsListEl.innerHTML = '<div class="aip-sessions-empty">还没有会话。点「新建会话」开始。</div>'; return; }
     sessionsListEl.innerHTML = arr.map(function (s) {
+      var expires = Number(s.expiresAt || 0), now = Number(cloudSync.serverNow || nowTs());
+      var daysLeft = expires ? Math.max(0, Math.ceil((expires - now) / 86400000)) : 0;
+      var expiry = expires && daysLeft <= Number(cloudSync.warningDays || 5) && !cloudSync.graceActive
+        ? ' · <span class="aip-session-expiry">云端' + daysLeft + '天后清理</span>' : '';
+      var cloudBadge = '';
+      var cloudBadgeKind = '';
+      if (s.cloudState === "expired") { cloudBadge = "云备份已到期"; cloudBadgeKind = " expired"; }
+      else if (expires && cloudSync.graceActive) { cloudBadge = "宽限保留 · " + daysLeft + "天"; cloudBadgeKind = " grace"; }
+      else if (expires) { cloudBadge = "已上云备份"; cloudBadgeKind = " saved"; }
+      else if (cloudSync.enabled && cloudSync.canCreate) { cloudBadge = "等待上云"; cloudBadgeKind = " pending"; }
+      else if (cloudSync.graceActive || cloudSync.membershipExpired) { cloudBadge = "仅本机保存"; cloudBadgeKind = " local"; }
       return '<div class="aip-session' + (s.id === sessionsData.current ? " active" : "") + '" data-sid="' + esc(s.id) + '">'
         + '<div class="aip-session-main"><div class="aip-session-title">' + esc(s.title || deriveTitle(s.messages || [])) + '</div>'
-        + '<div class="aip-session-time">' + esc(relTime(s.updatedAt)) + '</div></div>'
-        + '<div class="aip-session-acts">'
+        + '<div class="aip-session-time">' + esc(relTime(s.updatedAt)) + expiry + '</div></div>'
+        + '<div class="aip-session-side"><div class="aip-session-acts">'
+        + (expires && daysLeft <= Number(cloudSync.warningDays || 5) && cloudSync.eligible && !cloudSync.graceActive ? '<button type="button" data-act="extend" title="延长云端保留">续</button>' : '')
+        + '<button type="button" class="aip-session-export" data-act="export-html" title="导出本会话 HTML" aria-label="导出本会话 HTML">导出本地</button>'
         + '<button type="button" data-act="rename" title="重命名">✎</button>'
         + '<button type="button" data-act="delete" title="删除">🗑</button>'
-        + '</div></div>';
+        + '</div>' + (cloudBadge ? '<div class="aip-session-cloud-badge' + cloudBadgeKind + '">' + esc(cloudBadge) + '</div>' : '') + '</div></div>';
     }).join("");
   }
   function openSessionsDrawer() { if (sessionsEl) sessionsEl.classList.add("open"); if (sessionsScrim) { sessionsScrim.hidden = false; sessionsScrim.classList.add("open"); } }
@@ -1057,42 +2228,59 @@
 
   // ===================== 通道 / 接地 / 范围 =====================
   function webAccess() { return !!(config && config.web_access); }
+  function glmEntitled() {
+    var models = config && config.ai_entitlements && config.ai_entitlements.models;
+    return !!(models && Array.isArray(models["glm-5.1"]) && models["glm-5.1"].indexOf("off") >= 0);
+  }
   function hasChat() { return !!(config && config.access); }
   function hasResearch() { return !!(config && config.research_access); }
   function anyAccess() { return hasChat() || hasResearch(); }
   function runtimeEnabled() { return !!(config && config.runtime && config.runtime.enabled); }
   function depthAllowed(d) { return d === "research" ? hasResearch() : hasChat(); }
   function currentModelChoice() {
-    var v = modelSelect ? modelSelect.value : "flash";
-    var research = depth === "research";
-    if (v === "zhipu" && !webAccess()) return research ? "pro" : "flash";   // 无联网权限智谱不可用
-    if (research && v === "flash") return "pro";                            // 研究综述剔除 flash，回落 pro
-    if (v === "pro" || v === "zhipu") return v;
-    return research ? "pro" : "flash";
+    return modelSelect ? modelSelect.value : "flash";
   }
-  // 研究综述剔除 flash：切到研究档时隐藏 flash 选项、把「正选 flash」切到 pro；切回快速档恢复偏好(默认 flash)。
-  var flashOpt = modelSelect ? modelSelect.querySelector('option[value="flash"]') : null;
-  function syncModelForDepth() {
+  function defaultModelForDepth() {
+    var defaults = config && config.ai_entitlements && config.ai_entitlements.defaults;
+    var selected = defaults && defaults[depth === "research" ? "research" : "quick"];
+    if (!selected || !selected.model) return "";
+    if (selected.model === "glm-5.1") return "zhipu";
+    var provider = selected.provider || (selected.model.indexOf("mimo-") === 0 ? "mimo" : "deepseek");
+    return provider + "|" + selected.model + "|" + (selected.reasoning_effort || "off");
+  }
+  function syncModelForDepth(forceDefault) {
     if (!modelSelect) return;
     var research = depth === "research";
-    if (flashOpt) { flashOpt.hidden = research; flashOpt.disabled = research; }
-    if (research) {
-      if (modelSelect.value === "flash") modelSelect.value = "pro";
-    } else {
-      var saved = "flash";
-      try { saved = localStorage.getItem(AI_MODEL_KEY) || "flash"; } catch (_) {}
-      if (["flash", "pro", "zhipu"].indexOf(saved) < 0) saved = "flash";
-      if (saved === "zhipu" && !webAccess()) saved = "flash";
-      if (modelSelect.querySelector('option[value="' + saved + '"]')) modelSelect.value = saved;
+    Array.prototype.forEach.call(modelSelect.options, function (opt) {
+      var hidden = (!research && opt.getAttribute("data-research-only") === "1") ||
+                   (research && opt.getAttribute("data-research-disabled") === "1") ||
+                   (opt.value === "zhipu" && !webAccess() && !glmEntitled());
+      opt.hidden = hidden; opt.disabled = hidden;
+    });
+    var wanted = forceDefault ? defaultModelForDepth() : "";
+    var wantedOption = wanted && Array.prototype.find.call(modelSelect.options, function (opt) {
+      return opt.value === wanted && !opt.disabled;
+    });
+    if (wantedOption) modelSelect.value = wantedOption.value;
+    var selected = modelSelect.options[modelSelect.selectedIndex];
+    if (!selected || selected.disabled) {
+      var first = Array.prototype.find.call(modelSelect.options, function (opt) { return !opt.disabled; });
+      if (first) modelSelect.value = first.value;
     }
   }
-  function currentProvider() { return currentModelChoice() === "zhipu" ? "zhipu" : "deepseek"; }
-  // DeepSeek 档位（flash/pro）传给后端做白名单覆盖；智谱通道返回 null（模型由服务端 zhipu 路由处理）。
-  function currentDeepseekModel() {
-    var c = currentModelChoice();
-    if (c === "flash") return "deepseek-v4-flash";
-    if (c === "pro") return "deepseek-v4-pro";
-    return null;
+  function currentModelOption() { return modelSelect && modelSelect.options[modelSelect.selectedIndex]; }
+  function currentProvider() {
+    var opt = currentModelOption();
+    return opt ? (opt.getAttribute("data-provider") || (opt.value === "zhipu" ? "zhipu" : "deepseek")) : "deepseek";
+  }
+  function currentApiModel() {
+    var opt = currentModelOption();
+    if (!opt || opt.value === "zhipu") return null;
+    return opt.getAttribute("data-model") || (opt.value === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash");
+  }
+  function currentReasoningEffort() {
+    var opt = currentModelOption();
+    return opt ? (opt.getAttribute("data-effort") || "off") : "off";
   }
   function currentGrounding() { return groundingToggle ? !!groundingToggle.checked : true; }
 
@@ -1163,7 +2351,7 @@
     // 研究档：范围始终有意义；快速档：仅接地时有意义。
     return depth === "research" || currentGrounding();
   }
-  function applyDepthUI() {
+  function applyDepthUI(forceDefaultModel) {
     depthTabs.forEach(function (t) {
       var d = t.getAttribute("data-depth");
       var on = d === depth;
@@ -1174,7 +2362,7 @@
     var isResearch = depth === "research";
     // 模型选择两档都显示；但研究综述剔除 flash（默认 v4pro，会员可选智谱），快速档保留 flash 默认。
     if (providerRow) providerRow.hidden = false;
-    syncModelForDepth();
+    syncModelForDepth(!!forceDefaultModel);
     updateStatusLine();
     if (groundingRow) groundingRow.hidden = isResearch;
     if (researchNote) researchNote.hidden = !isResearch;
@@ -1188,20 +2376,18 @@
     if (!depthAllowed(d)) return;   // 无权限的档不可切
     depth = d;
     try { localStorage.setItem(AI_DEPTH_KEY, d); } catch (_) {}
-    applyDepthUI();
+    applyDepthUI(true);
   }
 
   function updateStatusLine() {
     if (!runtimeEnabled() || !anyAccess()) return;
     var rt = config.runtime;
-    var c = currentModelChoice();
     if (!modelBadge) return;
-    if (c === "zhipu") modelBadge.textContent = "智谱 " + (rt.zhipu_model || "GLM-5.1");
-    else if (c === "pro") modelBadge.textContent = "DeepSeek Pro";
-    else modelBadge.textContent = "DeepSeek Flash";
+    var opt = currentModelOption();
+    modelBadge.textContent = opt ? opt.textContent.trim() : "AI";
   }
   function updateSendEnabled() {
-    var canUse = runtimeEnabled() && depthAllowed(depth);
+    var canUse = sessionsReady && runtimeEnabled() && depthAllowed(depth);
     // 生成中：把「发送提问 / 清空会话」换成单个「停止回答」，仿主流 AI 对话的收发切换。
     if (sendBtn) { sendBtn.disabled = !(canUse && !streaming); sendBtn.hidden = streaming; }
     if (stopBtn) stopBtn.hidden = !streaming;
@@ -1215,6 +2401,50 @@
     return gate === "login"
       ? "「AI 研究对话」登录后即可使用，每位登录用户每日均有免费额度。"
       : "「AI 研究对话」需登录并开通会员后使用。";
+  }
+
+  function modelDisplayName(model, effort) {
+    var names = {
+      "mimo-v2.5": "MiMo V2.5",
+      "mimo-v2.5-pro": "MiMo V2.5 Pro",
+      "deepseek-v4-flash": "DeepSeek V4 Flash",
+      "deepseek-v4-pro": "DeepSeek V4 Pro"
+    };
+    var suffix = effort === "on" ? "（深度思考）"
+      : effort === "off" ? "（非思考）"
+      : "（思考 " + effort + "）";
+    return (names[model] || model) + suffix;
+  }
+
+  function rebuildEntitledModelOptions(c) {
+    if (!modelSelect) return;
+    var models = c && c.ai_entitlements && c.ai_entitlements.models;
+    if (!models || typeof models !== "object") return;
+    var preferred = ["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro"];
+    var keys = Object.keys(models).filter(function (model) {
+      return model !== "glm-5.1" && Array.isArray(models[model]) && models[model].length;
+    }).sort(function (a, b) {
+      var ai = preferred.indexOf(a), bi = preferred.indexOf(b);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || a.localeCompare(b);
+    });
+    if (!keys.length) return;
+
+    Array.prototype.slice.call(modelSelect.options).forEach(function (opt) {
+      if (opt.value !== "zhipu") modelSelect.removeChild(opt);
+    });
+    keys.forEach(function (model) {
+      models[model].forEach(function (effort) {
+        var provider = model.indexOf("mimo-") === 0 ? "mimo" : "deepseek";
+        var opt = document.createElement("option");
+        opt.value = provider + "|" + model + "|" + effort;
+        opt.setAttribute("data-provider", provider);
+        opt.setAttribute("data-model", model);
+        opt.setAttribute("data-effort", effort);
+        if (provider === "deepseek" && effort !== "off") opt.setAttribute("data-research-only", "1");
+        opt.textContent = modelDisplayName(model, effort);
+        modelSelect.insertBefore(opt, zhipuOpt && zhipuOpt.parentNode === modelSelect ? zhipuOpt : null);
+      });
+    });
   }
 
   // ===================== 配置 =====================
@@ -1236,23 +2466,17 @@
     if (controlsEl) controlsEl.hidden = false;
     if (composerEl) composerEl.hidden = false;
 
-    // 模型选择：无联网权限则移除「智谱」项，只留 flash/pro；有则更新其显示名。
+    rebuildEntitledModelOptions(c);
+    // 模型选择：无联网权限则移除「智谱」项；有则更新其显示名。
     if (zhipuOpt) {
-      if (!webAccess()) {
+      if (!webAccess() && !glmEntitled()) {
         if (zhipuOpt.parentNode) zhipuOpt.parentNode.removeChild(zhipuOpt);
         zhipuOpt = null;
       } else if (c.runtime && c.runtime.zhipu_model) {
         zhipuOpt.textContent = "智谱 " + c.runtime.zhipu_model + "（可联网检索）";
       }
     }
-    // 恢复保存的模型选择（默认 flash；保存值为 zhipu 但无联网权限则回落 flash）。
-    if (modelSelect) {
-      var savedModel = "flash";
-      try { savedModel = localStorage.getItem(AI_MODEL_KEY) || "flash"; } catch (_) {}
-      if (["flash", "pro", "zhipu"].indexOf(savedModel) < 0) savedModel = "flash";
-      if (savedModel === "zhipu" && !webAccess()) savedModel = "flash";
-      modelSelect.value = modelSelect.querySelector('option[value="' + savedModel + '"]') ? savedModel : "flash";
-    }
+    // 模型初值由服务端的“套餐 × 功能场景”默认值决定，不恢复历史选择。
     restoreScopeState();
     renderScopeChips(c.scopes);
     mountBookScopeOnce(c.book_scope_tree);
@@ -1269,7 +2493,7 @@
       if (modelBadge) modelBadge.textContent = c.unavailable_message || "AI 服务暂未启用。";
       if (lockEl) { lockEl.textContent = c.unavailable_message || "AI 服务暂未启用。"; lockEl.hidden = false; }
     }
-    applyDepthUI();
+    applyDepthUI(true);
     renderMessages();
   }
   function loadConfig() {
@@ -1286,17 +2510,34 @@
   }
 
   // ===================== 提问 =====================
+  function historyCitationRefs(message) {
+    if (!message || message.role !== "assistant" || !Array.isArray(message.citations)) return [];
+    return message.citations.slice(0, 40).map(function (citation) {
+      if (!citation || typeof citation !== "object") return null;
+      var ref = {};
+      ["source_file", "pdf_page", "citation", "viewer_url"].forEach(function (key) {
+        if (citation[key] !== undefined && citation[key] !== null) ref[key] = citation[key];
+      });
+      if (Array.isArray(citation.pdf_pages)) ref.pdf_pages = citation.pdf_pages.slice(0, 6);
+      if (citation.context) ref.context = String(citation.context).slice(0, 360);
+      return Object.keys(ref).length ? ref : null;
+    }).filter(Boolean);
+  }
   function buildHistory() {
     return messages
       .filter(function (m) { return !m.pending && (m.role === "user" || m.role === "assistant"); })
       .map(function (m) {
         var content = String(m.content || "");
         if (content.length > HISTORY_CHAR_CAP) content = content.slice(0, HISTORY_CHAR_CAP) + "……（此处略）";
-        return { role: m.role, content: content };
+        var item = { role: m.role, content: content };
+        var citationRefs = historyCitationRefs(m);
+        if (citationRefs.length) item.citation_refs = citationRefs;
+        return item;
       });
 }
 
   function submitQuestion(text) {
+    if (!sessionsReady) { showStorageWarning("会话记录仍在载入，请稍候再发送，避免新内容覆盖历史记录。"); return; }
     if (!runtimeEnabled() || !depthAllowed(depth) || streaming) return;
     var question = String(text || "").trim();
     if (!question) return;
@@ -1320,23 +2561,23 @@
       ? apiFetch("/api/search/associative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: question, gist: question, mode: "research", messages: history, scope: currentScope(), rerank: true, provider: currentProvider(), model: currentDeepseekModel() }),
+          body: JSON.stringify({ q: question, gist: question, mode: "research", messages: history, scope: currentScope(), rerank: true, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort() }),
           signal: abort ? abort.signal : undefined,
         })
       : apiFetch("/api/ai/search-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: question, messages: history, provider: currentProvider(), model: currentDeepseekModel(), grounding: currentGrounding(), scope: currentScope() }),
+          body: JSON.stringify({ question: question, messages: history, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort(), grounding: currentGrounding(), scope: currentScope() }),
           signal: abort ? abort.signal : undefined,
         });
 
     req.then(function (resp) {
       var ctype = (resp.headers.get("content-type") || "").toLowerCase();
       if (ctype.indexOf("text/event-stream") >= 0) {
-        return resp.text().then(function (t) {
-          var data = parseSseResult(t);
-          if (!data) throw new Error("回答生成超时或服务繁忙，请稍后重试。");
-          return data;
+        return readSseResultStream(resp, function (progress) {
+          var elapsed = Number(progress.elapsed_seconds || 0);
+          assistant.progress = String(progress.message || "AI 正在生成") + (elapsed ? "（" + elapsed + "秒）" : "");
+          renderMessages();
         });
       }
       return parseJsonResponse(resp);
@@ -1403,6 +2644,13 @@
     messagesEl.addEventListener("click", function (e) {
       var t = e.target;
       if (!t || !t.closest) return;
+      var wordBtn = t.closest('[data-export-word="footnote"], [data-export-word="endnote"]');
+      if (wordBtn) {
+        // 两个按钮分支硬绑定，不把可变 DOM 字符串直接透传给文档生成器。
+        var requestedKind = wordBtn.matches('[data-export-word="footnote"]') ? "footnote" : "endnote";
+        exportAnswerWord(wordBtn.getAttribute("data-message-index"), requestedKind, wordBtn);
+        return;
+      }
       var copyBtn = t.closest("[data-copy-cite]");
       if (copyBtn) {
         var card = copyBtn.closest(".ai-citation-item");
@@ -1458,13 +2706,13 @@
   if (sendBtn) sendBtn.addEventListener("click", function () { submitQuestion(promptEl ? promptEl.value : ""); });
   if (stopBtn) stopBtn.addEventListener("click", stopStreaming);
   if (clearBtn) clearBtn.addEventListener("click", function () {
-    if (streaming) return;
+    if (!sessionsReady || streaming) return;
+    var current = currentSession();
+    if (current) current.clearedAt = nowTs();
     messages = []; saveMessages({ replaceMessages: true }); renderMessages();
   });
   if (modelSelect) {
-    // 初值由 applyConfig 依权限与 localStorage 恢复；此处仅记忆用户切换。
     modelSelect.addEventListener("change", function () {
-      try { localStorage.setItem(AI_MODEL_KEY, modelSelect.value); } catch (_) {}
       updateStatusLine();
     });
   }
@@ -1493,6 +2741,9 @@
   if (sessionsToggle) sessionsToggle.addEventListener("click", openSessionsDrawer);
   if (sessionsClose) sessionsClose.addEventListener("click", closeSessionsDrawer);
   if (sessionsScrim) sessionsScrim.addEventListener("click", closeSessionsDrawer);
+  if (cloudConsentEl) cloudConsentEl.addEventListener("change", function () { setCloudConsent(!!cloudConsentEl.checked); });
+  if (cleanupOldBtn) cleanupOldBtn.addEventListener("click", cleanupBeforeSelectedDate);
+  if (exportRangeBtn) exportRangeBtn.addEventListener("click", exportSessionsInRange);
   if (sessionsListEl) sessionsListEl.addEventListener("click", function (e) {
     var row = e.target && e.target.closest ? e.target.closest(".aip-session") : null;
     if (!row) return;
@@ -1501,8 +2752,16 @@
     if (actBtn) {
       e.stopPropagation();
       var act = actBtn.getAttribute("data-act");
-      if (act === "delete") { if (window.confirm("删除这条会话记录？不可恢复。")) deleteSession(id); }
+      if (act === "delete") {
+        var rowSession = sessionsData.sessions.find(function (s) { return s.id === id; });
+        var recoverable = rowSession && Number(rowSession.expiresAt || 0) > 0;
+        if (window.confirm(recoverable
+          ? "删除这条会话记录？云端会进入 " + cloudSync.recoveryDays + " 天回收区，必要时可联系管理员找回。"
+          : "删除这条仅存本机的会话记录？删除后无法恢复。")) deleteSession(id);
+      }
       else if (act === "rename") { renameSession(id); }
+      else if (act === "extend") { extendCloudConversation(id); }
+      else if (act === "export-html") { exportSessionHtml(id); }
       return;
     }
     switchSession(id);
@@ -1512,15 +2771,29 @@
   // 供全站导航判断「本页是否有在飞的生成」：在飞时点其它标签会改为新标签打开，不打断本页生成。
   window.__marxBusy = function () { return streaming; };
 
+  // 页面关闭前同步写入纯正文应急副本；不依赖尚未完成的异步 IndexedDB/网络事务。
+  function backupCurrentBeforeLeave() { var session = currentSession(); if (session) writeEmergencyTextBackup(session); }
+  window.addEventListener("pagehide", backupCurrentBeforeLeave);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") backupCurrentBeforeLeave(); });
+
   // ===================== 初始化 =====================
+  ensureExportDateDefaults();
   setupSessionSync();
-  loadSessions().then(function (loaded) {
+  sessionsLoadPromise = loadSessions().then(function (loaded) {
     messages = loaded || [];
+    sessionsReady = true;
     renderMessages();
     renderSidebar();
+    updateSendEnabled();
+    checkStorageCapacity();
+    return loadCloudStatus();
   }).catch(function () {
     messages = legacyLoadSessions();
+    sessionsReady = true;
     renderMessages(); renderSidebar();
+    updateSendEnabled();
+    checkStorageCapacity();
+    return loadCloudStatus();
   });
   loadConfig();
 })();

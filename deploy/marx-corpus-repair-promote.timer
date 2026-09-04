@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for administrator-confirmed corpus repair batches
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=false
+Unit=marx-corpus-repair-promote.service
+
+[Install]
+WantedBy=timers.target

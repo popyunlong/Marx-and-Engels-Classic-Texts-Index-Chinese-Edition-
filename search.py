@@ -15,7 +15,7 @@ import sqlite3
 import threading
 import unicodedata
 from collections import OrderedDict
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field
 from itertools import groupby
 from pathlib import Path
@@ -27,6 +27,7 @@ from rapidfuzz.distance import Levenshtein
 
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
+from page_label_overrides import apply_page_label_overrides, load_page_label_overrides
 
 
 MIN_QUERY_LEN = 2         # 归一化后少于此长度不检索，避免海量误命中
@@ -129,6 +130,15 @@ ASSOC_PRF_FRAG_CAP = 16          # 第二趟片段召回最多实检的反馈短
 COOC_PER_VOL = 30              # 单卷最多取的非重叠共现窗口数
 COOC_TOTAL_CAP = 600          # 全语料最多取的共现命中数（超出标 truncated）
 COOC_CTX_MAXLEN = 220         # 同段多词上下文片段最大字符数（以最密集关键词簇为中心）
+
+# 导出不应复制首页为快速预览而裁剪的短窗口。工作节点在物化命中时改为
+# 按句界扩展；但 OCR 丢失标点时不能让一个“句子”无界增长，因此保留硬上限。
+EXPORT_SENTENCE_MAX_CHARS = 1200
+EXPORT_PAGE_MAP_CACHE_SIZE = 8
+_EXPORT_SENTENCE_END_RE = re.compile(
+    r'(?:[。！？!?；;]|(?<!\d)\.(?!\d)|…{2,})+[”’」』》〉】〕）\]"]*'
+)
+_EXPORT_PARAGRAPH_BREAK_RE = re.compile(r"\n[ \t\u3000]*\n+")
 
 def _fuzzy_allowed_errors(q_len: int) -> int:
     """按查询长度计算近似匹配允许的错字数（0 表示不做近似）。
@@ -242,6 +252,7 @@ class Page:
     printed_page: str | None
     raw_text: str
     norm_text: str
+    id: int | None = None
 
 
 @dataclass
@@ -329,7 +340,7 @@ class Hit:
     section_title: str | None
     fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
     subject_label: str | None = None  # 命中来自名目索引时，记录索引词条（如「经济领域中的异化·劳动的异化」）
-    citations: dict | None = None  # 多格式引文 {"gb2015","zgshkx","mkszyj"}；缺省时回退为 citation 单一格式
+    citations: dict | None = None  # 多格式引文；缺省时回退为 citation 单一格式
 
     def to_dict(self) -> dict:
         return {
@@ -342,6 +353,8 @@ class Hit:
             "citation_title": self.citation_title,
             "book_sort_order": self.book_sort_order,
             "pdf_pages": [p.pdf_page for p in self.pages],
+            "page_ids": [p.id for p in self.pages],
+            "page_id": self.pages[0].id if self.pages else None,
             "printed_pages": [p.printed_page for p in self.pages],
             "match_type": self.match_type,
             "score": self.score,
@@ -349,7 +362,8 @@ class Hit:
             "context": self.context,
             "citation": self.citation,
             "citations": self.citations or {
-                "gb2015": self.citation, "zgshkx": self.citation, "mkszyj": self.citation,
+                "gb2025": self.citation, "gb2015": self.citation,
+                "zgshkx": self.citation, "mkszyj": self.citation,
             },
             "section_title": self.section_title,
             "subject_label": self.subject_label,
@@ -412,6 +426,9 @@ class HitGroup:
 #   {page_note}  页码脚注（印刷页缺失时为「（此为PDF页码，非原书印刷页码）」，否则空串）
 # 默认模板务必与 _make_citation / _make_citation_gb 的程序化输出逐字一致（后台「恢复默认」据此）。
 DEFAULT_CITATION_TEMPLATES: dict[str, str] = {
+    # 2025 版刻意不提供推测性默认值。站长必须依据正式标准录入模板并通过
+    # 黄金样例确认；在此之前前台隐藏该选项，避免把 2015 模板冒充 2025。
+    "gb2025": "",
     "gb2015": "{title}:第{volume}卷[M].{place}:{publisher},{year}:{page_range}{page_note}.",
     "zgshkx": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
     "mkszyj": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
@@ -433,6 +450,14 @@ class Corpus:
         self.volumes_cfg: dict = yaml.safe_load(
             volumes_cfg_path.read_text(encoding="utf-8")
         )
+        # 西马增量的出版年按卷从复核表合并；既有 volumes.yaml 保持只读，避免重写其它书库。
+        reviewed_path = volumes_cfg_path.parent / "western_marxism_reviewed.yaml"
+        if reviewed_path.exists():
+            reviewed = yaml.safe_load(reviewed_path.read_text(encoding="utf-8")) or {}
+            for row in reviewed.get("records") or []:
+                if not isinstance(row, dict) or not row.get("key") or not row.get("year"):
+                    continue
+                self.volumes_cfg.setdefault(str(row["key"]), {})[int(row.get("volume") or 1)] = int(row["year"])
         # 公文类书库（党代会报告/全会公报）的引文元数据：报告人/真实篇名/全日期
         try:
             self.party_meta: dict = yaml.safe_load(
@@ -457,6 +482,11 @@ class Corpus:
         self._segment_lock = threading.Lock()
         self._chaptered_cache: "OrderedDict[str, dict]" = OrderedDict()
         self._chaptered_cache_lock = threading.Lock()
+        # 读者页码反馈经 PDF 视觉核验后只进入独立内存覆盖层。底层 corpus.sqlite 保持只读；
+        # 覆盖文件缺失/损坏或显式关闭时自动回退到底库，不阻断网站启动。
+        # 覆盖文件属于当前代码发布包，不能沿用 volumes.yaml 的真实路径：蓝绿候选中的
+        # volumes.yaml 可能是指向正式目录的符号链接，否则候选会错误读取旧目录配置。
+        self.page_label_overrides = load_page_label_overrides()
         self._load_manifest()
         self._load(db_path)
         self._subject_entries: list[dict] = []
@@ -491,6 +521,21 @@ class Corpus:
         if not MANIFEST.exists():
             return
         manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8")) or {}
+        # 新增 PDF 清单由专用白名单维护；只补入 manifest 中尚无的 key，不覆盖既有书目。
+        source_path = MANIFEST.parent / "western_marxism_sources.yaml"
+        if source_path.exists():
+            sources = yaml.safe_load(source_path.read_text(encoding="utf-8")) or {}
+            for item in sources.get("books") or []:
+                if not isinstance(item, dict) or not item.get("upload"):
+                    continue
+                target = manifest.setdefault(str(item["key"]), [])
+                candidate = {
+                    "file": item.get("file"),
+                    "volume": int(item.get("volume") or 1),
+                    "display_title": item.get("display_title") or item.get("key"),
+                }
+                if not any(entry.get("file") == candidate["file"] and entry.get("volume") == candidate["volume"] for entry in target):
+                    target.append(candidate)
         for book in self.book_configs:
             for item in manifest.get(book.key) or []:
                 vol = item.get("volume")
@@ -517,12 +562,12 @@ class Corpus:
         has_source_file = "source_file" in cols
         if has_source_file:
             rows = conn.execute(
-                "SELECT book, volume, source_file, pdf_page, printed_page, raw_text, normalized_text "
+                "SELECT book, volume, source_file, pdf_page, printed_page, raw_text, normalized_text, id "
                 "FROM pages ORDER BY book, volume, source_file, pdf_page"
             ).fetchall()
         else:
             raw_rows = conn.execute(
-                "SELECT book, volume, pdf_page, printed_page, raw_text, normalized_text "
+                "SELECT book, volume, pdf_page, printed_page, raw_text, normalized_text, id "
                 "FROM pages ORDER BY book, volume, pdf_page"
             ).fetchall()
             rows = [
@@ -534,17 +579,19 @@ class Corpus:
                     printed_page,
                     raw_text,
                     norm_text,
+                    page_id,
                 )
-                for book, volume, pdf_page, printed_page, raw_text, norm_text in raw_rows
+                for book, volume, pdf_page, printed_page, raw_text, norm_text, page_id in raw_rows
             ]
         self._toc_db_entries = self._load_toc_entries_from_db(conn)
         conn.close()
 
         for (book, vol, source_file), grp in groupby(rows, key=lambda r: (r[0], r[1], r[2])):
             pgs = [
-                Page(pdf_page=r[3], printed_page=r[4], raw_text=r[5], norm_text=r[6])
+                Page(pdf_page=r[3], printed_page=r[4], raw_text=r[5], norm_text=r[6], id=r[7])
                 for r in grp
             ]
+            apply_page_label_overrides(source_file, pgs, self.page_label_overrides)
             if book not in self.books:
                 continue
             display_title = self._manifest_by_file.get(source_file, {}).get(
@@ -1070,6 +1117,219 @@ class Corpus:
             "page_size": page_size,
         })
         return out
+
+    # ------------------------------------------------------------------
+    # 首页检索结果导出：有界计数 + 流式物化
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _export_scope_allows(book: str, volume: int, book_scope: object) -> bool:
+        """Return whether one volume is inside a previously validated export scope.
+
+        ``book_scope`` intentionally uses the same compact representation as the
+        web layer: ``None`` means all books, a set/list means whole books, and a
+        dict maps a book to either ``None`` (all volumes) or a set of volumes.
+        Keeping this predicate in the corpus layer lets the worker discard a
+        volume before it creates any hit objects.
+        """
+        if book_scope is None:
+            return True
+        if book not in {str(value) for value in book_scope}:
+            return False
+        if isinstance(book_scope, dict):
+            allowed = book_scope.get(book)
+            if allowed is not None:
+                return int(volume) in {int(value) for value in allowed}
+        return True
+
+    def count_exact_export(
+        self,
+        q: str,
+        *,
+        book_scope: object = None,
+        stop_after: int | None = None,
+    ) -> int:
+        """Count exact (overlapping) hits without materialising contexts.
+
+        ``stop_after`` is the safety fuse used by the export worker.  Once the
+        caller's entitlement has certainly been exceeded there is no reason to
+        keep scanning or allocate document state.
+        """
+        aggregate = self.search_chaptered(q)
+        total = 0
+        for row in aggregate.get("volumes") or []:
+            if not self._export_scope_allows(
+                str(row.get("book") or ""), int(row.get("volume") or 0), book_scope
+            ):
+                continue
+            total += int(row.get("count") or 0)
+            if stop_after is not None and total >= int(stop_after):
+                return total
+        return total
+
+    def iter_exact_export_hits(
+        self,
+        q: str,
+        *,
+        book_scope: object = None,
+        limit: int | None = None,
+    ) -> Iterator[dict]:
+        """Yield exact hits in corpus/book/volume/page order, one object at a time."""
+        q_norm = normalize(q)
+        if len(q_norm) < MIN_QUERY_LEN:
+            return
+        emitted = 0
+        qlen = len(q_norm)
+        for book in self.books:
+            for vol in self.books.get(book, []):
+                if not self._export_scope_allows(book, int(vol.volume), book_scope):
+                    continue
+                page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
+                nf = vol.norm_full
+                start = 0
+                page_ranks: dict[int, int] = {}
+                while True:
+                    pos = nf.find(q_norm, start)
+                    if pos < 0:
+                        break
+                    page_index = vol.page_index_at(pos)
+                    rank = page_ranks.get(page_index, 0)
+                    page_ranks[page_index] = rank + 1
+                    yield self._make_hit(
+                        vol,
+                        pos,
+                        pos + qlen,
+                        "exact",
+                        100,
+                        q,
+                        occurrence_index=rank,
+                        export_complete_sentence=True,
+                        export_page_map_cache=page_map_cache,
+                    ).to_dict()
+                    emitted += 1
+                    if limit is not None and emitted >= int(limit):
+                        return
+                    # Export counts deliberately use overlapping occurrences, as
+                    # does ``search_chaptered``/``chapter_hits``.
+                    start = pos + 1
+
+    @staticmethod
+    def _export_cooccurrence_keywords(keywords: list[str]) -> list[str]:
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for keyword in keywords or []:
+            normalized = normalize(str(keyword or ""))
+            if len(normalized) < MIN_QUERY_LEN or normalized in seen:
+                continue
+            seen.add(normalized)
+            cleaned.append(normalized)
+            if len(cleaned) >= ASSOC_MAX_KEYWORDS:
+                break
+        return cleaned
+
+    @staticmethod
+    def _iter_export_cooccurrence_windows(
+        text: str,
+        keywords: list[str],
+        *,
+        window: int = ASSOC_KEYWORD_WINDOW,
+    ) -> Iterator[tuple[int, int, str]]:
+        """Stream minimal non-overlapping co-occurrence windows.
+
+        The online search path intentionally caps per-keyword occurrences.  An
+        export may legitimately contain thousands of hits, so this variant uses
+        a heap merge of the keyword occurrence streams.  Its memory use is O(k)
+        rather than O(number-of-occurrences), even for very common short terms.
+        """
+        import heapq
+
+        heap: list[tuple[int, int]] = []
+        for keyword_id, keyword in enumerate(keywords):
+            pos = text.find(keyword)
+            if pos < 0:
+                return
+            heapq.heappush(heap, (pos, keyword_id))
+        latest: dict[int, int] = {}
+        last_emit_end = -1
+        while heap:
+            pos, keyword_id = heapq.heappop(heap)
+            keyword = keywords[keyword_id]
+            latest[keyword_id] = pos
+            next_start = pos + len(keyword)
+            following = text.find(keyword, next_start)
+            if following >= 0:
+                heapq.heappush(heap, (following, keyword_id))
+            if len(latest) != len(keywords):
+                continue
+            win_start = min(latest.values())
+            win_end = max(latest[kid] + len(keywords[kid]) for kid in latest)
+            if win_end - win_start > int(window) or win_start < last_emit_end:
+                continue
+            anchor_id = max(latest, key=lambda kid: (len(keywords[kid]), -kid))
+            yield win_start, win_end, keywords[anchor_id]
+            last_emit_end = win_end
+
+    def count_cooccurrence_export(
+        self,
+        keywords: list[str],
+        *,
+        book_scope: object = None,
+        stop_after: int | None = None,
+        window: int = ASSOC_KEYWORD_WINDOW,
+    ) -> int:
+        cleaned = self._export_cooccurrence_keywords(keywords)
+        if len(cleaned) < 2:
+            return 0
+        total = 0
+        for book in self.books:
+            for vol in self.books.get(book, []):
+                if not self._export_scope_allows(book, int(vol.volume), book_scope):
+                    continue
+                if any(keyword not in vol.norm_full for keyword in cleaned):
+                    continue
+                for _window in self._iter_export_cooccurrence_windows(
+                    vol.norm_full, cleaned, window=window
+                ):
+                    total += 1
+                    if stop_after is not None and total >= int(stop_after):
+                        return total
+        return total
+
+    def iter_cooccurrence_export_hits(
+        self,
+        keywords: list[str],
+        *,
+        book_scope: object = None,
+        limit: int | None = None,
+        window: int = ASSOC_KEYWORD_WINDOW,
+    ) -> Iterator[dict]:
+        cleaned = self._export_cooccurrence_keywords(keywords)
+        if len(cleaned) < 2:
+            return
+        emitted = 0
+        for book in self.books:
+            for vol in self.books.get(book, []):
+                if not self._export_scope_allows(book, int(vol.volume), book_scope):
+                    continue
+                if any(keyword not in vol.norm_full for keyword in cleaned):
+                    continue
+                page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
+                for win_start, win_end, anchor in self._iter_export_cooccurrence_windows(
+                    vol.norm_full, cleaned, window=window
+                ):
+                    yield self._make_hit(
+                        vol,
+                        win_start,
+                        win_end,
+                        "exact",
+                        100,
+                        anchor,
+                        highlight_terms=cleaned,
+                        export_complete_sentence=True,
+                        export_page_map_cache=page_map_cache,
+                    ).to_dict()
+                    emitted += 1
+                    if limit is not None and emitted >= int(limit):
+                        return
 
     # ------------------------------------------------------------------
     # 检索入口
@@ -2216,16 +2476,27 @@ class Corpus:
         occurrence_index: int = 0,
         fuzzy_errors: int | None = None,
         highlight_terms: list[str] | None = None,
+        export_complete_sentence: bool = False,
+        export_page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] | None = None,
     ) -> Hit:
         norm_end = max(norm_end, norm_start + 1)
         start_pi = vol.page_index_at(norm_start)
         end_pi = vol.page_index_at(norm_end - 1)
         pages = vol.pages[start_pi:end_pi + 1]
 
-        # 同段多词：需同时高亮若干关键词，走多词上下文提取（每个词各自标注）。
-        if highlight_terms:
+        context = None
+        if export_complete_sentence:
+            context = self._extract_export_sentence_context(
+                vol,
+                norm_start,
+                norm_end,
+                highlight_terms=highlight_terms,
+                page_map_cache=export_page_map_cache,
+            )
+        # 映射失败只降级为旧的有界片段，不得让个别异常 OCR 中断整单导出。
+        if context is None and highlight_terms:
             context = self._extract_context_multi(pages, highlight_terms)
-        else:
+        elif context is None:
             # 近似命中：高亮定位必须用语料侧的命中片段（它与页面原文逐字一致），
             # 不能用带错字的用户查询——否则逐字正则必失配，退化为「页首 200 字、无高亮」。
             highlight_src = q_raw
@@ -2255,6 +2526,167 @@ class Corpus:
             section_title=section_title,
             fuzzy_errors=fuzzy_errors,
         )
+
+    @staticmethod
+    def _export_page_raw_map(
+        page: Page,
+        cache: OrderedDict[int, tuple[list[int], list[int]] | None] | None,
+    ) -> tuple[list[int], list[int]] | None:
+        """Map normalized character positions back to raw-text spans, with a tiny LRU.
+
+        A page map is built only while that page is actively producing export hits.
+        Keeping at most eight pages avoids a corpus-sized third representation while
+        still making thousands of sequential hits on the same pages inexpensive.
+        """
+        key = id(page)
+        if cache is not None and key in cache:
+            cached = cache[key]
+            cache.move_to_end(key)
+            return cached
+        starts: list[int] = []
+        ends: list[int] = []
+        normalized_parts: list[str] = []
+        for raw_index, character in enumerate(page.raw_text):
+            normalized = normalize(character)
+            if not normalized:
+                continue
+            normalized_parts.append(normalized)
+            starts.extend([raw_index] * len(normalized))
+            ends.extend([raw_index + 1] * len(normalized))
+        result: tuple[list[int], list[int]] | None
+        if "".join(normalized_parts) == page.norm_text and len(starts) == len(page.norm_text):
+            result = (starts, ends)
+        else:
+            # NFKC/OpenCC 极少数组合字可能存在跨字符语境，不猜测映射。
+            result = None
+        if cache is not None:
+            cache[key] = result
+            cache.move_to_end(key)
+            while len(cache) > EXPORT_PAGE_MAP_CACHE_SIZE:
+                cache.popitem(last=False)
+        return result
+
+    @staticmethod
+    def _export_sentence_bounds(raw: str, match_start: int, match_end: int) -> tuple[int, int, bool, bool]:
+        """Return the complete sentence/paragraph range containing a raw match."""
+        sentence_left = 0
+        for boundary in _EXPORT_SENTENCE_END_RE.finditer(raw, 0, max(0, match_start)):
+            sentence_left = max(sentence_left, boundary.end())
+        left = sentence_left
+        # PDF 文本层常把版式换行抽取成多个空行，因此句号等真实句界
+        # 优先于段落界。只在左侧找不到句界时，才用段落界阻止向前无限扩展。
+        if sentence_left == 0:
+            for boundary in _EXPORT_PARAGRAPH_BREAK_RE.finditer(raw, 0, max(0, match_start)):
+                left = max(left, boundary.end())
+
+        sentence_end = _EXPORT_SENTENCE_END_RE.search(raw, max(0, match_end))
+        if sentence_end is not None:
+            right = sentence_end.end()
+        else:
+            paragraph_end = _EXPORT_PARAGRAPH_BREAK_RE.search(raw, max(0, match_end))
+            right = paragraph_end.start() if paragraph_end is not None else len(raw)
+
+        while left < match_start and raw[left].isspace():
+            left += 1
+        while right > match_end and raw[right - 1].isspace():
+            right -= 1
+
+        original_left, original_right = left, right
+        if right - left > EXPORT_SENTENCE_MAX_CHARS:
+            match_width = max(1, match_end - match_start)
+            spare = max(0, EXPORT_SENTENCE_MAX_CHARS - match_width)
+            left = max(left, match_start - spare // 2)
+            right = min(right, left + EXPORT_SENTENCE_MAX_CHARS)
+            if right < match_end:
+                right = match_end
+                left = max(original_left, right - EXPORT_SENTENCE_MAX_CHARS)
+            if right - left < EXPORT_SENTENCE_MAX_CHARS:
+                left = max(original_left, right - EXPORT_SENTENCE_MAX_CHARS)
+        return left, right, left > original_left, right < original_right
+
+    def _extract_export_sentence_context(
+        self,
+        vol: Volume,
+        norm_start: int,
+        norm_end: int,
+        *,
+        highlight_terms: list[str] | None = None,
+        page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] | None = None,
+    ) -> str | None:
+        """Return complete sentence(s) containing an exact/co-occurrence hit.
+
+        Citation pages remain the actual hit pages.  Only sentence discovery may
+        inspect one adjacent page on either side, which also handles sentences split
+        by a PDF page break without loading another book or corpus copy.
+        """
+        norm_start = max(0, min(int(norm_start), len(vol.norm_full) - 1))
+        norm_end = max(norm_start + 1, min(int(norm_end), len(vol.norm_full)))
+        start_page_index = vol.page_index_at(norm_start)
+        end_page_index = vol.page_index_at(norm_end - 1)
+        context_first = max(0, start_page_index - 1)
+        context_last = min(len(vol.pages) - 1, end_page_index + 1)
+        context_pages = vol.pages[context_first:context_last + 1]
+        raw_offsets: list[int] = []
+        cursor = 0
+        for page in context_pages:
+            raw_offsets.append(cursor)
+            cursor += len(page.raw_text) + 1  # one joining newline
+        raw = "\n".join(page.raw_text for page in context_pages)
+
+        start_map = self._export_page_raw_map(vol.pages[start_page_index], page_map_cache)
+        end_map = self._export_page_raw_map(vol.pages[end_page_index], page_map_cache)
+        if start_map is None or end_map is None:
+            return None
+        local_norm_start = norm_start - vol.page_offsets[start_page_index]
+        local_norm_end = norm_end - vol.page_offsets[end_page_index]
+        if not (0 <= local_norm_start < len(start_map[0])):
+            return None
+        if not (1 <= local_norm_end <= len(end_map[1])):
+            return None
+        start_raw_offset = raw_offsets[start_page_index - context_first]
+        end_raw_offset = raw_offsets[end_page_index - context_first]
+        match_start = start_raw_offset + start_map[0][local_norm_start]
+        match_end = end_raw_offset + end_map[1][local_norm_end - 1]
+        if not (0 <= match_start < match_end <= len(raw)):
+            return None
+
+        left, right, clipped_left, clipped_right = self._export_sentence_bounds(
+            raw, match_start, match_end,
+        )
+        highlight_spans: list[tuple[int, int]] = []
+        if highlight_terms:
+            sentence = raw[left:right]
+            for term in highlight_terms:
+                keep = [character for character in term if not _STRIP_RE.match(character)]
+                if not keep:
+                    continue
+                pattern = r"\W*".join(re.escape(character) for character in keep)
+                highlight_spans.extend(
+                    (left + match.start(), left + match.end())
+                    for match in re.finditer(pattern, sentence)
+                )
+        if not highlight_spans:
+            highlight_spans = [(match_start, match_end)]
+        highlight_spans.sort()
+        merged: list[list[int]] = []
+        for start, end in highlight_spans:
+            start, end = max(left, start), min(right, end)
+            if start >= end:
+                continue
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+
+        pieces: list[str] = ["…"] if clipped_left else []
+        cursor = left
+        for start, end in merged:
+            pieces.extend((raw[cursor:start], "[[H]]", raw[start:end], "[[/H]]"))
+            cursor = end
+        pieces.append(raw[cursor:right])
+        if clipped_right:
+            pieces.append("…")
+        return "".join(pieces).strip()
 
     def _extract_context(self, pages: list[Page], q_raw: str, occurrence_index: int = 0) -> str:
         raw = "\n".join(p.raw_text for p in pages)
@@ -2401,6 +2833,7 @@ class Corpus:
         translated = ""
         if book_cfg.translators:
             translated = "，" + "、".join(book_cfg.translators) + "译"
+        volume_label = dict(book_cfg.volume_labels).get(volume, "")
 
         if book in self._XUANBIAN_BOOKS:
             editor = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("editor")
@@ -2410,18 +2843,21 @@ class Corpus:
             # 单卷本独立著作（各《学习纲要》《概论》），或多卷本中该卷本身无卷次
             # （如《治国理政》卷1 我们用的 2014 无卷次初版）：不冠「第N卷」
             title = f"{responsibility}《{book_cfg.citation_title}》{translated}"
+        elif volume_label:
+            title = f"{responsibility}《{book_cfg.citation_title}》{volume_label}{translated}"
         else:
             title = f"{responsibility}《{book_cfg.citation_title}》第{volume}{book_cfg.volume_unit}{translated}"
         year_str = f"{year}年" if year else "xxxx年"
         return f"{title}，{place}：{publisher}，{year_str}，{page_str}。"
 
     # 引文格式标识：与前端「引用格式」下拉一致。
+    #   gb2025 = 国标 GB/T 7714—2025（独立可配置模板）
     #   gb2015 = 国标 GB/T 7714—2015（专著 [M]，半角标点）
     #   zgshkx = 《中国社会科学》脚注体例
     #   mkszyj = 《马克思主义研究》脚注体例
     # 两刊脚注当前为同一写法（均带出版地、不加「版」字，与既有 _make_citation 一致），
     # 故 zgshkx/mkszyj 暂同源；保留两个独立键，以便日后任一刊微调而互不影响。
-    CITATION_FORMATS = ("gb2015", "zgshkx", "mkszyj")
+    CITATION_FORMATS = ("gb2025", "gb2015", "zgshkx", "mkszyj")
 
     def set_citation_templates(self, templates: dict | None) -> None:
         """注入后台自定义的引用格式模板（仅 CITATION_FORMATS 内的键、非空字符串生效）。
@@ -2464,7 +2900,7 @@ class Corpus:
             "title": book_cfg.citation_title,
             "authors": "、".join(book_cfg.authors),
             "translators": "、".join(book_cfg.translators),
-            "volume": str(volume),
+            "volume": dict(book_cfg.volume_labels).get(volume, str(volume)),
             "place": place,
             "publisher": publisher,
             "year": f"{year}" if year else "xxxx",
@@ -2474,7 +2910,7 @@ class Corpus:
         }
 
     def _make_citations(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
-        """产出多格式引文 {gb2015, zgshkx, mkszyj}，供前端「引用格式」下拉即时切换。
+        """产出多格式引文，供前端「引用格式」下拉即时切换。
 
         默认走 _make_citation（脚注体例）/_make_citation_gb（国标）；后台若对某格式配了自定义
         模板，则该格式按模板渲染——仅限标准「卷·页」型著作（公文/选编/显式 cite 覆盖等特殊体例
@@ -2490,9 +2926,9 @@ class Corpus:
         # 「第{volume}卷」，套上会把「第17册」错标成「第17卷」。
         special = (book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS
                    or has_override or _bc.single_volume or volume in _bc.unnumbered_volumes
-                   or _bc.volume_unit != "卷")
+                   or _bc.volume_unit != "卷" or bool(dict(_bc.volume_labels).get(volume)))
         if special or not tpls:
-            return {"gb2015": gb, "zgshkx": journal, "mkszyj": journal}
+            return {"gb2025": gb, "gb2015": gb, "zgshkx": journal, "mkszyj": journal}
         parts = self._citation_parts(book, volume, pages, source_file=source_file)
 
         def _render(key: str, default: str) -> str:
@@ -2505,6 +2941,7 @@ class Corpus:
                 return default
 
         return {
+            "gb2025": _render("gb2025", gb),
             "gb2015": _render("gb2015", gb),
             "zgshkx": _render("zgshkx", journal),
             "mkszyj": _render("mkszyj", journal),
@@ -2544,7 +2981,13 @@ class Corpus:
             page_str = f"{first}" if first == last else f"{first}-{last}"
             page_note = "（此为PDF页码，非原书印刷页码）"
         year_str = f"{year}" if year else "xxxx"
-        vol_seg = "" if (book_cfg.single_volume or volume in book_cfg.unnumbered_volumes) else f":第{volume}{book_cfg.volume_unit}"
+        volume_label = dict(book_cfg.volume_labels).get(volume, "")
+        if book_cfg.single_volume or volume in book_cfg.unnumbered_volumes:
+            vol_seg = ""
+        elif volume_label:
+            vol_seg = f":{volume_label}"
+        else:
+            vol_seg = f":第{volume}{book_cfg.volume_unit}"
         author_seg = ",".join(book_cfg.authors)
         author_prefix = f"{author_seg}." if author_seg else ""
         translator_seg = ""
