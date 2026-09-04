@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""期刊「单期发布上限 + 顺延（deferred）待办」回归测试（零网络）。
+"""英文期刊「严格周窗口 + 单期发布上限」回归测试（零网络）。
 
-覆盖：① 纯选取逻辑 _select_release_articles（上限、中英搭配、按期刊铺开、顺延=池-选中）；
-② apply_release_cap 落库（超额转 deferred/batch_id 置空；后续批次逐步释放、积压最终清零）；
-③ collect_batch 一次性涌入大量文章时单期体量被压到上限、其余顺延，且顺延不被源站重复采回；
+覆盖：① 纯选取逻辑 _select_release_articles（英文限定、上限、按期刊铺开、顺延=池-选中）；
+② apply_release_cap 落库（超额留在本期审计但不跨周顺延）；
+③ collect_batch 一次性涌入大量文章时单期体量被压到上限、其余忽略且不被源站重复采回；
 ④ 综述生成器 _review_one_discipline 每类篇数封顶时，超出部分不进正文但在文末引文提示。
 """
 from __future__ import annotations
@@ -17,20 +17,18 @@ import journal_alerts as ja
 import journal_review as jr
 
 
-def _art(i: int, *, lang: str = "zh", journal: str = "某刊") -> dict:
-    # 形如线上 NCPSSD 中文文章：占位日期 YYYY-01-01 + metadata.ncpssd_id（据此判为占位、
-    # 走「年份粗滤 + 只收新文」窗口分支，与批次 12 场景一致）。id 供纯选取函数按身份去重。
+def _art(i: int, *, lang: str = "en", journal: str = "Monthly Review") -> dict:
     return {
         "id": i,
         "journal_name": journal,
         "language": lang,
-        "title": f"文章{i:03d}",
-        "abstract": "摘要",
-        "authors": ["作者"],
+        "title": f"Article {i:03d}",
+        "abstract": "Abstract",
+        "authors": ["Author"],
         "url": f"https://example.org/a/{i}",
-        "published_at": f"{ja.utc_now().year}-01-01",
+        "published_at": ja.utc_now().date().isoformat(),
         "status": "ready",  # 显式指定，避免英文触发翻译分支
-        "metadata": {"ncpssd_id": f"NC{i:04d}"},
+        "metadata": {},
     }
 
 
@@ -47,7 +45,7 @@ class SelectReleaseArticlesTests(unittest.TestCase):
         self.assertEqual(deferred, [])
 
     def test_cap_respected_and_deferred_is_complement(self) -> None:
-        pool = [_art(i, lang="zh") for i in range(236)] + [_art(1000 + i, lang="en") for i in range(10)]
+        pool = [_art(i) for i in range(246)]
         sel, deferred = ja._select_release_articles(pool, 45)
         self.assertEqual(len(sel), 45)
         self.assertEqual(len(deferred), 246 - 45)
@@ -56,20 +54,18 @@ class SelectReleaseArticlesTests(unittest.TestCase):
         self.assertEqual(sel_ids & def_ids, set(), "选中与顺延不相交")
         self.assertEqual(len(sel_ids | def_ids), 246, "选中∪顺延=全池，无丢弃")
 
-    def test_english_included_for_mix(self) -> None:
-        """中英搭配：英文稀缺时应全部纳入本期（不被中文挤掉）。"""
+    def test_non_english_rows_are_excluded_from_release_pool(self) -> None:
         pool = [_art(i, lang="zh") for i in range(236)] + [_art(1000 + i, lang="en") for i in range(10)]
-        sel, _ = ja._select_release_articles(pool, 45)
-        en = [a for a in sel if a["language"] == "en"]
-        self.assertEqual(len(en), 10, "10 篇英文全部入选（中英搭配）")
-        self.assertEqual(len(sel) - len(en), 35, "其余名额给中文")
+        selected, deferred = ja._select_release_articles(pool, 45)
+        self.assertEqual(len(selected), 10)
+        self.assertTrue(all(article["language"] == "en" for article in selected))
+        self.assertEqual(deferred, [])
 
-    def test_english_quota_capped_when_plentiful(self) -> None:
-        """英文充足时至多占上限的 _RELEASE_EN_SHARE，避免英文刷屏。"""
+    def test_english_fills_entire_issue_when_plentiful(self) -> None:
         pool = [_art(i, lang="en") for i in range(100)] + [_art(1000 + i, lang="zh") for i in range(100)]
         sel, _ = ja._select_release_articles(pool, 40)
         en = [a for a in sel if a["language"] == "en"]
-        self.assertEqual(len(en), round(40 * ja._RELEASE_EN_SHARE))
+        self.assertEqual(len(en), 40)
         self.assertEqual(len(sel), 40)
 
     def test_roundrobin_spreads_across_journals(self) -> None:
@@ -102,7 +98,7 @@ class ApplyReleaseCapDbTests(unittest.TestCase):
         ja.DB_PATH, ja.init_membership_db = self._old_db, self._old_init
         gc.collect()  # 释放悬空 sqlite 连接，Windows 下才能清理临时目录
 
-    def _source_id(self, name: str = "求是") -> dict:
+    def _source_id(self, name: str = "Monthly Review") -> dict:
         with ja._connect() as conn:
             row = conn.execute("SELECT * FROM journal_sources WHERE name = ?", (name,)).fetchone()
         return ja._source_row(row)
@@ -113,7 +109,7 @@ class ApplyReleaseCapDbTests(unittest.TestCase):
         with ja._connect() as conn:
             return int(conn.execute(sql, tuple(where.values())).fetchone()["n"])
 
-    def test_apply_cap_defers_excess_and_drains_over_batches(self) -> None:
+    def test_apply_cap_keeps_overflow_in_same_issue_and_never_carries_it(self) -> None:
         source = self._source_id()
         batch1 = ja.open_batch(ja.normalize_alert_settings({}))
         b1 = int(batch1["id"])
@@ -124,49 +120,49 @@ class ApplyReleaseCapDbTests(unittest.TestCase):
         res = ja.apply_release_cap(b1, settings)
         self.assertEqual(res["selected"], 45)
         self.assertEqual(res["deferred"], 15)
-        self.assertEqual(res["backlog_remaining"], 15)
+        self.assertEqual(res["backlog_remaining"], 0)
         self.assertEqual(self._count(batch_id=b1, status="ready"), 45, "本期只保留 45 篇在办")
-        self.assertEqual(self._count(status="deferred"), 15, "超出的 15 篇顺延")
+        self.assertEqual(self._count(batch_id=b1, status="ignored"), 15, "超出的 15 篇留作本期审计")
 
-        # 顺延文章 batch_id 应置空，不挂在任何批次上
+        # 超额文章仍挂在原期次，不能漂移到下一周。
         with ja._connect() as conn:
             nulls = conn.execute(
-                "SELECT COUNT(*) AS n FROM journal_articles WHERE status = 'deferred' AND batch_id IS NULL"
+                "SELECT COUNT(*) AS n FROM journal_articles WHERE status = 'ignored' AND batch_id = ?",
+                (b1,),
             ).fetchone()["n"]
         self.assertEqual(int(nulls), 15)
 
-        # 下一期：开新批次（归档上期），无新文，cap 应把 15 篇积压全部释放、清零
+        # 下一期无新文，不得把上期超额文章带入。
         batch2 = ja.open_batch(ja.normalize_alert_settings({}))
         b2 = int(batch2["id"])
         res2 = ja.apply_release_cap(b2, settings)
-        self.assertEqual(res2["selected"], 15, "积压少于上限时一次性全部释放")
-        self.assertEqual(res2["backlog_remaining"], 0, "积压清零")
-        self.assertEqual(self._count(batch_id=b2, status="ready"), 15)
+        self.assertEqual(res2["selected"], 0)
+        self.assertEqual(res2["backlog_remaining"], 0)
+        self.assertEqual(self._count(batch_id=b2), 0)
         self.assertEqual(self._count(status="deferred"), 0)
 
     def test_collect_batch_flood_is_capped_and_backlog_not_recrawled(self) -> None:
-        """一次性涌入 120 篇 → 单期封顶 45、其余顺延；且顺延文章不会被源站重复采回。"""
+        """一次性涌入 120 篇 → 单期封顶 45、其余本期忽略且绝不跨周。"""
         source = self._source_id()
         flood = [_art(i) for i in range(120)]
         old_list, old_fetch = ja.list_journal_sources, ja.fetch_source_articles
         old_detail = ja.fetch_ncpssd_detail
         ja.list_journal_sources = lambda limit=200: [source]
         ja.fetch_source_articles = lambda src, lookback_days=None: [dict(a, metadata=dict(a["metadata"])) for a in flood]
-        ja.fetch_ncpssd_detail = lambda *a, **k: None  # 占位日期文章会触发详情补全，屏蔽网络
+        ja.fetch_ncpssd_detail = lambda *a, **k: None
         try:
             settings = ja.normalize_alert_settings(
                 {"lookback_days": 7, "weekly_release_cap": 45, "auto_approve_articles": True}
             )
             run1 = ja.collect_batch(ai_client=None, settings=settings)
             self.assertEqual(run1["batch_total"], 45, "单期综述面对的体量被压到上限")
-            self.assertEqual(self._count(status="deferred"), 75, "其余 75 篇顺延")
+            self.assertEqual(self._count(status="ignored"), 75, "其余 75 篇留作本期审计")
 
-            # 下一期再采集：源站仍给同样 120 篇，但已入库者（含 deferred）不应被当新文重复采回
+            # 下一期再采集：源站仍给同样 120 篇，但已入库者（含 ignored）不应被当新文重复采回
             run2 = ja.collect_batch(ai_client=None, settings=settings)
-            self.assertEqual(run2["articles_inserted"], 0, "已入库（含顺延）不被重复采回")
-            self.assertEqual(run2["batch_total"], 45, "第二期从积压中再释放一批，仍封顶")
-            # 两期共释放 90 篇，剩余积压 30 篇
-            self.assertEqual(self._count(status="deferred"), 30)
+            self.assertEqual(run2["articles_inserted"], 0, "已入库（含本期忽略）不被重复采回")
+            self.assertEqual(run2["batch_total"], 0, "第二期不能复用上期文章")
+            self.assertEqual(self._count(status="ignored"), 75)
         finally:
             ja.list_journal_sources, ja.fetch_source_articles = old_list, old_fetch
             ja.fetch_ncpssd_detail = old_detail
@@ -184,7 +180,7 @@ class ReviewDisciplineCapTests(unittest.TestCase):
         def __init__(self) -> None:
             self.sent_counts: list[int] = []
 
-        def chat_complete(self, messages, max_tokens=0):
+        def chat_complete(self, messages, max_tokens=0, **kwargs):
             import json as _json
 
             user = messages[-1]["content"]

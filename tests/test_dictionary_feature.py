@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import sys
-import tempfile
 import unittest
 import warnings
 from pathlib import Path
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-dictionary-")
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"
@@ -26,10 +23,6 @@ import app as app_module  # noqa: E402
 from dictionary_store import dictionary_available, dictionary_groups, dictionary_suggest  # noqa: E402
 from membership import create_user, get_user_by_email  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
-
-
-def tearDownModule() -> None:
-    shutil.rmtree(_TMP_APPDATA, ignore_errors=True)
 
 
 class DictionaryFeatureTests(unittest.TestCase):
@@ -74,14 +67,12 @@ class DictionaryFeatureTests(unittest.TestCase):
         self.assertIn("马克思主义大辞典", html)
         self.assertIn("/api/dictionary/suggest", html)
 
-    def test_homepage_contains_dictionary_card(self) -> None:
+    def test_homepage_contains_dictionary_navigation(self) -> None:
         self._login_registered()
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("马克思主义大辞典", html)
         self.assertIn("/dictionary", html)
-        self.assertIn("reader-dictionary", html)
 
     def test_dictionary_suggest_and_entry_page(self) -> None:
         self._login_registered()

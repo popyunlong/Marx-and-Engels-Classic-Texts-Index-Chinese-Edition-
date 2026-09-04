@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import atexit
 import os
-import shutil
-import tempfile
 import unittest
 from types import SimpleNamespace
 
 # 与其余测试一致：导入 ai 前把 APPDATA 硬置到临时目录，避免触碰真实数据目录。
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-websearch-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 
 import ai as ai_module  # noqa: E402
 

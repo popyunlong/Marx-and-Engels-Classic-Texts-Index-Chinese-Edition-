@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import atexit
 import json
 import os
 import re
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 from dataclasses import replace
@@ -15,9 +12,7 @@ from unittest import mock
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
 # 必须在导入 app 前“硬置”到临时 APPDATA：Windows 上 APPDATA 恒被设置，setdefault 会失效而误用真实库。
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-assoc-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"
@@ -431,7 +426,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         self.assertEqual(review, complete)
         self.assertEqual(cc.call_count, 2)
         self.assertEqual(cc.call_args_list[0].kwargs["max_tokens"], ai_module.RESEARCH_REVIEW_MAX_TOKENS)
-        self.assertEqual(cc.call_args_list[1].kwargs["max_tokens"], 12000)
+        self.assertEqual(cc.call_args_list[1].kwargs["max_tokens"], 65536)
 
     def test_research_review_passes_per_call_http_timeout(self) -> None:
         # 每次模型调用都按 min(研究专用超时, 剩余总预算) 压一个 HTTP 超时。生成跑在 SSE 心跳保活线程里、
@@ -539,12 +534,12 @@ class SseHeartbeatStreamTests(unittest.TestCase):
         # heartbeat_interval 取极小值不影响结果：join(timeout) 在线程瞬时完成时立即返回，不空等满拍。
         return list(app_module._sse_run_with_heartbeat(slow_fn, finalize_fn, heartbeat_interval=0.01))
 
-    def test_emits_keepalive_first_then_done_payload(self) -> None:
+    def test_emits_visible_progress_first_then_done_payload(self) -> None:
         chunks = self._collect(
             lambda cancel_event: "REVIEW_MD",
             lambda result, error: {"ok": True, "md": result, "err": error},
         )
-        self.assertTrue(chunks[0].startswith(":"))             # 首字节是心跳注释，抢在 CF 计时前
+        self.assertTrue(chunks[0].startswith("event: progress"))  # 可见进度也能抢在 CF 计时前
         self.assertTrue(chunks[-1].startswith("event: done"))  # 末尾是 done 事件
         payload = _parse_sse_text("".join(chunks))
         self.assertTrue(payload["ok"])
@@ -607,7 +602,7 @@ class AssociativeRouteTests(unittest.TestCase):
             password_hash=generate_password_hash("correct horse battery staple"),
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
-        create_manual_subscription(user_email=email, plan_code="monthly", note="test")
+        create_manual_subscription(user_email=email, plan_code="support_basic", note="test")
         token = self._csrf()
         resp = self.client.post(
             "/login",
@@ -717,11 +712,13 @@ class AssociativeRouteTests(unittest.TestCase):
         self._login_member("assoc-502@example.test")
         token = self._csrf()
         with mock.patch.object(
+            app_module.corpus, "locate_associative", return_value=[]
+        ), mock.patch.object(
             app_module.AI_CLIENT,
             "expand_associative_query",
             side_effect=app_module.AIServiceError("down"),
         ):
-            resp = self._post({"gist": "随便"}, token)
+            resp = self._post({"gist": "zzqxyvbnmqwlk", "mode": "locate", "scope": "all"}, token)
         self.assertEqual(resp.status_code, 502)
         self.assertFalse(resp.get_json()["ok"])
 
@@ -789,7 +786,7 @@ class AssociativeRouteTests(unittest.TestCase):
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query") as expand_mock:
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
             first_chunk = next(iter(resp.response))
-            self.assertIn(": keepalive", first_chunk.decode("utf-8"))
+            self.assertIn("event: progress", first_chunk.decode("utf-8"))
             expand_mock.assert_not_called()
             resp.close()
 
@@ -1028,8 +1025,9 @@ class AssociativeRouteTests(unittest.TestCase):
             self.assertEqual((guest["bucket"], guest["daily_limit"], guest["weekly_limit"]), ("guest", 0, 0))
             mem = app_module._effective_ai_limit_info({"id": muid})
             self.assertEqual(mem["bucket"], "monthly")
-            self.assertEqual(mem["daily_limit"], 55000)
-            self.assertEqual(mem["weekly_limit"], 55000 * factor)
+            plan_weekly = int(get_plan("support_basic")["weekly_token_limit"])
+            self.assertEqual(mem["daily_limit"], plan_weekly // factor)
+            self.assertEqual(mem["weekly_limit"], plan_weekly)
             admin = app_module._effective_ai_limit_info({"id": muid, "role": "admin"})
             self.assertIsNone(admin["weekly_limit"])  # 管理员不限
 
@@ -1037,8 +1035,7 @@ class AssociativeRouteTests(unittest.TestCase):
         # 弹性额度：硬上限是本周(=每日×7)。本周累计达上限 → 随心问 429，且不调用 AI。
         email = "tok-registered-block@example.test"
         uid = self._login_plain(email)
-        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 2000})
-        weekly_cap = 2000 * app_module.AI_TOKEN_WEEKLY_FACTOR  # 14000
+        weekly_cap = app_module.REGISTERED_FREE_AI_WEEKLY_LIMIT
         record_ai_usage(
             user_id=uid, day=app_module.china_day_text(), feature="search-chat",
             total_tokens=weekly_cap, success=True,
@@ -1054,8 +1051,7 @@ class AssociativeRouteTests(unittest.TestCase):
         # 共用的周额度池。这里记满一整周上限的 mascot 用量，随心问仍须照常放行、徽章已用量为 0。
         email = "tok-mascot-exempt@example.test"
         uid = self._login_plain(email)
-        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 2000})
-        weekly_cap = 2000 * app_module.AI_TOKEN_WEEKLY_FACTOR
+        weekly_cap = app_module.REGISTERED_FREE_AI_WEEKLY_LIMIT
         record_ai_usage(
             user_id=uid, day=app_module.china_day_text(), feature="mascot",
             total_tokens=weekly_cap * 3, success=True,
@@ -1100,8 +1096,7 @@ class AssociativeRouteTests(unittest.TestCase):
         # 未超额 → 随心问成功并回带 ai_token_quota（limit=本周=每日×7、剩余<上限、未耗尽）。
         email = "tok-registered-ok@example.test"
         self._login_plain(email)
-        app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {"registered": 50000})
-        weekly_cap = 50000 * app_module.AI_TOKEN_WEEKLY_FACTOR
+        weekly_cap = app_module.REGISTERED_FREE_AI_WEEKLY_LIMIT
         token = self._csrf()
         fake = mock.Mock()
         fake.answer_markdown = "回答"
@@ -1113,7 +1108,10 @@ class AssociativeRouteTests(unittest.TestCase):
         self.assertIn("ai_token_quota", data)
         self.assertFalse(data["ai_token_quota"]["unlimited"])
         self.assertEqual(data["ai_token_quota"]["limit"], weekly_cap)  # 硬上限＝本周
-        self.assertEqual(data["ai_token_quota"]["daily_limit"], 50000)  # 每日参考
+        self.assertEqual(
+            data["ai_token_quota"]["daily_limit"],
+            weekly_cap // app_module.AI_TOKEN_WEEKLY_FACTOR,
+        )  # 每日参考
         self.assertLess(data["ai_token_quota"]["remaining"], weekly_cap)  # 本次已计入用量
         self.assertFalse(data["ai_token_quota"]["exhausted"])
 
@@ -1204,9 +1202,9 @@ class AiCreditLedgerTests(unittest.TestCase):
 
     def test_grant_and_balance(self) -> None:
         uid = self._new_user("credit-grant@example.test")
-        self.assertEqual(get_ai_credit_balances(uid), {"research": 0, "chat": 0})
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 0, "chat": 0, "reader": 0})
         grant_ai_credits(uid, research=10, chat=20, reason="test")
-        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20})
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20, "reader": 0})
         self.assertEqual(get_ai_credit_balance(uid, "research"), 10)
 
     def test_consume_decrements_and_floors_at_zero(self) -> None:
@@ -1233,8 +1231,8 @@ class AiCreditLedgerTests(unittest.TestCase):
         order = create_pending_order(user_id=uid, plan_code="pack_test")
         result = mark_order_paid(order_no=order["order_no"], provider="manual", source="manual")
         self.assertIsNone(result["subscription"])  # 不开会员
-        self.assertEqual(result["credits"], {"research": 10, "chat": 20})
-        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20})
+        self.assertEqual(result["credits"], {"research": 10, "chat": 20, "reader": 0})
+        self.assertEqual(get_ai_credit_balances(uid), {"research": 10, "chat": 20, "reader": 0})
 
     def test_credit_pack_payment_is_idempotent(self) -> None:
         upsert_plan(
@@ -1523,7 +1521,7 @@ class CitationFormatTests(unittest.TestCase):
         hits = self.corpus.locate_quote(sub, allow_fuzzy=False)
         self.assertTrue(hits)
         d = hits[0].to_dict()
-        self.assertEqual(set(d["citations"]), {"gb2015", "zgshkx", "mkszyj"})
+        self.assertEqual(set(d["citations"]), {"gb2025", "gb2015", "zgshkx", "mkszyj"})
         self.assertTrue(d["citation"].startswith("《"))  # 向后兼容：默认仍是脚注体例
 
     def test_default_templates_match_procedural(self) -> None:
@@ -1589,7 +1587,7 @@ class CitationFormatTests(unittest.TestCase):
 
     def test_editor_rows_and_loader_drops_default(self) -> None:
         rows = app_module._citation_formats_editor()
-        self.assertEqual([r["key"] for r in rows], ["gb2015", "zgshkx", "mkszyj"])
+        self.assertEqual([r["key"] for r in rows], ["gb2025", "gb2015", "zgshkx", "mkszyj"])
         app_module.set_setting(
             "citation_formats", {"zgshkx": app_module.DEFAULT_CITATION_TEMPLATES["zgshkx"]}
         )
@@ -1902,7 +1900,7 @@ class ReaderAiStreamAndScopeTests(unittest.TestCase):
             password_hash=generate_password_hash("correct horse battery staple"),
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
-        create_manual_subscription(user_email=email, plan_code="monthly", note="test")
+        create_manual_subscription(user_email=email, plan_code="support_basic", note="test")
         token = self._csrf()
         resp = self.client.post(
             "/login",
@@ -1965,7 +1963,7 @@ class ReaderAiStreamAndScopeTests(unittest.TestCase):
         self.assertEqual("".join(chunks), "商品是财富的元素形式。")
         self.assertTrue(all("只有思考" not in c and "没有正文" not in c for c in chunks))
         self.assertEqual(len(payloads), 2)
-        self.assertNotIn("thinking", payloads[0])  # 深思档首次仍开思考（质量更好）
+        self.assertEqual(payloads[0].get("thinking"), {"type": "enabled"})
         self.assertEqual(payloads[1].get("thinking"), {"type": "disabled"})  # 重试关思考
 
     def test_stream_fast_tier_disables_thinking_upfront(self) -> None:
@@ -2032,7 +2030,7 @@ class ReaderAiStreamAndScopeTests(unittest.TestCase):
         token = self._csrf()
         source_file = self._any_allowed_source_file()
 
-        def _fake_stream(messages, max_tokens, provider=None, meta_out=None, web_search_query=None):
+        def _fake_stream(messages, max_tokens, provider=None, meta_out=None, web_search_query=None, **kwargs):
             yield ""
             yield "你好"
 
@@ -2150,7 +2148,7 @@ class NonStreamReasoningLeakTests(unittest.TestCase):
         self.assertEqual(answer, "异化劳动的四重规定……")
         self.assertNotIn("we need answer", answer)
         self.assertEqual(len(payloads), 2)
-        self.assertNotIn("thinking", payloads[0])
+        self.assertEqual(payloads[0].get("thinking"), {"type": "enabled"})
         self.assertEqual(payloads[1].get("thinking"), {"type": "disabled"})
 
     def test_reasoning_leaked_into_content_retries(self) -> None:
@@ -2178,15 +2176,15 @@ class NonStreamReasoningLeakTests(unittest.TestCase):
                 )
         self.assertNotIn("用户要求我", str(ctx.exception))
 
-    def test_grounded_answer_uses_10k_ceiling_and_falls_back_by_rungs(self) -> None:
-        # 接地作答的上限是「思考+正文」合计，故 2026-07-31 上调到 10000；通道拒绝时逐级 6000→4000。
+    def test_grounded_answer_uses_relaxed_ceiling_and_falls_back_by_rungs(self) -> None:
+        # 接地作答的上限是「思考+正文」合计；已上线版本放宽到 65536，拒绝时逐级回退。
         grounding = [{"index": 1, "citation": "《测试文献》第1页", "text": "异化劳动的材料。"}]
         with mock.patch.object(
             app_module.AI_CLIENT, "chat_complete", return_value="### 正文\n答。"
         ) as cc:
             app_module.AI_CLIENT.answer_search_chat([], "谈谈异化劳动", grounding=grounding)
         self.assertEqual(cc.call_args.kwargs["max_tokens"], ai_module.GROUNDED_ANSWER_MIN_TOKENS)
-        self.assertEqual(ai_module.GROUNDED_ANSWER_MIN_TOKENS, 10000)
+        self.assertEqual(ai_module.GROUNDED_ANSWER_MIN_TOKENS, 65536)
 
         with mock.patch.object(
             app_module.AI_CLIENT,
@@ -2200,7 +2198,7 @@ class NonStreamReasoningLeakTests(unittest.TestCase):
             app_module.AI_CLIENT.answer_search_chat([], "谈谈异化劳动", grounding=grounding)
         self.assertEqual(
             [c.kwargs["max_tokens"] for c in cc2.call_args_list],
-            [10000, ai_module.GROUNDED_ANSWER_MID_TOKENS, ai_module.GROUNDED_ANSWER_FALLBACK_TOKENS],
+            [65536, ai_module.GROUNDED_ANSWER_MID_TOKENS, ai_module.GROUNDED_ANSWER_FALLBACK_TOKENS],
         )
 
     def test_fast_tier_disables_thinking_upfront(self) -> None:
@@ -2240,16 +2238,11 @@ class NonStreamReasoningLeakTests(unittest.TestCase):
             )
         self.assertEqual(answer, "### 结论\n正文。")
         self.assertEqual(post.call_count, 1)
-        self.assertNotIn("thinking", post.call_args.args[1])
+        self.assertEqual(post.call_args.args[1].get("thinking"), {"type": "enabled"})
 
 
 class ResearchTierExpandTests(unittest.TestCase):
-    """研究综述档改用 pro 抽线索（deep=True）；其余档位仍走 flash。
-
-    研究综述要铺 20-24 条引用，线索面越广越好；快速问答/精准定位对首字延迟敏感，保持 flash。
-    两条硬约束：①缓存按档位隔离，两档结果绝不串味 ②深档抽不出线索必须回落 flash，
-    研究档的下限永远不低于快档（绝不因换档退回原词兜底）。
-    """
+    """联想检索的两种缓存档都固定使用站方 Flash 非思考。"""
 
     PLAN = '{"quotes": ["劳动的产品"], "keywords": ["异化"], "fragments": ["异化劳动"], "chapter_keywords": []}'
 
@@ -2259,12 +2252,13 @@ class ResearchTierExpandTests(unittest.TestCase):
     def tearDown(self) -> None:
         ai_module._ASSOC_EXPAND_CACHE.clear()
 
-    def test_research_tier_uses_pro_and_others_use_flash(self) -> None:
+    def test_all_associative_tiers_use_site_flash_without_thinking(self) -> None:
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=self.PLAN) as cc:
             app_module.AI_CLIENT.expand_associative_query("研究论题甲", deep=True)
         self.assertEqual(cc.call_args.kwargs["model"], ai_module.ASSOC_EXPAND_DEEP_MODEL)
-        self.assertIn("pro", ai_module.ASSOC_EXPAND_DEEP_MODEL)
+        self.assertEqual(ai_module.ASSOC_EXPAND_DEEP_MODEL, "deepseek-v4-flash")
         self.assertTrue(cc.call_args.kwargs["disable_thinking"])  # 深档同样关思考
+        self.assertEqual(cc.call_args.kwargs["reasoning_effort"], "off")
 
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=self.PLAN) as cc2:
             app_module.AI_CLIENT.expand_associative_query("研究论题甲", deep=False)
@@ -2317,8 +2311,11 @@ class ResearchTierExpandTests(unittest.TestCase):
         # 路由层：只有显式 mode=research 才走深档。
         import inspect
 
-        src = inspect.getsource(app_module.api_search_associative)
-        self.assertIn('expand_associative_query(gist, deep=(mode == "research"))', src)
+        src = inspect.getsource(app_module._api_search_associative_impl)
+        self.assertIn(
+            'AI_CLIENT.expand_associative_query(retrieval_gist, deep=(mode == "research"))',
+            src,
+        )
 
 
 if __name__ == "__main__":

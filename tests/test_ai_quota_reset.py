@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import atexit
 import os
 import re
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 from datetime import datetime, timedelta, timezone
@@ -13,9 +10,7 @@ from unittest import mock
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-aiquota-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["TURNSTILE_ENABLED"] = "0"
@@ -55,7 +50,7 @@ class AiTokenQuotaResetTests(unittest.TestCase):
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
 
-    def _new_member(self, email: str, plan_code: str = "monthly") -> dict:
+    def _new_member(self, email: str, plan_code: str = "support_basic") -> dict:
         user = self._new_user(email)
         create_manual_subscription(user_email=email, plan_code=plan_code, note="test")
         return user

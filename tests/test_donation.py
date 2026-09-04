@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import atexit
 import os
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-donation-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"

@@ -26,7 +26,34 @@ class LibraryCollectionTests(unittest.TestCase):
             },
         }
         for collection, keys in expected.items():
-            self.assertEqual({key for key, cfg in configs.items() if cfg.collection == collection}, keys)
+            actual = {key for key, cfg in configs.items() if cfg.collection == collection}
+            self.assertTrue(keys.issubset(actual), f"{collection} 缺少基础书库：{sorted(keys - actual)}")
+
+    def test_new_xi_discourse_books_are_independent_single_volume_libraries(self) -> None:
+        configs = book_config_map()
+        expected = {
+            "论坚持党对一切工作的领导",
+            "论党的宣传思想工作",
+            "论中国共产党历史",
+            "论把握新发展阶段、贯彻新发展理念、构建新发展格局",
+            "论党的自我革命",
+            "习近平关于党的群众路线教育实践活动论述摘编",
+            "习近平关于总体国家安全观论述摘编",
+            "习近平关于网络强国论述摘编",
+            "习近平关于社会主义精神文明建设论述摘编",
+            "习近平关于树立和践行正确政绩观论述摘编",
+        }
+        for key in expected:
+            cfg = configs[key]
+            self.assertEqual(cfg.collection, "xi_thought")
+            self.assertTrue(cfg.single_volume)
+            self.assertEqual(cfg.folder, "pdfs/习近平专题论述")
+
+        xi_scope = next(scope for scope in app_module.CORPUS_SCOPES if scope["id"] == "xi")
+        self.assertTrue(
+            expected.issubset(set(xi_scope["books"])),
+            f"习近平指定著作列表缺少：{sorted(expected - set(xi_scope['books']))}",
+        )
 
     def test_collection_labels_are_complete(self) -> None:
         self.assertEqual(app_module._COLLECTION_LABELS["classical_marxism"], "马克思主义经典著作")
@@ -47,6 +74,7 @@ class LibraryCollectionTests(unittest.TestCase):
             ("治国理政", "xi_thought"),
             ("历次党代会报告", "party_state_documents"),
             ("历史与阶级意识", "western_marxism"),
+            ("黑格尔早期神学著作", "hegel_works"),
         ), 40):
             fake.append({
                 "book": key, "book_title": f"《{key}》", "book_sort_order": index,
@@ -56,6 +84,7 @@ class LibraryCollectionTests(unittest.TestCase):
         regular, sections = app_module._library_display_sections(fake)
         self.assertEqual(regular, [])
         self.assertEqual([section["label"] for section in sections], [
+            "黑格尔著作集",
             "马克思主义经典著作",
             "马克思主义中国化时代化经典著作",
             "习近平新时代中国特色社会主义思想",

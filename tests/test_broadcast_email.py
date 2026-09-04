@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import atexit
 import os
 import re
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 from datetime import datetime, timezone
@@ -13,9 +10,7 @@ from unittest import mock
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-broadcast-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["TURNSTILE_ENABLED"] = "0"
@@ -46,9 +41,11 @@ class BroadcastEmailTests(unittest.TestCase):
     def setUp(self) -> None:
         warnings.filterwarnings("ignore", category=ResourceWarning)
         app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
+        with sqlite3.connect(app_module.JOURNAL_ALERTS_DB_PATH) as conn:
             conn.execute("DELETE FROM broadcast_deliveries")
             conn.execute("DELETE FROM broadcast_campaigns")
+            conn.commit()
+        with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
             conn.execute("DELETE FROM subscriptions")
             conn.execute("DELETE FROM users")
             conn.commit()
@@ -64,7 +61,7 @@ class BroadcastEmailTests(unittest.TestCase):
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
 
-    def _new_member(self, email: str, plan_code: str = "monthly", *, name: str = "") -> dict:
+    def _new_member(self, email: str, plan_code: str = "support_basic", *, name: str = "") -> dict:
         user = self._new_user(email, name=name)
         create_manual_subscription(user_email=email, plan_code=plan_code, note="test")
         return user
@@ -142,17 +139,17 @@ class BroadcastEmailTests(unittest.TestCase):
     # ---- audience resolution --------------------------------------------
     def test_resolve_scopes(self) -> None:
         self._new_user("plain@x.com")
-        self._new_member("m1@x.com", "monthly")
-        self._new_member("y1@x.com", "yearly")
+        self._new_member("m1@x.com", "support_basic")
+        self._new_member("plus1@x.com", "support_plus")
 
         registered = {r["email"] for r in broadcast_email.resolve_recipients("registered")}
-        self.assertEqual(registered, {"plain@x.com", "m1@x.com", "y1@x.com"})
+        self.assertEqual(registered, {"plain@x.com", "m1@x.com", "plus1@x.com"})
 
         members = {r["email"] for r in broadcast_email.resolve_recipients("members")}
-        self.assertEqual(members, {"m1@x.com", "y1@x.com"})
+        self.assertEqual(members, {"m1@x.com", "plus1@x.com"})
 
-        yearly = {r["email"] for r in broadcast_email.resolve_recipients("plans", plan_codes=["yearly"])}
-        self.assertEqual(yearly, {"y1@x.com"})
+        plus = {r["email"] for r in broadcast_email.resolve_recipients("plans", plan_codes=["support_plus"])}
+        self.assertEqual(plus, {"plus1@x.com"})
 
         specific = {r["email"] for r in broadcast_email.resolve_recipients("specific", emails=["a@x.com", "a@x.com", "b@x.com"])}
         self.assertEqual(specific, {"a@x.com", "b@x.com"})  # 去重
@@ -226,8 +223,8 @@ class BroadcastEmailTests(unittest.TestCase):
     def test_send_route_creates_and_dispatches(self) -> None:
         admin = self._create_admin("admin@x.com")
         self._login_admin(int(admin["id"]))
-        self._new_member("m1@x.com", "monthly")
-        self._new_member("m2@x.com", "yearly")
+        self._new_member("m1@x.com", "support_basic")
+        self._new_member("m2@x.com", "support_plus")
         token = self._csrf_from("/admin/content")
 
         # 让后台调度同步执行，便于确定性断言。
@@ -257,7 +254,7 @@ class BroadcastEmailTests(unittest.TestCase):
     def test_preview_route_returns_html_and_count(self) -> None:
         admin = self._create_admin("admin@x.com")
         self._login_admin(int(admin["id"]))
-        self._new_member("m1@x.com", "monthly")
+        self._new_member("m1@x.com", "support_basic")
         token = self._csrf_from("/admin/content")
         resp = self.client.post(
             "/admin/broadcast/preview",

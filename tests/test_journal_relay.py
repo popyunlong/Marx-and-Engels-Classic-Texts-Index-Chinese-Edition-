@@ -123,58 +123,27 @@ class JournalRelayTests(unittest.TestCase):
         self.assertIn("重定向", msg)
         self.assertIn("中继", msg, "报错应指向中继排查路径")
 
-    def test_placeholder_window_keeps_new_and_skips_seen(self) -> None:
-        """占位日期（NCPSSD 年精度）窗口分支：新文章照收（不被 7 天严格窗口滤掉）；
-        库里已有的旧文不随每周采集重浮进新批次。"""
-        db_path = Path(self._tmp.name) / "membership.sqlite3"
+    def test_collect_batch_skips_chinese_relay_sources(self) -> None:
+        """Legacy relay parsing may remain auditable, but production collection is English-only."""
+        db_path = Path(self._tmp.name) / "journal.sqlite3"
         old_db, old_init = ja.DB_PATH, ja.init_membership_db
+        old_list, old_fetch = ja.list_journal_sources, ja.fetch_source_articles
         ja.DB_PATH = db_path
         ja.init_membership_db = lambda: None
+        chinese_source = {
+            "id": 999, "name": "求是", "language": "zh", "is_enabled": 1,
+            "source_type": "web_html", "config": {},
+        }
+        ja.list_journal_sources = lambda limit=200: [chinese_source]
+        ja.fetch_source_articles = lambda *args, **kwargs: self.fail("Chinese source must not be fetched")
         try:
             ja.init_journal_alerts_db()
-            with ja._connect() as conn:
-                src_row = conn.execute(
-                    "SELECT * FROM journal_sources WHERE name = ?", ("求是",)
-                ).fetchone()
-            source = ja._source_row(src_row)
-            year = ja.utc_now().year
-            canned = {
-                "journal_name": "求是",
-                "language": "zh",
-                "title": "论新文章窗口",
-                "abstract": "已有摘要，避免触发回填网络请求",
-                "authors": ["测试"],
-                "url": "https://www.ncpssd.cn/Literature/articleinfo?id=QSTEST01",
-                "published_at": f"{year}-01-01",   # NCPSSD 占位日期
-                "requires_review": False,
-                "metadata": {"source": "ncpssd_journal", "ncpssd_id": f"QS{year}01TEST"},
-            }
-            old_list, old_fetch = ja.list_journal_sources, ja.fetch_source_articles
-            ja.list_journal_sources = lambda limit=200: [source]
-            ja.fetch_source_articles = lambda src, lookback_days=None: [dict(canned, metadata=dict(canned["metadata"]))]
-            try:
-                settings = ja.normalize_alert_settings({"lookback_days": 7})
-                run1 = ja.collect_batch(ai_client=None, settings=settings)
-                self.assertEqual(run1["articles_inserted"], 1, "占位日期的新文章不应被 7 天严格窗口滤掉")
-                run2 = ja.collect_batch(ai_client=None, settings=settings)
-                self.assertEqual(run2["articles_inserted"], 0)
-                with ja._connect() as conn:
-                    row = conn.execute(
-                        "SELECT batch_id, status FROM journal_articles WHERE title = ?", ("论新文章窗口",)
-                    ).fetchone()
-                self.assertEqual(int(row["batch_id"]), int(run1["batch_id"]), "旧文不应被重新拉进新批次")
-                self.assertEqual(str(row["status"]), "archived", "旧批次归档后旧文应保持归档，不重浮")
-            finally:
-                ja.list_journal_sources = old_list
-                ja.fetch_source_articles = old_fetch
+            run = ja.collect_batch(ai_client=None, settings=ja.normalize_alert_settings({"lookback_days": 7}))
+            self.assertEqual(run["sources_checked"], 0)
+            self.assertEqual(run["articles_inserted"], 0)
         finally:
-            ja.DB_PATH = old_db
-            ja.init_membership_db = old_init
-            # journal_alerts 的 `with _connect()` 只提交不关闭连接；Windows 下句柄不释放
-            # 会让 TemporaryDirectory 清理撞 WinError 32——强制 GC 回收悬空连接。
-            import gc
-
-            gc.collect()
+            ja.list_journal_sources, ja.fetch_source_articles = old_list, old_fetch
+            ja.DB_PATH, ja.init_membership_db = old_db, old_init
 
     def test_relay_status_fresh_and_missing(self) -> None:
         """控制台状态卡：新鲜中继给出源/篇统计；缺文件时 present=False 且不抛异常。"""

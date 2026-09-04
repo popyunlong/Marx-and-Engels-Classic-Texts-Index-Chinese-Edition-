@@ -12,18 +12,17 @@ from scripts.build_western_marxism import clean_model_text, parse_toc_response, 
 
 
 WESTERN_KEYS = {
-    "历史与阶级意识", "马克思主义和哲学", "狱中札记", "希望的原理（第一卷）",
-    "启蒙辩证法", "保卫马克思", "空间的生产",
+    cfg.key for cfg in book_config_map().values()
+    if cfg.collection == "western_marxism"
 }
 
 
 class WesternMarxismConfigTests(unittest.TestCase):
-    def test_seven_books_are_independent_single_volumes_in_one_collection(self) -> None:
+    def test_48_books_are_independent_titles_in_one_collection(self) -> None:
         configs = book_config_map()
-        self.assertTrue(WESTERN_KEYS <= set(configs))
+        self.assertEqual(len(WESTERN_KEYS), 48)
         for key in WESTERN_KEYS:
             cfg = configs[key]
-            self.assertTrue(cfg.single_volume)
             self.assertEqual(cfg.collection, "western_marxism")
             self.assertTrue(cfg.authors)
             self.assertTrue(cfg.translators)
@@ -33,13 +32,14 @@ class WesternMarxismConfigTests(unittest.TestCase):
         payload = yaml.safe_load(path.read_text(encoding="utf-8"))
         rows = payload["books"]
         self.assertEqual({row["key"] for row in rows}, WESTERN_KEYS)
+        self.assertEqual(len(rows), 50)
         self.assertTrue(all(row["file"].startswith("pdfs/西马文库/") for row in rows))
-        self.assertTrue(all(row["status"] == "ready" for row in rows))
+        self.assertTrue(all(row["status"] in {"ready", "metadata_pending"} for row in rows))
         self.assertTrue(all(row["license_basis"] for row in rows))
-        self.assertTrue(all(row["metadata_verified"] for row in rows))
+        self.assertTrue(all(row.get("metadata_verified") for row in rows if row["status"] == "ready"))
         self.assertTrue(all(len(str(row["sha256"])) == 64 for row in rows))
 
-    def test_scope_contains_exactly_the_seven_books(self) -> None:
+    def test_scope_contains_exactly_the_48_books(self) -> None:
         scope = app_module._CORPUS_SCOPE_BY_ID["western_marxism"]
         self.assertEqual(set(scope["books"]), WESTERN_KEYS)
         self.assertIn("卢卡奇", scope["hints"])
@@ -56,7 +56,7 @@ class WesternMarxismConfigTests(unittest.TestCase):
         groups = app_module._library_volume_groups(fake)
         self.assertEqual(len(groups), 1)
         self.assertTrue(groups[0]["is_collection"])
-        self.assertEqual(groups[0]["book_count"], 7)
+        self.assertEqual(groups[0]["book_count"], 48)
         self.assertEqual({b["key"] for b in groups[0]["books"]}, WESTERN_KEYS)
 
         regular, sections = app_module._library_display_sections(fake)

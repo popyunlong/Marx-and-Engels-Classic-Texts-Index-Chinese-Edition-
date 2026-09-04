@@ -12,21 +12,16 @@
 
 from __future__ import annotations
 
-import atexit
 import os
 import re
-import shutil
 import sys
-import tempfile
 import unittest
 import warnings
 from pathlib import Path
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-reader-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"
@@ -79,7 +74,7 @@ class ReaderFrontendTests(unittest.TestCase):
                 email_verified_at="2026-01-01T00:00:00+00:00",
             )
         if not list_subscriptions_for_user(int(user["id"])):
-            create_manual_subscription(user_email=email, plan_code="monthly", note="test")
+            create_manual_subscription(user_email=email, plan_code="support_basic", note="test")
         token = self._csrf_from("/login")
         response = self.client.post(
             "/login",
@@ -132,8 +127,8 @@ class ReaderFrontendTests(unittest.TestCase):
         """翻页、目录跳转、书页图像加载与高亮参数必须在脚本中完成绑定。"""
         html = self._render_viewer()
         for needle in (
-            "prevBtn.addEventListener('click'",
-            "nextBtn.addEventListener('click'",
+            "bindPageTurnButton(prevBtn, -1)",
+            "bindPageTurnButton(nextBtn, 1)",
             "tocList.addEventListener('click'",
             "pageImage.src = buildPageImageUrl(",
             "highlightQueryText",

@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import atexit
 import json
 import os
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 from datetime import timedelta
+from unittest import mock
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-membership-tier-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"
@@ -59,6 +55,11 @@ class MembershipTierTests(unittest.TestCase):
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
 
+    def _buy_legacy(self, email: str, plan_code: str) -> None:
+        """这组测试验证的是历史套餐叠加语义；付款时间必须落在 8·15 停售线之前。"""
+        with mock.patch("membership.utc_now_text", return_value="2026-08-14T15:00:00+00:00"):
+            create_manual_subscription(user_email=email, plan_code=plan_code, note="t")
+
     def _insert_sub(
         self, user_id: int, plan_code: str, *, starts_days: int, expires_days: int, created_iso: str, status: str = "active"
     ) -> None:
@@ -76,8 +77,8 @@ class MembershipTierTests(unittest.TestCase):
 
     def test_month_then_quarter_upgrades_identity(self) -> None:
         u = self._new_user("m2q@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
-        create_manual_subscription(user_email=u["email"], plan_code="quarterly", note="t")
+        self._buy_legacy(u["email"], "monthly")
+        self._buy_legacy(u["email"], "quarterly")
         snap = get_membership_snapshot(int(u["id"]))
         self.assertTrue(snap.is_active_member)
         self.assertEqual(snap.plan_code, "quarterly")
@@ -86,8 +87,8 @@ class MembershipTierTests(unittest.TestCase):
     def test_quarter_then_month_not_downgraded(self) -> None:
         # 回归核心：高档会员叠买低档套餐，身份不得降级。
         u = self._new_user("q2m@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="quarterly", note="t")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        self._buy_legacy(u["email"], "quarterly")
+        self._buy_legacy(u["email"], "monthly")
         snap = get_membership_snapshot(int(u["id"]))
         self.assertTrue(snap.is_active_member)
         self.assertEqual(snap.plan_code, "quarterly")
@@ -98,8 +99,8 @@ class MembershipTierTests(unittest.TestCase):
 
     def test_same_tier_renew_extends(self) -> None:
         u = self._new_user("renew@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        self._buy_legacy(u["email"], "monthly")
+        self._buy_legacy(u["email"], "monthly")
         snap = get_membership_snapshot(int(u["id"]))
         self.assertTrue(snap.is_active_member)
         self.assertEqual(snap.plan_code, "monthly")
@@ -107,8 +108,8 @@ class MembershipTierTests(unittest.TestCase):
 
     def test_yearly_dominates_when_stacked(self) -> None:
         u = self._new_user("y@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
-        create_manual_subscription(user_email=u["email"], plan_code="yearly", note="t")
+        self._buy_legacy(u["email"], "monthly")
+        self._buy_legacy(u["email"], "yearly")
         snap = get_membership_snapshot(int(u["id"]))
         self.assertEqual(snap.plan_code, "yearly")
 
@@ -131,8 +132,8 @@ class MembershipTierTests(unittest.TestCase):
     def test_admin_list_reflects_highest_tier(self) -> None:
         # 后台用户列表也须按最高档展示（不被叠加的低档订阅拉低）。
         u = self._new_user("adminlist@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="quarterly", note="t")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        self._buy_legacy(u["email"], "quarterly")
+        self._buy_legacy(u["email"], "monthly")
         row = next(x for x in list_users(search_text="adminlist@example.test") if int(x["id"]) == int(u["id"]))
         self.assertEqual(row["membership_status"], "active")
         self.assertEqual(row["membership_plan_code"], "quarterly")
@@ -143,7 +144,7 @@ class MembershipTierTests(unittest.TestCase):
         from membership import MEMBER_EXPORT_FILE
 
         u = self._new_user("export@example.test")
-        create_manual_subscription(user_email=u["email"], plan_code="monthly", note="t")
+        self._buy_legacy(u["email"], "monthly")
         self.assertTrue(MEMBER_EXPORT_FILE.exists())
         lines = [ln for ln in MEMBER_EXPORT_FILE.read_text(encoding="utf-8").splitlines() if ln.strip()]
         rec = None

@@ -8,19 +8,14 @@
 """
 from __future__ import annotations
 
-import atexit
 import json
 import os
 import re
-import shutil
-import tempfile
 import unittest
 import warnings
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-journalreview-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ.setdefault("APPDATA", _TMP_APPDATA)
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ.setdefault("APP_MODE", "server")
 
 import journal_review as jr  # noqa: E402
@@ -56,8 +51,8 @@ class NormalizeDisciplineTest(unittest.TestCase):
         self.assertEqual(jr._normalize_discipline("政治经济学与资本主义批判"), "政治经济学与资本主义批判")
 
     def test_drift_maps_to_canonical(self) -> None:
-        # 缺「研究」后缀。
-        self.assertEqual(jr._normalize_discipline("国外马克思主义"), "国外马克思主义研究")
+        # 已下线的旧分类迁入思想史与文本研究。
+        self.assertEqual(jr._normalize_discipline("西方马克思主义流派"), "马克思主义思想史与文本研究")
         # 加括号注脚。
         self.assertEqual(jr._normalize_discipline("马克思主义中国化研究（理论成果）"), "马克思主义中国化研究")
         # 关键词兜底。

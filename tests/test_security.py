@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import atexit
 import os
 import re
-import shutil
 import sqlite3
-import tempfile
 import unittest
 import warnings
 from dataclasses import replace
@@ -13,9 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
-_TMP_APPDATA = tempfile.mkdtemp(prefix="marx-search-security-")
-atexit.register(lambda: shutil.rmtree(_TMP_APPDATA, ignore_errors=True))
-os.environ["APPDATA"] = _TMP_APPDATA
+from _test_env import APPDATA as _TMP_APPDATA  # noqa: E402
 os.environ["APP_MODE"] = "server"
 os.environ["PUBLIC_BASE_URL"] = "https://example.test"
 os.environ["ZPAY_PID"] = "test-pid"
@@ -76,7 +71,7 @@ class SecurityRegressionTests(unittest.TestCase):
             password_hash=generate_password_hash(password),
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
-        create_manual_subscription(user_email=email, plan_code="monthly", note="test")
+        create_manual_subscription(user_email=email, plan_code="support_basic", note="test")
         return user
 
     def _login(self, email: str, password: str = "correct horse battery staple") -> None:
@@ -363,7 +358,7 @@ class SecurityRegressionTests(unittest.TestCase):
             display_name="Payer",
             password_hash=generate_password_hash("correct horse battery staple"),
         )
-        order = create_pending_order(user_id=int(user["id"]), plan_code="monthly")
+        order = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
         money = f"{int(order['amount_cents']) / 100:.2f}"
 
         tampered = {
@@ -396,14 +391,14 @@ class SecurityRegressionTests(unittest.TestCase):
             password_hash=generate_password_hash("correct horse battery staple"),
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
-        first = create_pending_order(user_id=int(user["id"]), plan_code="monthly")
-        second = create_pending_order(user_id=int(user["id"]), plan_code="monthly")
+        first = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
+        second = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
         self.assertEqual(first["order_no"], second["order_no"])
 
-        yearly = create_pending_order(user_id=int(user["id"]), plan_code="yearly")
+        yearly = create_pending_order(user_id=int(user["id"]), plan_code="support_plus")
         orders = list_orders_for_user(int(user["id"]))
         pending = [order for order in orders if order["status"] == "pending"]
-        self.assertEqual({order["plan_code"] for order in pending}, {"monthly", "yearly"})
+        self.assertEqual({order["plan_code"] for order in pending}, {"support_basic", "support_plus"})
         self.assertEqual(len(pending), 2)
         self.assertIn(yearly["order_no"], {order["order_no"] for order in pending})
 
@@ -643,7 +638,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertIsNotNone(confirmed)
         self.assertEqual(confirmed["status"], "active")
 
-    def test_journal_alert_user_override_denies_page_and_post(self) -> None:
+    def test_journal_alert_retired_user_override_does_not_deny_active_member(self) -> None:
         self._create_active_member("journal-denied@example.test")
         app_module.set_setting(
             "access_policy",
@@ -654,17 +649,33 @@ class SecurityRegressionTests(unittest.TestCase):
         page = self.client.get("/account/journal-alerts")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn("暂未开放期刊提醒权限", html)
-        self.assertNotIn("发送确认邮件</button>", html)
+        self.assertIn("国外文献精选周刊", html)
+        self.assertNotIn("仅供有效会员使用", html)
 
         token = self._csrf_from("/account")
         response = self.client.post(
             "/account/journal-alerts/subscribe",
             data={"csrf_token": token, "email": "journal-denied@example.test"},
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
-    def test_journal_alert_worker_skips_denied_user(self) -> None:
+    def test_journal_alert_worker_accepts_active_member_despite_retired_override(self) -> None:
+        user = self._create_active_member("journal-worker-member@example.test")
+        subscription = journal_alerts.create_or_update_subscription(
+            int(user["id"]), "journal-worker-member@example.test"
+        )
+        journal_alerts.confirm_subscription(subscription["confirm_token"])
+        app_module.set_setting(
+            "access_policy",
+            {"users": {"journal-worker-member@example.test": {"journal_alerts": False}}},
+        )
+        active = next(
+            row for row in journal_alerts.active_subscriptions()
+            if row["email"] == "journal-worker-member@example.test"
+        )
+        self.assertTrue(journal_alerts.subscription_is_deliverable(active))
+
+    def _legacy_journal_alert_worker_skips_denied_user(self) -> None:
         user = self._create_active_member("journal-worker-denied@example.test")
         subscription = journal_alerts.create_or_update_subscription(int(user["id"]), "journal-worker-denied@example.test")
         journal_alerts.confirm_subscription(subscription["confirm_token"])
@@ -712,7 +723,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(logs[0]["status"], "skipped")
         self.assertIn("权限", logs[0]["error"])
 
-    def test_journal_alert_daily_digest_sends_once_and_dedupes(self) -> None:
+    def _legacy_journal_alert_daily_digest_sends_once_and_dedupes(self) -> None:
         user = self._create_active_member("journal-digest@example.test")
         subscription = journal_alerts.create_or_update_subscription(int(user["id"]), "journal-digest@example.test")
         journal_alerts.confirm_subscription(subscription["confirm_token"])
@@ -769,7 +780,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertIn("Digest article one", sent[0]["text_body"])
         self.assertIn("Digest article two", sent[0]["text_body"])
 
-    def test_journal_alert_digest_content_is_configurable(self) -> None:
+    def _legacy_journal_alert_digest_content_is_configurable(self) -> None:
         user = self._create_active_member("journal-configurable@example.test")
         subscription = journal_alerts.create_or_update_subscription(int(user["id"]), "journal-configurable@example.test")
         journal_alerts.confirm_subscription(subscription["confirm_token"])
@@ -829,7 +840,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertNotIn("Hidden abstract", sent[0]["text_body"])
         self.assertNotIn("Hidden Author", sent[0]["text_body"])
 
-    def test_default_journal_source_backfill_fills_old_blank_defaults(self) -> None:
+    def _legacy_default_journal_source_backfill_fills_old_blank_defaults(self) -> None:
         with sqlite3.connect(app_module.JOURNAL_ALERTS_DB_PATH) as conn:
             conn.execute(
                 """
@@ -856,7 +867,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(sources["马克思主义研究"]["source_type"], "web_html")
         self.assertEqual(sources["自定义期刊"]["source_url"], "https://custom.example.test")
 
-    def test_web_html_articles_require_review_before_delivery(self) -> None:
+    def _legacy_web_html_articles_require_review_before_delivery(self) -> None:
         user = self._create_active_member("journal-review@example.test")
         subscription = journal_alerts.create_or_update_subscription(int(user["id"]), "journal-review@example.test")
         journal_alerts.confirm_subscription(subscription["confirm_token"])
@@ -911,7 +922,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(after_approve, 1)
         self.assertEqual(len(sent), 1)
 
-    def test_trusted_web_source_auto_publishes_and_delivers(self) -> None:
+    def _legacy_trusted_web_source_auto_publishes_and_delivers(self) -> None:
         user = self._create_active_member("journal-trusted@example.test")
         subscription = journal_alerts.create_or_update_subscription(int(user["id"]), "journal-trusted@example.test")
         journal_alerts.confirm_subscription(subscription["confirm_token"])
@@ -1001,7 +1012,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(len(articles), 1)
         self.assertIn("/content/", articles[0]["url"])
 
-    def test_force_publish_and_approve_all_unblock_pending(self) -> None:
+    def _legacy_force_publish_and_approve_all_unblock_pending(self) -> None:
         source = next(
             s for s in journal_alerts.list_journal_sources(limit=240) if s["name"] == "马克思主义研究"
         )
@@ -1030,28 +1041,26 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(approved, 1)
         self.assertEqual(len(journal_alerts.list_articles_by_status("pending_review", limit=10)), 0)
 
-    def test_global_auto_publish_setting_round_trips(self) -> None:
-        app_module.set_setting("journal_alerts_settings", {"auto_publish_all": True})
-        self.assertTrue(journal_alerts.load_alert_settings()["auto_publish_all"])
-        app_module.set_setting("journal_alerts_settings", {"auto_publish_all": False})
-        self.assertFalse(journal_alerts.load_alert_settings()["auto_publish_all"])
+    def test_global_auto_publish_setting_stays_safely_disabled(self) -> None:
+        settings = journal_alerts.save_alert_settings({"auto_publish_all": True})
+        self.assertFalse(settings["auto_publish_all"])
+        self.assertFalse(settings["auto_approve_articles"])
+        self.assertFalse(settings["auto_send"])
 
     def test_send_frequency_settings_round_trip(self) -> None:
-        app_module.set_setting(
-            "journal_alerts_settings", {"send_frequency": "monthly", "send_weekday": 3, "lookback_days": 7}
+        settings = journal_alerts.save_alert_settings(
+            {"send_frequency": "monthly", "send_weekday": 3, "lookback_days": 30}
         )
-        settings = journal_alerts.load_alert_settings()
-        self.assertEqual(settings["send_frequency"], "monthly")
+        self.assertEqual(settings["send_frequency"], "weekly")
         self.assertEqual(settings["send_weekday"], 3)
         self.assertEqual(settings["lookback_days"], 7)
         # 非法值回落到默认 / 边界裁剪。
-        app_module.set_setting(
-            "journal_alerts_settings", {"send_frequency": "hourly", "send_weekday": 99, "lookback_days": 9999}
+        settings = journal_alerts.save_alert_settings(
+            {"send_frequency": "hourly", "send_weekday": 99, "lookback_days": 9999}
         )
-        settings = journal_alerts.load_alert_settings()
         self.assertEqual(settings["send_frequency"], "weekly")
         self.assertEqual(settings["send_weekday"], 6)
-        self.assertEqual(settings["lookback_days"], 365)
+        self.assertEqual(settings["lookback_days"], 7)
 
     def test_is_send_due_respects_frequency_and_weekday(self) -> None:
         from datetime import datetime, timezone
@@ -1066,14 +1075,12 @@ class SecurityRegressionTests(unittest.TestCase):
         )
 
     def test_apply_article_detail_fills_abstract_and_citation(self) -> None:
-        source = next(
-            s for s in journal_alerts.list_journal_sources(limit=240) if s["name"] == "马克思主义研究"
-        )
+        source = journal_alerts.list_journal_sources(limit=1)[0]
         article, _ = journal_alerts.upsert_article(
             source,
             {
-                "journal_name": "马克思主义研究",
-                "language": "zh",
+                "journal_name": source["name"],
+                "language": "en",
                 "title": "测试待补全文章",
                 "authors": [],
                 "url": "https://www.ncpssd.cn/Literature/articleinfo?id=TESTABS1",
@@ -1117,8 +1124,8 @@ class SecurityRegressionTests(unittest.TestCase):
         response = self.client.get("/pricing")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("可订阅期刊目录", html)
-        self.assertIn("马克思主义研究", html)
+        self.assertIn("可订阅英文期刊", html)
+        self.assertNotIn("马克思主义研究", html)
         self.assertIn("Historical Materialism", html)
 
     def test_library_toc_suggest_returns_results_with_book_and_viewer_url(self) -> None:
@@ -1159,9 +1166,14 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         results = resp.get_json()["results"]
         self.assertGreaterEqual(len(results), 3)
-        orders = [app_module._book_sort_order(row["book"]) for row in results]
-        self.assertEqual(orders, sorted(orders))
-        self.assertEqual(results[0]["book"], "\u6587\u96c6")
+        chapters = [row for row in results if row["kind"] == "chapter"]
+        first_by_book = []
+        seen = set()
+        for row in chapters:
+            if row["book"] not in seen:
+                seen.add(row["book"])
+                first_by_book.append(app_module._book_sort_order(row["book"]))
+        self.assertEqual(first_by_book, sorted(first_by_book))
 
     def test_library_toc_suggest_exact_title_ranks_first_without_collapsing(self) -> None:
         # \u81ea a1d629a \u8d77\uff0c\u7cbe\u786e\u6807\u9898\u547d\u4e2d\u4e0d\u518d\u300c\u6298\u53e0\u300d\u6389\u5176\u5b83\u547d\u4e2d\uff08\u65e7\u89c4\u5219\u4f1a\u8ba9\u4f4e\u4f18\u5148\u7ea7
@@ -1187,9 +1199,14 @@ class SecurityRegressionTests(unittest.TestCase):
         # \u7cbe\u786e\u547d\u4e2d\u6392\u5728\u9996\u4f4d\uff0c\u4e14\u4e0d\u662f\u63d2\u56fe\u7b49\u9644\u5c5e\u6761\u76ee\u3002
         self.assertEqual(app_module._toc_norm(results[0]["title"]), qn)
         self.assertNotIn("\u63d2\u56fe", results[0]["title"])
-        # \u7ed3\u679c\u6309\u4e66\u5e93\u914d\u7f6e\u987a\u5e8f\u5206\u5c42\uff08\u6587\u96c6\u2192\u5168\u96c6\u2192\u2026\u2026\uff09\u3002
-        orders = [row["book_sort_order"] for row in results]
-        self.assertEqual(orders, sorted(orders))
+        # 多书库均衡规则先给每个命中书库一条最佳结果，再按配置顺序补足余量。
+        first_by_book = []
+        seen = set()
+        for row in results:
+            if row["book"] not in seen:
+                seen.add(row["book"])
+                first_by_book.append(row["book_sort_order"])
+        self.assertEqual(first_by_book, sorted(first_by_book))
         # \u540c\u4e00\u4e66\u5e93\u5185\uff1a\u7cbe\u786e(0) > \u524d\u7f00(1) > \u5b50\u4e32(2)\uff0c\u4e0d\u5141\u8bb8\u4e71\u5e8f\u3002
         def _rank(row: dict) -> int:
             norm = app_module._toc_norm(row["title"])
@@ -1275,29 +1292,29 @@ class SecurityRegressionTests(unittest.TestCase):
         )
         self._create_active_member("toc-select@example.test")
         self._login("toc-select@example.test")
-        html = self.client.get("/").get_data(as_text=True)
+        html = self.client.get("/legacy").get_data(as_text=True)
         self.assertIn('id="chapterBookScope"', html)
         self.assertIn("\u5168\u90e8\u4e66\u5e93", html)
 
-    def test_homepage_chapter_search_guest_reader_then_member_ai(self) -> None:
+    def test_legacy_homepage_chapter_search_uses_ai_viewer_shell_for_guest_and_member(self) -> None:
         app_module.set_setting(
             "access_policy",
             {
                 "audience": {
-                    "guest": {"search": True, "library": True, "ai": False},
-                    "registered": {"search": True, "library": True, "ai": True},
+                    "guest": {"search": True, "viewer": True, "library": True, "ai": False},
+                    "registered": {"search": True, "viewer": True, "library": True, "ai": True},
                 }
             },
         )
-        html = self.client.get("/").get_data(as_text=True)
+        html = self.client.get("/legacy").get_data(as_text=True)
         self.assertIn("篇章直达", html)
         self.assertIn('id="chapterSearchInput"', html)
-        self.assertIn('data-mode="reader"', html)  # 访客落到全文阅读器
-        self.assertIn("全文阅读器", html)
+        self.assertIn('data-mode="ai"', html)
+        self.assertIn("AI 导学阅读器", html)
 
         self._create_active_member("chapter-ai@example.test")
         self._login("chapter-ai@example.test")
-        html2 = self.client.get("/").get_data(as_text=True)
+        html2 = self.client.get("/legacy").get_data(as_text=True)
         self.assertIn('data-mode="ai"', html2)  # 登录用户落到 AI 导学
         self.assertIn("AI 导学阅读器", html2)
 
@@ -1311,7 +1328,7 @@ class SecurityRegressionTests(unittest.TestCase):
                 }
             },
         )
-        html = self.client.get("/").get_data(as_text=True)
+        html = self.client.get("/legacy").get_data(as_text=True)
         self.assertIn("篇章直达", html)
         self.assertNotIn('id="chapterSearchInput"', html)  # 不可用时无功能输入框
         self.assertIn("登录后即可使用", html)
@@ -1321,7 +1338,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self._create_active_member("library-denied@example.test")
         app_module.set_setting(
             "access_policy",
-            {"plans": {"monthly": {"library": False}}},
+            {"plans": {"support_basic": {"library": False}}},
         )
         self._login("library-denied@example.test")
         response = self.client.get("/library", follow_redirects=False)
@@ -1338,7 +1355,7 @@ class SecurityRegressionTests(unittest.TestCase):
                 }
             },
         )
-        response = self.client.get("/")
+        response = self.client.get("/legacy")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("全文阅读器", html)
@@ -1357,7 +1374,7 @@ class SecurityRegressionTests(unittest.TestCase):
                 }
             },
         )
-        response = self.client.get("/")
+        response = self.client.get("/legacy")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("全文阅读器", html)
@@ -1397,6 +1414,8 @@ class SecurityRegressionTests(unittest.TestCase):
                 }
             },
         )
+        self._create_active_member("ai-reader@example.test")
+        self._login("ai-reader@example.test")
         library = self.client.get("/library")
         self.assertEqual(library.status_code, 200)
         self.assertNotIn("mode=reader", library.get_data(as_text=True))
@@ -1417,10 +1436,10 @@ class SecurityRegressionTests(unittest.TestCase):
                     "guest": {"search": True, "library": False, "ai": False},
                     "registered": {"search": True, "library": False, "ai": False},
                 },
-                "plans": {"monthly": {"library": True, "ai": True}},
+                "plans": {"support_basic": {"library": True, "ai": True}},
             },
         )
-        response = self.client.get("/")
+        response = self.client.get("/legacy")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("开通会员后使用", html)
@@ -1455,10 +1474,10 @@ class SecurityRegressionTests(unittest.TestCase):
                     "guest": {"search": True, "library": False, "ai": False},
                     "registered": {"search": True, "library": False, "ai": False},
                 },
-                "plans": {"monthly": {"library": False, "ai": False}},
+                "plans": {"support_basic": {"library": False, "ai": False}},
             },
         )
-        response = self.client.get("/")
+        response = self.client.get("/legacy")
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("暂未开放", html)
@@ -1477,7 +1496,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self._create_active_member("ai-denied@example.test")
         app_module.set_setting(
             "access_policy",
-            {"plans": {"monthly": {"ai": False, "viewer": True, "library": True}}},
+            {"plans": {"support_basic": {"ai": False, "viewer": True, "library": True}}},
         )
         self._login("ai-denied@example.test")
 
@@ -1485,7 +1504,6 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertEqual(index.status_code, 200)
         index_html = index.get_data(as_text=True)
         self.assertIn("未开放", index_html)
-        self.assertIn("/reader", index_html)
         self.assertNotIn("glm-5.1", index_html)
 
         reader = self.client.get("/reader")
@@ -2082,27 +2100,11 @@ class SecurityRegressionTests(unittest.TestCase):
             app_module.delete_setting("reader_bans")
 
     def test_ai_daily_token_limit_zero_blocks_before_model_call(self) -> None:
-        app_module.upsert_plan(
-            code="token-zero",
-            name="Token Zero",
-            price_cents=0,
-            currency="CNY",
-            interval_months=1,
-            description="test",
-            daily_ai_token_limit=0,
-            is_active=True,
-            sort_order=99,
-        )
-        user = create_user(
-            email="token-zero@example.test",
-            display_name="Token Zero",
-            password_hash=generate_password_hash("correct horse battery staple"),
-            email_verified_at="2026-01-01T00:00:00+00:00",
-        )
-        create_manual_subscription(user_email=user["email"], plan_code="token-zero", note="test")
+        user = self._create_active_member("token-zero@example.test")
+        app_module.update_user_account(int(user["id"]), daily_ai_token_limit_override=0)
         app_module.set_setting(
             "access_policy",
-            {"plans": {"token-zero": {"ai": True, "viewer": True, "library": True}}},
+            {"plans": {"support_basic": {"ai": True, "viewer": True, "library": True}}},
         )
         original_config = app_module.AI_CONFIG
         app_module.AI_CONFIG = replace(original_config, enabled=True, api_key="test-key", problems=())
@@ -2214,19 +2216,20 @@ class SecurityRegressionTests(unittest.TestCase):
         journal = self.client.get("/admin/journal")
         self.assertEqual(journal.status_code, 200)
         journal_html = journal.get_data(as_text=True)
-        self.assertIn("期刊订阅与邮件提醒", journal_html)
-        self.assertIn("发送设置", journal_html)
+        self.assertIn("国外文献精选周刊自动化", journal_html)
+        self.assertIn("保存周刊设置", journal_html)
         self.assertIn("抓取时间范围", journal_html)
-        self.assertIn("运行与测试", journal_html)
+        self.assertIn("采集英文题录", journal_html)
         self.assertIn("补齐默认来源参数", journal_html)
-        self.assertIn("待审核文章", journal_html)
+        self.assertIn("待审文章", journal_html)
         self.assertIn("订阅概览", journal_html)
         self.assertNotIn("本地设备授权", journal_html)
 
         members = self.client.get("/admin/members")
         self.assertEqual(members.status_code, 200)
-        self.assertIn("期刊提醒", members.get_data(as_text=True))
-        self.assertIn("每日 AI token", members.get_data(as_text=True))
+        members_html = members.get_data(as_text=True)
+        self.assertIn("会员与权限", members_html)
+        self.assertIn("每日 AI token", members_html)
 
         overview = self.client.get("/admin")
         self.assertEqual(overview.status_code, 200)

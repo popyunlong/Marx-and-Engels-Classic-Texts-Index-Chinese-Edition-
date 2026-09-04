@@ -155,3 +155,47 @@ def test_update_cloud_keeps_cache_permission_fix_opt_in() -> None:
     assert "install -d -o www-data -g www-data -m 0700 /var/www/.marx_search_full" in script
     assert "if ($FixCachePermissions)" in script
     assert "chown -R www-data:www-data /var/www/.marx_search_full" in script
+
+
+def test_journal_processing_timer_is_deployed_and_health_checked() -> None:
+    manifest = set(_read_manifest(PATCH_MANIFEST))
+    update = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
+    timer = (ROOT / "deploy" / "marx-search-journal-process.timer").read_text(encoding="utf-8")
+
+    assert "deploy/marx-search-journal-process.service" in manifest
+    assert "deploy/marx-search-journal-process.timer" in manifest
+    assert "/etc/systemd/system/marx-search-journal-process.service" in update
+    assert "/etc/systemd/system/marx-search-journal-process.timer" in update
+    assert "systemctl is-active marx-search-journal-process.timer" in update
+    assert "OnCalendar=*-*-* *:00/15:00 UTC" in timer
+
+
+def test_zero_downtime_release_never_patches_live_before_candidate_cutover() -> None:
+    update = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
+    cutover = (ROOT / "deploy" / "zero_downtime_restart.sh").read_text(encoding="utf-8")
+    stage = (ROOT / "deploy" / "stage_release.sh").read_text(encoding="utf-8")
+
+    assert "tar -xzf '$remoteArchive' -C '$RemoteDir'" not in update
+    assert "MARX_RELEASE_DIR='$remoteRelease'" in update
+    assert "MARX_PATCH_ARCHIVE='$remoteArchive'" in update
+    assert "Candidate validation completed; -SkipRestart leaves the live tree unchanged." in update
+    assert 'WorkingDirectory=${RELEASE_DIR}' in cutover
+    assert 'PYTHONPATH=${RELEASE_DIR}:${EXTRA_PYTHONPATH}' in cutover
+    assert 'from app import DEPLOYMENT, run_waitress' in cutover
+    assert '"$APP_DIR/.venv/bin/python" "$RELEASE_DIR/serve.py"' not in cutover
+    assert '"http://127.0.0.1:${port}/ai"' in cutover
+    assert '"http://127.0.0.1:${port}/v2/ai"' in cutover
+    assert 'monitor_drain "$CANDIDATE_PORT" "$PRIMARY_PORT"' in cutover
+    assert 'monitor_drain "$PRIMARY_PORT" "$CANDIDATE_PORT"' in cutover
+    assert 'tar --extract --gzip --file "$PATCH_ARCHIVE" --directory "$APP_DIR"' not in cutover
+    assert 'promote_dir="$(mktemp -d)"' in cutover
+    assert 'cp -a -- "$source" "$destination"' in cutover
+    assert "--unlink-first" in stage
+    assert "cp -a -s" in stage
+
+
+def test_deploy_gates_and_mimo_are_safe_by_default() -> None:
+    env_example = (ROOT / "deploy" / "marx-search.env.example").read_text(encoding="utf-8")
+    assert "MIMO_API_KEY=" in env_example
+    assert "MIMO_MIGRATION_ENABLED=0" in env_example
+    assert "MIMO_ADMIN_GRAY_ENABLED=0" in env_example
