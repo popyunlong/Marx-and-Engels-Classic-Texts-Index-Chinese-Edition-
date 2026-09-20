@@ -47,6 +47,7 @@ scripts/predeploy_membership_migration.py
 scripts/mimo_quality_gate.py
 scripts/journal_alert_worker.py
 scripts/citation_assistant_worker.py
+scripts/citation_agent_preflight.py
 scripts/citation_production_acceptance.py
 scripts/citation_production_isolated_suite.py
 scripts/citation_recall_benchmark.py

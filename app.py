@@ -1979,12 +1979,14 @@ def _citation_assistant_admin_preview(user: dict | None = None) -> bool:
 
 
 def _citation_assistant_enabled_for_user(user: dict | None = None) -> bool:
-    """管理员始终可维护；其他用户按已上线会员功能权限判断。"""
+    """游客和普通登录用户只看界面；仅有效会员可使用。"""
     if not _feature_is_available("citation_assistant"):
         return False
     target = user if user is not None else getattr(g, "current_user", None)
     if _citation_assistant_admin_preview(target):
         return True
+    if not target or not _membership_plan_code_for_user(target):
+        return False
     return bool(
         _citation_assistant_rollout_enabled()
         and _feature_effective_for_user("citation_assistant", target)
@@ -12969,9 +12971,13 @@ def _require_citation_assistant_access():
         # accidentally expose an unreleased feature to members.
         if not _citation_assistant_rollout_enabled():
             abort(404)
+        if not user:
+            abort(401, description="请先登录会员账号。")
+        if not _membership_plan_code_for_user(user):
+            abort(403, description="论文插注校注仅向有效会员开放。")
         _require_content_feature("citation_assistant")
     if not user:
-        abort(401, description="请先登录已开通论文引文助手的会员账号。")
+        abort(401, description="请先登录会员账号。")
     if corpus is None:
         abort(503, description="引文语料库尚未就绪。")
     # GB/T 7714—2025 未核准时只禁用该格式（创建任务处另行校验），不能连带封死
@@ -13166,6 +13172,9 @@ def _citation_job_payload(job: dict) -> dict:
             "citation_style", "resolved_style", "style_confidence", "scope", "sections",
             "selected_sections", "flags", "status", "progress_done", "progress_total",
             "candidate_count", "accepted_count", "corpus_sha256", "template_version",
+            "auto_insert_eligible_count", "inserted_count", "not_inserted_count",
+            "proofread_eligible_count", "commented_count", "readonly_count",
+            "word_export_status", "pdf_export_status", "pdf_position_failure_count",
             "error", "created_at", "updated_at", "expires_at",
         )
     }
@@ -13387,6 +13396,25 @@ def api_citation_export(job_id: str):
     return jsonify({"ok": True, "status": "exporting"}), 202
 
 
+@app.post("/api/citation-assistant/jobs/<job_id>/retry-pdf")
+def api_citation_retry_pdf(job_id: str):
+    user = _require_citation_assistant_access()
+    job = citation_tasks.get_job(job_id, int(user["id"]))
+    if not job:
+        abort(404, description="任务不存在。")
+    if (
+        job.get("corpus_sha256") != _citation_corpus_sha256()
+        or job.get("template_version") != _citation_template_version()
+    ):
+        abort(409, description="语料或模板版本已更新，请新建任务后再导出。")
+    try:
+        queued = citation_tasks.queue_pdf_retry(job_id, int(user["id"]))
+    except citation_tasks.CitationAssistantError as exc:
+        abort(409, description=str(exc))
+    _citation_dispatch(job_id, _citation_export_worker)
+    return jsonify({"ok": True, "status": "exporting", "job": _citation_job_payload(queued)}), 202
+
+
 @app.get("/api/citation-assistant/jobs/<job_id>/download/<artifact>")
 def citation_assistant_download(job_id: str, artifact: str):
     user = _require_citation_assistant_access()
@@ -13398,7 +13426,7 @@ def citation_assistant_download(job_id: str, artifact: str):
         mimetype, name = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", path.name
     elif artifact == "pdf":
         path = Path(str(job.get("output_pdf_path") or ""))
-        name = "论文引文校对批注版.pdf" if "批注版" in path.name else "论文引文校对旧版列表报告.pdf"
+        name = path.name
         mimetype = "application/pdf"
     else:
         abort(404)

@@ -1,0 +1,53 @@
+[Unit]
+Description=Marx citation redacted planning Agent
+After=network-online.target tinyproxy.service
+Wants=network-online.target
+ConditionPathExists=/etc/marx-citation-agent.env
+
+[Service]
+Type=simple
+User=marx-citation-agent
+Group=marx-citation-agent
+SupplementaryGroups=marx-citation-agent-queue
+WorkingDirectory=/opt/marx-citation-agent/current
+EnvironmentFile=/etc/marx-citation-agent.env
+ExecStart=/opt/marx-citation-agent/venv/bin/python scripts/citation_agent_worker.py
+Restart=always
+RestartSec=5
+UMask=0007
+Nice=15
+CPUQuota=25%
+MemoryHigh=220M
+MemoryMax=256M
+IOWeight=10
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/marx-citation-agent/queue
+InaccessiblePaths=/var/www/.marx_search_full /opt/marx-search /etc/marx-search.env
+
+# Only a loopback allow-listing CONNECT proxy is reachable.  The service cannot
+# connect to the public Internet or private network addresses directly.
+IPAddressDeny=any
+IPAddressAllow=127.0.0.2
+
+# Deliberately no [Install] section: keep stopped while CITATION_AGENT_TEST_MODE=off.

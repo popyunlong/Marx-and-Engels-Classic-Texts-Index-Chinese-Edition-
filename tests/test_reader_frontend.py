@@ -18,6 +18,7 @@ import sys
 import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -84,6 +85,8 @@ class ReaderFrontendTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
 
     def _first_volume(self):
+        if app_module.corpus is None:
+            self.skipTest("隔离发布工作区未挂载大型语料库")
         for book in app_module.BOOK_CONFIG_BY_KEY:
             volumes = app_module.corpus.get_volumes(book)
             if volumes:
@@ -137,6 +140,8 @@ class ReaderFrontendTests(unittest.TestCase):
 
     def test_page_image_returns_jpeg_when_renderable(self) -> None:
         """可渲染卷册的 /page-image 应返回 JPEG（书页图像不能是空白框）。"""
+        if app_module.corpus is None:
+            self.skipTest("隔离发布工作区未挂载大型语料库")
         renderable = None
         for book in app_module.BOOK_CONFIG_BY_KEY:
             for volume in app_module.corpus.get_volumes(book):
@@ -151,6 +156,87 @@ class ReaderFrontendTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.mimetype, "image/jpeg")
         self.assertGreater(len(response.get_data()), 0)
+
+
+class CitationAssistantAudienceTests(unittest.TestCase):
+    """访客和普通登录用户可看界面，但只有效会员可调用任务 API。"""
+
+    password = "correct horse battery staple"
+
+    def setUp(self) -> None:
+        app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+        # 即使运营策略误将普通注册用户标为允许，仍强制会员门槛。
+        app_module.set_setting(
+            "access_policy",
+            {
+                "global": {"citation_assistant": True},
+                "audience": {"registered": {"citation_assistant": True}},
+            },
+        )
+        self._corpus_patch = mock.patch.object(app_module, "corpus", object())
+        self._scope_patch = mock.patch.object(app_module, "_book_scope_tree", return_value=[])
+        self._corpus_patch.start()
+        self._scope_patch.start()
+        self.addCleanup(self._scope_patch.stop)
+        self.addCleanup(self._corpus_patch.stop)
+        self.client = app_module.app.test_client()
+
+    def _login(self, email: str, *, member: bool) -> None:
+        user = get_user_by_email(email)
+        if user is None:
+            user = create_user(
+                email=email, display_name=email.split("@", 1)[0],
+                password_hash=generate_password_hash(self.password),
+                email_verified_at="2026-01-01T00:00:00+00:00",
+            )
+        if member and not list_subscriptions_for_user(int(user["id"])):
+            create_manual_subscription(user_email=email, plan_code="support_basic", note="test")
+        login = self.client.get("/login")
+        match = re.search(r'name="csrf_token" value="([^"]+)"', login.get_data(as_text=True))
+        self.assertIsNotNone(match)
+        response = self.client.post(
+            "/login",
+            data={"csrf_token": match.group(1), "email": email, "password": self.password},
+        )
+        self.assertEqual(response.status_code, 302)
+
+    @staticmethod
+    def _page_csrf(html: str) -> str:
+        match = re.search(r'data-csrf="([^"]+)"', html)
+        if match is None:
+            raise AssertionError("citation page must expose a CSRF token")
+        return match.group(1)
+
+    def test_guest_sees_locked_interface(self) -> None:
+        response = self.client.get("/citation-assistant")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("会员功能预览", html)
+        self.assertIn('data-access="0"', html)
+
+    def test_registered_user_sees_interface_but_api_is_forbidden(self) -> None:
+        self._login("citation-registered@example.test", member=False)
+        page = self.client.get("/citation-assistant")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn('data-access="0"', html)
+        response = self.client.post(
+            "/api/citation-assistant/jobs",
+            headers={"X-CSRF-Token": self._page_csrf(html)},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_active_member_reaches_upload_validation(self) -> None:
+        self._login("citation-member@example.test", member=True)
+        page = self.client.get("/citation-assistant")
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn('data-access="1"', html)
+        response = self.client.post(
+            "/api/citation-assistant/jobs",
+            headers={"X-CSRF-Token": self._page_csrf(html)},
+        )
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

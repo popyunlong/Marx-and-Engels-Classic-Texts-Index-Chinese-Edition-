@@ -1,0 +1,24 @@
+.cat-page .cat-hero { border-color: #bfd4c8; background: linear-gradient(135deg,#f7fcf8,#eef7f1); }
+.cat-isolation { margin: 18px 0; padding: 14px 18px; border: 1px solid #b9d8c5; border-radius: 14px; background: #f3faf5; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.cat-isolation div { display: grid; gap: 4px; }
+.cat-isolation span { color: #52645a; }
+.cat-isolation a { white-space: nowrap; color: #17633c; font-weight: 700; }
+.cat-grid { grid-template-columns: repeat(4,minmax(0,1fr)) !important; }
+.cat-timeline { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin: 12px 0 20px; }
+.cat-stage { border: 1px solid #d9e1dc; border-radius: 12px; padding: 10px 12px; color: #6a756f; background: #fafcfb; }
+.cat-stage b { display: block; margin-bottom: 3px; color: inherit; }
+.cat-stage.done { border-color: #9fc5ae; background: #f1f8f3; color: #236542; }
+.cat-stage.active { border-color: #4d9b6b; box-shadow: inset 0 0 0 1px #4d9b6b; color: #155d35; }
+.cat-metrics { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 10px; margin: 12px 0 18px; }
+.cat-metrics div { border: 1px solid #dce4df; border-radius: 12px; padding: 12px; background: #fbfcfb; display: grid; gap: 4px; }
+.cat-metrics strong { font-size: 1.55rem; color: #173f2b; }
+.cat-metrics span { color: #647069; font-size: .88rem; }
+.cat-origin { background: #e9f4ff; color: #175b8d; }
+.cat-paraphrase { background: #fff4d9; color: #8b5a00; }
+.cat-unresolved { margin-top: 22px; border: 1px solid #e1d6c5; border-radius: 12px; padding: 12px 14px; background: #fffcf7; }
+.cat-unresolved summary { cursor: pointer; font-weight: 700; color: #6f542a; }
+.cat-readonly { margin-top: 12px; }
+.cat-readonly .ca-cand-head { justify-content: flex-start; }
+.cat-evidence-mark { padding: 0 .08em; border-radius: .18em; background: #ffe6a3; color: inherit; }
+@media (max-width: 980px) { .cat-grid,.cat-metrics,.cat-timeline { grid-template-columns: repeat(2,minmax(0,1fr)) !important; } }
+@media (max-width: 620px) { .cat-grid,.cat-metrics,.cat-timeline { grid-template-columns: 1fr !important; } .cat-isolation { align-items: flex-start; flex-direction: column; } }

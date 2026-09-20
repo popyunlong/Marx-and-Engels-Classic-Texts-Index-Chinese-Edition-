@@ -72,6 +72,7 @@ VALID_MODES = {"generate", "audit", "both"}
 VALID_NOTE_KINDS = {"footnote", "endnote"}
 VALID_THRESHOLDS = {"conservative", "balanced", "broad"}
 VALID_CITATION_STYLES = {"auto", "gb2025", "gb2015", "zgshkx", "mkszyj"}
+INSERTION_BLUE = "5B9BD5"
 ACTIVE_STATUSES = {"extracting", "awaiting_sections", "queued", "matching", "review_ready", "exporting"}
 JOB_STATUSES = ACTIVE_STATUSES | {"complete", "failed", "expired", "deleted"}
 CORPUS_ANALYSIS_VERSION_ERROR = "语料库版本已变更，请重新创建任务。"
@@ -111,9 +112,16 @@ _HEADING_TEXT_RE = re.compile(
     r"^(?:第[一二三四五六七八九十百0-9]+[章节篇]|[一二三四五六七八九十]+[、.]|[0-9]+(?:\.[0-9]+)*[、.\s])"
 )
 _EXCLUDE_SECTION_RE = re.compile(r"目录|目次|参考文献|參考文獻|bibliography|references", re.I)
+_REFERENCE_TAIL_HEADING_RE = re.compile(
+    r"^\s*(?:参考文献|參考文獻|references?|bibliograph(?:y|ie))\s*[：:]?\s*$",
+    re.I,
+)
 _QUOTE_RE = re.compile(r"[“\"「『]([^“”\"「」『』\n]{2,})[”\"」』]")
 _SENTENCE_RE = re.compile(r"[^。！？!?；;\n]+[。！？!?；;]?", re.M)
 _CITATION_PAGE_RE = re.compile(r"第?\s*([0-9]{1,4})(?:\s*[-—–至]\s*([0-9]{1,4}))?\s*页")
+_BIBLIOGRAPHY_PAGE_RE = re.compile(
+    r"[：:]\s*([0-9]{1,4})(?:\s*[-—–至]\s*([0-9]{1,4}))?\s*[。．.]?\s*$"
+)
 _CITATION_VOL_RE = re.compile(r"第\s*([0-9]{1,3})\s*[卷册]")
 _MANUAL_REFERENCE_RE = re.compile(r"^\s*[［\[]\s*([0-9]{1,3})\s*[］\]]\s*(.+)$")
 _MANUAL_REFERENCE_MARKER_RE = re.compile(
@@ -126,6 +134,7 @@ _NOTE_MARKER_CLOSE = "]］〕】)）"
 _NOTE_BIBLIOGRAPHY_RE = re.compile(
     r"《[^》]{2,}》|(?:\bVol\.|\bNo\.|\bpp?\.|\bPress\b|出版社|载《|DOI\s*:)", re.I,
 )
+_REFERENCE_FIELD_RE = re.compile(r'HYPERLINK\s+\\l\s+"(Ref_([0-9]{1,4}))"', re.I)
 
 _JOB_LOCK = threading.RLock()
 _MATCH_SEMAPHORE = threading.BoundedSemaphore(MATCH_CONCURRENCY)
@@ -185,6 +194,15 @@ def init_db() -> Path:
                 extraction_path TEXT NOT NULL DEFAULT '',
                 output_docx_path TEXT NOT NULL DEFAULT '',
                 output_pdf_path TEXT NOT NULL DEFAULT '',
+                auto_insert_eligible_count INTEGER NOT NULL DEFAULT 0,
+                inserted_count INTEGER NOT NULL DEFAULT 0,
+                not_inserted_count INTEGER NOT NULL DEFAULT 0,
+                proofread_eligible_count INTEGER NOT NULL DEFAULT 0,
+                commented_count INTEGER NOT NULL DEFAULT 0,
+                readonly_count INTEGER NOT NULL DEFAULT 0,
+                word_export_status TEXT NOT NULL DEFAULT 'not_started',
+                pdf_export_status TEXT NOT NULL DEFAULT 'not_requested',
+                pdf_position_failure_count INTEGER NOT NULL DEFAULT 0,
                 error TEXT NOT NULL DEFAULT '',
                 lease_owner TEXT NOT NULL DEFAULT '',
                 lease_expires_at TEXT NOT NULL DEFAULT '',
@@ -252,6 +270,15 @@ def init_db() -> Path:
         for name, declaration in {
             "lease_owner": "TEXT NOT NULL DEFAULT ''",
             "lease_expires_at": "TEXT NOT NULL DEFAULT ''",
+            "auto_insert_eligible_count": "INTEGER NOT NULL DEFAULT 0",
+            "inserted_count": "INTEGER NOT NULL DEFAULT 0",
+            "not_inserted_count": "INTEGER NOT NULL DEFAULT 0",
+            "proofread_eligible_count": "INTEGER NOT NULL DEFAULT 0",
+            "commented_count": "INTEGER NOT NULL DEFAULT 0",
+            "readonly_count": "INTEGER NOT NULL DEFAULT 0",
+            "word_export_status": "TEXT NOT NULL DEFAULT 'not_started'",
+            "pdf_export_status": "TEXT NOT NULL DEFAULT 'not_requested'",
+            "pdf_position_failure_count": "INTEGER NOT NULL DEFAULT 0",
         }.items():
             if name not in columns:
                 conn.execute(f"ALTER TABLE citation_assistant_jobs ADD COLUMN {name} {declaration}")
@@ -395,6 +422,9 @@ def update_job(job_id: str, **values: object) -> None:
         "status", "progress_done", "progress_total", "candidate_count", "accepted_count",
         "resolved_style", "style_confidence", "scope_json", "sections_json", "selected_sections_json",
         "flags_json", "extraction_path", "output_docx_path", "output_pdf_path", "error",
+        "auto_insert_eligible_count", "inserted_count", "not_inserted_count",
+        "proofread_eligible_count", "commented_count", "readonly_count",
+        "word_export_status", "pdf_export_status", "pdf_position_failure_count",
         "lease_owner", "lease_expires_at",
     }
     clean = {key: value for key, value in values.items() if key in allowed}
@@ -611,6 +641,70 @@ def _paragraph_text(paragraph: etree._Element) -> str:
     return "".join(str(node.text or "") for node in _paragraph_text_nodes(paragraph))
 
 
+def _safe_comment_spans(paragraph: etree._Element) -> list[list[int]]:
+    """Visible ranges that can be split without touching fields/revisions/comments."""
+    spans: list[list[int]] = []
+    cursor = 0
+    field_depth = 0
+    for node in paragraph.iter():
+        if node.tag == f"{{{W_NS}}}fldChar":
+            field_type = str(node.get(f"{{{W_NS}}}fldCharType") or "")
+            if field_type == "begin":
+                field_depth += 1
+            elif field_type == "end":
+                field_depth = max(0, field_depth - 1)
+            continue
+        if node.tag != f"{{{W_NS}}}t" or node.xpath("ancestor::w:del", namespaces=NS):
+            continue
+        value = str(node.text or "")
+        start, end = cursor, cursor + len(value)
+        cursor = end
+        run = node
+        while run is not None and run.tag != f"{{{W_NS}}}r":
+            run = run.getparent()
+        unsafe_ancestor = bool(node.xpath(
+            "ancestor::w:ins|ancestor::w:del|ancestor::w:txbxContent",
+            namespaces=NS,
+        ))
+        simple_run = bool(run is not None) and all(
+            child.tag in {f"{{{W_NS}}}rPr", f"{{{W_NS}}}t"} for child in run
+        )
+        if value and field_depth == 0 and not unsafe_ancestor and simple_run:
+            if spans and spans[-1][1] == start:
+                spans[-1][1] = end
+            else:
+                spans.append([start, end])
+    marker_offsets: list[int] = []
+    cursor = 0
+    for node in paragraph.iter():
+        if node.tag == f"{{{W_NS}}}t" and not node.xpath("ancestor::w:del", namespaces=NS):
+            cursor += len(str(node.text or ""))
+        elif node.tag in {
+            f"{{{W_NS}}}commentRangeStart", f"{{{W_NS}}}commentRangeEnd",
+            f"{{{W_NS}}}commentReference",
+        }:
+            marker_offsets.append(cursor)
+    if marker_offsets:
+        split: list[list[int]] = []
+        for start, end in spans:
+            points = [point for point in marker_offsets if start <= point <= end]
+            current = start
+            for point in sorted(set(points)):
+                if current < point:
+                    split.append([current, point])
+                current = point
+            if current < end:
+                split.append([current, end])
+        spans = split
+    return spans
+
+
+def _comment_span_is_safe(paragraph: etree._Element, start: int, end: int) -> bool:
+    if end <= start:
+        return False
+    return any(start >= left and end <= right for left, right in _safe_comment_spans(paragraph))
+
+
 def _manual_note_definitions(paragraphs: list[dict]) -> tuple[dict[int, str], dict[int, str], set[int]]:
     """Read common Chinese-paper manual notes/reference lists.
 
@@ -707,6 +801,65 @@ def _paragraph_style(paragraph: etree._Element) -> tuple[str, int | None]:
     return style, level
 
 
+def _validated_heading_level(text: str, level: int | None, note_refs: list[dict]) -> int | None:
+    """Reject body paragraphs that inherit a broken heading/outline style.
+
+    Some journal templates put outline level 9 on ordinary body paragraphs.  A
+    style is only a heading signal when the text also looks heading-like; an
+    explicit Chinese numeric heading remains valid even if its style is plain.
+    """
+    clean = str(text or "").strip()
+    explicit = bool(clean and len(clean) <= 80 and _HEADING_TEXT_RE.match(clean))
+    if explicit:
+        return level if level is not None and 1 <= int(level) <= 9 else 1
+    if level is None or not clean:
+        return None
+    if not 1 <= int(level) <= 9:
+        return None
+    sentence_marks = len(re.findall(r"[。！？!?；;]", clean))
+    if len(clean) > 80 or sentence_marks > 1 or note_refs:
+        return None
+    return int(level)
+
+
+def _reference_bookmarks(root: etree._Element) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for marker in root.xpath('.//w:bookmarkStart[starts-with(@w:name,"Ref_")]', namespaces=NS):
+        name = str(marker.get(f"{{{W_NS}}}name") or "")
+        paragraph = marker
+        while paragraph is not None and paragraph.tag != f"{{{W_NS}}}p":
+            paragraph = paragraph.getparent()
+        if name and paragraph is not None:
+            value = _paragraph_text(paragraph).strip()
+            if value:
+                result[name] = value
+    return result
+
+
+def _paragraph_reference_fields(paragraph: etree._Element, references: dict[str, str]) -> list[dict]:
+    """Read internal bibliography hyperlinks without changing their OOXML."""
+    result: list[dict] = []
+    cursor = 0
+    seen: set[tuple[str, int]] = set()
+    for child in paragraph.iter():
+        if child.tag == f"{{{W_NS}}}t" and not child.xpath("ancestor::w:del", namespaces=NS):
+            cursor += len(str(child.text or ""))
+            continue
+        if child.tag != f"{{{W_NS}}}instrText":
+            continue
+        for match in _REFERENCE_FIELD_RE.finditer(str(child.text or "")):
+            target, raw_id = match.group(1), match.group(2)
+            signature = (target, cursor)
+            if signature in seen or not references.get(target):
+                continue
+            seen.add(signature)
+            result.append({
+                "kind": "reference_field", "id": int(raw_id), "field_target": target,
+                "offset": cursor, "text": references[target], "readonly": True,
+            })
+    return result
+
+
 def _is_real_note_element(note: etree._Element) -> bool:
     """Classify definitions by semantic type instead of a presumed ID range.
 
@@ -772,6 +925,7 @@ def extract_docx(path: str | Path) -> dict:
     flags = validate_docx_bytes(data, filename=Path(path).name)
     with zipfile.ZipFile(BytesIO(data)) as zf:
         root = _parse_xml(zf.read("word/document.xml"))
+        reference_bookmarks = _reference_bookmarks(root)
         footnotes = _note_part_texts(zf, "footnote")
         endnotes = _note_part_texts(zf, "endnote")
         if len(footnotes) + len(endnotes) > MAX_NOTES:
@@ -783,8 +937,6 @@ def extract_docx(path: str | Path) -> dict:
                 raise CitationAssistantError("文档段落数量超过处理上限。")
             text = _paragraph_text(paragraph)
             style, heading_level = _paragraph_style(paragraph)
-            if heading_level is None and text and len(text.strip()) <= 80 and _HEADING_TEXT_RE.match(text.strip()):
-                heading_level = 1
             note_refs: list[dict] = []
             cursor = 0
             for child in paragraph.iter():
@@ -802,6 +954,9 @@ def extract_docx(path: str | Path) -> dict:
                         "offset": cursor,
                         "text": (footnotes if kind == "footnote" else endnotes).get(nid, ""),
                     })
+            note_refs.extend(_paragraph_reference_fields(paragraph, reference_bookmarks))
+            note_refs.sort(key=lambda item: int(item.get("offset") or 0))
+            heading_level = _validated_heading_level(text, heading_level, note_refs)
             unsupported = bool(paragraph.xpath("ancestor::w:txbxContent", namespaces=NS))
             has_field = bool(paragraph.xpath(".//w:fldChar|.//w:instrText", namespaces=NS))
             tracked = bool(paragraph.xpath(".//w:ins|.//w:del", namespaces=NS))
@@ -815,6 +970,7 @@ def extract_docx(path: str | Path) -> dict:
                 "unsupported": unsupported or has_field or tracked,
                 "has_field": has_field,
                 "tracked": tracked,
+                "safe_comment_spans": _safe_comment_spans(paragraph),
             })
         manual_note_count = _attach_manual_note_refs(paragraphs, paragraph_elements)
 
@@ -824,6 +980,23 @@ def extract_docx(path: str | Path) -> dict:
         raise CitationAssistantError("论文正文超过 30 万有效字符上限。")
 
     headings = [p for p in nonempty if p["heading_level"]]
+    # Some journal templates render the bibliography title as an ordinary body
+    # paragraph. Treat it as a hard tail boundary even without a heading style,
+    # otherwise a selected conclusion can absorb references and the abstract.
+    reference_tail = next(
+        (
+            p for p in nonempty
+            if _REFERENCE_TAIL_HEADING_RE.match(str(p.get("text") or "").strip())
+        ),
+        None,
+    )
+    if reference_tail is not None and not any(
+        int(p["index"]) == int(reference_tail["index"]) for p in headings
+    ):
+        reference_tail = dict(reference_tail)
+        reference_tail["heading_level"] = 1
+        headings.append(reference_tail)
+        headings.sort(key=lambda item: int(item["index"]))
     sections: list[dict] = []
     if not headings:
         section = {"id": "sec-1", "title": "全文正文", "start": 0, "end": len(paragraphs) - 1, "default_selected": True}
@@ -831,8 +1004,11 @@ def extract_docx(path: str | Path) -> dict:
         for p in paragraphs:
             p["section_id"] = section["id"]
     else:
-        boundaries = [(0, "文档开头", None)] + [
-            (int(p["index"]), str(p["text"]).strip()[:100], p["heading_level"]) for p in headings
+        first_heading_index = min(int(p["index"]) for p in headings)
+        opening_title = "正文导语" if first_heading_index == 0 and len(headings) > 1 else "文档开头"
+        boundaries = [(0, opening_title, None)] + [
+            (int(p["index"]), str(p["text"]).strip()[:100], p["heading_level"])
+            for p in headings if int(p["index"]) != 0
         ]
         dedup: list[tuple[int, str, int | None]] = []
         for item in boundaries:
@@ -865,6 +1041,15 @@ def extract_docx(path: str | Path) -> dict:
         "footnote_count": len(footnotes),
         "endnote_count": len(endnotes),
         "manual_endnote_count": manual_note_count,
+        "reference_field_count": len({
+            str(note.get("field_target") or note.get("id") or "")
+            for paragraph in paragraphs for note in paragraph.get("note_refs", [])
+            if note.get("kind") == "reference_field"
+        }),
+        "reference_field_occurrence_count": sum(
+            1 for paragraph in paragraphs for note in paragraph.get("note_refs", [])
+            if note.get("kind") == "reference_field"
+        ),
     })
     return {"sections": sections, "paragraphs": paragraphs, "flags": flags}
 
@@ -1170,13 +1355,24 @@ def _selected_volumes(corpus, scope_tokens: list[str]) -> tuple[dict[str, set[in
     return spec, volumes
 
 
-def _phrase_records(paragraphs: list[dict], selected_sections: set[str]) -> tuple[list[dict], dict[int, tuple[str, list[int]]]]:
+def _phrase_records(
+    paragraphs: list[dict],
+    selected_sections: set[str],
+    *,
+    include_readonly_structures: bool = False,
+) -> tuple[list[dict], dict[int, tuple[str, list[int]]]]:
     records: list[dict] = []
     paragraph_norms: dict[int, tuple[str, list[int]]] = {}
     for paragraph in paragraphs:
+        readonly_structure = bool(paragraph.get("unsupported")) and bool(
+            paragraph.get("has_field") or paragraph.get("tracked")
+        )
         if (
             paragraph.get("section_id") not in selected_sections
-            or paragraph.get("unsupported")
+            or (
+                paragraph.get("unsupported")
+                and not (include_readonly_structures and readonly_structure)
+            )
             or paragraph.get("reference_list")
         ):
             continue
@@ -1199,7 +1395,14 @@ def _phrase_records(paragraphs: list[dict], selected_sections: set[str]) -> tupl
                 "raw_start": start, "raw_end": end, "norm_start": nstart, "norm_end": nend,
                 "citation_start": match.start(), "citation_end": match.end(),
                 "norm": pnorm[nstart:nend], "raw_text": match.group(1), "quoted": True,
+                "context_text": text[max(0, start - 120):min(len(text), end + 120)],
+                "write_blocked": readonly_structure,
             })
+        if readonly_structure:
+            # The isolated Agent may read explicit quotations from field/tracked
+            # paragraphs, but ordinary prose in those paragraphs is not a safe
+            # write target and would crowd direct quotations out of the budget.
+            continue
         for match in _SENTENCE_RE.finditer(text):
             start, end = match.span()
             # Any sentence touching a quote is handled only by the full-quote
@@ -1216,6 +1419,8 @@ def _phrase_records(paragraphs: list[dict], selected_sections: set[str]) -> tupl
                 "paragraph_index": int(paragraph["index"]), "section_id": paragraph.get("section_id") or "",
                 "raw_start": start, "raw_end": end, "norm_start": nstart, "norm_end": nend,
                 "norm": pnorm[nstart:nend], "raw_text": match.group(), "quoted": False,
+                "context_text": match.group(),
+                "write_blocked": readonly_structure,
             })
     return records, paragraph_norms
 
@@ -1577,7 +1782,9 @@ def _note_anchor(text: str, offset: int) -> tuple[int, int, str]:
     sentence_start = sentence_span[0] if sentence_span else 0
     quotes = [
         match for match in _QUOTE_RE.finditer(before)
-        if match.end() >= sentence_start and len(normalize(match.group(1))) >= 10
+        if match.end() >= sentence_start
+        and len(normalize(match.group(1))) >= 6
+        and len(normalize(before[match.end():boundary])) <= 40
     ]
     if quotes:
         anchor_start, anchor_end = quotes[-1].span(1)
@@ -1684,6 +1891,79 @@ def _citation_locator_options(
     return options[:20], ("" if options else "wrong_page")
 
 
+def _prefer_exact_options(options: list[dict]) -> list[dict]:
+    exact = [item for item in options if str(item.get("match_type") or "") == "exact"]
+    return exact or options
+
+
+def _reference_disambiguate_options(
+    options: list[dict], note_text: str, corpus,
+) -> tuple[list[dict], bool]:
+    """Use explicit bibliography metadata only when it uniquely selects a copy."""
+    if len(options) <= 1:
+        return options, False
+    filtered = list(options)
+    mentioned = _mentioned_corpus_book(note_text, corpus)
+    volume_match = _CITATION_VOL_RE.search(note_text)
+    page_match = _CITATION_PAGE_RE.search(note_text) or _BIBLIOGRAPHY_PAGE_RE.search(note_text)
+    if mentioned:
+        by_book = [item for item in filtered if str(item.get("book") or "") == mentioned]
+        if by_book:
+            filtered = by_book
+    if volume_match:
+        by_volume = [
+            item for item in filtered
+            if int(item.get("volume") or 0) == int(volume_match.group(1))
+        ]
+        if by_volume:
+            filtered = by_volume
+    if page_match:
+        cited = {page_match.group(1), page_match.group(2) or page_match.group(1)}
+        by_page = [
+            item for item in filtered
+            if cited & {str(page) for page in item.get("printed_pages") or [] if page}
+        ]
+        if by_page:
+            filtered = by_page
+    return (filtered, True) if len(filtered) == 1 and len(options) > 1 else (options, False)
+
+
+def _locate_ellipsis_quote(corpus, text: str, scope_spec: dict) -> list:
+    """Match every ellipsis-separated segment in order inside one source window."""
+    raw_segments = re.split(r"(?:\.{3,}|…+|⋯+)", str(text or ""))
+    segments = [normalize(segment) for segment in raw_segments if len(normalize(segment)) >= 6]
+    if len(segments) < 2:
+        return []
+    hits: list = []
+    for book, allowed in scope_spec.items():
+        for volume in list((getattr(corpus, "books", {}) or {}).get(book) or []):
+            if allowed is not None and int(volume.volume) not in allowed:
+                continue
+            source = str(getattr(volume, "norm_full", "") or "")
+            search_from = 0
+            while len(hits) < 20:
+                first = source.find(segments[0], search_from)
+                if first < 0:
+                    break
+                cursor = first + len(segments[0])
+                end = cursor
+                valid = True
+                for segment in segments[1:]:
+                    found = source.find(segment, cursor, min(len(source), first + 8000))
+                    if found < 0:
+                        valid = False
+                        break
+                    cursor = found + len(segment)
+                    end = cursor
+                if valid:
+                    try:
+                        hits.append(corpus._make_hit(volume, first, end, "exact", 100, text))
+                    except Exception:
+                        pass
+                search_from = first + 1
+    return hits
+
+
 def _existing_note_candidate(
     paragraph: dict,
     note: dict,
@@ -1728,12 +2008,13 @@ def _existing_note_candidate(
                     lookup_scope = {mentioned_book: {inherited_volume}}
             else:
                 lookup_scope = {mentioned_book: allowed}
-    hits = (
-        corpus.locate_quote(
-            anchor_text, per_book_exact=8, allow_fuzzy=True, book_scope=lookup_scope,
-        )
-        if can_search else []
-    )
+    hits = []
+    if can_search:
+        hits = _locate_ellipsis_quote(corpus, anchor_text, lookup_scope)
+        if not hits:
+            hits = corpus.locate_quote(
+                anchor_text, per_book_exact=8, allow_fuzzy=True, book_scope=lookup_scope,
+            )
     # A cited book/volume is evidence to check first, not proof that the citation
     # is correct.  Otherwise a note that names the wrong edition can never be
     # classified as wrong_source/wrong_version.  Search the wider user-selected
@@ -1761,6 +2042,8 @@ def _existing_note_candidate(
         if sig not in seen:
             seen.add(sig)
             options.append(option)
+    options = _prefer_exact_options(options)
+    options, reference_disambiguated = _reference_disambiguate_options(options, note_text, corpus)
     locator_only = False
     locator_failure = ""
     page_probe = note_text
@@ -1823,6 +2106,7 @@ def _existing_note_candidate(
         "fuzzy_errors": options[0].get("fuzzy_errors") if options else None,
         "issue_code": issue, "issue_label": ISSUE_LABELS[issue], "source_options": options,
         "selected_option": 0, "proposed_citation": proposed,
+        "reference_disambiguated": bool(reference_disambiguated),
         "auto_selected": (
             issue == "verified"
             and _auto_select(
@@ -1847,6 +2131,7 @@ def analyze_extraction(
     progress: Callable[[int, int], None] | None = None,
     personal_callback: Callable[[list[dict], list[str], str], list[dict]] | None = None,
     shadow_callback: Callable[[list[dict], list[dict], list[str]], None] | None = None,
+    include_readonly_structures: bool = False,
 ) -> tuple[list[dict], str, float]:
     selected = {str(x) for x in selected_sections}
     paragraphs = list(extracted.get("paragraphs") or [])
@@ -1857,7 +2142,10 @@ def analyze_extraction(
     ]
     resolved_style, style_confidence = _detect_style(note_texts, citation_style)
     candidates: list[dict] = []
-    records, paragraph_norms = _phrase_records(paragraphs, selected)
+    records, paragraph_norms = _phrase_records(
+        paragraphs, selected,
+        include_readonly_structures=include_readonly_structures,
+    )
     if mode in {"generate", "both"} and records and volumes:
         seeds = _seed_records(records)
         review_seeds = _review_seed_records(records)
@@ -2069,7 +2357,7 @@ def analyze_extraction(
             # 已有注释锚点落在命中结尾附近时不再重复补注，由 audit 分支处理。
             if _candidate_has_existing_note(paragraph, key[2]):
                 continue
-            options = list(value["options"].values())[:20]
+            options = _prefer_exact_options(list(value["options"].values()))[:20]
             best_match_type = "exact" if any(o.get("match_type") == "exact" for o in options) else "fuzzy"
             best_score = 100 if best_match_type == "exact" else max(int(o.get("score") or 0) for o in options)
             best_errors = 0 if best_match_type == "exact" else min(
@@ -2085,6 +2373,7 @@ def analyze_extraction(
             auto = _auto_select(best_match_type, best_score, best_errors, options, threshold)
             candidates.append({
                 "kind": "generate", "section_id": paragraph.get("section_id") or "",
+                "quoted": bool(value["record"].get("quoted")),
                 "paragraph_index": key[0], "raw_start": key[1], "raw_end": key[2],
                 "paper_text": value["paper_text"], "match_type": best_match_type, "score": best_score,
                 "fuzzy_errors": best_errors, "issue_code": issue, "issue_label": ISSUE_LABELS[issue],
@@ -2106,8 +2395,10 @@ def analyze_extraction(
             if _candidate_has_existing_note(paragraph, candidate_raw_end):
                 continue
             raw = paragraph_text[int(record["raw_start"]):int(record["raw_end"])]
-            hits = corpus.locate_quote(raw, per_book_exact=8, allow_fuzzy=True, book_scope=scope_spec)
-            hits = [h for h in hits if str(getattr(h, "match_type", "")) == "fuzzy"]
+            hits = _locate_ellipsis_quote(corpus, raw, scope_spec)
+            if not hits:
+                hits = corpus.locate_quote(raw, per_book_exact=8, allow_fuzzy=True, book_scope=scope_spec)
+                hits = [h for h in hits if str(getattr(h, "match_type", "")) == "fuzzy"]
             if not hits:
                 continue
             options = []
@@ -2122,6 +2413,7 @@ def analyze_extraction(
             issue = "ambiguous" if len(options) > 1 else "suggest_add"
             candidates.append({
                 "kind": "generate", "section_id": paragraph.get("section_id") or "",
+                "quoted": bool(record.get("quoted")),
                 "paragraph_index": int(record["paragraph_index"]),
                 "raw_start": int(record.get("citation_start", record["raw_start"])),
                 "raw_end": candidate_raw_end,
@@ -2157,7 +2449,12 @@ def analyze_extraction(
             if paragraph.get("section_id") not in selected:
                 continue
             for note in paragraph.get("note_refs") or []:
-                if paragraph.get("unsupported"):
+                readonly_structure = bool(paragraph.get("unsupported")) and bool(
+                    paragraph.get("has_field") or paragraph.get("tracked")
+                )
+                if paragraph.get("unsupported") and not (
+                    include_readonly_structures and readonly_structure
+                ):
                     note_kind = str(note.get("kind") or "footnote")
                     candidates.append({
                         "kind": "audit", "section_id": paragraph.get("section_id") or "",
@@ -2177,10 +2474,33 @@ def analyze_extraction(
                         previous_option=previous_options.get(note_kind),
                     )
                     candidates.append(candidate)
+                    if readonly_structure:
+                        candidate["write_blocked"] = True
                     previous_options[note_kind] = (
                         dict(candidate["source_options"][0])
                         if candidate.get("source_options") else None
                     )
+
+        # A bibliography field can point to the same quote already found by the
+        # generate pass.  Prefer the audit record because it carries the user's
+        # source metadata and can disambiguate reprints; never show two review
+        # cards or write two annotations for the same wording.
+        audit_texts: set[tuple[int, str]] = {
+            (int(item.get("paragraph_index") or 0), normalize(str(item.get("paper_text") or "")))
+            for item in candidates
+            if item.get("kind") == "audit" and item.get("source_options")
+            and len(normalize(str(item.get("paper_text") or ""))) >= 6
+        }
+        candidates = [
+            item for item in candidates
+            if not (
+                item.get("kind") == "generate"
+                and (
+                    int(item.get("paragraph_index") or 0),
+                    normalize(str(item.get("paper_text") or "")),
+                ) in audit_texts
+            )
+        ]
 
     candidates.sort(key=lambda c: (int(c.get("paragraph_index", -1)), int(c.get("raw_start", 0)), c.get("kind") or ""))
     return candidates, resolved_style, style_confidence
@@ -2239,11 +2559,14 @@ def _xml_bytes(root: etree._Element) -> bytes:
     return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
 
 
-def _new_run_text(text: str, *, style: str = "") -> etree._Element:
+def _new_run_text(text: str, *, style: str = "", color: str = "") -> etree._Element:
     run = etree.Element(f"{{{W_NS}}}r")
-    if style:
+    if style or color:
         props = etree.SubElement(run, f"{{{W_NS}}}rPr")
-        etree.SubElement(props, f"{{{W_NS}}}rStyle").set(f"{{{W_NS}}}val", style)
+        if style:
+            etree.SubElement(props, f"{{{W_NS}}}rStyle").set(f"{{{W_NS}}}val", style)
+        if color:
+            etree.SubElement(props, f"{{{W_NS}}}color").set(f"{{{W_NS}}}val", color)
     node = etree.SubElement(run, f"{{{W_NS}}}t")
     if text.startswith(" ") or text.endswith(" "):
         node.set(f"{{{XML_NS}}}space", "preserve")
@@ -2251,12 +2574,14 @@ def _new_run_text(text: str, *, style: str = "") -> etree._Element:
     return run
 
 
-def _reference_run(kind: str, note_id: int) -> etree._Element:
+def _reference_run(kind: str, note_id: int, *, color: str = INSERTION_BLUE) -> etree._Element:
     run = etree.Element(f"{{{W_NS}}}r")
     props = etree.SubElement(run, f"{{{W_NS}}}rPr")
     etree.SubElement(props, f"{{{W_NS}}}rStyle").set(
         f"{{{W_NS}}}val", "FootnoteReference" if kind == "footnote" else "EndnoteReference"
     )
+    if color:
+        etree.SubElement(props, f"{{{W_NS}}}color").set(f"{{{W_NS}}}val", color)
     ref = etree.SubElement(run, f"{{{W_NS}}}{kind}Reference")
     ref.set(f"{{{W_NS}}}id", str(note_id))
     return run
@@ -2321,7 +2646,9 @@ def _empty_note_part(kind: str) -> etree._Element:
     return root
 
 
-def _note_element(kind: str, note_id: int, text: str) -> etree._Element:
+def _note_element(
+    kind: str, note_id: int, text: str, *, color: str = INSERTION_BLUE,
+) -> etree._Element:
     note = etree.Element(f"{{{W_NS}}}{kind}")
     note.set(f"{{{W_NS}}}id", str(note_id))
     para = etree.SubElement(note, f"{{{W_NS}}}p")
@@ -2334,8 +2661,10 @@ def _note_element(kind: str, note_id: int, text: str) -> etree._Element:
     etree.SubElement(ref_props, f"{{{W_NS}}}rStyle").set(
         f"{{{W_NS}}}val", "FootnoteReference" if kind == "footnote" else "EndnoteReference"
     )
+    if color:
+        etree.SubElement(ref_props, f"{{{W_NS}}}color").set(f"{{{W_NS}}}val", color)
     etree.SubElement(ref_run, f"{{{W_NS}}}{kind}Ref")
-    para.append(_new_run_text(" " + str(text or "")))
+    para.append(_new_run_text(" " + str(text or ""), color=color))
     return note
 
 
@@ -2435,10 +2764,10 @@ def _comment_marker(name: str, comment_id: int) -> etree._Element:
 def _comment_element(comment_id: int, text: str) -> etree._Element:
     comment = etree.Element(f"{{{W_NS}}}comment")
     comment.set(f"{{{W_NS}}}id", str(comment_id))
-    comment.set(f"{{{W_NS}}}author", "论文引文助手")
-    comment.set(f"{{{W_NS}}}initials", "引文")
+    comment.set(f"{{{W_NS}}}author", "引文校注 Agent")
+    comment.set(f"{{{W_NS}}}initials", "校注")
     comment.set(f"{{{W_NS}}}date", _iso())
-    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()] or ["校对建议"]
+    lines = [line.strip() for line in str(text or "").splitlines() if line.strip()] or ["校注建议"]
     for line in lines:
         paragraph = etree.SubElement(comment, f"{{{W_NS}}}p")
         run = etree.SubElement(paragraph, f"{{{W_NS}}}r")
@@ -2452,7 +2781,24 @@ def _candidate_comment_text(candidate: dict) -> str:
     decision = {"accepted": "已采用", "pending": "待确认", "rejected": "已排除"}.get(
         str(candidate.get("decision") or "pending"), "待确认",
     )
-    lines = [f"{candidate.get('issue_label') or candidate.get('issue_code') or '校对建议'}｜{decision}"]
+    lines = [f"{candidate.get('issue_label') or candidate.get('issue_code') or '校注建议'}｜{decision}"]
+    match_labels = {"exact": "逐字一致", "near": "近似文字", "paraphrase": "观点依据", "none": "文字未核验"}
+    resolution_labels = {
+        "unique": "唯一出处", "reference_disambiguated": "参考文献消歧",
+        "multiple": "多个转载版本", "locator_only": "仅页码定位", "none": "无站内出处",
+    }
+    if candidate.get("text_match_level"):
+        lines.append(f"文字核验：{match_labels.get(str(candidate.get('text_match_level')), candidate.get('text_match_level'))}")
+    if candidate.get("source_resolution"):
+        lines.append(f"来源判定：{resolution_labels.get(str(candidate.get('source_resolution')), candidate.get('source_resolution'))}")
+    paper_text = str(candidate.get("paper_text") or "").strip()
+    if paper_text:
+        lines.append(f"实际核对文字：{paper_text}")
+    note_kind = {"footnote": "脚注", "endnote": "尾注", "manual_endnote": "手工尾注"}.get(
+        str(candidate.get("existing_note_kind") or ""), "原注",
+    )
+    if candidate.get("existing_note_id") is not None:
+        lines.append(f"对应{note_kind}编号：{candidate.get('existing_note_id')}")
     if candidate.get("existing_note_text"):
         lines.append(f"原注：{candidate.get('existing_note_text')}")
     if option:
@@ -2471,6 +2817,9 @@ def _candidate_comment_text(candidate: dict) -> str:
     score = int(round(float(candidate.get("score") or 0)))
     if score:
         lines.append(f"匹配置信度：{score}%")
+    reasons = [str(value) for value in candidate.get("reason_codes") or [] if str(value)]
+    if reasons:
+        lines.append("审核原因：" + "、".join(reasons))
     reader_url = str(option.get("viewer_url") or "").strip() if option else ""
     if reader_url:
         public_base = str(os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
@@ -2529,41 +2878,6 @@ def _ensure_footnote_page_numbering(document: etree._Element) -> None:
         upsert_ordered(properties, "numRestart", "eachPage", property_order)
 
 
-def _safe_note_rewrite(note: etree._Element, kind: str, old_text: str, new_text: str) -> bool:
-    old = str(old_text or "").strip()
-    new = str(new_text or "").strip()
-    if not old or not new or old == new:
-        return False
-    # Pure citations can be replaced as a unit.  In mixed comments, preserve everything
-    # before the final bibliographic title and only replace the reliably located suffix.
-    title_pos = old.rfind("《")
-    if title_pos > 0:
-        replacement = old[:title_pos] + new
-    elif title_pos == 0 or len(old) <= 240:
-        replacement = new
-    else:
-        return False
-    paragraphs = note.xpath("./w:p", namespaces=NS)
-    if not paragraphs:
-        return False
-    para = paragraphs[0]
-    ppr = para.find(f"{{{W_NS}}}pPr")
-    for child in list(para):
-        if child is not ppr:
-            para.remove(child)
-    ref_run = etree.Element(f"{{{W_NS}}}r")
-    ref_props = etree.SubElement(ref_run, f"{{{W_NS}}}rPr")
-    etree.SubElement(ref_props, f"{{{W_NS}}}rStyle").set(
-        f"{{{W_NS}}}val", "FootnoteReference" if kind == "footnote" else "EndnoteReference"
-    )
-    etree.SubElement(ref_run, f"{{{W_NS}}}{kind}Ref")
-    para.append(ref_run)
-    para.append(_new_run_text(" " + replacement))
-    for extra in paragraphs[1:]:
-        note.remove(extra)
-    return True
-
-
 def _selected_option(candidate: dict) -> dict:
     options = list(candidate.get("source_options") or [])
     if not options:
@@ -2605,6 +2919,33 @@ def validate_exported_docx(path: str | Path, *, filename: str = "output.docx") -
                 raise CitationAssistantError(f"DOCX {kind} 编号重复。")
             if not set(ref_ids).issubset(set(defined)):
                 raise CitationAssistantError(f"DOCX {kind} 引用与定义编号不一致。")
+        comment_refs = {
+            str(node.get(f"{{{W_NS}}}id") or "")
+            for node in body.xpath(".//w:commentReference", namespaces=NS)
+        }
+        if comment_refs:
+            if "word/comments.xml" not in names:
+                raise CitationAssistantError("DOCX 批注引用缺少 comments.xml。")
+            if not rels.xpath("./rel:Relationship[@Type=$kind]", namespaces=NS, kind=COMMENTS_REL_TYPE):
+                raise CitationAssistantError("DOCX 批注关系缺失。")
+            comment_part = "/word/comments.xml"
+            if not content_types.xpath("./ct:Override[@PartName=$part]", namespaces=NS, part=comment_part):
+                raise CitationAssistantError("DOCX 批注内容类型缺失。")
+            comments = _parse_xml(package.read("word/comments.xml"))
+            defined_comments = {
+                str(node.get(f"{{{W_NS}}}id") or "")
+                for node in comments.xpath("./w:comment", namespaces=NS)
+            }
+            starts = {
+                str(node.get(f"{{{W_NS}}}id") or "")
+                for node in body.xpath(".//w:commentRangeStart", namespaces=NS)
+            }
+            ends = {
+                str(node.get(f"{{{W_NS}}}id") or "")
+                for node in body.xpath(".//w:commentRangeEnd", namespaces=NS)
+            }
+            if not comment_refs.issubset(defined_comments & starts & ends):
+                raise CitationAssistantError("DOCX 批注定义、锚点或引用不完整。")
 
 
 def _make_output_copy_writable(parts: dict[str, bytes]) -> None:
@@ -2651,6 +2992,108 @@ def _make_output_copy_writable(parts: dict[str, bytes]) -> None:
         parts[content_types_name] = _xml_bytes(content_types)
 
 
+def _mode_allows(job: dict, kind: str) -> bool:
+    mode = str(job.get("mode") or "both")
+    return mode == "both" or (mode == "generate" and kind == "generate") or (mode == "audit" and kind == "audit")
+
+
+def _paragraph_has_unsafe_note_anchor(paragraph: etree._Element) -> bool:
+    return bool(paragraph.xpath(
+        ".//w:fldChar | .//w:instrText | .//w:ins | .//w:del | .//w:moveFrom | .//w:moveTo",
+        namespaces=NS,
+    ))
+
+
+def _candidate_is_insertion_eligible(
+    job: dict, candidate: dict, paragraphs: list[etree._Element],
+) -> bool:
+    if candidate.get("decision") != "accepted" or str(candidate.get("kind") or "") != "generate":
+        return False
+    if not _mode_allows(job, "generate"):
+        return False
+    writeback = str(candidate.get("writeback_mode") or "")
+    if writeback in {"none", "readonly", "comment"}:
+        return False
+    note_kind = str(job.get("note_kind") or "footnote")
+    if writeback in VALID_NOTE_KINDS and writeback != note_kind:
+        return False
+    exact = str(candidate.get("text_match_level") or "") == "exact"
+    if not exact:
+        exact = (
+            str(candidate.get("match_type") or "") == "exact"
+            and float(candidate.get("score") or 0) >= 100
+            and int(candidate.get("fuzzy_errors") or 0) == 0
+        )
+    options = list(candidate.get("source_options") or [])
+    resolution = str(candidate.get("source_resolution") or "")
+    uniquely_resolved = resolution in {"unique", "reference_disambiguated"}
+    if not resolution:
+        uniquely_resolved = len(options) == 1 or bool(candidate.get("reference_disambiguated"))
+    if not exact or not uniquely_resolved or not options or not _is_reliable_page(options[0]):
+        return False
+    pindex = int(candidate.get("paragraph_index", -1))
+    if not 0 <= pindex < len(paragraphs):
+        return False
+    paragraph = paragraphs[pindex]
+    if _paragraph_has_unsafe_note_anchor(paragraph):
+        return False
+    offset = int(candidate.get("raw_end") or 0)
+    return any(
+        int(left) <= offset <= int(right)
+        for left, right in _safe_comment_spans(paragraph)
+    )
+
+
+def _candidate_is_comment_eligible(job: dict, candidate: dict) -> bool:
+    if candidate.get("decision") != "accepted" or str(candidate.get("kind") or "") != "audit":
+        return False
+    if not _mode_allows(job, "audit"):
+        return False
+    if str(candidate.get("writeback_mode") or "") in {"none", "readonly", "footnote", "endnote"}:
+        return False
+    if str(candidate.get("text_match_level") or "") == "paraphrase":
+        return False
+    if str(candidate.get("source_resolution") or "") in {"none", "locator_only"}:
+        return False
+    if str(candidate.get("match_type") or "") == "locator":
+        return False
+    return True
+
+
+def _output_docx_name(job: dict) -> str:
+    stem = Path(str(job.get("original_filename") or "论文.docx")).stem
+    suffix = {
+        "generate": "_插注版.docx",
+        "audit": "_校注批注版.docx",
+        "both": "_插注校注版.docx",
+    }.get(str(job.get("mode") or "both"), "_插注校注版.docx")
+    return f"{stem}{suffix}"
+
+
+def _note_nodes(path: str | Path, kind: str) -> dict[str, bytes]:
+    part_name = f"word/{kind}s.xml"
+    with zipfile.ZipFile(path) as package:
+        if part_name not in package.namelist():
+            return {}
+        root = _parse_xml(package.read(part_name))
+    return {
+        str(node.get(f"{{{W_NS}}}id") or ""): etree.tostring(node, method="c14n")
+        for node in root.xpath(f"./w:{kind}", namespaces=NS)
+    }
+
+
+def _validate_existing_notes_unchanged(
+    source: str | Path, output: str | Path, *, allow_new: bool,
+) -> None:
+    for kind in VALID_NOTE_KINDS:
+        original = _note_nodes(source, kind)
+        exported = _note_nodes(output, kind)
+        if any(exported.get(note_id) != payload for note_id, payload in original.items()):
+            raise CitationAssistantError("校注导出改变了原有脚注或尾注，已拒绝发布。")
+        if not allow_new and set(exported) != set(original):
+            raise CitationAssistantError("纯校注导出不得新增脚注或尾注。")
+
+
 def export_docx(job: dict, candidates: list[dict]) -> Path:
     input_path = Path(str(job["input_path"]))
     with zipfile.ZipFile(input_path) as source_zip:
@@ -2668,21 +3111,10 @@ def export_docx(job: dict, candidates: list[dict]) -> Path:
         note_roots[kind] = _parse_xml(parts[part_name]) if part_name in parts else _empty_note_part(kind)
 
     accepted = [c for c in candidates if c.get("decision") == "accepted"]
-    for candidate in [c for c in accepted if c.get("kind") == "audit"]:
-        kind = str(candidate.get("existing_note_kind") or "")
-        if kind not in VALID_NOTE_KINDS or candidate.get("issue_code") in {"verified", "unverifiable", "unsupported", "ambiguous"}:
-            continue
-        note_id = int(candidate.get("existing_note_id") or 0)
-        matches = note_roots[kind].xpath(f"./w:{kind}[@w:id=$nid]", namespaces=NS, nid=str(note_id))
-        if matches:
-            _safe_note_rewrite(
-                matches[0], kind, str(candidate.get("existing_note_text") or ""),
-                str(candidate.get("proposed_citation") or ""),
-            )
+    comment_candidates = [c for c in accepted if _candidate_is_comment_eligible(job, c)]
 
     generate = [
-        c for c in accepted
-        if c.get("kind") == "generate" and 0 <= int(c.get("paragraph_index", -1)) < len(paragraphs)
+        c for c in accepted if _candidate_is_insertion_eligible(job, c, paragraphs)
     ]
     # Descending offsets keep the stored visible-text offsets stable while runs are split.
     generate.sort(key=lambda c: (int(c.get("paragraph_index", -1)), int(c.get("raw_end") or 0)), reverse=True)
@@ -2710,34 +3142,74 @@ def export_docx(job: dict, candidates: list[dict]) -> Path:
     if generate and kind == "footnote":
         _ensure_footnote_page_numbering(document)
 
-    used_kinds = {str(c.get("existing_note_kind") or "") for c in accepted if c.get("kind") == "audit"}
-    if generate:
-        used_kinds.add(kind)
+    used_kinds = {kind} if generate else set()
     for used_kind in used_kinds & VALID_NOTE_KINDS:
         _ensure_note_relationship(rels, used_kind)
         _ensure_note_content_type(content_types, used_kind)
         if styles is not None:
             _ensure_note_styles(styles, used_kind)
         parts[f"word/{used_kind}s.xml"] = _xml_bytes(note_roots[used_kind])
+    if comment_candidates:
+        comments = (
+            _parse_xml(parts["word/comments.xml"])
+            if "word/comments.xml" in parts else _empty_comments_part()
+        )
+        existing_ids: list[int] = []
+        for node in comments.xpath("./w:comment", namespaces=NS):
+            try:
+                existing_ids.append(int(node.get(f"{{{W_NS}}}id") or 0))
+            except ValueError:
+                pass
+        next_comment_id = max(existing_ids or [-1]) + 1
+        ordered_comments = sorted(
+            comment_candidates,
+            key=lambda item: (int(item.get("paragraph_index", -1)), int(item.get("raw_start") or 0)),
+            reverse=True,
+        )
+        for candidate in ordered_comments:
+            pindex = int(candidate.get("paragraph_index", -1))
+            if not 0 <= pindex < len(paragraphs):
+                raise CitationAssistantError("批注锚点段落已失效。")
+            paragraph = paragraphs[pindex]
+            start = int(candidate.get("raw_start") or 0)
+            end = int(candidate.get("raw_end") or 0)
+            if not _comment_span_is_safe(paragraph, start, end):
+                raise CitationAssistantError("批注锚点跨越 Word 域、修订或现有批注，已停止写入。")
+            comment_id = next_comment_id
+            next_comment_id += 1
+            _insert_reference_at(paragraph, end, _comment_reference_run(comment_id))
+            _insert_reference_at(paragraph, end, _comment_marker("commentRangeEnd", comment_id))
+            _insert_reference_at(paragraph, start, _comment_marker("commentRangeStart", comment_id))
+            comments.append(_comment_element(comment_id, _candidate_comment_text(candidate)))
+        _ensure_comments_relationship(rels)
+        _ensure_comments_content_type(content_types)
+        if styles is not None:
+            _ensure_comment_style(styles)
+        parts["word/comments.xml"] = _xml_bytes(comments)
     parts["word/document.xml"] = _xml_bytes(document)
     parts["word/_rels/document.xml.rels"] = _xml_bytes(rels)
     parts["[Content_Types].xml"] = _xml_bytes(content_types)
     if styles is not None:
         parts["word/styles.xml"] = _xml_bytes(styles)
 
-    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / f"{Path(str(job['original_filename'])).stem}_引文校对.docx"
+    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / _output_docx_name(job)
     partial = output.with_suffix(".docx.part")
     with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as target_zip:
         for name, payload in parts.items():
             target_zip.writestr(name, payload)
     validate_exported_docx(partial, filename=output.name)
     partial.replace(output)
+    _validate_existing_notes_unchanged(
+        input_path, output, allow_new=str(job.get("mode") or "both") in {"generate", "both"},
+    )
     return output
 
 
-def build_annotated_review_docx(job: dict, candidates: list[dict]) -> Path:
+def build_annotated_review_docx(
+    job: dict, candidates: list[dict], *, source_path: str | Path | None = None,
+) -> Path:
     """Create a layout-preserving copy with Word comments anchored to paper text."""
-    input_path = Path(str(job["input_path"]))
+    input_path = Path(source_path) if source_path is not None else Path(str(job["input_path"]))
     with zipfile.ZipFile(input_path) as source_zip:
         parts = {name: source_zip.read(name) for name in source_zip.namelist()}
     _make_output_copy_writable(parts)
@@ -2760,20 +3232,9 @@ def build_annotated_review_docx(job: dict, candidates: list[dict]) -> Path:
 
     review_items = [
         candidate for candidate in candidates
-        if candidate.get("decision") != "rejected"
+        if _candidate_is_comment_eligible(job, candidate)
         and 0 <= int(candidate.get("paragraph_index", -1)) < len(paragraphs)
     ][:2000]
-    if not review_items:
-        first_index = next(
-            (index for index, paragraph in enumerate(paragraphs) if _paragraph_text(paragraph).strip()),
-            None,
-        )
-        if first_index is not None:
-            review_items = [{
-                "paragraph_index": first_index, "raw_start": 0,
-                "raw_end": min(1, len(_paragraph_text(paragraphs[first_index]))),
-                "issue_label": "本次未发现可输出的引文校对项", "decision": "pending",
-            }]
 
     # Work backwards so visible-text offsets remain stable as range markers are inserted.
     review_items.sort(
@@ -2786,6 +3247,8 @@ def build_annotated_review_docx(job: dict, candidates: list[dict]) -> Path:
         text_length = len(_paragraph_text(paragraph))
         start = max(0, min(int(candidate.get("raw_start") or 0), text_length))
         end = max(start, min(int(candidate.get("raw_end") or start), text_length))
+        if not _comment_span_is_safe(paragraph, start, end):
+            raise CitationAssistantError("批注锚点跨越 Word 域、修订或现有批注，已停止写入。")
         comment_id = next_id
         next_id += 1
         # Inserting the reference first and range-end second at the same offset
@@ -2817,7 +3280,7 @@ def build_annotated_review_docx(job: dict, candidates: list[dict]) -> Path:
     if not reference_ids.issubset(comment_ids):
         raise CitationAssistantError("DOCX 批注引用与批注定义不一致。")
 
-    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / "._引文校对批注转换源.docx"
+    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / "._校注批注转换源.docx"
     partial = output.with_suffix(".docx.part")
     with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as target_zip:
         for name, payload in parts.items():
@@ -2838,6 +3301,14 @@ def _soffice_binary() -> str:
     return ""
 
 
+def _pdf_timeout_seconds() -> int:
+    try:
+        configured = int(str(os.environ.get("CITATION_ASSISTANT_PDF_TIMEOUT") or "180"))
+    except (TypeError, ValueError):
+        configured = 180
+    return max(30, min(configured, 600))
+
+
 def _convert_annotated_docx_to_pdf(annotated_docx: Path, output: Path) -> None:
     office = _soffice_binary()
     if not office:
@@ -2855,7 +3326,7 @@ def _convert_annotated_docx_to_pdf(annotated_docx: Path, output: Path) -> None:
         # responsible for the faithful page layout and add the visible review
         # margin in a deterministic PDF post-processing step below.
         filter_options = "pdf:writer_pdf_Export"
-        timeout = max(30, min(int(os.environ.get("CITATION_ASSISTANT_PDF_TIMEOUT", "180")), 600))
+        timeout = _pdf_timeout_seconds()
         office_env = os.environ.copy()
         office_env.update({
             "HOME": str(profile),
@@ -2892,7 +3363,13 @@ def _candidate_pdf_search_terms(candidate: dict) -> list[str]:
     if not value:
         return []
     terms: list[str] = []
+    ellipsis_parts = [
+        part.strip() for part in re.split(r"(?:\.{3,}|…{1,}|⋯{1,})", value)
+        if len(normalize(part)) >= 6
+    ]
     for candidate_term in (
+        value,
+        *ellipsis_parts,
         value[:120],
         value[:48],
         value[-48:],
@@ -2906,6 +3383,148 @@ def _candidate_pdf_search_terms(candidate: dict) -> list[str]:
     return terms
 
 
+def _pdf_review_manifest(job: dict, candidates: list[dict]) -> list[dict]:
+    review_items = [dict(item) for item in candidates if _candidate_is_comment_eligible(job, item)]
+    try:
+        extracted = extract_docx(job["input_path"])
+        paragraphs = {
+            int(item.get("index") or 0): str(item.get("text") or "")
+            for item in extracted.get("paragraphs") or []
+        }
+    except Exception:
+        paragraphs = {}
+    review_items.sort(key=lambda item: (
+        int(item.get("paragraph_index", -1)), int(item.get("raw_start") or 0), int(item.get("id") or 0),
+    ))
+    for number, item in enumerate(review_items, start=1):
+        text = paragraphs.get(int(item.get("paragraph_index") or 0), "")
+        start = max(0, min(int(item.get("raw_start") or 0), len(text)))
+        end = max(start, min(int(item.get("raw_end") or start), len(text)))
+        item["context_before"] = text[max(0, start - 48):start]
+        item["context_after"] = text[end:end + 48]
+        item["review_number"] = number
+    return review_items
+
+
+def _normalized_pdf_occurrences(
+    page: fitz.Page, term: str, *, before: str = "", after: str = "",
+) -> list[list[fitz.Rect]]:
+    """Locate normalized text using character boxes, including across PDF line breaks."""
+    raw = page.get_text("rawdict")
+    normalized_chars: list[str] = []
+    boxes: list[fitz.Rect] = []
+    for block in raw.get("blocks") or []:
+        for line in block.get("lines") or []:
+            for span in line.get("spans") or []:
+                for char in span.get("chars") or []:
+                    value = normalize(str(char.get("c") or ""))
+                    if not value:
+                        continue
+                    box = fitz.Rect(char.get("bbox") or span.get("bbox"))
+                    for normalized_char in value:
+                        normalized_chars.append(normalized_char)
+                        boxes.append(box)
+    haystack = "".join(normalized_chars)
+    needle = normalize(term)
+    if len(needle) < 6 or not haystack:
+        return []
+    starts: list[int] = []
+    offset = 0
+    while True:
+        found = haystack.find(needle, offset)
+        if found < 0:
+            break
+        starts.append(found)
+        offset = found + 1
+    before_tail = normalize(before)[-12:]
+    after_head = normalize(after)[:12]
+    if len(starts) > 1 and (before_tail or after_head):
+        contextual = [
+            start for start in starts
+            if (not before_tail or haystack[max(0, start - len(before_tail)):start] == before_tail)
+            and (
+                not after_head
+                or haystack[start + len(needle):start + len(needle) + len(after_head)] == after_head
+            )
+        ]
+        if contextual:
+            starts = contextual
+    if len(starts) != 1:
+        return []
+    selected = boxes[starts[0]:starts[0] + len(needle)]
+    rectangles: list[fitz.Rect] = []
+    for box in selected:
+        if (
+            rectangles
+            and abs(rectangles[-1].y0 - box.y0) < 1.5
+            and box.x0 <= rectangles[-1].x1 + 3.0
+        ):
+            rectangles[-1] |= box
+        else:
+            rectangles.append(fitz.Rect(box))
+    return rectangles
+
+
+def _locate_pdf_candidate(
+    document: fitz.Document, page_texts: list[str], candidate: dict,
+) -> tuple[int, list[fitz.Rect]]:
+    value = re.sub(r"\s+", " ", str(candidate.get("paper_text") or "")).strip()
+    if not value:
+        raise CitationAssistantError("PDF 批注定位校验失败：校注记录缺少正文引文。")
+    ellipsis_parts = [
+        part.strip() for part in re.split(r"(?:\.{3,}|…{1,}|⋯{1,})", value)
+        if len(normalize(part)) >= 6
+    ]
+    search_groups = [ellipsis_parts] if len(ellipsis_parts) >= 2 else []
+    search_groups.extend([[term] for term in _candidate_pdf_search_terms(candidate)])
+    before = normalize(str(candidate.get("context_before") or ""))
+    after = normalize(str(candidate.get("context_after") or ""))
+    for terms in search_groups:
+        normalized_terms = [normalize(term) for term in terms if len(normalize(term)) >= 6]
+        if not normalized_terms:
+            continue
+        pages = [
+            index for index, page_text in enumerate(page_texts)
+            if all(term in page_text for term in normalized_terms)
+        ]
+        if len(pages) > 1 and (before or after):
+            contextual = [
+                index for index in pages
+                if (not before or before[-12:] in page_texts[index])
+                and (not after or after[:12] in page_texts[index])
+            ]
+            if contextual:
+                pages = contextual
+        if len(pages) != 1:
+            continue
+        page_index = pages[0]
+        page = document[page_index]
+        rectangles: list[fitz.Rect] = []
+        ordered_y = -1.0
+        valid = True
+        for term_index, term in enumerate(terms):
+            found = _normalized_pdf_occurrences(
+                page, term,
+                before=str(candidate.get("context_before") or "") if term_index == 0 else "",
+                after=str(candidate.get("context_after") or "") if term_index == len(terms) - 1 else "",
+            )
+            if not found:
+                valid = False
+                break
+            if ordered_y >= 0:
+                found = [rect for rect in found if rect.y1 + 1 >= ordered_y]
+                if not found:
+                    valid = False
+                    break
+            rectangles.extend(found)
+            ordered_y = found[-1].y1
+        if valid and rectangles:
+            return page_index, rectangles
+    raise CitationAssistantError(
+        f"PDF 批注定位校验失败：无法唯一定位“{value[:40]}”。"
+    )
+
+
 def _candidate_viewer_url(candidate: dict) -> str:
     option = _selected_option(candidate)
     reader_url = str(option.get("viewer_url") or "").strip() if option else ""
@@ -2915,11 +3534,11 @@ def _candidate_viewer_url(candidate: dict) -> str:
     return reader_url
 
 
-def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> None:
+def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> dict:
     """Add a printable review margin while keeping Writer's original page intact."""
-    review_items = [candidate for candidate in candidates if candidate.get("decision") != "rejected"][:2000]
+    review_items = list(candidates)[:2000]
     if not review_items:
-        return
+        return {"located": 0, "failed": 0}
 
     temporary = path.with_name(f".{path.stem}-{uuid.uuid4().hex}.annotated.pdf")
     document = fitz.open(path)
@@ -2927,41 +3546,11 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
         if document.page_count < 1:
             raise CitationAssistantError("批注式 PDF 没有有效页面。")
         page_texts = [normalize(page.get_text("text")) for page in document]
-        grouped: dict[int, list[tuple[dict, list[fitz.Rect], bool]]] = defaultdict(list)
-        max_paragraph = max(
-            [int(item.get("paragraph_index") or 0) for item in review_items] or [0]
-        )
+        grouped: dict[int, list[tuple[dict, list[fitz.Rect]]]] = defaultdict(list)
 
         for candidate in review_items:
-            terms = _candidate_pdf_search_terms(candidate)
-            normalized_terms = [normalize(term) for term in terms]
-            normalized_terms = [term for term in normalized_terms if len(term) >= 6]
-            page_index: int | None = None
-            for term in normalized_terms:
-                page_index = next(
-                    (index for index, page_text in enumerate(page_texts) if term in page_text),
-                    None,
-                )
-                if page_index is not None:
-                    break
-            located = page_index is not None
-            if page_index is None:
-                paragraph_index = max(0, int(candidate.get("paragraph_index") or 0))
-                page_index = min(
-                    document.page_count - 1,
-                    int(paragraph_index * document.page_count / max(1, max_paragraph + 1)),
-                )
-
-            rectangles: list[fitz.Rect] = []
-            page = document[page_index]
-            for term in terms:
-                try:
-                    rectangles = [fitz.Rect(rect) for rect in page.search_for(term)][:8]
-                except Exception:
-                    rectangles = []
-                if rectangles:
-                    break
-            grouped[page_index].append((candidate, rectangles, located and bool(rectangles)))
+            page_index, rectangles = _locate_pdf_candidate(document, page_texts, candidate)
+            grouped[page_index].append((candidate, rectangles))
 
         font_file = _pdf_font_file()
         font_name = "ca-review-cjk" if font_file else "china-s"
@@ -2980,13 +3569,13 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
                 color=(0.72, 0.72, 0.72), width=0.7, overlay=True,
             )
             page.insert_text(
-                (separator_x + 12, 24), "引文校对批注",
+                (separator_x + 12, 24), "引文校注批注",
                 fontsize=10, fontname=font_name, color=(0.55, 0.08, 0.08), overlay=True,
             )
             items = grouped.get(page_index) or []
             if not items:
                 page.insert_text(
-                    (separator_x + 12, 43), "本页无校对事项",
+                    (separator_x + 12, 43), "本页无校注事项",
                     fontsize=7.2, fontname=font_name, color=(0.45, 0.45, 0.45), overlay=True,
                 )
                 continue
@@ -2995,7 +3584,7 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
             slot_height = available_height / len(items)
             font_size = 7.2 if len(items) <= 5 else (6.4 if len(items) <= 8 else 5.5)
             char_limit = 720 if len(items) <= 3 else (420 if len(items) <= 5 else (240 if len(items) <= 8 else 140))
-            for item_index, (candidate, rectangles, located) in enumerate(items, start=1):
+            for item_index, (candidate, rectangles) in enumerate(items, start=1):
                 box_top = 38.0 + (item_index - 1) * slot_height
                 box_bottom = min(page_height - 12.0, box_top + slot_height - 5.0)
                 box = fitz.Rect(separator_x + 10, box_top, original_width + margin_width - 10, box_bottom)
@@ -3021,9 +3610,7 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
                     comment = comment.replace(
                         f"原文链接：{reader_url}", "原文链接：点击本批注框打开",
                     )
-                if not located:
-                    comment = f"定位提示：版式转换后未能精确框选，请对照本页及网页原句。\n{comment}"
-                comment = f"批注 {item_index}\n{comment}"
+                comment = f"批注 {int(candidate.get('review_number') or item_index)}\n{comment}"
                 if len(comment) > char_limit:
                     comment = comment[: max(20, char_limit - 1)].rstrip() + "…"
                 page.insert_textbox(
@@ -3035,7 +3622,7 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
                     page.insert_link({"kind": fitz.LINK_URI, "from": box, "uri": reader_url})
 
         metadata = document.metadata
-        metadata.update({"title": "论文引文校对批注版", "author": "论文引文助手"})
+        metadata.update({"title": "论文引文校注批注版", "author": "论文引文助手"})
         document.set_metadata(metadata)
         if font_file and hasattr(document, "subset_fonts"):
             document.subset_fonts(fallback=True)
@@ -3048,6 +3635,7 @@ def _render_review_margin_annotations(path: Path, candidates: list[dict]) -> Non
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+    return {"located": len(review_items), "failed": 0}
 
 
 def _validate_annotated_pdf(path: Path, job: dict, candidates: list[dict]) -> dict:
@@ -3070,7 +3658,7 @@ def _validate_annotated_pdf(path: Path, job: dict, candidates: list[dict]) -> di
     labels = [normalize(str(candidate.get("issue_label") or "")) for candidate in visible]
     labels = [label for label in labels if label]
     if labels and not any(label in pdf_norm for label in labels[:20]):
-        raise CitationAssistantError("批注式 PDF 未呈现校对批注，已拒绝发布机械报告。")
+        raise CitationAssistantError("批注式 PDF 未呈现校注批注，已拒绝发布机械报告。")
 
     try:
         original = extract_docx(job["input_path"])
@@ -3217,20 +3805,119 @@ def export_legacy_report_pdf(job: dict, candidates: list[dict]) -> Path:
     return output
 
 
-def export_pdf(job: dict, candidates: list[dict]) -> Path:
-    """Render a comment-annotated copy of the original DOCX as the review PDF."""
-    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / "论文引文校对批注版.pdf"
-    annotated = build_annotated_review_docx(job, candidates)
+def export_pdf(
+    job: dict, candidates: list[dict], *, source_docx: str | Path | None = None,
+) -> Path:
+    """Render the final Word copy, then add strictly located proofreading margins."""
+    mode = str(job.get("mode") or "both")
+    if mode == "generate":
+        raise CitationAssistantError("插注模式只输出 Word，不生成 PDF。")
+    source = Path(source_docx) if source_docx is not None else export_docx(job, candidates)
+    if not source.is_file():
+        raise CitationAssistantError("最终 Word 副本不存在，无法生成对应 PDF。")
+    stem = Path(str(job.get("original_filename") or "论文.docx")).stem
+    name = f"{stem}_校注批注版.pdf" if mode == "audit" else f"{stem}_插注校注批注版.pdf"
+    output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / name
+    review_items = _pdf_review_manifest(job, candidates)
     try:
-        _convert_annotated_docx_to_pdf(annotated, output)
-        _render_review_margin_annotations(output, candidates)
-        _validate_annotated_pdf(output, job, candidates)
-    finally:
-        try:
-            annotated.unlink(missing_ok=True)
-        except OSError:
-            pass
+        _convert_annotated_docx_to_pdf(source, output)
+        _render_review_margin_annotations(output, review_items)
+        _validate_annotated_pdf(output, job, review_items)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
     return output
+
+
+def _export_candidate_counts(job: dict, candidates: list[dict]) -> dict[str, int]:
+    input_path = Path(str(job["input_path"]))
+    try:
+        with zipfile.ZipFile(input_path) as package:
+            document = _parse_xml(package.read("word/document.xml"))
+        paragraphs = document.xpath("./w:body//w:p", namespaces=NS)
+    except Exception:
+        paragraphs = []
+    inserted = sum(_candidate_is_insertion_eligible(job, item, paragraphs) for item in candidates)
+    generated = sum(str(item.get("kind") or "") == "generate" for item in candidates)
+    commented = sum(_candidate_is_comment_eligible(job, item) for item in candidates)
+    audit_candidates = [item for item in candidates if str(item.get("kind") or "") == "audit"]
+    readonly = sum(str(item.get("writeback_mode") or "") == "readonly" for item in audit_candidates)
+    return {
+        "auto_insert_eligible_count": int(inserted),
+        "inserted_count": int(inserted),
+        "not_inserted_count": max(0, int(generated) - int(inserted)),
+        "proofread_eligible_count": int(commented),
+        "commented_count": int(commented),
+        "readonly_count": int(readonly),
+    }
+
+
+def queue_pdf_retry(job_id: str, user_id: int) -> dict:
+    """Atomically queue PDF-only recovery while preserving the final Word artifact."""
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = _row_dict(conn.execute(
+            "SELECT * FROM citation_assistant_jobs WHERE id=? AND user_id=?",
+            (str(job_id), int(user_id)),
+        ).fetchone())
+        if not row:
+            raise CitationAssistantError("任务不存在。")
+        if str(row.get("mode") or "") not in {"audit", "both"}:
+            raise CitationAssistantError("插注模式不生成 PDF。")
+        if str(row.get("status") or "") != "complete":
+            raise CitationAssistantError("当前任务不能重试 PDF。")
+        if str(row.get("pdf_export_status") or "") == "converting":
+            raise CitationAssistantError("PDF 正在生成，请勿重复提交。")
+        if str(row.get("word_export_status") or "") != "ready":
+            raise CitationAssistantError("最终 Word 副本尚未就绪。")
+        word_path = Path(str(row.get("output_docx_path") or ""))
+        job_dir = _job_dir(int(user_id), str(job_id)).resolve()
+        try:
+            resolved = word_path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise CitationAssistantError("最终 Word 副本不存在，无法重试 PDF。") from exc
+        if job_dir not in resolved.parents:
+            raise CitationAssistantError("Word 副本路径校验失败。")
+        now = _iso()
+        changed = conn.execute(
+            "UPDATE citation_assistant_jobs SET status='exporting',pdf_export_status='converting',"
+            "output_pdf_path='',pdf_position_failure_count=0,error='',lease_owner='',"
+            "lease_expires_at='',updated_at=? WHERE id=? AND user_id=? AND status='complete' "
+            "AND pdf_export_status!='converting'",
+            (now, str(job_id), int(user_id)),
+        ).rowcount
+        if changed != 1:
+            raise CitationAssistantError("PDF 重试状态已变更，请刷新后重试。")
+    return get_job(job_id, user_id) or {}
+
+
+def run_pdf_export(job_id: str) -> None:
+    """Regenerate only PDF from the already published final Word copy."""
+    row = get_job(job_id)
+    if not row:
+        return
+    docx_path = Path(str(row.get("output_docx_path") or ""))
+    try:
+        if str(row.get("mode") or "") not in {"audit", "both"}:
+            raise CitationAssistantError("插注模式不生成 PDF。")
+        if str(row.get("word_export_status") or "") != "ready" or not docx_path.is_file():
+            raise CitationAssistantError("最终 Word 副本不存在，无法重试 PDF。")
+        candidates = all_candidates(job_id)
+        pdf_path = export_pdf(row, candidates, source_docx=docx_path)
+    except Exception as exc:
+        position_failed = "定位校验失败" in str(exc)
+        update_job(
+            job_id, status="complete", output_pdf_path="",
+            pdf_export_status="position_failed" if position_failed else "failed",
+            pdf_position_failure_count=1 if position_failed else 0,
+            progress_done=1, progress_total=1,
+            error=f"Word 已生成；PDF 未生成：{str(exc)[:360]}",
+        )
+        return
+    update_job(
+        job_id, status="complete", output_pdf_path=str(pdf_path), pdf_export_status="ready",
+        pdf_position_failure_count=0, progress_done=1, progress_total=1, error="",
+    )
 
 
 def run_export(job_id: str) -> None:
@@ -3238,18 +3925,46 @@ def run_export(job_id: str) -> None:
     if not row:
         return
     try:
+        if (
+            str(row.get("pdf_export_status") or "") == "converting"
+            and str(row.get("word_export_status") or "") == "ready"
+            and Path(str(row.get("output_docx_path") or "")).is_file()
+        ):
+            run_pdf_export(job_id)
+            return
         if row.get("status") not in {"review_ready", "exporting", "complete"}:
             raise CitationAssistantError("任务尚未进入导出阶段。")
         update_job(job_id, status="exporting", error="")
         candidates = all_candidates(job_id)
-        pdf_path = export_pdf(row, candidates)
+        counts = _export_candidate_counts(row, candidates)
         docx_path = str(export_docx(row, candidates))
+        update_job(job_id, output_docx_path=docx_path, word_export_status="ready", **counts)
+        if str(row.get("mode") or "both") == "generate":
+            update_job(
+                job_id, status="complete", output_pdf_path="", pdf_export_status="not_requested",
+                pdf_position_failure_count=0, progress_done=1, progress_total=1, error="",
+            )
+            return
+        update_job(job_id, pdf_export_status="converting", output_pdf_path="", error="")
+        try:
+            pdf_path = export_pdf(row, candidates, source_docx=docx_path)
+        except Exception as pdf_exc:
+            position_failed = "定位校验失败" in str(pdf_exc)
+            update_job(
+                job_id, status="complete", output_docx_path=docx_path, output_pdf_path="",
+                pdf_export_status="position_failed" if position_failed else "failed",
+                pdf_position_failure_count=1 if position_failed else 0,
+                progress_done=1, progress_total=1,
+                error=f"Word 已生成；PDF 未生成：{str(pdf_exc)[:360]}",
+            )
+            return
         update_job(
             job_id, status="complete", output_docx_path=docx_path,
-            output_pdf_path=str(pdf_path), progress_done=1, progress_total=1, error="",
+            output_pdf_path=str(pdf_path), pdf_export_status="ready", pdf_position_failure_count=0,
+            progress_done=1, progress_total=1, error="",
         )
     except Exception as exc:
-        update_job(job_id, status="failed", error=str(exc)[:500])
+        update_job(job_id, status="failed", word_export_status="failed", error=str(exc)[:500])
 
 
 def delete_job(job_id: str, user_id: int) -> bool:

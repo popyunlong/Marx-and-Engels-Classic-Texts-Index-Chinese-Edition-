@@ -293,6 +293,8 @@ def run_node_check(js: str) -> str | None:
             ["node", "--check", temp_path],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         if result.returncode != 0:
@@ -307,7 +309,7 @@ def run_node_check(js: str) -> str | None:
             pass
 
 
-def check_html(label: str, html: str) -> list[str]:
+def check_html(label: str, html: str, *, node_check: bool = True) -> list[str]:
     """检查一段渲染后的 HTML，返回问题列表（空列表表示通过）。"""
     problems: list[str] = []
     scripts = extract_inline_scripts(html)
@@ -318,7 +320,7 @@ def check_html(label: str, html: str) -> list[str]:
                 f"{location}：标识符 '{name}' 在顶层被重复声明（{' + '.join(kinds)}），"
                 f"会触发 JavaScript SyntaxError，整段脚本将无法执行。"
             )
-        node_error = run_node_check(script)
+        node_error = run_node_check(script) if node_check else None
         if node_error:
             problems.append(f"{location}：node --check 报告语法错误：{node_error}")
     return problems

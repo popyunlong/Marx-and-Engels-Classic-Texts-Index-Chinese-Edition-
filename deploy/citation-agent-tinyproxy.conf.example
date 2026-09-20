@@ -1,0 +1,14 @@
+# Merge these directives into a dedicated tinyproxy instance.  Keep it separate
+# from any general-purpose proxy and bind it only to loopback.
+Port 18080
+Listen 127.0.0.2
+Timeout 45
+MaxClients 4
+StartServers 1
+MinSpareServers 1
+MaxSpareServers 2
+ConnectPort 443
+Allow 127.0.0.1
+Filter "/etc/tinyproxy/citation-agent.filter"
+FilterURLs On
+FilterDefaultDeny Yes

@@ -212,7 +212,12 @@ try {
     Write-Host "Running local deployment smoke test ..."
     Push-Location $repoRoot
     try {
-        Invoke-Native -Label "Local deployment smoke test" -FilePath "python" -ArgumentList @("scripts\deployment_smoke.py", "--mode", "server") | Out-Null
+        $smokeArgs = @("scripts\deployment_smoke.py", "--mode", "server")
+        if (-not (Test-Path (Join-Path $repoRoot "data\corpus.sqlite"))) {
+            Write-Host "Large corpus is not mounted in this isolated worktree; HTTP probes remain enabled on the staged production node."
+            $smokeArgs += "--skip-http"
+        }
+        Invoke-Native -Label "Local deployment smoke test" -FilePath "python" -ArgumentList $smokeArgs | Out-Null
     } finally {
         Pop-Location
     }
@@ -277,8 +282,8 @@ try {
     Write-Host "Installing candidate dependencies into an isolated target ..."
     Invoke-Remote "mkdir -p '$remoteRelease/.deploy-deps' && '$RemoteDir/.venv/bin/python' -m pip install --target '$remoteRelease/.deploy-deps' -r '$remoteRelease/requirements.txt'"
 
-    Write-Host "Ensuring the licensed CJK font package for citation PDF reports ..."
-    Invoke-Remote "if ! dpkg-query -W -f='`${Status}' fonts-noto-cjk 2>/dev/null | grep -q 'install ok installed'; then export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y fonts-noto-cjk; fi"
+    Write-Host "Ensuring LibreOffice Writer and the licensed CJK font package for citation PDF reports ..."
+    Invoke-Remote "missing=''; command -v libreoffice >/dev/null 2>&1 || missing='libreoffice-core libreoffice-writer'; dpkg-query -W -f='`${Status}' fonts-noto-cjk 2>/dev/null | grep -q 'install ok installed' || missing=`"`$missing fonts-noto-cjk`"; if [ -n `"`$missing`" ]; then export DEBIAN_FRONTEND=noninteractive && apt-get update && apt-get install -y `$missing; fi"
 
     Write-Host "Compiling changed Python files ..."
     Invoke-Remote "cd '$remoteRelease' && PYTHONPATH='$remoteRelease/.deploy-deps' '$RemoteDir/.venv/bin/python' -m py_compile $($compileFiles -join ' ')"
@@ -292,6 +297,9 @@ try {
     Write-Host "Running server import smoke test before restart ..."
     # 远端合并 stderr 到 stdout，避免冒烟脚本日志经 ssh 的 stderr 在本地触发终止错误（exit code 仍会正确传回）。
     Invoke-Remote "cd '$remoteRelease' && PYTHONPATH='$remoteRelease/.deploy-deps' '$RemoteDir/.venv/bin/python' scripts/deployment_smoke.py --mode server 2>&1"
+
+    Write-Host "Running an anonymous PDF conversion probe as the production service account ..."
+    Invoke-Remote "cd '$remoteRelease' && sudo -u www-data -H env PYTHONPATH='$remoteRelease/.deploy-deps:$remoteRelease' CITATION_ASSISTANT_SOFFICE=/usr/bin/libreoffice CITATION_ASSISTANT_PDF_TIMEOUT=180 '$RemoteDir/.venv/bin/python' scripts/citation_agent_preflight.py --require-pdf"
 
     if ($RebuildCorpus) {
         Write-Host "Rebuilding corpus.sqlite on server because -RebuildCorpus was supplied. This is a long-running foreground task."

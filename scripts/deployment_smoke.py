@@ -47,8 +47,14 @@ def check_inline_javascript(root: Path) -> None:
     problems: list[str] = []
     for template in sorted(templates_dir.glob("*.html")):
         problems.extend(
-            check_inline_js.check_html(template.name, template.read_text(encoding="utf-8"))
+            check_inline_js.check_html(
+                template.name, template.read_text(encoding="utf-8"), node_check=False,
+            )
         )
+    for script in sorted((root / "static").rglob("*.js")):
+        error = check_inline_js.run_node_check(script.read_text(encoding="utf-8"))
+        if error:
+            problems.append(f"{script.relative_to(root)}：node --check 报告语法错误：{error}")
     if problems:
         raise RuntimeError("内联 JavaScript 检查未通过：\n  - " + "\n  - ".join(problems))
 
@@ -88,6 +94,10 @@ def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
         response = client.get(path)
         if response.status_code != 200:
             raise RuntimeError(f"{path} returned {response.status_code}, expected 200")
+        if response.mimetype == "text/html":
+            problems = check_inline_js.check_html(path, response.get_data(as_text=True))
+            if problems:
+                raise RuntimeError("渲染后 JavaScript 检查未通过：\n  - " + "\n  - ".join(problems))
 
     # 核心链路：只断言"路由已接好且未崩溃(<500)"，不耦合鉴权/会话/语料数据，
     # 避免把权限性的 3xx/4xx 误判为故障而错误阻断部署；真正的回归(导入错误、

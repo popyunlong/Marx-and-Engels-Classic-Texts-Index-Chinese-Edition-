@@ -1,0 +1,40 @@
+[Unit]
+Description=Marx Search administrator citation Agent deterministic test worker
+After=local-fs.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+SupplementaryGroups=marx-citation-agent-queue
+WorkingDirectory=/opt/marx-search
+EnvironmentFile=/etc/marx-search.env
+EnvironmentFile=/etc/marx-citation-agent-bridge.env
+Environment=CITATION_ASSISTANT_INLINE_WORKER=0
+Environment=CITATION_ASSISTANT_SOFFICE=/usr/bin/libreoffice
+ExecStart=/opt/marx-search/.venv/bin/python scripts/citation_agent_test_worker.py
+Restart=always
+RestartSec=3
+UMask=0077
+Nice=15
+CPUQuota=25%
+MemoryHigh=1400M
+MemoryMax=1800M
+IOWeight=10
+PrivateTmp=true
+PrivateNetwork=true
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+
+# Deliberately no [Install] section: install the unit in the off state and start it
+# manually only during the administrator test window.

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>论文插注校注 Agent｜管理员测试 - {{ app_name }}</title>
+  <link rel="icon" href="/static/favicon.ico">
+  <link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=3">
+  <link rel="stylesheet" href="/static/citation-assistant/citation-assistant.css?v=4">
+  <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=3">
+</head>
+<body class="v2 ca-page cat-page">
+  {% include "_appnav.html" %}
+
+  <main class="ca-shell" id="citationAgentTest"
+        data-csrf="{{ csrf_token }}"
+        data-job='{{ (job or {})|tojson|forceescape }}'
+        data-jobs='{{ jobs|tojson|forceescape }}'
+        data-scope='{{ book_scope_tree|tojson|forceescape }}'
+        data-gb2025-approved="{{ '1' if gb2025_approved else '0' }}">
+    <section class="ca-hero cat-hero">
+      <div>
+        <p class="ca-eyebrow">管理员隔离测试 · 不影响现有栏目</p>
+        <h1>论文插注校注 Agent 测试版</h1>
+        <p>这一入口使用独立任务库、独立文件目录和独立 worker。模型只参与脱敏检索规划；所有出处、卷页和原文仍由所选站内文库硬核验。</p>
+      </div>
+      <div class="ca-privacy"><b>安全边界</b><br>不联网找文献；未核实、越出范围和无站内证据的项目不会写入 Word 或 PDF。</div>
+    </section>
+
+    <aside class="cat-isolation" role="note">
+      <div><b>当前正式栏目保持原样</b><span>本页只供管理员新建测试任务，不接管旧任务，也不会对会员显示。</span></div>
+      <a href="{{ url_for('citation_assistant_page') }}">打开现有栏目 →</a>
+    </aside>
+
+    <div id="catNotice" class="ca-notice" hidden></div>
+
+    {% if not job %}
+    <section class="ca-card ca-upload-card">
+      <div class="ca-card-head">
+        <div><span class="ca-step">T</span><h2>新建隔离测试任务</h2></div>
+        <p>上限 {{ max_mb }}MB；测试文件同样在 7 天后清理。</p>
+      </div>
+      <form id="catUploadForm" class="ca-form">
+        <label class="ca-file" id="catFileDrop">
+          <input type="file" name="file" id="catFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+          <span class="ca-file-icon">W</span>
+          <span><b id="catFileName">选择匿名测试 .docx</b><small>优先使用已脱敏黄金样本；也可拖入此处</small></span>
+        </label>
+        <div class="ca-grid cat-grid">
+          <label><span>处理方式</span><select name="mode" id="catModeSelect"><option value="both">插注＋校注（推荐）</option><option value="generate">插注</option><option value="audit">校注</option></select></label>
+          <label id="catNoteKindField"><span>插注类型</span><select name="note_kind"><option value="footnote">脚注</option><option value="endnote">尾注</option></select><small>新增上标、标号和注文统一使用浅蓝色。</small></label>
+          <label><span>识别深度</span><select name="recognition_depth"><option value="direct_only" selected>仅直接引文（默认）</option><option value="direct_and_paraphrase">直接引文＋观点依据发现（实验）</option></select><small>观点依据只表示站内文献可能支持论文观点，不证明论文语句出自该文献，且永不自动采用。</small></label>
+          <label><span>引文格式</span><select name="citation_style"><option value="mkszyj" selected>《马克思主义研究》</option>{% if gb2025_approved %}<option value="auto">自动识别</option><option value="gb2025">GB/T 7714—2025</option>{% endif %}<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option></select></label>
+        </div>
+        <div class="ca-rule-note"><b>自动采用闸门</b><span>只有唯一、归一化逐字一致且印刷页可靠的命中才可能自动采用；Agent 自报的出处与置信度一律无效。</span></div>
+        <div class="ca-scope-block">
+          <span>必选步骤：指定著作</span>
+          <div id="catBookScope"></div>
+          <small>必须勾选至少一部著作、卷册或个人文库资料；系统不再把空选择解释为全库。Agent 无权扩大范围。</small>
+        </div>
+        <button class="ca-primary" type="submit">上传到管理员测试区</button>
+      </form>
+    </section>
+
+    <section class="ca-card">
+      <div class="ca-card-head"><div><h2>管理员测试任务</h2></div><p>这里不显示正式栏目的任务。</p></div>
+      <div id="catJobList" class="ca-job-list"></div>
+    </section>
+    {% else %}
+    <section class="ca-card ca-workspace">
+      <div class="ca-card-head">
+        <div><a class="ca-back" href="{{ url_for('citation_agent_test_page') }}">← 返回测试任务</a><h2>{{ job.original_filename }}</h2></div>
+        <button type="button" class="ca-danger-link" id="catDeleteJob">删除测试任务和文件</button>
+      </div>
+      <div id="catStatusPanel"></div>
+      <div id="catTimeline" class="cat-timeline"></div>
+      <div id="catSectionsPanel" hidden></div>
+      <div id="catReviewPanel" hidden>
+        <div class="cat-metrics">
+          <div><strong id="catAgentVerified">0</strong><span>Agent 直接引文补漏</span></div>
+          <div><strong id="catViewpointSuggestions">0</strong><span>观点依据发现</span></div>
+          <div><strong id="catPending">0</strong><span>待人工审核</span></div>
+          <div><strong id="catUnresolved">0</strong><span>未能核实</span></div>
+          <div><strong id="catOutScope">0</strong><span>超出所选范围</span></div>
+          <div><strong id="catNoEvidence">0</strong><span>无站内证据</span></div>
+        </div>
+        <div id="catAgentWarning"></div>
+        <div class="ca-exportbar ca-exportbar-top"><div><b>只导出经过证据闸门的可操作候选</b><p>插注模式只生成浅蓝色 Word；校注和组合模式从最终 Word 生成批注 PDF，任何批注定位不唯一都会拒绝发布 PDF。</p></div><button class="ca-primary" type="button" id="catExport">生成测试输出</button></div>
+        <div class="ca-review-tabs" role="tablist" aria-label="候选状态">
+          <button type="button" class="active" data-cat-decision="pending">待审核 <span id="catPendingTab">0</span></button>
+          <button type="button" data-cat-decision="accepted">已采信 <span id="catAcceptedTab">0</span></button>
+          <button type="button" data-cat-decision="rejected">已弃用 <span id="catRejectedTab">0</span></button>
+          <button type="button" data-cat-decision="">全部 <span id="catAllTab">0</span></button>
+        </div>
+        <div class="ca-batchbar" id="catPendingActions"><div><b>快速处理可操作的待审核项</b><small>“一键采信”仅处理直接引文；观点依据必须逐条人工判断。</small></div><button type="button" id="catAcceptPending">一键采信直接引文</button><button type="button" class="ca-reject-button" id="catRejectPending">一键弃用全部</button></div>
+        <div id="catCandidateList" class="ca-candidate-list"></div>
+        <div class="ca-pagination"><button type="button" id="catPrev">上一页</button><span id="catPage"></span><button type="button" id="catNext">下一页</button></div>
+        <details class="cat-unresolved" id="catUnresolvedDetails">
+          <summary>只读结果（含未核实项，不写入任何输出文件） <span id="catUnresolvedSummary">0</span></summary>
+          <div id="catUnresolvedList" class="ca-candidate-list"></div>
+        </details>
+      </div>
+      <div id="catDownloads" hidden></div>
+    </section>
+    {% endif %}
+  </main>
+
+  <script src="/static/book-scope/book-scope.js?v=5"></script>
+  <script src="/static/citation-agent-test/citation-agent-test.js?v=8"></script>
+</body>
+</html>

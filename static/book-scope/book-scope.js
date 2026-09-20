@@ -4,7 +4,7 @@
  * 选择态 sel = { 书库键: "all" | [卷号...] }；导出 token：整套→"book:<键>"，单卷→"vol:<键>:<卷号>"。
  * 后端 _resolve_search_scope / _standard_search_scope 直接吃这个 token 列表。
  *
- * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey });
+ * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey, initialTokens });
  *   默认「不跨访问记忆」：每次挂载都从空开始（= 全部著作）；仅当传 persist:true 时才读写 localStorage。
  *   ctl.getTokens() -> ["book:文集","vol:全集:5", ...]（无选择时为 []）
  *   ctl.count()     -> 已选著作数
@@ -45,11 +45,37 @@
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {};
     // 默认不跨访问记忆：每次挂载从空开始（= 全部著作）；仅显式 persist:true 才读写 localStorage。
     var persistOn = opts.persist === true;
-    var sel = persistOn ? loadSel(storageKey) : {};
-
     // 书库键 → { label, volumes } 索引；顺带剔除 localStorage 里已不在库的键。
     var bookIndex = {};
     tree.forEach(function (g) { (g.books || []).forEach(function (b) { bookIndex[b.key] = b; }); });
+
+    function fromTokens(tokens) {
+      var out = {};
+      (Array.isArray(tokens) ? tokens : []).forEach(function (token) {
+        token = String(token || '');
+        if (token.indexOf('book:') === 0) {
+          var wholeKey = token.slice(5);
+          if (bookIndex[wholeKey]) out[wholeKey] = 'all';
+          return;
+        }
+        if (token.indexOf('vol:') !== 0) return;
+        var value = token.slice(4);
+        var split = value.lastIndexOf(':');
+        if (split <= 0) return;
+        var key = value.slice(0, split), volume = Number(value.slice(split + 1));
+        var allowed = bookIndex[key] && Array.isArray(bookIndex[key].volumes)
+          ? bookIndex[key].volumes.map(Number) : [];
+        if (!Number.isFinite(volume) || allowed.indexOf(volume) < 0 || out[key] === 'all') return;
+        var selected = Array.isArray(out[key]) ? out[key] : [];
+        if (selected.indexOf(volume) < 0) selected.push(volume);
+        selected.sort(function (a, b) { return a - b; });
+        out[key] = selected.length === allowed.length ? 'all' : selected;
+      });
+      return out;
+    }
+
+    var hasInitial = Array.isArray(opts.initialTokens);
+    var sel = hasInitial ? fromTokens(opts.initialTokens) : (persistOn ? loadSel(storageKey) : {});
     Object.keys(sel).forEach(function (k) { if (!bookIndex[k]) delete sel[k]; });
 
     var root = document.createElement('div');

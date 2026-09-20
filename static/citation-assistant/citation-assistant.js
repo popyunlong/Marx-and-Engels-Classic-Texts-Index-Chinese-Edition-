@@ -16,8 +16,9 @@
     if(!res.ok){let msg=data.error||data.message||'';if(!msg){const text=(await res.text().catch(()=>''));msg=text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}throw new Error(msg||('请求失败（'+res.status+'）'))}
     return data;
   }
-  const statusLabels={extracting:'正在安全读取文档',awaiting_sections:'等待确认扫描章节',queued:'已进入分析队列',matching:'正在与原著逐字核对',review_ready:'等待你审核候选内容',exporting:'正在制作新文档和报告',complete:'文档和报告已生成',failed:'任务未完成',expired:'已过期',deleted:'已删除'};
-  const modeLabels={both:'补注＋校对',generate:'建议补注',audit:'校对已有注释'};
+  const statusLabels={extracting:'正在安全读取文档',awaiting_sections:'等待确认扫描章节',queued:'已进入分析队列',matching:'正在与原著逐字核对',review_ready:'等待你审核候选内容',exporting:'正在制作输出文件',complete:'输出文件已生成',failed:'任务未完成',expired:'已过期',deleted:'已删除'};
+  const modeLabels={both:'插注＋校注',generate:'插注',audit:'校注'};
+  function exportButtonText(){if(!job)return'生成输出文件';if(job.mode==='generate')return'生成浅蓝色插注 Word';if(job.mode==='audit')return'生成校注 Word 与批注 PDF';return'生成插注校注 Word 与批注 PDF'}
 
   function renderHistory(){
     const box=$('#caJobList');if(!box)return;
@@ -28,6 +29,9 @@
   function setupUpload(){
     const form=$('#caUploadForm');if(!form)return;
     const holder=$('#caBookScope');if(holder&&window.BookScope)scopeCtl=BookScope.mount(holder,tree,{persist:false});
+    const modeSelect=$('#caModeSelect'),noteKindField=$('#caNoteKindField');
+    const syncMode=()=>{if(noteKindField)noteKindField.hidden=modeSelect&&modeSelect.value==='audit'};
+    if(modeSelect){modeSelect.addEventListener('change',syncMode);syncMode()}
     const file=$('#caFile'),name=$('#caFileName'),drop=$('#caFileDrop');
     file.addEventListener('change',()=>{name.textContent=file.files[0]?file.files[0].name:'选择 .docx 论文'});
     ['dragenter','dragover'].forEach(evt=>drop.addEventListener(evt,e=>{e.preventDefault();drop.classList.add('drag')}));
@@ -86,7 +90,7 @@
     const values={caAutoCount:summary.auto_accepted,caPendingCount:summary.pending,caAcceptedCount:summary.accepted,caPendingTabCount:summary.pending,caAcceptedTabCount:summary.accepted,caRejectedTabCount:summary.rejected,caAllTabCount:summary.total};Object.keys(values).forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=Number(values[id]||0)});
     document.querySelectorAll('[data-review-decision]').forEach(button=>button.classList.toggle('active',button.dataset.reviewDecision===reviewDecision));
     const pendingActions=$('#caPendingActions');if(pendingActions)pendingActions.hidden=reviewDecision!=='pending'||Number(summary.pending||0)===0;
-    const exportButton=$('#caExport');if(exportButton){const reportCount=Math.max(0,Number(summary.total||0)-Number(summary.rejected||0));exportButton.textContent='生成 Word 与批注 PDF（批注 '+reportCount+' 条，修订 '+Number(summary.accepted||0)+' 条）'};
+    const exportButton=$('#caExport');if(exportButton)exportButton.textContent=exportButtonText();
   }
   function decisionPayload(card,decision){return {id:Number(card.dataset.id),decision:decision,selected_option:Number((card.querySelector('[data-field=option]')||{}).value||0),proposed_citation:(card.querySelector('[data-field=citation]')||{}).value||''}}
   function collectDecisions(){return [...document.querySelectorAll('.ca-candidate')].map(card=>decisionPayload(card,card.classList.contains('accepted')?'accepted':(card.classList.contains('rejected')?'rejected':'pending')))}
@@ -114,11 +118,11 @@
     if(exportButton)exportButton.disabled=true;
     button.addEventListener('click',async()=>{button.disabled=true;try{const out=await api('/api/citation-assistant/jobs/'+job.id+'/citation-style',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({citation_style:select.value})});job=out.job;page=1;renderJob();notice('引文格式已确认，候选注释已更新。')}catch(e){notice(e.message,true);button.disabled=false}});
   }
-  function renderDownloads(){const box=$('#caDownloads');box.hidden=false;box.className='ca-downloads';let html='<div style="width:100%"><h3>已完成</h3><p>请在到期前下载。原论文没有被修改。</p></div>';if(job.docx_url)html+='<a class="ca-download" href="'+esc(job.docx_url)+'"><b>下载 Word 副本</b><span>含已采用的脚注/尾注</span></a>';else html+='<div class="ca-warning" style="width:100%">当前任务尚未生成 Word 副本，请重新点击生成；如仍失败，请查看任务错误提示。</div>';if(job.pdf_url){if(job.pdf_is_annotated)html+='<a class="ca-download" href="'+esc(job.pdf_url)+'"><b>下载原文批注 PDF</b><span>保留论文版式，在对应位置显示校对批注</span></a>';else html+='<a class="ca-download" href="'+esc(job.pdf_url)+'"><b>下载旧版列表报告</b><span>这是改版前产物；新任务将生成原文批注 PDF</span></a>'}box.innerHTML=html}
+  function renderDownloads(){const box=$('#caDownloads');box.hidden=false;box.className='ca-downloads';const wordText=job.mode==='generate'?'新增上标、标号和注文均为浅蓝色':(job.mode==='audit'?'原脚注保持不变，校注意见位于正文批注': '同一副本含浅蓝色插注和正文校注批注');const counts='自动插注 '+Number(job.inserted_count||0)+' 条，未插入 '+Number(job.not_inserted_count||0)+' 条；正文批注 '+Number(job.commented_count||0)+' 条，只读 '+Number(job.readonly_count||0)+' 条。';const pdfFailed=['failed','position_failed'].includes(job.pdf_export_status),pdfConverting=job.pdf_export_status==='converting',heading=pdfFailed?'Word 已完成，PDF 未完成':(pdfConverting?'Word 已完成，PDF 正在生成':'已完成');let html='<div style="width:100%"><h3>'+heading+'</h3><p>请在到期前下载；上传的原始文件始终保持不变。'+counts+'</p>'+(job.error?'<p class="ca-warning">'+esc(job.error)+'</p>':'')+'</div>';if(job.docx_url)html+='<a class="ca-download" href="'+esc(job.docx_url)+'"><b>下载 '+esc(modeLabels[job.mode]||'处理')+' Word</b><span>'+wordText+'</span></a>';else html+='<div class="ca-warning" style="width:100%">当前任务尚未生成 Word 副本，请重新点击生成；如仍失败，请查看任务错误提示。</div>';if(job.pdf_url)html+='<a class="ca-download" href="'+esc(job.pdf_url)+'"><b>下载批注 PDF</b><span>从最终 Word 转换，页边批注已通过定位校验</span></a>';if(pdfConverting)html+='<div class="ca-rule-note" style="width:100%">PDF 正在从已生成的最终 Word 单独重建。</div>';if(job.docx_url&&job.mode!=='generate'&&pdfFailed)html+='<button type="button" id="caRetryPdf">单独重试 PDF</button>';box.innerHTML=html;const retry=$('#caRetryPdf');if(retry)retry.addEventListener('click',async()=>{retry.disabled=true;try{const out=await api('/api/citation-assistant/jobs/'+job.id+'/retry-pdf',{method:'POST'});job=out.job||job;job.status='exporting';job.pdf_export_status='converting';renderJob();startPolling()}catch(e){notice(e.message,true);retry.disabled=false}})}
   function renderJob(){
     const status=$('#caStatusPanel'),sections=$('#caSectionsPanel'),review=$('#caReviewPanel'),downloads=$('#caDownloads');if(!status)return;
     sections.hidden=true;review.hidden=true;downloads.hidden=true;review.innerHTML=review.innerHTML;
-    if(['extracting','queued','matching','exporting'].includes(job.status))status.innerHTML=progressHtml(job);
+    if(['extracting','queued','matching','exporting'].includes(job.status)){status.innerHTML=progressHtml(job);if(job.status==='exporting'&&job.word_export_status==='ready')renderDownloads()}
     else if(job.status==='awaiting_sections'){status.innerHTML='';renderSections()}
     else if(job.status==='review_ready'){const needsStyle=job.citation_style==='auto'&&Number(job.style_confidence||0)<.8;status.innerHTML=needsStyle?'<div class="ca-warning" id="caRequiredStyle"><b>需要你选择引文格式</b><p>现有注释少于 3 条、格式混用，或主格式占比不足 80%，系统不会替你猜测。</p><select id="caRequiredStyleSelect">'+(gb2025Approved?'<option value="gb2025">GB/T 7714—2025</option>':'')+'<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option><option value="mkszyj">《马克思主义研究》</option></select> <button type="button" id="caRequiredStyleSave">确认格式</button></div>':'';setupReview();if(needsStyle)setupRequiredStyle()}
     else if(job.status==='complete'){status.innerHTML='';renderDownloads()}
