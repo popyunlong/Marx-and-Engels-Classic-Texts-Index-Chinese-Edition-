@@ -216,3 +216,5 @@ def test_pdf_preflight_has_no_optional_docx_dependency() -> None:
         if isinstance(node, ast.ImportFrom) and node.module
     )
     assert "docx" not in imports
+    assert "citation_agent_queue" not in imports
+    assert "citation_agent_test_backend" not in imports

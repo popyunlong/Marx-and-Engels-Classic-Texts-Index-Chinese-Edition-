@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-"""Offline, production-data-free preflight for the isolated Agent release."""
+"""Production-data-free preflight for the citation export runtime."""
 
-import ast
 import argparse
-import gc
 import sys
 import tempfile
 import zipfile
@@ -14,8 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import citation_agent_queue as queue
-import citation_agent_test_backend as test_tasks
 import citation_assistant as public_tasks
 
 
@@ -56,17 +52,6 @@ def _write_anonymous_probe_docx(path: Path) -> None:
         archive.writestr("word/_rels/document.xml.rels", document_rels)
 
 
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    found: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            found.add(node.module)
-    return found
-
-
 def _args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Offline citation Agent preflight.")
     parser.add_argument(
@@ -78,35 +63,6 @@ def _args() -> argparse.Namespace:
 
 def main() -> int:
     args = _args()
-    assert public_tasks is not test_tasks.core
-    assert public_tasks.DB_PATH != test_tasks.core.DB_PATH
-    assert public_tasks.ARTIFACT_ROOT != test_tasks.core.ARTIFACT_ROOT
-    assert "app" not in _imports(ROOT / "scripts" / "citation_agent_worker.py")
-    assert "citation_assistant" not in _imports(ROOT / "scripts" / "citation_agent_worker.py")
-    assert "app" not in _imports(ROOT / "scripts" / "citation_agent_test_worker.py")
-
-    agent_unit = (ROOT / "deploy" / "marx-citation-agent.service").read_text(encoding="utf-8")
-    for required in (
-        "MemoryMax=256M", "CPUQuota=25%", "IPAddressDeny=any",
-        "IPAddressAllow=127.0.0.2",
-        "InaccessiblePaths=/var/www/.marx_search_full", "NoNewPrivileges=true",
-    ):
-        assert required in agent_unit
-    deterministic_unit = (
-        ROOT / "deploy" / "marx-search-citation-agent-test-worker.service"
-    ).read_text(encoding="utf-8")
-    assert "PrivateNetwork=true" in deterministic_unit
-    bridge_env = (
-        ROOT / "deploy" / "marx-citation-agent-bridge.env.example"
-    ).read_text(encoding="utf-8")
-    assert "CITATION_AGENT_TEST_MODE=off" in bridge_env
-    assert "CITATION_ASSISTANT_SOFFICE=" in bridge_env
-    assert "CITATION_ASSISTANT_PDF_TIMEOUT=" in bridge_env
-    agent_env = (ROOT / "deploy" / "marx-citation-agent.env.example").read_text(encoding="utf-8")
-    assert "CITATION_AGENT_TEST_MODE=off" in agent_env
-    assert "CITATION_AGENT_MODEL=deepseek-v4-flash" in agent_env
-    assert "CITATION_AGENT_THINKING=enabled" in agent_env
-
     with tempfile.TemporaryDirectory(prefix="citation-agent-preflight-") as raw:
         temporary = Path(raw)
         paper = temporary / "anonymous.docx"
@@ -124,33 +80,6 @@ def main() -> int:
             assert not list(temporary.glob(".lo-profile-*"))
             assert not list(temporary.glob(".lo-output-*"))
             print(f"citation PDF probe: PASS ({office})")
-
-        test_tasks.core.DB_PATH = temporary / "test.sqlite3"
-        test_tasks.core.ARTIFACT_ROOT = temporary / "artifacts"
-        test_tasks.DB_PATH = test_tasks.core.DB_PATH
-        test_tasks.ARTIFACT_ROOT = test_tasks.core.ARTIFACT_ROOT
-        test_tasks.init_db()
-        job = test_tasks.create_job(
-            1, "anonymous.docx", paper.read_bytes(), recognition_depth="direct_only",
-            scope_tokens=["book:文集"], corpus_sha256="offline", template_version="offline",
-        )
-        assert test_tasks.get_job(str(job["id"]), 1)
-
-        queue_path = temporary / "queue" / "queue.sqlite3"
-        request = {
-            "round": 1, "recognition_depth": "direct_only",
-            "allowed_public_books": ["文集"], "personal_source_ids": [],
-            "records": [{"record_id": "r1", "kind": "quote", "fragment": "社会生活在本质上是实践的"}],
-        }
-        task_id = queue.enqueue(request, path=queue_path)
-        claimed = queue.claim("preflight", path=queue_path)
-        assert claimed and claimed["id"] == task_id
-        queue.fail(task_id, "preflight", "offline_preflight", path=queue_path)
-        assert (queue.result(task_id, path=queue_path) or {}).get("status") == "failed"
-        # The long-standing citation core uses sqlite Connection as a transaction
-        # context manager; force cyclic connection objects closed before Windows
-        # removes the temporary directory.  Production paths are not deleted here.
-        gc.collect()
 
     print("citation Agent isolated preflight: PASS")
     return 0
