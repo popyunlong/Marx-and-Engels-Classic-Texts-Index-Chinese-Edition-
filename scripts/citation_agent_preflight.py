@@ -7,9 +7,8 @@ import argparse
 import gc
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
-
-from docx import Document
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -18,6 +17,43 @@ if str(ROOT) not in sys.path:
 import citation_agent_queue as queue
 import citation_agent_test_backend as test_tasks
 import citation_assistant as public_tasks
+
+
+def _write_anonymous_probe_docx(path: Path) -> None:
+    """Write a tiny standards-compliant DOCX using only the Python standard library."""
+    content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>"""
+    package_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
+    document_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"""
+    styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+</w:styles>"""
+    document = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>匿名预检文本：“社会生活在本质上是实践的。”</w:t></w:r></w:p>
+    <w:p><w:r><w:t>CITATION PDF PREFLIGHT 2026</w:t></w:r></w:p>
+    <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+  </w:body>
+</w:document>"""
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("_rels/.rels", package_rels)
+        archive.writestr("word/document.xml", document)
+        archive.writestr("word/styles.xml", styles)
+        archive.writestr("word/_rels/document.xml.rels", document_rels)
 
 
 def _imports(path: Path) -> set[str]:
@@ -73,18 +109,8 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="citation-agent-preflight-") as raw:
         temporary = Path(raw)
-        test_tasks.core.DB_PATH = temporary / "test.sqlite3"
-        test_tasks.core.ARTIFACT_ROOT = temporary / "artifacts"
-        test_tasks.DB_PATH = test_tasks.core.DB_PATH
-        test_tasks.ARTIFACT_ROOT = test_tasks.core.ARTIFACT_ROOT
-        test_tasks.init_db()
-
-        document = Document()
-        document.add_heading("正文", level=1)
-        document.add_paragraph("匿名预检文本：“社会生活在本质上是实践的。”")
-        document.add_paragraph("CITATION PDF PREFLIGHT 2026")
         paper = temporary / "anonymous.docx"
-        document.save(paper)
+        _write_anonymous_probe_docx(paper)
         if args.require_pdf:
             office = public_tasks._soffice_binary()
             assert office, "LibreOffice executable is unavailable"
@@ -98,6 +124,12 @@ def main() -> int:
             assert not list(temporary.glob(".lo-profile-*"))
             assert not list(temporary.glob(".lo-output-*"))
             print(f"citation PDF probe: PASS ({office})")
+
+        test_tasks.core.DB_PATH = temporary / "test.sqlite3"
+        test_tasks.core.ARTIFACT_ROOT = temporary / "artifacts"
+        test_tasks.DB_PATH = test_tasks.core.DB_PATH
+        test_tasks.ARTIFACT_ROOT = test_tasks.core.ARTIFACT_ROOT
+        test_tasks.init_db()
         job = test_tasks.create_job(
             1, "anonymous.docx", paper.read_bytes(), recognition_depth="direct_only",
             scope_tokens=["book:文集"], corpus_sha256="offline", template_version="offline",

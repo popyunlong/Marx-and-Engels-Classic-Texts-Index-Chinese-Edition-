@@ -199,3 +199,20 @@ def test_deploy_gates_and_mimo_are_safe_by_default() -> None:
     assert "MIMO_API_KEY=" in env_example
     assert "MIMO_MIGRATION_ENABLED=0" in env_example
     assert "MIMO_ADMIN_GRAY_ENABLED=0" in env_example
+
+
+def test_pdf_preflight_has_no_optional_docx_dependency() -> None:
+    source = (ROOT / "scripts" / "citation_agent_preflight.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    imports = {
+        alias.name.split(".", 1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imports.update(
+        node.module.split(".", 1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    )
+    assert "docx" not in imports
