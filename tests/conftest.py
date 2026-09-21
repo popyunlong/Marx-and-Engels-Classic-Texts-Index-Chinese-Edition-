@@ -37,10 +37,13 @@ os.environ["MARX_RUNTIME_PDF_DIR"] = str(PDF_DIR)
 
 
 def _normalize(value: str) -> str:
-    import re
-    import unicodedata
+    # Use the exact production normalization path. In particular, CI installs
+    # OpenCC while some developer machines use the supported no-OpenCC
+    # fallback; a hand-written fixture normalizer would make DB text and query
+    # text diverge only in the clean CI environment.
+    from build_index import normalize
 
-    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", value), flags=re.UNICODE).lower()
+    return normalize(value)
 
 
 def _build_corpus_fixture() -> None:
