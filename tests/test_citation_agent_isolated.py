@@ -257,9 +257,11 @@ def test_export_receives_actionable_candidates_only(
     ])
     test_tasks.update_job(str(job["id"]), status="review_ready")
     received: list[list[dict]] = []
+    pdf_options: list[dict] = []
 
-    def fake_pdf(_job: dict, candidates: list[dict], **_kwargs) -> Path:
+    def fake_pdf(_job: dict, candidates: list[dict], **kwargs) -> Path:
         received.append(candidates)
+        pdf_options.append(kwargs)
         return isolated_test_store / "out.pdf"
 
     def fake_docx(_job: dict, candidates: list[dict]) -> Path:
@@ -271,6 +273,10 @@ def test_export_receives_actionable_candidates_only(
     test_tasks.run_export(str(job["id"]))
     assert len(received) == 2
     assert all([item["paper_text"] for item in group] == ["可操作"] for group in received)
+    assert pdf_options == [{
+        "source_docx": str(isolated_test_store / "out.docx"),
+        "suppress_agent_comments_for_conversion": True,
+    }]
 
 
 def test_agent_failure_keeps_deterministic_result(
@@ -773,8 +779,12 @@ def test_pdf_retry_reuses_final_word_without_reexporting(
         lambda *_args, **_kwargs: pytest.fail("PDF retry must not regenerate Word"),
     )
 
-    def fake_pdf(_job: dict, _candidates: list[dict], *, source_docx: Path) -> Path:
+    def fake_pdf(
+        _job: dict, _candidates: list[dict], *, source_docx: Path,
+        suppress_agent_comments_for_conversion: bool = False,
+    ) -> Path:
         assert Path(source_docx) == final_word
+        assert suppress_agent_comments_for_conversion is True
         output.write_bytes(b"%PDF-retried")
         return output
 
@@ -1387,6 +1397,106 @@ def test_pdf_uses_final_word_and_only_proofreading_manifest(
         audit_job, [_accepted_exact_candidate(kind="audit")], source_docx=final_word,
     )
     assert audit_path.name == "组合样本_校注批注版.pdf"
+
+
+def test_pdf_conversion_copy_removes_only_agent_comments_and_keeps_source_unchanged(
+    isolated_test_store: Path,
+) -> None:
+    source = isolated_test_store / "comments-and-notes.docx"
+    document = Document()
+    document.add_heading("正文", level=1)
+    user_paragraph = document.add_paragraph()
+    user_run = user_paragraph.add_run("这是用户自己留下的批注文字。")
+    document.add_comment(user_run, text="用户原有批注", author="论文作者", initials="作者")
+    document.add_paragraph("马克思指出：“社会生活在本质上是实践的。”")
+    document.add_paragraph("马克思指出：“社会生活在本质上是实践的。”")
+    document.save(source)
+    job = test_tasks.create_job(
+        7, source.name, source.read_bytes(), mode="both", note_kind="footnote",
+        recognition_depth="direct_only", scope_tokens=["book:文集"],
+        corpus_sha256="corpus", template_version="template",
+    )
+    current = test_tasks.get_job(str(job["id"]), 7)
+    final_word = public_tasks.export_docx(current, [
+        _accepted_exact_candidate(kind="audit", paragraph_index=2),
+        _accepted_exact_candidate(kind="generate", paragraph_index=3),
+    ])
+    source_hash = hashlib.sha256(final_word.read_bytes()).hexdigest()
+    with zipfile.ZipFile(final_word) as package:
+        original_notes = package.read("word/footnotes.xml")
+        original_comments = public_tasks._parse_xml(package.read("word/comments.xml"))
+        assert len(original_comments.xpath("./w:comment", namespaces=public_tasks.NS)) == 2
+
+    conversion_copy = public_tasks._build_pdf_conversion_copy_without_agent_comments(final_word)
+    try:
+        assert conversion_copy != final_word
+        assert hashlib.sha256(final_word.read_bytes()).hexdigest() == source_hash
+        with zipfile.ZipFile(conversion_copy) as package:
+            comments = public_tasks._parse_xml(package.read("word/comments.xml"))
+            body = public_tasks._parse_xml(package.read("word/document.xml"))
+            remaining = comments.xpath("./w:comment", namespaces=public_tasks.NS)
+            assert len(remaining) == 1
+            assert remaining[0].get(f"{{{public_tasks.W_NS}}}author") == "论文作者"
+            assert remaining[0].get(f"{{{public_tasks.W_NS}}}initials") == "作者"
+            user_id = remaining[0].get(f"{{{public_tasks.W_NS}}}id")
+            for marker in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+                ids = body.xpath(f".//w:{marker}/@w:id", namespaces=public_tasks.NS)
+                assert ids == [user_id]
+            assert package.read("word/footnotes.xml") == original_notes
+    finally:
+        conversion_copy.unlink(missing_ok=True)
+    assert not list(final_word.parent.glob(".*.pdf-source.docx"))
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure", "timeout"])
+def test_agent_comment_conversion_copy_is_cleaned_for_every_outcome(
+    isolated_test_store: Path, monkeypatch: pytest.MonkeyPatch, outcome: str,
+) -> None:
+    job = test_tasks.create_job(
+        7, "清理样本.docx", _docx(isolated_test_store / "cleanup-source.docx"), mode="audit",
+        recognition_depth="direct_only", scope_tokens=["book:文集"],
+        corpus_sha256="corpus", template_version="template",
+    )
+    current = test_tasks.get_job(str(job["id"]), 7)
+    candidate = _accepted_exact_candidate(kind="audit")
+    final_word = public_tasks.export_docx(current, [candidate])
+    source_hash = hashlib.sha256(final_word.read_bytes()).hexdigest()
+    seen_sources: list[Path] = []
+
+    def fake_convert(conversion_source: Path, output: Path) -> None:
+        seen_sources.append(Path(conversion_source))
+        assert Path(conversion_source) != final_word
+        with zipfile.ZipFile(conversion_source) as package:
+            comments = public_tasks._parse_xml(package.read("word/comments.xml"))
+            assert not comments.xpath("./w:comment", namespaces=public_tasks.NS)
+        if outcome == "failure":
+            raise public_tasks.CitationAssistantError("转换失败")
+        if outcome == "timeout":
+            raise public_tasks.CitationAssistantError("批注式 PDF 转换超时")
+        output.write_bytes(b"%PDF-test")
+
+    monkeypatch.setattr(public_tasks, "_convert_annotated_docx_to_pdf", fake_convert)
+    monkeypatch.setattr(
+        public_tasks, "_render_review_margin_annotations",
+        lambda _path, items: {"located": len(items), "failed": 0},
+    )
+    monkeypatch.setattr(public_tasks, "_validate_annotated_pdf", lambda *_args, **_kwargs: {})
+    if outcome == "success":
+        public_tasks.export_pdf(
+            current, [candidate], source_docx=final_word,
+            suppress_agent_comments_for_conversion=True,
+        )
+    else:
+        with pytest.raises(public_tasks.CitationAssistantError):
+            public_tasks.export_pdf(
+                current, [candidate], source_docx=final_word,
+                suppress_agent_comments_for_conversion=True,
+            )
+    assert len(seen_sources) == 1
+    assert not seen_sources[0].exists()
+    assert not list(final_word.parent.glob(".*.pdf-source.docx"))
+    assert not list(final_word.parent.glob(".*.pdf-source.docx.part"))
+    assert hashlib.sha256(final_word.read_bytes()).hexdigest() == source_hash
 
 
 def test_pdf_locator_rejects_missing_or_ambiguous_comment_anchor(

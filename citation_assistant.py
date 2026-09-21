@@ -96,6 +96,8 @@ CONTENT_TYPES = {
 }
 COMMENTS_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
 COMMENTS_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+AGENT_COMMENT_AUTHOR = "引文校注 Agent"
+AGENT_COMMENT_INITIALS = "校注"
 
 def _safe_xml_parser() -> etree.XMLParser:
     # lxml parsers may retain state after a failed parse; use a fresh parser per part.
@@ -2764,8 +2766,8 @@ def _comment_marker(name: str, comment_id: int) -> etree._Element:
 def _comment_element(comment_id: int, text: str) -> etree._Element:
     comment = etree.Element(f"{{{W_NS}}}comment")
     comment.set(f"{{{W_NS}}}id", str(comment_id))
-    comment.set(f"{{{W_NS}}}author", "引文校注 Agent")
-    comment.set(f"{{{W_NS}}}initials", "校注")
+    comment.set(f"{{{W_NS}}}author", AGENT_COMMENT_AUTHOR)
+    comment.set(f"{{{W_NS}}}initials", AGENT_COMMENT_INITIALS)
     comment.set(f"{{{W_NS}}}date", _iso())
     lines = [line.strip() for line in str(text or "").splitlines() if line.strip()] or ["校注建议"]
     for line in lines:
@@ -3309,6 +3311,80 @@ def _pdf_timeout_seconds() -> int:
     return max(30, min(configured, 600))
 
 
+def _build_pdf_conversion_copy_without_agent_comments(source: str | Path) -> Path:
+    """Create a transient DOCX whose PDF rendering cannot echo Agent comments.
+
+    Only comments carrying both of the exact Agent identity fields are removed.
+    Existing author comments, body content, notes and formatting stay byte-for-byte
+    identical at the package-part level unless their XML contains one of the
+    removed Agent comment markers.
+    """
+    source_path = Path(source)
+    temporary = source_path.with_name(
+        f".{source_path.stem}-{uuid.uuid4().hex}.pdf-source.docx"
+    )
+    partial = temporary.with_suffix(".docx.part")
+    try:
+        with zipfile.ZipFile(source_path) as source_zip:
+            parts = {name: source_zip.read(name) for name in source_zip.namelist()}
+
+        comments_name = next(
+            (name for name in parts if name.lower() == "word/comments.xml"), "",
+        )
+        agent_ids: set[str] = set()
+        if comments_name:
+            comments = _parse_xml(parts[comments_name])
+            for comment in list(comments.xpath("./w:comment", namespaces=NS)):
+                author = str(comment.get(f"{{{W_NS}}}author") or "")
+                initials = str(comment.get(f"{{{W_NS}}}initials") or "")
+                if author != AGENT_COMMENT_AUTHOR or initials != AGENT_COMMENT_INITIALS:
+                    continue
+                comment_id = str(comment.get(f"{{{W_NS}}}id") or "")
+                if not comment_id:
+                    continue
+                agent_ids.add(comment_id)
+                comments.remove(comment)
+            parts[comments_name] = _xml_bytes(comments)
+
+        if agent_ids:
+            marker_names = {"commentRangeStart", "commentRangeEnd", "commentReference"}
+            for name, payload in list(parts.items()):
+                normalized_name = name.replace("\\", "/").lower()
+                if (
+                    not normalized_name.startswith("word/")
+                    or not normalized_name.endswith(".xml")
+                    or normalized_name == "word/comments.xml"
+                    or not any(marker.encode("ascii") in payload for marker in marker_names)
+                ):
+                    continue
+                root = _parse_xml(payload)
+                changed = False
+                for marker_name in marker_names:
+                    for marker in list(root.xpath(f".//w:{marker_name}", namespaces=NS)):
+                        if str(marker.get(f"{{{W_NS}}}id") or "") not in agent_ids:
+                            continue
+                        parent = marker.getparent()
+                        if parent is not None:
+                            parent.remove(marker)
+                            changed = True
+                if changed:
+                    parts[name] = _xml_bytes(root)
+
+        with zipfile.ZipFile(
+            partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6,
+        ) as target_zip:
+            for name, payload in parts.items():
+                target_zip.writestr(name, payload)
+        validate_exported_docx(partial, filename="pdf-conversion-source.docx")
+        partial.replace(temporary)
+        return temporary
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    finally:
+        partial.unlink(missing_ok=True)
+
+
 def _convert_annotated_docx_to_pdf(annotated_docx: Path, output: Path) -> None:
     office = _soffice_binary()
     if not office:
@@ -3807,6 +3883,7 @@ def export_legacy_report_pdf(job: dict, candidates: list[dict]) -> Path:
 
 def export_pdf(
     job: dict, candidates: list[dict], *, source_docx: str | Path | None = None,
+    suppress_agent_comments_for_conversion: bool = False,
 ) -> Path:
     """Render the final Word copy, then add strictly located proofreading margins."""
     mode = str(job.get("mode") or "both")
@@ -3819,13 +3896,21 @@ def export_pdf(
     name = f"{stem}_校注批注版.pdf" if mode == "audit" else f"{stem}_插注校注批注版.pdf"
     output = _job_dir(int(job["user_id"]), str(job["id"]), create=True) / name
     review_items = _pdf_review_manifest(job, candidates)
+    conversion_source = source
+    transient_source: Path | None = None
     try:
-        _convert_annotated_docx_to_pdf(source, output)
+        if suppress_agent_comments_for_conversion:
+            transient_source = _build_pdf_conversion_copy_without_agent_comments(source)
+            conversion_source = transient_source
+        _convert_annotated_docx_to_pdf(conversion_source, output)
         _render_review_margin_annotations(output, review_items)
         _validate_annotated_pdf(output, job, review_items)
     except Exception:
         output.unlink(missing_ok=True)
         raise
+    finally:
+        if transient_source is not None:
+            transient_source.unlink(missing_ok=True)
     return output
 
 
@@ -4028,7 +4113,9 @@ def start_background(job_id: str, target: Callable[..., None], *args, **kwargs) 
     return True
 
 
-def claim_next_job(worker_id: str, lease_seconds: int = 600) -> dict | None:
+def claim_next_job(worker_id: str, lease_seconds: int = 600, *,
+                   corpus_sha256: str | None = None,
+                   template_version: str | None = None) -> dict | None:
     """Atomically claim one runnable stage; an expired lease is recoverable after a crash."""
     owner = re.sub(r"[^A-Za-z0-9_.:-]", "", str(worker_id or ""))[:100]
     if not owner:
@@ -4036,17 +4123,26 @@ def claim_next_job(worker_id: str, lease_seconds: int = 600) -> dict | None:
     now = _utcnow()
     now_text = _iso(now)
     lease_until = _iso(now + timedelta(seconds=max(60, int(lease_seconds))))
+    version_clause = ""
+    version_values: list[str] = []
+    if corpus_sha256 is not None:
+        version_clause += " AND corpus_sha256=?"
+        version_values.append(str(corpus_sha256))
+    if template_version is not None:
+        version_clause += " AND template_version=?"
+        version_values.append(str(template_version))
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM citation_assistant_jobs "
             "WHERE status IN ('extracting','queued','matching','exporting') AND expires_at>? "
             "AND (lease_owner='' OR lease_expires_at='' OR lease_expires_at<=?) "
+            + version_clause +
             "AND (status NOT IN ('queued','matching') OR "
             "(SELECT COUNT(*) FROM citation_assistant_jobs active "
             " WHERE active.status='matching' AND active.lease_owner!='' AND active.lease_expires_at>?) < ?) "
             "ORDER BY CASE status WHEN 'exporting' THEN 0 WHEN 'extracting' THEN 1 ELSE 2 END,created_at LIMIT 1",
-            (now_text, now_text, now_text, MATCH_CONCURRENCY),
+            (now_text, now_text, *version_values, now_text, MATCH_CONCURRENCY),
         ).fetchone()
         if row is None:
             conn.commit()

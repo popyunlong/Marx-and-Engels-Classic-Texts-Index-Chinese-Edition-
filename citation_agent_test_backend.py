@@ -1111,7 +1111,10 @@ def run_pdf_export(job_id: str) -> None:
         if str(row.get("word_export_status") or "") != "ready" or not docx_path.is_file():
             raise CitationAssistantError("最终 Word 副本不存在，无法重试 PDF。")
         _all_records, candidates = _exportable_candidates(job_id)
-        pdf_path = str(core.export_pdf(row, candidates, source_docx=docx_path))
+        pdf_path = str(core.export_pdf(
+            row, candidates, source_docx=docx_path,
+            suppress_agent_comments_for_conversion=True,
+        ))
     except Exception as exc:
         position_failed = "定位校验失败" in str(exc)
         update_job(
@@ -1159,7 +1162,10 @@ def run_export(job_id: str) -> None:
             return
         update_job(job_id, pdf_export_status="converting", output_pdf_path="", error="")
         try:
-            pdf_path = str(core.export_pdf(row, candidates, source_docx=docx_path))
+            pdf_path = str(core.export_pdf(
+                row, candidates, source_docx=docx_path,
+                suppress_agent_comments_for_conversion=True,
+            ))
         except Exception as pdf_exc:
             # A missing isolated PDF converter must not discard a successfully
             # generated Word file.

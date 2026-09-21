@@ -3,6 +3,7 @@ from __future__ import annotations
 """Production-data-free preflight for the citation export runtime."""
 
 import argparse
+import hashlib
 import sys
 import tempfile
 import zipfile
@@ -23,6 +24,7 @@ def _write_anonymous_probe_docx(path: Path) -> None:
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/>
 </Types>"""
     package_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -31,6 +33,7 @@ def _write_anonymous_probe_docx(path: Path) -> None:
     document_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="comments.xml"/>
 </Relationships>"""
     styles = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -39,17 +42,24 @@ def _write_anonymous_probe_docx(path: Path) -> None:
     document = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    <w:p><w:r><w:t>匿名预检文本：“社会生活在本质上是实践的。”</w:t></w:r></w:p>
+    <w:p><w:r><w:t>匿名预检文本：“</w:t></w:r><w:commentRangeStart w:id="0"/><w:r><w:t>社会生活在本质上是实践的。</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p>
+    <w:p><w:commentRangeStart w:id="1"/><w:r><w:t>用户批注锚点</w:t></w:r><w:commentRangeEnd w:id="1"/><w:r><w:commentReference w:id="1"/></w:r></w:p>
     <w:p><w:r><w:t>CITATION PDF PREFLIGHT 2026</w:t></w:r></w:p>
     <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
   </w:body>
 </w:document>"""
+    comments = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:comments xmlns:w="{public_tasks.W_NS}">
+  <w:comment w:id="0" w:author="{public_tasks.AGENT_COMMENT_AUTHOR}" w:initials="{public_tasks.AGENT_COMMENT_INITIALS}"><w:p><w:r><w:t>实际核对文字：社会生活在本质上是实践的。</w:t></w:r></w:p></w:comment>
+  <w:comment w:id="1" w:author="论文作者" w:initials="作者"><w:p><w:r><w:t>用户原有批注</w:t></w:r></w:p></w:comment>
+</w:comments>"""
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", content_types)
         archive.writestr("_rels/.rels", package_rels)
         archive.writestr("word/document.xml", document)
         archive.writestr("word/styles.xml", styles)
         archive.writestr("word/_rels/document.xml.rels", document_rels)
+        archive.writestr("word/comments.xml", comments)
 
 
 def _args() -> argparse.Namespace:
@@ -71,14 +81,28 @@ def main() -> int:
             office = public_tasks._soffice_binary()
             assert office, "LibreOffice executable is unavailable"
             pdf = temporary / "anonymous.pdf"
-            public_tasks._convert_annotated_docx_to_pdf(paper, pdf)
+            source_hash = hashlib.sha256(paper.read_bytes()).hexdigest()
+            conversion_source = public_tasks._build_pdf_conversion_copy_without_agent_comments(paper)
+            try:
+                assert hashlib.sha256(paper.read_bytes()).hexdigest() == source_hash
+                with zipfile.ZipFile(conversion_source) as package:
+                    comments = public_tasks._parse_xml(package.read("word/comments.xml"))
+                    remaining = comments.xpath("./w:comment", namespaces=public_tasks.NS)
+                    assert len(remaining) == 1
+                    assert remaining[0].get(f"{{{public_tasks.W_NS}}}author") == "论文作者"
+                public_tasks._convert_annotated_docx_to_pdf(conversion_source, pdf)
+            finally:
+                conversion_source.unlink(missing_ok=True)
             assert pdf.is_file() and pdf.stat().st_size >= 1000
             with public_tasks.fitz.open(pdf) as rendered:
                 assert rendered.page_count >= 1
                 text = "\n".join(page.get_text("text") for page in rendered)
             assert "CITATION PDF PREFLIGHT 2026" in text
+            target = public_tasks.normalize("社会生活在本质上是实践的。")
+            assert public_tasks.normalize(text).count(target) == 1
             assert not list(temporary.glob(".lo-profile-*"))
             assert not list(temporary.glob(".lo-output-*"))
+            assert not list(temporary.glob(".*.pdf-source.docx"))
             print(f"citation PDF probe: PASS ({office})")
 
     print("citation Agent isolated preflight: PASS")
