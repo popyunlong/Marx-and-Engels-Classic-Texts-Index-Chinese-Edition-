@@ -85,6 +85,7 @@ from build_index import normalize
 from build_index import DB_PATH as CORPUS_INDEX_DB_PATH
 import citation_assistant as citation_tasks
 import citation_agent_shadow
+import citation_agent_test_web
 import search_exports as search_export_tasks
 from membership import (
     clear_pending_orders,
@@ -13446,6 +13447,9 @@ def api_citation_delete_job(job_id: str):
     if not citation_tasks.delete_job(job_id, int(user["id"])):
         abort(404, description="任务不存在。")
     return jsonify({"ok": True, "deleted": True})
+
+
+citation_agent_test_web.register_routes(app, globals())
 
 
 # Optional HTTP bridge for a parsing node that does not share the application process.

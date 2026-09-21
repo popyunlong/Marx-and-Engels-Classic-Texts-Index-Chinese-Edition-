@@ -218,3 +218,22 @@ def test_pdf_preflight_has_no_optional_docx_dependency() -> None:
     assert "docx" not in imports
     assert "citation_agent_queue" not in imports
     assert "citation_agent_test_backend" not in imports
+
+
+def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> None:
+    manifest = set(_read_manifest(PATCH_MANIFEST))
+    app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+    proxy = (ROOT / "deploy" / "citation-agent-tinyproxy.conf.example").read_text(
+        encoding="utf-8"
+    )
+    proxy_filter = (ROOT / "deploy" / "citation-agent.filter.example").read_text(
+        encoding="utf-8"
+    )
+
+    assert "citation_agent_test_web.py" in manifest
+    assert "deploy/citation-agent.filter.example" in manifest
+    assert "import citation_agent_test_web" in app_source
+    assert "citation_agent_test_web.register_routes(app, globals())" in app_source
+    assert "FilterURLs Off" in proxy
+    assert "FilterDefaultDeny Yes" in proxy
+    assert proxy_filter.strip() == r"^api\.deepseek\.com$"

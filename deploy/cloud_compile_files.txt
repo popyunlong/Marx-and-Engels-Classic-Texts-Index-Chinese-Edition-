@@ -1,5 +1,10 @@
 app.py
 citation_assistant.py
+citation_agent_test_web.py
+citation_agent_test_backend.py
+citation_agent_test_runtime.py
+citation_agent_bridge.py
+citation_agent_queue.py
 citation_agent_shadow.py
 corpus_repair_store.py
 page_label_overrides.py
@@ -47,6 +52,9 @@ scripts/predeploy_membership_migration.py
 scripts/mimo_quality_gate.py
 scripts/journal_alert_worker.py
 scripts/citation_assistant_worker.py
+scripts/citation_agent_test_worker.py
+scripts/citation_agent_worker.py
+scripts/build_citation_agent_release.py
 scripts/citation_agent_preflight.py
 scripts/citation_production_acceptance.py
 scripts/citation_production_isolated_suite.py

@@ -1,5 +1,10 @@
 app.py
 citation_assistant.py
+citation_agent_test_web.py
+citation_agent_test_backend.py
+citation_agent_test_runtime.py
+citation_agent_bridge.py
+citation_agent_queue.py
 citation_agent_shadow.py
 corpus_repair_store.py
 page_label_overrides.py
@@ -116,6 +121,9 @@ scripts/mimo_quality_gate.py
 scripts/journal_alert_worker.py
 scripts/repair_journal_footnotes.py
 scripts/citation_assistant_worker.py
+scripts/citation_agent_test_worker.py
+scripts/citation_agent_worker.py
+scripts/build_citation_agent_release.py
 scripts/citation_agent_preflight.py
 scripts/citation_production_acceptance.py
 scripts/citation_production_isolated_suite.py
@@ -158,6 +166,9 @@ static/book-scope/book-scope.js
 static/book-scope/book-scope.css
 static/citation-assistant/citation-assistant.js
 static/citation-assistant/citation-assistant.css
+templates/citation_agent_test.html
+static/citation-agent-test/citation-agent-test.js
+static/citation-agent-test/citation-agent-test.css
 static/reading-history/reading-history.js
 templates/liushi_home.html
 config/stream_books.yaml
@@ -181,3 +192,11 @@ static/mylib/mylib.css
 templates/mylib_home.html
 templates/mylib_upload.html
 templates/mylib_reader.html
+deploy/CITATION_AGENT_TEST_DEPLOY.md
+deploy/citation-agent-tinyproxy.conf.example
+deploy/citation-agent.filter.example
+deploy/citation_agent_release_manifest.txt
+deploy/marx-citation-agent-bridge.env.example
+deploy/marx-citation-agent.env.example
+deploy/marx-citation-agent.service
+deploy/marx-search-citation-agent-test-worker.service

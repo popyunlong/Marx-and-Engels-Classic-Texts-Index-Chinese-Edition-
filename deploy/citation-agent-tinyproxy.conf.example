@@ -10,5 +10,9 @@ MaxSpareServers 2
 ConnectPort 443
 Allow 127.0.0.1
 Filter "/etc/tinyproxy/citation-agent.filter"
-FilterURLs On
+# HTTPS CONNECT requests must be filtered by the parsed destination host.
+# Tinyproxy documents URL filtering as plain-HTTP only.
+FilterURLs Off
+FilterType bre
+FilterCaseSensitive On
 FilterDefaultDeny Yes
