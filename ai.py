@@ -26,7 +26,10 @@ from runtime_env import APPDATA_DIR
 from ai_evidence import clean_evidence, exact_quote, PDF_WATERMARK_RE
 
 
-CONFIG_PATH = Path(__file__).resolve().parent / "config" / "ai.yaml"
+CONFIG_PATH = Path(
+    os.environ.get("MARX_AI_CONFIG_FILE")
+    or (Path(__file__).resolve().parent / "config" / "ai.yaml")
+).expanduser().resolve()
 AI_OVERRIDE_PATH = APPDATA_DIR / "ai.override.yaml"
 
 DEFAULT_PROVIDER = "deepseek"

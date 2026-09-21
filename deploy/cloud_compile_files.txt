@@ -1,3 +1,4 @@
+# LEGACY INVENTORY ONLY. Production compilation covers every tracked Python file.
 app.py
 citation_assistant.py
 citation_agent_shadow.py

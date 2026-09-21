@@ -30,7 +30,7 @@ backup_db() {
   if command -v sqlite3 >/dev/null 2>&1; then
     sqlite3 "${src}" ".backup '${dst}'"
   else
-    local py="${BACKUP_PYTHON:-/opt/marx-search/.venv/bin/python}"
+    local py="${BACKUP_PYTHON:-/opt/marx-search/runtime-python}"
     [ -x "${py}" ] || py="python3"
     "${py}" - "${src}" "${dst}" <<'PY'
 import sqlite3, sys

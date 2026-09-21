@@ -1,3 +1,5 @@
+# LEGACY INVENTORY ONLY. Production releases archive the complete Git commit.
+# Do not narrow or use this file as a production deployment input.
 app.py
 citation_assistant.py
 citation_agent_shadow.py

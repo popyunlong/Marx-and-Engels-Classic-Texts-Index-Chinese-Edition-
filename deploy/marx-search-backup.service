@@ -8,6 +8,6 @@ RequiresMountsFor=/var/www/.marx_search_full/journal
 Type=oneshot
 EnvironmentFile=/etc/marx-search.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/bin/bash /opt/marx-search/deploy/backup.sh
+ExecStart=/bin/bash /opt/marx-search/current/app/deploy/backup.sh
 TimeoutStartSec=1800
 NoNewPrivileges=true

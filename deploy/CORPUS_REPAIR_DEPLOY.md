@@ -16,21 +16,15 @@
    CORPUS_REPAIR_DEEPSEEK_MODEL=deepseek-v4-flash
    ```
 
-3. 在 `/opt/marx-search` 执行：
+3. 通过 `deploy/release.ps1` 完成一次不可变代码发布。发布事务统一安装受 Git 管理的单元文件；旧安装脚本已停用，不能再独立覆盖 systemd 配置。
 
-   ```bash
-   sudo ./deploy/install_corpus_repair_service.sh
-   ```
-
-安装程序会核实 cgroup v2 和实际块设备，创建低权限账号与独立数据目录，并根据数据库、PDF、输出目录的真实设备写入 I/O 限速。默认只安装、不启用两个定时器，也不会重启网站。
-
-安装后再执行一次网站现有的蓝绿发布，使主站进程在新沙箱中只开放审核库所需的数据目录。不要用普通重启替代蓝绿发布；候选实例不健康时应继续保留当前网站。
+低权限账号、独立输出目录、ACL 与按实际块设备生成的 I/O 限速 drop-in 属于主机首次配置，必须由发布协调者按本文参数人工复核后配置，不能由普通开发会话修改。
 
 4. 验证安装结果：
 
    ```bash
    systemctl cat marx-corpus-repair.service
-   systemctl list-timers marx-corpus-repair.timer marx-corpus-repair-promote.timer --no-pager
+   systemctl list-timers marx-corpus-repair.timer --no-pager
    systemctl show marx-corpus-repair.service -p User -p CPUQuotaPerSecUSec -p MemoryHigh -p MemoryMax -p TasksMax -p IOWeight
    ```
 
@@ -39,10 +33,13 @@
 5. 确认服务配置、API 密钥和网站蓝绿发布均无误后，再明确启用：
 
    ```bash
-   sudo ./deploy/install_corpus_repair_service.sh --enable
+   sudo systemctl enable --now marx-corpus-repair.timer
+
+   # 旧的自动提升定时器会绕过代码发布事务，必须保持禁用。
+   sudo systemctl disable --now marx-corpus-repair-promote.timer
    ```
 
-没有 `--enable` 时，安装操作本身绝不会安排后台运行。
+代码发布本身不会启用夜间扫描；只有上面的显式 `systemctl enable` 会安排后台运行。
 
 ## 正常运行
 
@@ -51,14 +48,14 @@
 - 第三阶段按各来源的可疑页比例、平均风险和有效文字量自动分为高/中/低可靠性顺序处理；读者主动报告的文字问题始终优先于该分层。
 - 当前台发生 PDF 冷页渲染时，后台只终止自身 OCR 子进程并保存断点；网页请求不获取后台锁，也不等待后台释放资源。
 - 管理员在控制台“引文文字自动修复”区域处理不确定项。批准、驳回、暂缓都会记录操作人和时间。
-- 所有待商榷项处理完后，下一次夜间任务构建并校验候选库；管理员点击“确认整批候选并申请无停机上线”后，发布定时器才会尝试蓝绿切换。
+- 所有待商榷项处理完后，夜间任务仍可构建并校验候选库，但自动提升入口已冻结。候选数据只能由发布协调者在同一全局发布锁下执行经审计的数据发布事务；该事务完成前不得切换生产语料。
 
 ## 查看状态与暂停
 
 ```bash
 systemctl status marx-corpus-repair.service --no-pager
 journalctl -u marx-corpus-repair.service -n 100 --no-pager
-/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/corpus_repair.py status \
+/opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/corpus_repair.py status \
   --output-root /home/data/marx-search-corpus-repair
 ```
 

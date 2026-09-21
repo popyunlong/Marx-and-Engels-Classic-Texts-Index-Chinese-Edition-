@@ -7,7 +7,12 @@ class VolumePresentationTests(unittest.TestCase):
     def test_only_verified_document_collections_use_toc_date_inference(self) -> None:
         self.assertEqual(
             TRUSTED_TOC_DATE_BOOKS,
-            {"建党以来重要文献选编", "建国以来重要文献选编"},
+            {
+                "建党以来重要文献选编",
+                "建国以来重要文献选编",
+                "中共中央文件选集（1921—1949）",
+                "中共中央文件选集（1949—1966）",
+            },
         )
         item = volume_presentation(
             "建国以来重要文献选编",

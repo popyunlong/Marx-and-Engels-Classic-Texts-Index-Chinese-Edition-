@@ -7,12 +7,18 @@ Type=simple
 User=www-data
 Group=www-data
 SupplementaryGroups=marx-citation-agent-queue
-WorkingDirectory=/opt/marx-search
+WorkingDirectory=/opt/marx-search/current/app
 EnvironmentFile=/etc/marx-search.env
 EnvironmentFile=/etc/marx-citation-agent-bridge.env
 Environment=CITATION_ASSISTANT_INLINE_WORKER=0
 Environment=CITATION_ASSISTANT_SOFFICE=/usr/bin/libreoffice
-ExecStart=/opt/marx-search/.venv/bin/python scripts/citation_agent_test_worker.py
+Environment=PYTHONPATH=/opt/marx-search/current/app:/opt/marx-search/current/.deps
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
+Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
+Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
+Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
+ExecStart=/opt/marx-search/runtime-python scripts/citation_agent_test_worker.py
 Restart=always
 RestartSec=3
 # The redacted SQLite/WAL queue is shared only with the dedicated Agent group.

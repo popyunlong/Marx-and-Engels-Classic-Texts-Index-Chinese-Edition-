@@ -461,6 +461,11 @@ EOF
 main() {
   require_root
   parse_args "$@"
+  if [[ -e "${APP_DIR}/current" || -d "${APP_DIR}/releases" ]]; then
+    echo "Refusing to bootstrap over an immutable production installation." >&2
+    echo "Use deploy/release.ps1 (or the audited rollback command) instead." >&2
+    exit 64
+  fi
   preserve_existing_payment_env
   check_repo_layout
   install_packages

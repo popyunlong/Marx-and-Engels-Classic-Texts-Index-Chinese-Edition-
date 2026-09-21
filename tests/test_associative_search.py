@@ -404,7 +404,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
 
     def test_research_review_does_not_continue_when_answer_is_complete(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        complete = "## 开篇\n" + ("这是一段完整的研究综述。[1]\n" * 420) + "## 小结\n综上，文章完整收束。[1]"
+        complete = "## 开篇\n" + ("这是一段完整的研究综述。[1]\n" * 500) + "## 小结\n综上，文章完整收束。[1]"
         with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=complete) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
         self.assertEqual(review, complete)
@@ -424,8 +424,8 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         ) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
         first_prompt = cc.call_args_list[0].args[0][1]["content"]
-        self.assertIn("优先在本轮一次写足全文", first_prompt)
-        self.assertIn("至少 4800 个中文汉字", first_prompt)
+        self.assertIn("优先在本轮一次完整写完", first_prompt)
+        self.assertIn("达到 5000 个中文汉字以上", first_prompt)
         self.assertEqual(cc.call_count, 2)
         self.assertNotIn("这是应被替换的旧小结", review)
         self.assertEqual(review.count("## 小结"), 1)
@@ -433,7 +433,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
             app_module.AI_CLIENT._research_review_cjk_chars(review),
             ai_module.RESEARCH_REVIEW_MIN_CJK_CHARS,
         )
-        self.assertIn("低于约 5000 字的目标", cc.call_args_list[1].args[0][1]["content"])
+        self.assertIn("低于约 5600 字的目标", cc.call_args_list[1].args[0][1]["content"])
         self.assertTrue(cc.call_args_list[1].kwargs["disable_thinking"])
 
     def test_research_review_retries_when_reasoning_leaks(self) -> None:
@@ -450,7 +450,7 @@ class JsonAndPlanParsingTests(unittest.TestCase):
 
     def test_research_review_retries_lower_budget_when_high_budget_is_rejected(self) -> None:
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 420) + "## 小结\n综上，文章自然完成。[1]"
+        complete = "## 研究综述\n" + ("这是一段完整的研究综述。[1]\n" * 500) + "## 小结\n综上，文章自然完成。[1]"
         with mock.patch.object(
             app_module.AI_CLIENT,
             "chat_complete",
@@ -478,7 +478,9 @@ class JsonAndPlanParsingTests(unittest.TestCase):
         # 预算不足以再安全跑一轮（这里把所需余量调到极大模拟「预算将尽」）时，即便首轮综述
         # 未自然收尾，也不再追加续写/重写，而是带着已成文返回——保证非流式链路在 CF 超时前回 JSON。
         passages = [{"index": 1, "citation": "《测试文献》第1页", "text": "生产力与生产关系的材料。"}]
-        incomplete = "## 研究综述\n" + ("这是一段尚未收尾的正文。[1]\n" * 50)
+        # Keep the draft above the 5000-CJK content floor so this test isolates
+        # the follow-up time-budget decision rather than the length validator.
+        incomplete = "## 研究综述\n" + ("这是一段尚未收尾的正文。[1]\n" * 600)
         with mock.patch.object(ai_module, "RESEARCH_REVIEW_FOLLOWUP_MIN_HEADROOM_SECONDS", 10_000), \
              mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=incomplete) as cc:
             review = app_module.AI_CLIENT.generate_research_review("研究论题", passages)
@@ -798,8 +800,16 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         _book, sample = _corpus_sample(min_len=18)
         plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        verified = {
+            "answer_markdown": "综述正文 [1]",
+            "status": "verified",
+            "issues": [],
+            "used_indices": [1],
+        }
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
-             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述正文 [1]") as rev:
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述正文 [1]") as rev, \
+             mock.patch.object(app_module, "_repair_research_answer", return_value=verified), \
+             mock.patch.object(app_module, "_grounded_answer_underuses_evidence", return_value=False):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
             _drain(resp)  # SSE 惰性消费：必须在 mock 作用域内读完，否则综述走真实 AI 而非 mock
         data = _read_result(resp)
@@ -859,7 +869,8 @@ class AssociativeRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(data["ok"])
         self.assertEqual(data["display_mode"], "research_review")
-        self.assertIn("## 研究综述", data["review_markdown"])
+        self.assertEqual(data["verification"]["status"], "evidence_only")
+        self.assertIn("## 可核验原文", data["review_markdown"])
         self.assertIn("[1]", data["review_markdown"])
         self.assertGreaterEqual(len(data["review_citations"]), 1)
         self.assertTrue(data["warnings"])
@@ -928,8 +939,16 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         _book, sample = _corpus_sample(min_len=18)
         plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        verified = {
+            "answer_markdown": "综述 [1]",
+            "status": "verified",
+            "issues": [],
+            "used_indices": [1],
+        }
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
-             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"), \
+             mock.patch.object(app_module, "_repair_research_answer", return_value=verified), \
+             mock.patch.object(app_module, "_grounded_answer_underuses_evidence", return_value=False):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
             _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
@@ -961,8 +980,16 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         _book, sample = _corpus_sample(min_len=18)
         plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        verified = {
+            "answer_markdown": "综述 [1]",
+            "status": "verified",
+            "issues": [],
+            "used_indices": [1],
+        }
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
-             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"), \
+             mock.patch.object(app_module, "_repair_research_answer", return_value=verified), \
+             mock.patch.object(app_module, "_grounded_answer_underuses_evidence", return_value=False):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
             _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
@@ -986,8 +1013,16 @@ class AssociativeRouteTests(unittest.TestCase):
         token = self._csrf()
         _book, sample = _corpus_sample(min_len=18)
         plan = {"intent": "research", "quotes": [sample], "keywords": [sample[0:2], sample[8:10]]}
+        verified = {
+            "answer_markdown": "综述 [1]",
+            "status": "verified",
+            "issues": [],
+            "used_indices": [1],
+        }
         with mock.patch.object(app_module.AI_CLIENT, "expand_associative_query", return_value=plan), \
-             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"):
+             mock.patch.object(app_module.AI_CLIENT, "generate_research_review", return_value="综述 [1]"), \
+             mock.patch.object(app_module, "_repair_research_answer", return_value=verified), \
+             mock.patch.object(app_module, "_grounded_answer_underuses_evidence", return_value=False):
             resp = self._post({"gist": "研究论题", "mode": "research"}, token)
             _drain(resp)  # SSE 惰性消费：在 mock 作用域内读完
         self.assertEqual(resp.status_code, 200)
@@ -1720,7 +1755,7 @@ class ScopeRoutingTests(unittest.TestCase):
 
     def test_resolve_all_scope_no_restriction(self) -> None:
         books, sid, manual = app_module._resolve_search_scope("all", "总书记中华民族伟大复兴", {})
-        self.assertIsNone(books)
+        self.assertEqual(books, app_module._public_book_keys())
         self.assertEqual(sid, "all")
         self.assertFalse(manual)
 
@@ -1734,7 +1769,7 @@ class ScopeRoutingTests(unittest.TestCase):
 
     def test_resolve_auto_no_signal_no_restriction(self) -> None:
         books, sid, manual = app_module._resolve_search_scope("auto", "请你谈一谈这个看法", {})
-        self.assertIsNone(books)
+        self.assertEqual(books, app_module._public_book_keys())
         self.assertEqual(sid, "auto")
         self.assertFalse(manual)
 
@@ -1780,7 +1815,7 @@ class ScopeRoutingTests(unittest.TestCase):
     def test_resolve_multi_with_all_is_unrestricted(self) -> None:
         # 列表里含 all → 明确不限定（不与著作群同时限定，避免歧义）。
         books, sid, manual = app_module._resolve_search_scope(["xi", "all"], "任意", {})
-        self.assertIsNone(books)
+        self.assertEqual(books, app_module._public_book_keys())
         self.assertEqual(sid, "all")
         self.assertFalse(manual)
 
@@ -1856,7 +1891,7 @@ class ScopeRoutingTests(unittest.TestCase):
         if "文集" not in app_module.corpus.books:
             self.skipTest("本地语料缺《文集》")
         books, _sid, _m = app_module._resolve_search_scope("vol:文集:999", "任意", {})
-        self.assertIsNone(books)
+        self.assertEqual(books, app_module._public_book_keys())
 
     def test_scoped_volumes_filters_to_requested_volume(self) -> None:
         corpus = app_module.corpus
@@ -2125,9 +2160,9 @@ class GroundedDirectQuoteSanitizerTests(unittest.TestCase):
             "这里保留第二段不同的解释。"
         )
         cleaned = app_module.AI_CLIENT._sanitize_grounded_direct_quotes(answer, self.grounding)
-        full = "人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。"
-        self.assertEqual(cleaned.count(full), 1)
-        self.assertIn(f"> {full}[1]", cleaned)
+        selected = "人的本质不是单个人所固有的抽象物"
+        self.assertEqual(cleaned.count(selected), 1)
+        self.assertIn(f"> {selected}[1]", cleaned)
         self.assertIn("这里保留第一段解释。", cleaned)
         self.assertIn("这里保留第二段不同的解释。", cleaned)
         self.assertIn("### 第二层", cleaned)
@@ -2138,9 +2173,9 @@ class GroundedDirectQuoteSanitizerTests(unittest.TestCase):
             "进一步说，“人的本质不是单个人所固有的抽象物”[1]还要求考察现实关系。"
         )
         cleaned = app_module.AI_CLIENT._sanitize_grounded_direct_quotes(answer, self.grounding)
-        full = "人的本质不是单个人所固有的抽象物，在其现实性上，它是一切社会关系的总和。"
-        self.assertEqual(cleaned.count(full), 1)
-        self.assertIn(f"“{full}”[1]", cleaned)
+        selected = "人的本质不是单个人所固有的抽象物"
+        self.assertEqual(cleaned.count(selected), 1)
+        self.assertIn(f"“{selected}”[1]", cleaned)
         self.assertIn("进一步说，这一论述[1]还要求考察现实关系。", cleaned)
         self.assertIn("这一判断具有方法论意义。", cleaned)
 

@@ -61,6 +61,9 @@ _wenku_shots/
 # Codex 临时对比、发布候选和本地归档；正式源码必须移入受控目录后再提交
 /.codex-*/
 /.codex-*.tar.gz
+# Historical security delivery bundles and local release rehearsals
+/.security-work/
+/.release-artifacts/
 # 用户来信、宣传素材及其它非程序制品统一放置于此目录
 /artifacts/
 # 根目录杂散 0 字节 sqlite 防再生（真实数据库在 data/ 下）

@@ -31,7 +31,7 @@ class LibraryCollectionTests(unittest.TestCase):
 
     def test_new_xi_discourse_books_are_independent_single_volume_libraries(self) -> None:
         configs = book_config_map()
-        expected = {
+        xi_expected = {
             "论坚持党对一切工作的领导",
             "论党的宣传思想工作",
             "论中国共产党历史",
@@ -41,15 +41,23 @@ class LibraryCollectionTests(unittest.TestCase):
             "习近平关于总体国家安全观论述摘编",
             "习近平关于网络强国论述摘编",
             "习近平关于社会主义精神文明建设论述摘编",
-            "习近平关于树立和践行正确政绩观论述摘编",
         }
-        for key in expected:
+        for key in xi_expected:
             cfg = configs[key]
             self.assertEqual(cfg.collection, "xi_thought")
             self.assertTrue(cfg.single_volume)
             self.assertEqual(cfg.folder, "pdfs/习近平专题论述")
 
+        # This title is temporarily public through the time-bounded reader
+        # recommendation channel, so production correctly classifies it under
+        # user_recommended while retaining its Xi-topic search scope.
+        recommended = "习近平关于树立和践行正确政绩观论述摘编"
+        self.assertEqual(configs[recommended].collection, "user_recommended")
+        self.assertTrue(configs[recommended].single_volume)
+        self.assertEqual(configs[recommended].folder, "pdfs/习近平专题论述")
+
         xi_scope = next(scope for scope in app_module.CORPUS_SCOPES if scope["id"] == "xi")
+        expected = xi_expected | {recommended}
         self.assertTrue(
             expected.issubset(set(xi_scope["books"])),
             f"习近平指定著作列表缺少：{sorted(expected - set(xi_scope['books']))}",

@@ -39,7 +39,7 @@ systemctl list-timers marx-search-backup.timer       # 确认定时器在跑
 ## 四、恢复（出事时）
 
 ```bash
-sudo bash /opt/marx-search/deploy/restore.sh /var/backups/marx-search/<时间戳>
+sudo bash /opt/marx-search/current/app/deploy/restore.sh /var/backups/marx-search/<时间戳>
 ```
 
 脚本会：停服 → 还原两个库（chown www-data + chmod 600）→ 解包密钥/配置/图片 → 启服 → 自检 `/api/runtime`。完成后**手动验证 `/admin` 登录与阅读器**。

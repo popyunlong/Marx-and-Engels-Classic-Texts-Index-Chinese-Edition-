@@ -1,8 +1,0 @@
-[Unit]
-Description=Sync Cloudflare IP ranges into Caddy origin-lock snippet
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/update_cf_ips.sh

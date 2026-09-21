@@ -8,7 +8,8 @@ BindsTo=marx-ocr.service
 Type=simple
 # root：需要写 marx-ocr 的 cgroup.freeze。
 User=root
-ExecStart=/bin/bash /opt/marx-search/scripts/_ocr_guard.sh
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+ExecStart=/bin/bash /opt/marx-search/current/app/scripts/_ocr_guard.sh
 # 守护自身极轻，但仍限一点资源，且不与 OCR 同核以免被冻住时误判。
 Nice=0
 MemoryMax=128M

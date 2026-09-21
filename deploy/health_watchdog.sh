@@ -51,6 +51,11 @@ if [ -f "$STAMP" ]; then
 fi
 
 echo "$now" > "$STAMP" 2>/dev/null || true
+exec 9>"/run/lock/marx-search-release.lock"
+if ! flock -n 9; then
+  log "release/rollback transaction is active; deferring watchdog restart"
+  exit 0
+fi
 log "health probe failed ${ATTEMPTS}x (service active but unresponsive) -> restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 log "restart issued for ${SERVICE}"

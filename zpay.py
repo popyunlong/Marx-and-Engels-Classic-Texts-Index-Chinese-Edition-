@@ -18,7 +18,10 @@ import yaml
 MAPI_TIMEOUT_SECONDS = 20
 
 
-CONFIG_PATH = Path(__file__).resolve().parent / "config" / "zpay.yaml"
+CONFIG_PATH = Path(
+    os.environ.get("MARX_ZPAY_CONFIG_FILE")
+    or (Path(__file__).resolve().parent / "config" / "zpay.yaml")
+).expanduser().resolve()
 DEFAULT_SUBMIT_URL = "https://zpayz.cn/submit.php"
 DEFAULT_MAPI_URL = "https://zpayz.cn/mapi.php"
 DEFAULT_API_URL = "https://zpayz.cn/api.php"

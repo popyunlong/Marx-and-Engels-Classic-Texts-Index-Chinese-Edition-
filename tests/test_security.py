@@ -38,6 +38,7 @@ class SecurityRegressionTests(unittest.TestCase):
         app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         app_module.set_setting("access_policy", {})
         app_module.delete_setting("reader_bans")
+        app_module.delete_setting("monitoring_exemptions")
         app_module.delete_setting("journal_alerts_settings")
         app_module._rate_buckets.clear()
         with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
@@ -86,6 +87,11 @@ class SecurityRegressionTests(unittest.TestCase):
     def _force_login_user_id(self, user_id: int) -> None:
         with self.client.session_transaction() as sess:
             sess["user_id"] = int(user_id)
+
+    def _signed_visitor_cookie(self, visitor_key: str) -> str:
+        serializer = app_module.app.session_interface.get_signing_serializer(app_module.app)
+        self.assertIsNotNone(serializer)
+        return serializer.dumps({"_visitor_key": visitor_key})
 
     def _create_admin(self, email: str) -> dict:
         user = create_user(
@@ -1674,7 +1680,7 @@ class SecurityRegressionTests(unittest.TestCase):
         with app_module.app.test_request_context(
             "/",
             environ_base={"REMOTE_ADDR": "198.51.100.201"},
-            headers={"Cookie": "session=returning-browser"},
+            headers={"Cookie": f"session={self._signed_visitor_cookie('real-cookie-key')}"},
         ):
             self.assertEqual(
                 app_module._online_presence_dedup_key("real-cookie-key"),
@@ -1751,13 +1757,14 @@ class SecurityRegressionTests(unittest.TestCase):
         app_module._rate_buckets.clear()
         nocookie_limit = app_module.RATE_LIMITS["page_image_nocookie_ip"][0]
         ip = "198.51.100.204"
+        signed_cookie = self._signed_visitor_cookie("cookied-reader")
         # 携带会话 cookie 的请求走单会话限速（阈值高得多），不应被无 cookie 的严格 IP 限速拦截，
         # 即便同一 IP 超过 nocookie 阈值也不报 429（每个 cookie 各自计数，远低于会话阈值）。
         for _ in range(nocookie_limit + 5):
             with app_module.app.test_request_context(
                 "/page-image?file=x&page=1",
                 environ_base={"REMOTE_ADDR": ip},
-                headers={"Cookie": "session=cookied-reader"},
+                headers={"Cookie": f"session={signed_cookie}"},
             ):
                 app_module._rate_limit_page_image_or_abort()  # 不应抛出
 
@@ -1778,7 +1785,7 @@ class SecurityRegressionTests(unittest.TestCase):
                 headers={"User-Agent": "Mozilla/5.0 (real reader)"},
                 environ_base={"REMOTE_ADDR": "203.0.113.50"},
             )
-            # 监控程序(按 UA 豁免)：不应记录。
+            # UA is self-reported and therefore must not grant an exemption.
             client.get(
                 "/viewer?file=test.pdf&page=1",
                 headers={"User-Agent": "MarxUptimeBot/1.0 health-check"},
@@ -1799,9 +1806,9 @@ class SecurityRegressionTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM reader_access_events WHERE client_ip = ?",
                     ("198.51.100.7",),
                 ).fetchone()[0]
-            self.assertEqual(bot_rows, 0, "按 UA 豁免的监控请求不应写入阅读器审计")
+            self.assertGreaterEqual(bot_rows, 1, "仅凭可伪造 UA 不得跳过阅读器审计")
             self.assertEqual(exempt_ip_rows, 0, "按 IP 豁免的监控请求不应写入阅读器审计")
-            self.assertGreaterEqual(total, 1, "普通访客应被阅读器审计记录")
+            self.assertGreaterEqual(total, 2, "普通访客与 UA 伪装请求都应被审计")
         finally:
             app_module.delete_setting("monitoring_exemptions")
 
@@ -1963,7 +1970,7 @@ class SecurityRegressionTests(unittest.TestCase):
             )
             self.assertNotEqual(other.status_code, 429)
             # 已豁免监控:同一超限 IP 也不被 429。
-            app_module.set_setting("monitoring_exemptions", {"user_agents": ["MazhuMon"]})
+            app_module.set_setting("monitoring_exemptions", {"ips": ["203.0.113.150"]})
             try:
                 mon = client.get(
                     "/viewer?file=test.pdf&page=1&mode=reader",

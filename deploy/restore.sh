@@ -19,6 +19,12 @@ echo "将从 ${SRC} 恢复到 ${APPDATA_DIR}（会覆盖现有会员库/反馈�
 read -r -p "确认继续？输入 yes： " ans
 [ "${ans}" = "yes" ] || { echo "已取消。"; exit 1; }
 
+exec 9>"/run/lock/marx-search-release.lock"
+flock -n 9 || {
+  echo "另一个发布、回滚或数据恢复正在进行，本次恢复未执行。" >&2
+  exit 75
+}
+
 echo "[restore] 停服 ${SERVICE} ..."
 systemctl stop "${SERVICE}" || true
 

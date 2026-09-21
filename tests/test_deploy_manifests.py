@@ -1,143 +1,23 @@
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCH_MANIFEST = ROOT / "deploy" / "cloud_patch_files.txt"
-COMPILE_MANIFEST = ROOT / "deploy" / "cloud_compile_files.txt"
 
 
-def _read_manifest(path: Path) -> list[str]:
-    return [
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-
-
-def test_cloud_deploy_manifests_are_complete_and_consistent() -> None:
-    patch_files = _read_manifest(PATCH_MANIFEST)
-    compile_files = _read_manifest(COMPILE_MANIFEST)
-
-    assert patch_files
-    assert compile_files
-    assert len(patch_files) == len(set(patch_files))
-    assert len(compile_files) == len(set(compile_files))
-
-    missing = [item for item in patch_files + compile_files if not (ROOT / item).is_file()]
-    assert not missing
-    assert set(compile_files).issubset(set(patch_files))
-
-    for required in (
-        "book_config.py",
-        "config/books.yaml",
-        "scripts/deployment_smoke.py",
-        "deploy/cloud_patch_files.txt",
-        "deploy/cloud_compile_files.txt",
-    ):
-        assert required in patch_files
-
-
-def test_app_local_imports_are_in_cloud_patch_manifest() -> None:
-    patch_files = set(_read_manifest(PATCH_MANIFEST))
-    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
-    local_modules: set[str] = set()
-    top_level_modules = {path.stem for path in ROOT.glob("*.py")}
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                name = alias.name.split(".", 1)[0]
-                if name in top_level_modules:
-                    local_modules.add(f"{name}.py")
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            name = node.module.split(".", 1)[0]
-            if name in top_level_modules:
-                local_modules.add(f"{name}.py")
-
-    missing = sorted(module for module in local_modules if module not in patch_files)
-    assert not missing
-
-
-def _local_import_names(py_path: Path) -> set[str]:
-    """解析一个 .py，返回它直接 import 的顶层模块名集合（level==0）。"""
-    tree = ast.parse(py_path.read_text(encoding="utf-8"))
-    names: set[str] = set()
-    for node in ast.walk(tree):  # ast.walk 会进入函数体，能抓到函数内的 import app
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name.split(".", 1)[0])
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.split(".", 1)[0])
-    return names
-
-
-# 本仓的本地模块：根目录 *.py 与 scripts/*.py。映射 模块名 -> 清单路径。
-_ROOT_MODULES = {p.stem: f"{p.name}" for p in ROOT.glob("*.py")}
-_SCRIPTS_MODULES = {p.stem: f"scripts/{p.name}" for p in (ROOT / "scripts").glob("*.py")}
-
-
-def _resolve_local_module(name: str) -> str | None:
-    """把 import 名解析为清单路径（根目录优先），非本地模块返回 None。"""
-    if name in _ROOT_MODULES:
-        return _ROOT_MODULES[name]
-    if name in _SCRIPTS_MODULES:
-        return _SCRIPTS_MODULES[name]
-    return None
-
-
-def test_deployment_smoke_local_imports_are_in_manifest() -> None:
-    """deployment_smoke.py 直接 import 的本地模块（含 check_inline_js）必须在部署清单。"""
-    patch_files = set(_read_manifest(PATCH_MANIFEST))
-    smoke = ROOT / "scripts" / "deployment_smoke.py"
-    resolved = {
-        path for name in _local_import_names(smoke)
-        if (path := _resolve_local_module(name)) is not None
-    }
-    missing = sorted(module for module in resolved if module not in patch_files)
-    assert not missing, f"deployment_smoke.py 引用但缺失于 cloud_patch_files.txt: {missing}"
-
-
-def test_transitive_local_imports_are_in_manifest() -> None:
-    """从部署入口出发做传递闭包：凡被链式 import 到的本地模块都必须在部署清单。
-
-    捕获 2026-06-05 502 / check_inline_js 那类"A→B，B 被引用却没进清单"的链式漂移。
-    """
-    patch_files = set(_read_manifest(PATCH_MANIFEST))
-    entrypoints = ["app.py", "scripts/deployment_smoke.py", "scripts/check_inline_js.py"]
-    seen: set[str] = set()
-    queue = list(entrypoints)
-    while queue:
-        rel = queue.pop()
-        if rel in seen:
-            continue
-        seen.add(rel)
-        fpath = ROOT / rel
-        if not fpath.is_file():
-            continue
-        for name in _local_import_names(fpath):
-            resolved = _resolve_local_module(name)
-            if resolved and resolved not in seen:
-                queue.append(resolved)
-
-    missing = sorted(module for module in seen if module not in patch_files)
-    assert not missing, f"被链式引用但缺失于 cloud_patch_files.txt: {missing}"
-
-
-def test_update_cloud_powershell_parses() -> None:
+def _parse_powershell(path: Path) -> None:
     powershell = shutil.which("powershell") or shutil.which("pwsh")
     if powershell is None:
         return
-
-    script = ROOT / "deploy" / "update_cloud.ps1"
     command = (
         "$tokens=$null; $errors=$null; "
-        f"[System.Management.Automation.Language.Parser]::ParseFile('{script}', [ref]$tokens, [ref]$errors) | Out-Null; "
-        "if ($errors) { $errors | ForEach-Object { \"$($_.Extent.StartLineNumber):$($_.Message)\" }; exit 1 }"
+        f"[System.Management.Automation.Language.Parser]::ParseFile('{path}', [ref]$tokens, [ref]$errors) | Out-Null; "
+        'if ($errors) { $errors | ForEach-Object { "$($_.Extent.StartLineNumber):$($_.Message)" }; exit 1 }'
     )
     result = subprocess.run(
         [powershell, "-NoProfile", "-Command", command],
@@ -146,52 +26,191 @@ def test_update_cloud_powershell_parses() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    assert result.returncode == 0, result.stdout
+    assert result.returncode == 0, f"{path.name}:\n{result.stdout}"
 
 
-def test_update_cloud_keeps_cache_permission_fix_opt_in() -> None:
-    script = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
-    assert "[switch]$FixCachePermissions" in script
-    assert "install -d -o www-data -g www-data -m 0700 /var/www/.marx_search_full" in script
-    assert "if ($FixCachePermissions)" in script
-    assert "chown -R www-data:www-data /var/www/.marx_search_full" in script
+def test_release_powershell_entrypoints_parse() -> None:
+    for relative in (
+        "deploy/release.ps1",
+        "deploy/rollback_release.ps1",
+        "deploy/update_cloud.ps1",
+        "deploy/upload_reader_patch.ps1",
+        "deploy/upload_dictionary_patch.ps1",
+        "deploy/upload_to_server.ps1",
+    ):
+        _parse_powershell(ROOT / relative)
 
 
-def test_journal_processing_timer_is_deployed_and_health_checked() -> None:
-    manifest = set(_read_manifest(PATCH_MANIFEST))
+def test_release_builder_fails_locally_before_server_contact() -> None:
+    source = (ROOT / "deploy" / "release.ps1").read_text(encoding="utf-8")
+    assert 'if ($branch -ne "production")' in source
+    assert '"status", "--porcelain=v1", "--untracked-files=all"' in source
+    assert '"fetch", "--no-tags", "origin", "main", "production"' in source
+    assert '"rev-parse", "origin/production"' in source
+    assert "git archive" not in source  # Invocation is structured, not shell-expanded.
+    assert '"archive", "--format=zip"' in source
+    assert "build_release_archive.py" in source
+    assert "Build deterministic immutable release archive" in source
+    assert "$head -ne $remoteHead" in source
+    assert '"merge-base", "--is-ancestor", $head, "origin/main"' in source
+    assert "PYTHONPYCACHEPREFIX" in source
+    assert "Reverify source after compilation" in source
+    assert "AllowDirty" not in source
+    assert 'if ($DryRun)' in source
+    dry_run_at = source.index('if ($DryRun)')
+    assert source.index('Require-Command "ssh"') > dry_run_at
+    assert source.index('Require-Command "scp"') > dry_run_at
+
+
+def test_release_archive_and_remote_names_are_unique_and_commit_bound() -> None:
+    source = (ROOT / "deploy" / "release.ps1").read_text(encoding="utf-8")
+    assert '[Guid]::NewGuid()' in source
+    assert '$releaseId = "$head-$utcStamp-$nonce"' in source
+    assert '"marx-search-$releaseId.tar.gz"' in source
+    assert '"/var/tmp/marx-search-$releaseId.tar.gz"' in source
+    assert '"--parent-release-id", $ExpectedLive' in source
+    assert "app/deploy/promote_release.sh" in source
+
+
+def test_server_promotion_has_one_lock_and_compare_and_swap() -> None:
+    source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    assert 'LOCK_FILE="/run/lock/marx-search-release.lock"' in source
+    assert "flock -n 9" in source
+    assert 'LIVE_BEFORE="$(current_release_id)"' in source
+    assert '[ "$LIVE_BEFORE" != "$EXPECTED_LIVE" ]' in source
+    assert '"parent_release_id"' in source
+    assert '[ "$META_PARENT" = "$EXPECTED_LIVE" ]' in source
+    assert 'RELEASES="$APP_ROOT/releases"' in source
+    assert 'FINAL="$RELEASES/$RELEASE_ID"' in source
+    assert 'mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"' in source
+    assert 'ln -sfn -- "$OLD_CURRENT" "$APP_ROOT/previous"' in source
+    assert 'release-ledger.jsonl' in source
+    assert '"event": "promote"' in source
+    assert 'MARX_RUNTIME_DATA_DIR="$APP_ROOT/data"' in source
+    assert 'MARX_RUNTIME_PDF_DIR="$APP_ROOT/pdfs"' in source
+    assert 'rm -rf -- "$FINAL/app/$shared"' not in source
+    assert 'ln -s -- "$APP_ROOT/$shared"' not in source
+    assert '"${MANAGED_SUPPORT_UNITS[@]}"' in source
+
+
+def test_candidate_is_healthy_before_any_cutover_or_service_replacement() -> None:
+    source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    candidate = source.index("systemd-run")
+    candidate_health = source.index('wait_health "$CANDIDATE_PORT"', candidate)
+    caddy_cutover = source.index('switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"')
+    unit_install = source.index("/etc/systemd/system/marx-search.service")
+    assert candidate < candidate_health < caddy_cutover < unit_install
+    for endpoint in ("/api/runtime", "/pricing", "/ai", "/v2/ai", "/v2/read"):
+        assert endpoint in source
+    assert 'actual = ((payload.get("app_release") or {}).get("id") or "")' in source
+    assert 'wait_health "$CANDIDATE_PORT" "$RELEASE_ID"' in source
+    assert 'wait_health "$PRIMARY_PORT" "$RELEASE_ID"' in source
+    assert "rollback_primary" in source
+    assert "restoring the direct predecessor" in source
+
+
+def test_rollback_is_separate_locked_and_audited() -> None:
+    source = (ROOT / "deploy" / "rollback_release.sh").read_text(encoding="utf-8")
+    assert 'LOCK_FILE="/run/lock/marx-search-release.lock"' in source
+    assert "flock -n 9" in source
+    assert '[ "$CURRENT" = "$EXPECTED_CURRENT" ]' in source
+    assert '[ -f "$TARGET/release.json" ]' in source
+    assert '[ "$TARGET_META_ID" = "$TARGET_RELEASE" ]' in source
+    assert 'build_release_manifest.py" verify' in source
+    assert 'install -o root -g root -m 0644 "$TARGET/app/deploy/marx-search.service"' in source
+    assert 'target_healthy' in source
+    assert '"event": "rollback"' in source
+    assert "target failed health checks; current release restored" in source
+
+
+def test_legacy_application_mutators_are_disabled_or_delegate() -> None:
     update = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
-    timer = (ROOT / "deploy" / "marx-search-journal-process.timer").read_text(encoding="utf-8")
+    assert 'Join-Path $PSScriptRoot "release.ps1"' in update
+    assert "AllowDirty" not in update
+    for relative in (
+        "deploy/push_code_patch.sh",
+        "deploy/stage_release.sh",
+        "deploy/zero_downtime_restart.sh",
+        "deploy/restart_verify.sh",
+        "deploy/_swap_corpus_remote.sh",
+        "deploy/promote_new_corpus_202609.sh",
+        "deploy/promote_corpus_repair_candidate.sh",
+        "deploy/install_corpus_repair_service.sh",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "exit 64" in source
+    assert "Direct corpus uploads are frozen" in (
+        ROOT / "deploy" / "upload_corpus_db.ps1"
+    ).read_text(encoding="utf-8")
+    assert "Direct recursive source upload is retired" in (
+        ROOT / "deploy" / "upload_to_server.ps1"
+    ).read_text(encoding="utf-8")
 
-    assert "deploy/marx-search-journal-process.service" in manifest
-    assert "deploy/marx-search-journal-process.timer" in manifest
-    assert "/etc/systemd/system/marx-search-journal-process.service" in update
-    assert "/etc/systemd/system/marx-search-journal-process.timer" in update
-    assert "systemctl is-active marx-search-journal-process.timer" in update
-    assert "OnCalendar=*-*-* *:00/15:00 UTC" in timer
+
+def test_all_remaining_production_mutators_share_the_global_lock() -> None:
+    for relative in (
+        "deploy/promote_release.sh",
+        "deploy/rollback_release.sh",
+        "deploy/restore.sh",
+        "deploy/health_watchdog.sh",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "/run/lock/marx-search-release.lock" in source
+        assert "flock -n" in source
 
 
-def test_zero_downtime_release_never_patches_live_before_candidate_cutover() -> None:
-    update = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
-    cutover = (ROOT / "deploy" / "zero_downtime_restart.sh").read_text(encoding="utf-8")
-    stage = (ROOT / "deploy" / "stage_release.sh").read_text(encoding="utf-8")
+def test_canonical_service_runs_only_the_current_immutable_release() -> None:
+    unit = (ROOT / "deploy" / "marx-search.service").read_text(encoding="utf-8")
+    assert "WorkingDirectory=/opt/marx-search/current/app" in unit
+    assert "APP_RELEASE_FILE=/opt/marx-search/current/release.json" in unit
+    assert "MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs" in unit
+    assert "MARX_RUNTIME_DATA_DIR=/opt/marx-search/data" in unit
+    assert "MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs" in unit
+    assert "MARX_RUNTIME_STATIC_LIBRARY_DIR=/opt/marx-search/static_library" in unit
+    assert "MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml" in unit
+    assert "PYTHONPATH=/opt/marx-search/current/app:/opt/marx-search/current/.deps" in unit
+    assert "ExecStart=/opt/marx-search/runtime-python -m ingestion.runtime" in unit
+    assert "WorkingDirectory=/opt/marx-search\n" not in unit
 
-    assert "tar -xzf '$remoteArchive' -C '$RemoteDir'" not in update
-    assert "MARX_RELEASE_DIR='$remoteRelease'" in update
-    assert "MARX_PATCH_ARCHIVE='$remoteArchive'" in update
-    assert "Candidate validation completed; -SkipRestart leaves the live tree unchanged." in update
-    assert 'WorkingDirectory=${RELEASE_DIR}' in cutover
-    assert 'PYTHONPATH=${RELEASE_DIR}:${EXTRA_PYTHONPATH}' in cutover
-    assert 'from app import DEPLOYMENT, run_waitress' in cutover
-    assert '"$APP_DIR/.venv/bin/python" "$RELEASE_DIR/serve.py"' not in cutover
-    assert '"http://127.0.0.1:${port}/ai"' in cutover
-    assert '"http://127.0.0.1:${port}/v2/ai"' in cutover
-    assert 'monitor_drain "$CANDIDATE_PORT" "$PRIMARY_PORT"' in cutover
-    assert 'monitor_drain "$PRIMARY_PORT" "$CANDIDATE_PORT"' in cutover
-    assert 'tar --extract --gzip --file "$PATCH_ARCHIVE" --directory "$APP_DIR"' not in cutover
-    assert 'promote_dir="$(mktemp -d)"' in cutover
-    assert 'cp -a -- "$source" "$destination"' in cutover
-    assert "--unlink-first" in stage
-    assert "cp -a -s" in stage
+
+def test_all_managed_app_units_use_the_immutable_current_source() -> None:
+    forbidden = re.compile(
+        r"WorkingDirectory=/opt/marx-search$|"
+        r"/opt/marx-search/(?:\.venv|scripts|deploy)/|"
+        r"PYTHONPATH=/opt/marx-search(?:[:\s]|$)|"
+        r"--project-root /opt/marx-search(?:\s|$)",
+        re.MULTILINE,
+    )
+    unit_paths = sorted((ROOT / "deploy").glob("*.service"))
+    unit_paths += sorted((ROOT / "deploy" / "production_units").glob("*.service"))
+    offenders = [
+        str(path.relative_to(ROOT))
+        for path in unit_paths
+        if forbidden.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders
+
+
+def test_app_local_imports_exist_in_the_committed_tree() -> None:
+    tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
+    local_modules = {path.stem for path in ROOT.glob("*.py")}
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            imported.add(node.module.split(".", 1)[0])
+    missing = sorted(name for name in imported if name in local_modules and not (ROOT / f"{name}.py").is_file())
+    assert not missing
+    assert (ROOT / "release_metadata.py").is_file()
+    assert (ROOT / "ingestion" / "runtime.py").is_file()
+
+
+def test_pytest_collection_is_limited_to_the_official_tests_tree() -> None:
+    config = (ROOT / "pytest.ini").read_text(encoding="utf-8")
+    assert "testpaths = tests" in config
+    for excluded in ("artifacts", "release", "build", ".codex-*", ".security-work"):
+        assert excluded in config
 
 
 def test_deploy_gates_and_mimo_are_safe_by_default() -> None:
@@ -221,25 +240,14 @@ def test_pdf_preflight_has_no_optional_docx_dependency() -> None:
 
 
 def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> None:
-    manifest = set(_read_manifest(PATCH_MANIFEST))
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-    proxy = (ROOT / "deploy" / "citation-agent-tinyproxy.conf.example").read_text(
-        encoding="utf-8"
-    )
-    proxy_filter = (ROOT / "deploy" / "citation-agent.filter.example").read_text(
-        encoding="utf-8"
-    )
+    proxy = (ROOT / "deploy" / "citation-agent-tinyproxy.conf.example").read_text(encoding="utf-8")
+    proxy_filter = (ROOT / "deploy" / "citation-agent.filter.example").read_text(encoding="utf-8")
     appnav = (ROOT / "templates" / "_appnav.html").read_text(encoding="utf-8")
     agent_web = (ROOT / "citation_agent_test_web.py").read_text(encoding="utf-8")
-    agent_template = (ROOT / "templates" / "citation_agent_test.html").read_text(
-        encoding="utf-8"
-    )
-    test_worker = (
-        ROOT / "deploy" / "marx-search-citation-agent-test-worker.service"
-    ).read_text(encoding="utf-8")
+    agent_template = (ROOT / "templates" / "citation_agent_test.html").read_text(encoding="utf-8")
+    test_worker = (ROOT / "deploy" / "marx-search-citation-agent-test-worker.service").read_text(encoding="utf-8")
 
-    assert "citation_agent_test_web.py" in manifest
-    assert "deploy/citation-agent.filter.example" in manifest
     assert "import citation_agent_test_web" in app_source
     assert "citation_agent_test_web.register_routes(app, globals())" in app_source
     assert "FilterURLs Off" in proxy
@@ -253,6 +261,6 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     assert '@app.post("/api/citation-agent/jobs")' in agent_web
     assert 'web["_citation_assistant_enabled_for_user"](user)' in agent_web
     assert "论文插注校注 Agent 正式版仅对有效会员开放" in agent_web
-    assert 'data-access="{{ \'1\' if citation_access else \'0\' }}"' in agent_template
+    assert "data-access=\"{{ '1' if citation_access else '0' }}\"" in agent_template
     assert "游客和普通账号可查看完整流程" in agent_template
     assert "查看旧版历史任务" in agent_template

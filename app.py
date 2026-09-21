@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from page_labels import page_reference, citation_pages, VERSION as PAGE_LABEL_VERSION
+from release_metadata import current_app_release
 
 import json
 import membership_purchase as multi_purchase
@@ -2914,6 +2915,21 @@ def _normalize_source_file(source_file: str) -> str:
     return str(Path(source_file).as_posix()) if source_file else ""
 
 
+def _runtime_pdf_path(source_file: str) -> Path:
+    """Map a manifest ``pdfs/...`` path into the configured PDF root.
+
+    Production historically kept ``pdfs`` below the source checkout, while
+    release directories mount it as an explicit shared directory.  Building
+    the path from ``RUNTIME_ROOT`` silently broke the latter layout whenever
+    ``MARX_RUNTIME_PDF_DIR`` pointed outside the checkout.
+    """
+    rel = Path(_normalize_source_file(source_file))
+    parts = rel.parts
+    if parts and parts[0].lower() == "pdfs":
+        rel = Path(*parts[1:])
+    return (BASE_RUNTIME.pdf_root / rel).resolve()
+
+
 def _resolve_pdf_path(source_file: str, *, require_full_mode: bool = True) -> Path:
     if require_full_mode:
         _require_full_mode()
@@ -2923,7 +2939,7 @@ def _resolve_pdf_path(source_file: str, *, require_full_mode: bool = True) -> Pa
     if rel not in ALLOWED_SOURCE_FILES:
         abort(404, description="请求的 PDF 不在资料白名单中。")
 
-    pdf_path = (RUNTIME_ROOT / rel).resolve()
+    pdf_path = _runtime_pdf_path(rel)
     pdf_root = BASE_RUNTIME.pdf_root.resolve()
     try:
         pdf_path.relative_to(pdf_root)
@@ -2945,7 +2961,7 @@ def _pdf_render_available(source_file: str) -> bool:
     if not rel or rel not in ALLOWED_SOURCE_FILES:
         return False
     try:
-        pdf_path = (RUNTIME_ROOT / rel).resolve()
+        pdf_path = _runtime_pdf_path(rel)
         pdf_path.relative_to(BASE_RUNTIME.pdf_root.resolve())
     except (ValueError, OSError):
         return False
@@ -12259,6 +12275,7 @@ def api_runtime():
             "data_version": state["data_version"],
             "issues": state["issues"],
             "management_api_enabled": state["management_api_enabled"],
+            "app_release": current_app_release(),
             "layout_exact_ready": bool(layout_index and layout_index.enabled and
                                        not layout_index.error and layout_index.projections),
         }
@@ -18210,6 +18227,8 @@ _AUTO_SCOPE_BUNDLES: tuple[dict, ...] = (
 
 def _scope_books(scope_id: str) -> set[str]:
     """著作群 id → 该群中真实存在于当前语料库的书库键集合（不存在的书库自动剔除）。"""
+    if corpus is None:
+        return set()
     scope = _CORPUS_SCOPE_BY_ID.get(scope_id)
     if not scope:
         return set()
@@ -18235,7 +18254,7 @@ def _parse_book_token(token: str) -> "tuple[str | None, int | None]":
     if t.startswith("book:"):
         k = t[5:].strip()
         return (k or None, None)
-    if t in corpus.books:
+    if corpus is not None and t in corpus.books:
         return (t, None)
     return (None, None)
 
@@ -18244,6 +18263,8 @@ def _scope_id_for_books(spec: "dict[str, set[int] | None]") -> str:
     """单本/单卷范围 spec → 规范 scope_id（按 corpus.books 顺序稳定）：整套→``book:<键>``，
     某卷→``vol:<键>:<卷号>``（逐卷、卷号升序）。"""
     parts: list[str] = []
+    if corpus is None:
+        return ""
     for key in corpus.books:
         if key not in spec:
             continue
@@ -18259,7 +18280,7 @@ def _book_scope_tree() -> list[dict]:
     """供前端「精选到书/卷」多选控件：按著作群分组的书目，每本带卷号清单（多卷本可细选到卷）。
     仅收录已开放且语料里有卷册的书库；单卷本 volumes 为空（前端不出卷子选）。"""
     tree: list[dict] = []
-    for s in CORPUS_SCOPES:
+    for s in CORPUS_SCOPES if corpus is not None else ():
         books: list[dict] = []
         for key in s["books"]:
             if key not in corpus.books or not _book_is_public(key):
@@ -18330,6 +18351,11 @@ def _scope_options_payload() -> list[dict]:
         {"id": "auto", "label": "自动（智能判断）"},
         {"id": "all", "label": "全部著作"},
     ]
+    # A clean checkout and a failed corpus preflight intentionally start with
+    # search disabled. Public pages must remain renderable so deployment smoke
+    # can report the data problem instead of crashing on a missing corpus.
+    if corpus is None:
+        return opts
     for s in CORPUS_SCOPES:
         if any(b in corpus.books and _book_is_public(b) for b in s["books"]):
             opts.append({"id": s["id"], "label": s["label"]})
@@ -18430,7 +18456,7 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
 
     ``raw_scope`` 可为单值（"auto"/"all"/单个著作群 id，向后兼容）或**著作群 id 列表**（前端多选）。
     · 一个或多个著作群 id → 手动硬限定到它们书库的并集（不回填，尊重用户选择）；结果 id 逗号连接。
-    · "all"/"全部" → 明确不限定。
+    · "all"/"全部" → 明确使用全部对当前用户开放的书库。
     · "auto"/空/无法识别 → _detect_scopes 自动判定一个或多个著作群；调用方按需回填保量。
     """
     # 归一为 token 列表：列表原样，单串拆成单元素。
@@ -18491,6 +18517,7 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
             books |= _scope_books(sid)
         if books:
             return (books, ",".join(detected), False)
+    # 自动判断无可靠信号时仍显式限定到公开书库，避免私有/未上线书目被“全部”旁路带出。
     return (_public_book_keys(), "auto", False)
 
 

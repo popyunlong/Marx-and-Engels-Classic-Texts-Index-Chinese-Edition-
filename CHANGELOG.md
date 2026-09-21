@@ -6,6 +6,13 @@
 
 ## [未发布]
 
+### 生产基线与发布事务
+- 固化健康生产快照为可检出的 `production` 基线，并正式跟踪线上依赖的 `ingestion` 与文本检索模块。
+- 生产包改为从完整 Git 提交生成；新增全程发布锁、父版本比较、不可变版本目录、蓝绿验证、原子 `current`/`previous` 切换和独立审计回滚。
+- `/api/runtime` 新增 `app_release`，代码版本与 `data_version` 分离。
+- Pytest 只收集 `tests/`；CI 改为 Python 3.10 主门禁、3.11 兼容检查，以及 `main`/`production` 分层门禁。
+- 下列“部署清单/增量补丁”说明仅记录旧机制历史，不再是有效生产流程。
+
 ### 仓库精简
 - 移除未被使用的 `static/vendor/pdfjs/`（23MB / 397 文件）。阅读器用服务端页面图像渲染，
   全仓零引用、不在部署清单，故从 git 与磁盘移除；`.gitignore` 加防回流守卫。待推送 diff 由

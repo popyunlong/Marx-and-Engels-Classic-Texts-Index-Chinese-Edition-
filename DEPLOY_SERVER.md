@@ -1,5 +1,7 @@
 # 云端部署说明
 
+> **现网更新只允许使用不可变发布事务。** 本文的“首次安装”章节仅适用于全新空主机，禁止拿来覆盖当前生产站。日常发布与回滚以 [`docs/ops/PRODUCTION_RELEASE_RUNBOOK.md`](docs/ops/PRODUCTION_RELEASE_RUNBOOK.md) 为准。
+
 云端网页版部署到香港或海外 Ubuntu 云主机，站点使用 HTTPS，由站内注册登录、管理员角色和会员权限控制访问。Caddy 只负责反向代理和 HTTPS，不再使用整站 Basic Auth，避免支付回调被拦截。
 
 ## 推荐规格
@@ -25,23 +27,17 @@
 
 ## 方案 A：用仓库脚本快速上线
 
-### 1. 从 Windows 上传项目到服务器
+### 1. 在全新服务器检出受版本控制的源码
 
-在本地 PowerShell 执行：
+`upload_to_server.ps1` 已停用，避免把本地脏工作区直接覆盖到服务器。全新空主机应检出已审核提交，并单独恢复数据与 PDF：
 
-```powershell
-./deploy/upload_to_server.ps1 -ServerHost 203.0.113.10 -User ubuntu
+```bash
+sudo git clone --branch production --single-branch \
+  git@github.com:popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-.git \
+  /opt/marx-search
 ```
 
-默认会把这些内容上传到服务器 `/opt/marx-search`：
-
-- 应用入口与依赖文件
-- `deploy/`
-- `config/`
-- `data/`
-- `pdfs/`
-- `static/`
-- `templates/`
+首次初始化完成后，所有更新都必须改用不可变发布事务，不能再次覆盖 `/opt/marx-search`。
 
 ### 2. 在服务器上执行初始化
 
@@ -242,21 +238,21 @@ PDF 转换失败或定位失败时保留 Word；“单独重试 PDF”只能读�
 
 ## 更新部署
 
-如果本地代码更新，需要重新上传到服务器，推荐再次执行：
+现网禁止重新运行上传/初始化脚本覆盖应用目录。代码更新须先通过 `main` 门禁，再由唯一发布协调者把 `production` 快进到同一提交并推送。
+
+先读取当前 `/api/runtime` 的 `app_release.id`，然后在 `production` 的干净独立工作树做不联网演练：
 
 ```powershell
-./deploy/upload_to_server.ps1 -ServerHost 203.0.113.10 -User ubuntu
+pwsh -File deploy/release.ps1 -ExpectedLive '<exact-live-id>' -DryRun -KeepArtifact
 ```
 
-然后在服务器执行：
+批准后去掉 `-DryRun`。脚本会在连接服务器前拒绝脏工作树、非 `production` 分支、未推送提交和非 Python 3.10 构建环境；服务器会用全局锁与 `parent_release_id` 比较拒绝过期会话。
 
-```bash
-cd /opt/marx-search
-sudo bash deploy/bootstrap_ubuntu.sh \
-  --domain search.example.com
+回滚必须显式给出当前版和目标版：
+
+```powershell
+pwsh -File deploy/rollback_release.ps1 -ExpectedCurrent '<current-id>' -TargetRelease '<target-id>'
 ```
-
-脚本会复用现有目录与虚拟环境，并重新安装依赖、刷新配置、重启服务。
 
 ## 安全建议
 
@@ -352,26 +348,26 @@ JOURNAL_ALERT_BASE_URL=https://你的域名
 
 ## 发布演练与崩溃防护
 
-代码更新通过 `deploy/update_cloud.ps1` 增量推送。它内置多层防护，保证“更新出问题时网站不崩、能自动退回上一个可用版本”：
+代码更新通过 `deploy/release.ps1` 从 Git 提交生成完整不可变版本。`deploy/update_cloud.ps1` 仅为兼容入口，最终调用同一事务；旧增量覆盖、跳过重启和脏目录开关均已移除。
 
-1. 打包前在本地跑 `deployment_smoke.py`（模板/内联 JS/核心路由），不过直接中止，不上传。
-2. 应用补丁前在服务器创建轻量备份 `marx-search.cloud-backup.<时间戳>`（仅代码/模板/配置，自动保留最近 5 份）。
-3. 远端 `py_compile` 所有改动模块，语法错在重启前暴露。
-4. 重启前在服务器再跑一次 `deployment_smoke.py`，**不过就不重启**。
-5. 重启后健康检查不仅查 `/api/runtime`（能启动），还查 `/` 与 `/pricing`（核心功能正常）。
-6. 健康检查失败 → **自动从第 2 步备份回滚并重启**，然后报错终止。
+1. 本机验证分支、洁净度、远端同步状态、Python 3.10、源码编译和完整树哈希；失败时尚未连接服务器。
+2. 每个压缩包、远端上传和候选目录均使用完整提交号、UTC 时间与随机标识，不共享临时文件名。
+3. 服务器在 `/run/lock/marx-search-release.lock` 内比较当前版本与包内父版本；不一致即拒绝。
+4. 候选在 8001 端口通过 `/api/runtime`、首页、定价、AI 与阅读页验证后，Caddy 才平滑切流。
+5. `current`/`previous` 原子切换；主进程验证失败时自动恢复直接前任。
+6. `/api/runtime`、`current/release.json`、`DEPLOYED_SHA` 和发布账本共同记录同一代码版本。`data_version` 独立表示语料版本。
 
-PDF 与 `corpus.sqlite` 由独立脚本（`upload_corpus_db.ps1` / `upload_lenin_pdfs.ps1`）管理，代码补丁不触碰，数据不会受影响。
+PDF、索引和运行数据库是显式共享数据，不进入源码版本目录。直接语料上传/交换脚本已冻结；语料只能走受验证的候选流程，并与代码发布共用同一把锁。
 
 ### 推荐的发布动作
-- 有疑虑时先 `update_cloud.ps1 -DryRun`：只验证打包，不连服务器。
-- 重大更新先 `update_cloud.ps1 -SkipRestart`：上传 + 远端冒烟通过后，人工确认无误，再单独重启。
-- 推送 GitHub 前 `git push` 会触发 `.githooks/pre-push`（需 `git config core.hooksPath .githooks` 启用一次），自动跑 pytest + 冒烟 + pdf.js 防回流；CI（`ci.yml`）的 `test` job 再做一次确定性门禁（清单漂移/编译/防回流）。
-- 注意：`git push` 只更新 GitHub 远程，**不会改动线上服务器**；线上更新一律走 `update_cloud.ps1`。
+- 先运行 `release.ps1 -ExpectedLive '<id>' -DryRun -KeepArtifact`：只构建和验证，不连服务器。
+- 每个会话使用独立工作树与功能分支；任何会话都不得直接在共享 `main` 上开发。
+- 推送会触发本地门禁，CI 再分别运行 PR 快速门禁、`main` 集成门禁和 `production` 版本谱系门禁。
+- `git push` 只更新远端仓库，不会改动线上；实际发布仍需本机人工批准。
 
 ## 8·15 发布特别约束
 
-- 先在本机执行 `deploy/update_cloud.ps1 -DryRun -AllowDirty`；干跑不会连接云服务器。
+- 先在本机执行 `deploy/release.ps1 -ExpectedLive '<id>' -DryRun -KeepArtifact`；脏目录没有任何绕过方式。
 - MiMo 正式迁移开关默认为 0。未完成 60 条匿名生产样本盲评和管理员灰度前，不得将 `MIMO_MIGRATION_ENABLED` 改为 1。
 - 实际发布先在隔离目录与 8001 端口验证候选版，再平滑切换 Caddy；迁移或健康检查失败时原 8000 进程继续服务。
 - 密钥只由 `/etc/marx-search.env` 注入。聊天、工单或日志中暴露过的密钥必须先轮换。

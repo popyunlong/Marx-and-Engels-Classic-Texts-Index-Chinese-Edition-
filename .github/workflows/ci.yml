@@ -5,37 +5,126 @@ on:
   push:
     branches:
       - main
-      - master
+      - production
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  fast-gate:
+    name: Fast gate (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
     steps:
-      - name: Checkout
+      - name: Checkout complete source
         uses: actions/checkout@v4
-        # corpus.sqlite 不入库，确定性门禁不依赖语料库，无需 LFS。
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Reject generated or duplicated source trees
+        run: |
+          if git ls-files | grep -Eq '(^|/)(artifacts|release|releases|build|dist|\.security-work)/|static/vendor/pdfjs'; then
+            echo "Generated release trees or unused pdf.js files must not be tracked."
+            exit 1
+          fi
+
+      - name: Compile every tracked Python file
+        run: git ls-files -z '*.py' | xargs -0 python -m py_compile
+
+      - name: Run deterministic pull-request tests
+        run: python -m pytest tests/test_deploy_manifests.py tests/test_release_metadata.py -q
+
+      - name: Check release shell syntax
+        run: |
+          bash -n deploy/promote_release.sh
+          bash -n deploy/rollback_release.sh
+          bash -n deploy/promote_new_corpus_202609.sh
+          bash -n deploy/promote_corpus_repair_candidate.sh
+
+  integration-gate:
+    name: Main integration gate (Python 3.10)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production'))
+    needs: fast-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up production Python line
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Guard against pdf.js re-entering the repo
+      - name: Run full repository test suite
+        run: python -m pytest tests/ -q
+
+      - name: Run application deployment smoke
+        run: python scripts/deployment_smoke.py --mode server
+
+      - name: Prove complete release package reproducibility
         run: |
-          if git ls-files | grep -q "vendor/pdfjs"; then
-            echo "static/vendor/pdfjs must not be tracked (unused dead weight)."; exit 1
-          fi
+          mkdir -p /tmp/release-repro/app
+          git archive --format=tar HEAD | tar -x -C /tmp/release-repro/app
+          python /tmp/release-repro/app/scripts/build_release_manifest.py create \
+            --source-dir /tmp/release-repro/app \
+            --output /tmp/release-repro/release.json \
+            --release-id 0000000000000000000000000000000000000000-rehearsal \
+            --git-sha 0000000000000000000000000000000000000000 \
+            --parent-release-id ci-parent \
+            --built-at 2000-01-01T00:00:00Z
+          python /tmp/release-repro/app/scripts/build_release_archive.py \
+            --source-dir /tmp/release-repro/app --metadata /tmp/release-repro/release.json \
+            --output /tmp/release-repro/package-a.tar.gz
+          python /tmp/release-repro/app/scripts/build_release_archive.py \
+            --source-dir /tmp/release-repro/app --metadata /tmp/release-repro/release.json \
+            --output /tmp/release-repro/package-b.tar.gz
+          cmp /tmp/release-repro/package-a.tar.gz /tmp/release-repro/package-b.tar.gz
 
-      - name: Compile all deployed Python modules
-        run: python -m py_compile $(grep -v '^\s*#' deploy/cloud_compile_files.txt | tr '\n' ' ')
+  production-gate:
+    name: Production lineage and rollback gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/production'
+    needs: integration-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Deploy-manifest drift tests
-        # 确定性、无需语料库；防"被 import 的模块漏入部署清单"(check_inline_js / 502 漂移同类)。
-        # 全功能套件依赖 corpus.sqlite(不入库)，由本地 pre-push 钩子运行。
-        run: python -m pytest tests/test_deploy_manifests.py -q
+      - name: Verify production is contained in main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+
+      - name: Verify immutable release controls
+        run: |
+          grep -q '/run/lock/marx-search-release.lock' deploy/promote_release.sh
+          grep -q 'parent_release_id' deploy/promote_release.sh
+          grep -q 'rollback' deploy/rollback_release.sh
+          test "$(git status --porcelain --untracked-files=all)" = ""
+
+      - name: Rehearse metadata creation and tamper rejection
+        run: python -m pytest tests/test_release_metadata.py -q

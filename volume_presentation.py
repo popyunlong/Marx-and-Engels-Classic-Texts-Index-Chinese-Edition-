@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 
-# 只有这两套选编的目录题名日期经过逐册整理，可以安全地继续由目录计算首末时间。
+# 只有这四套选编的目录题名日期经过逐册整理，可以安全地继续由目录计算首末时间。
 # 其它书一律不用目录中的“任意年份”推算卷期，以免人物生卒年、注释年份等污染展示。
 TRUSTED_TOC_DATE_BOOKS = frozenset({
     "建党以来重要文献选编",

@@ -8,10 +8,25 @@ RequiresMountsFor=/var/www/.marx_search_full/journal
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/marx-search
-EnvironmentFile=/etc/marx-search.env
+WorkingDirectory=/opt/marx-search/current/app
+EnvironmentFile=-/etc/marx-search.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/serve.py
+Environment=PYTHONPATH=/opt/marx-search/current/app:/opt/marx-search/current/.deps
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+Environment=APP_RELEASE_FILE=/opt/marx-search/current/release.json
+Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
+Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
+Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
+Environment=MARX_RUNTIME_STATIC_LIBRARY_DIR=/opt/marx-search/static_library
+Environment=MARX_RUNTIME_STREAM_LIBRARY_DIR=/opt/marx-search/stream_library
+Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
+Environment=MARX_ALIPAY_CONFIG_FILE=/opt/marx-search/config/alipay.yaml
+Environment=MARX_ZPAY_CONFIG_FILE=/opt/marx-search/config/zpay.yaml
+Environment=MARX_CORPUS_REPAIR_ROOT=/home/data/marx-search-corpus-repair
+Environment=MARX_CORPUS_REPAIR_DB=/home/data/marx-search-corpus-repair/review.sqlite3
+Environment=MARX_SKIP_SEARCH_WARM=1
+Environment=MARX_READER_AUTO_BAN_SINCE=2026-09-13T09:15:00+00:00
+ExecStart=/opt/marx-search/runtime-python -m ingestion.runtime --with-worker --port 8000
 Restart=always
 RestartSec=3
 PrivateTmp=true
@@ -19,7 +34,11 @@ NoNewPrivileges=true
 # 文件系统沙箱（收敛 RCE 后的横向破坏面）。用 full 而非 strict：/etc /usr 只读，
 # 但保留 /opt /var 可写，确保 app.log、releases、/var/www 数据写入不受影响。
 ProtectSystem=full
-ProtectHome=true
+ReadOnlyPaths=/opt/marx-search/releases
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/data/marx-ocr-geometry
+BindReadOnlyPaths=/home/data/marx-layout-releases/layout-20260913-v1/.venv
+BindReadOnlyPaths=/home/data/marx-layout-releases/layout-20260913-v1/layout-index-v2
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

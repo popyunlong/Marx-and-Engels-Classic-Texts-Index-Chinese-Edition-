@@ -36,10 +36,16 @@ CONFIG_DIR = BUNDLE_ROOT / "config"
 MANIFEST_PATH = CONFIG_DIR / "manifest.yaml"
 VOLUMES_PATH = CONFIG_DIR / "volumes.yaml"
 
-EXTERNAL_DATA_DIR = RUNTIME_ROOT / "data"
+EXTERNAL_DATA_DIR = Path(
+    os.environ.get("MARX_RUNTIME_DATA_DIR") or (RUNTIME_ROOT / "data")
+).expanduser().resolve()
 BUNDLED_DATA_DIR = BUNDLE_ROOT / "data"
-PDF_ROOT = RUNTIME_ROOT / "pdfs"
-LOG_DIR = RUNTIME_ROOT / "logs"
+PDF_ROOT = Path(
+    os.environ.get("MARX_RUNTIME_PDF_DIR") or (RUNTIME_ROOT / "pdfs")
+).expanduser().resolve()
+LOG_DIR = Path(
+    os.environ.get("MARX_RUNTIME_LOG_DIR") or (RUNTIME_ROOT / "logs")
+).expanduser().resolve()
 LOG_FILE = LOG_DIR / "app.log"
 
 

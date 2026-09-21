@@ -24,6 +24,14 @@
 - `static/broadcast/` 的历史宣传 GIF、未被页面引用的 `static/hero/founders.jpg`、服务器备份文件、一次性下划线脚本、运行标记和服务器旧测试副本未导入活动源码；它们的哈希仍保留在审计清单或仓库外只读快照中。
 - 仓库外恢复快照位于 `C:\Users\10108\.codex\prod-snapshots\marx-20260921-233430`，不得作为日常开发工作区。
 
+## 原工作区保全
+
+- 未整理的原工作区保持原状，仓库外归档位于 `C:\Users\10108\.codex\workspace-archives\marx-dirty-20260921T161220Z`。
+- 可恢复主清单为 `manifest-v2.json`：63 项已跟踪状态、381 个未跟踪文件，未跟踪归档大小 45,248,225 字节。
+- `untracked-files-v2.zip` SHA-256 为 `d88c7363ba760daa6fcd9f12366f69d2a802ad902db7a218b37e32ff37cba666`。
+- 归档分类统计：已上线 11、待上线 379、生成物 19、临时物 1、未知 34。交叉类别使合计大于唯一文件数。
+- 以 `status-readable.txt`、`tracked-working-tree.patch`、`tracked-index.patch`、`untracked-sha256-v2.txt` 和 `classification.csv` 作为追溯材料；早期不完整的无 `-v2` 文件不作为恢复依据。
+
 ## 无扰动说明
 
 快照期间未重启服务、未切换 Caddy、未写入服务器。首次静态资源全量读取期间 `/v2/read` 曾单次达到 12 秒超时，传输随即停止；后续改为哈希对账和仅补取差异文件。最终五个核心入口均返回 200，服务 PID 和线上标记保持不变。

@@ -7,14 +7,19 @@ Wants=network-online.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/marx-search
+WorkingDirectory=/opt/marx-search/current/app
 EnvironmentFile=/etc/marx-search.env
 Environment=PYTHONUTF8=1
 Environment=OMP_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 UMask=0077
-ExecStart=/opt/marx-search/.venv/bin/python /opt/marx-search/scripts/marx_ocr_audit.py run --database /opt/marx-search/data/corpus.sqlite --project-root /opt/marx-search --feedback-db /var/www/.marx_search_full/feedback.sqlite3 --output-root /home/data/marx-search-ocr-audit --hours 24 --max-success 1000 --per-hour 42 --expected-sources 62 --health-url http://127.0.0.1:8000/
+Environment=PYTHONPATH=/opt/marx-search/current/app:/opt/marx-search/current/.deps
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
+Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
+Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
+ExecStart=/opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/marx_ocr_audit.py run --database /opt/marx-search/data/corpus.sqlite --project-root /opt/marx-search/current/app --feedback-db /var/www/.marx_search_full/feedback.sqlite3 --output-root /home/data/marx-search-ocr-audit --hours 24 --max-success 1000 --per-hour 42 --expected-sources 62 --health-url http://127.0.0.1:8000/
 RuntimeMaxSec=25h
 TimeoutStartSec=30s
 Restart=on-failure

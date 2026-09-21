@@ -12,7 +12,10 @@ from urllib.parse import quote_plus
 import yaml
 
 
-CONFIG_PATH = Path(__file__).resolve().parent / "config" / "alipay.yaml"
+CONFIG_PATH = Path(
+    os.environ.get("MARX_ALIPAY_CONFIG_FILE")
+    or (Path(__file__).resolve().parent / "config" / "alipay.yaml")
+).expanduser().resolve()
 DEFAULT_GATEWAY_URL = "https://openapi.alipay.com/gateway.do"
 DEFAULT_NOTIFY_PATH = "/payments/alipay/notify"
 DEFAULT_RETURN_PATH = "/payments/alipay/return"

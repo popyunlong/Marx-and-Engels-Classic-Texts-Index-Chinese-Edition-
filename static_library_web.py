@@ -22,15 +22,20 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import yaml
 from flask import abort, render_template, request, send_file
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-STATIC_LIBRARY_ROOT = PROJECT_ROOT / "static_library"
+STATIC_LIBRARY_ROOT = Path(
+    os.environ.get("MARX_RUNTIME_STATIC_LIBRARY_DIR") or (PROJECT_ROOT / "static_library")
+).expanduser().resolve()
 CONFIG_PATH = PROJECT_ROOT / "config" / "static_books.yaml"
-STREAM_LIBRARY_ROOT = PROJECT_ROOT / "stream_library"
+STREAM_LIBRARY_ROOT = Path(
+    os.environ.get("MARX_RUNTIME_STREAM_LIBRARY_DIR") or (PROJECT_ROOT / "stream_library")
+).expanduser().resolve()
 STREAM_CONFIG_PATH = PROJECT_ROOT / "config" / "stream_books.yaml"
 
 

@@ -89,9 +89,12 @@ caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 ```bash
 systemctl status marx-search --no-pager
 journalctl -u marx-search -n 80 --no-pager
-# 补丁部署失败会自动从 /opt/marx-search.cloud-backup.<时间戳> 回滚；也可手动：
-ls -1dt /opt/marx-search.cloud-backup.* | head
+# 查看不可变版本与发布账本；不要复制旧源码覆盖 current
+readlink -f /opt/marx-search/current
+tail -n 10 /opt/marx-search/release-ledger.jsonl
 ```
+
+人工回滚从本机执行 `deploy/rollback_release.ps1`，同时给出当前版本与目标版本。它使用生产发布锁、完成健康验证并写审计账本；禁止手工改 `current` 链接。
 
 ## 十、论文引文助手任务不动
 
@@ -136,7 +139,7 @@ python /opt/marx-search/scripts/mimo_quality_gate.py run /secure/anonymous-sampl
 
 4. 盲评人员只接触 `mimo-blind.jsonl`。完成评分后运行 `summarize`；只有返回码为 0 且报告 `passed=true` 时才能继续。
 5. 先设置 `MIMO_ADMIN_GRAY_ENABLED=1`进行管理员灰度。观察错误率、P95 延迟、缓存率、推理 token 占比和引文准确性；不达标就保持正式开关关闭。
-6. 门禁和灰度都通过后，再把 `MIMO_MIGRATION_ENABLED=1` 放入候选版本。`deploy/update_cloud.ps1` 会在隔离发布目录和 8001 端口启动候选进程；编译、数据库快照/迁移、冒烟或健康检查任一失败，都不会切换 Caddy 流量。
+6. 门禁和灰度都通过后，再把 `MIMO_MIGRATION_ENABLED=1` 放入候选版本。`deploy/release.ps1` 会在不可变目录和 8001 端口启动候选进程；编译、冒烟或健康检查任一失败，都不会切换 Caddy 流量。
 7. Caddy 只在候选进程已经能对外服务后才平滑重载。切换后会继续监测并保留旧进程排空窗口；候选异常时立即把流量指回旧进程。
 8. 紧急回退只需将 `MIMO_MIGRATION_ENABLED=0`，再走同一零停机发布流程；不删除账本、价格版本或历史调用记录。首页马克思形象的 MiMo 异常会回退本地台词，不会自动转用昂贵模型。
 
@@ -153,13 +156,13 @@ python scripts/build_scan_volumes.py --only hegel-theology-early hegel-phenomeno
 python scripts/build_hegel_toc.py
 ```
 
-扫描脚本是可恢复的：已通过质量门禁的页会跳过，只重试缺页和被拒绝页。发布顺序为 PDF、构建产物、代码、语料库：
+扫描脚本是可恢复的：已通过质量门禁的页会跳过，只重试缺页和被拒绝页。代码版本与语料版本必须分开验收：PDF/构建产物先进入共享数据候选区，代码走不可变发布，语料经候选门禁并在同一全局锁下提升。直接数据库上传脚本已冻结。
 
 ```powershell
 powershell -File deploy/upload_book_pdfs.ps1 -Folder '黑格尔全集' -ExpectedCount 16
 powershell -File deploy/upload_hegel_data.ps1
-powershell -File deploy/update_cloud.ps1 -AllowDirty
-powershell -File deploy/upload_corpus_db.ps1
+powershell -File deploy/release.ps1 -ExpectedLive '<exact-live-id>' -DryRun -KeepArtifact
+# 批准后执行同一命令并去掉 -DryRun；语料另走受验证的候选提升流程。
 ```
 
 服务器上 `/opt/marx-search/pdfs/黑格尔全集` 和 `/opt/marx-search/data` 必须位于数据盘；发布后核对 16 个 PDF、16 个 JSONL、目录审计全通过，再验收引文检索、目录跳转、页图阅读器与 AI 导读的页面上下文。

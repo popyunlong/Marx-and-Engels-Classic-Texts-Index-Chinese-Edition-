@@ -7,8 +7,9 @@ After=marx-search.service
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/marx-search
-ExecStart=/bin/bash /opt/marx-search/scripts/_server_ocr_jianguo.sh
+WorkingDirectory=/opt/marx-search/current/app
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+ExecStart=/bin/bash /opt/marx-search/current/app/scripts/_server_ocr_jianguo.sh
 
 # ---- 资源硬隔离：网站永远优先 ----
 # AllowedCPUs=3：cpuset 把 OCR 钉死在第 4 号核，网站的 0-2 号核永不被 OCR 争用。
