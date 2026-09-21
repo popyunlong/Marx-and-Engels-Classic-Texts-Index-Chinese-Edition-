@@ -341,6 +341,9 @@ class Hit:
     fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
     subject_label: str | None = None  # 命中来自名目索引时，记录索引词条（如「经济领域中的异化·劳动的异化」）
     citations: dict | None = None  # 多格式引文；缺省时回退为 citation 单一格式
+    # 仅供语料层在最终候选阶段扩展完整句使用；不进入 API/缓存序列化，避免暴露内部全卷坐标。
+    norm_start: int | None = None
+    norm_end: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -2144,6 +2147,49 @@ class Corpus:
             return "马克思恩格斯"
         return hit.book
 
+    def _complete_associative_hit_context(
+        self,
+        hit: Hit,
+        page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None],
+    ) -> None:
+        """Expand one final associative-search preview to complete sentence boundaries.
+
+        Recall still uses the existing bounded snippets, so ranking cost and semantics stay
+        unchanged.  Only the candidates that survive deduplication/ranking are expanded, and
+        the existing small LRU shares normalized-to-raw page maps across nearby results.
+        """
+        if hit.norm_start is None or hit.norm_end is None:
+            return
+        vol = self.get_volume_by_source_file(hit.source_file)
+        if vol is None:
+            vol = next(
+                (
+                    candidate
+                    for candidate in self.books.get(hit.book, [])
+                    if candidate.volume == hit.volume
+                    and candidate.source_file == hit.source_file
+                ),
+                None,
+            )
+        if vol is None:
+            return
+        # Preserve the actual highlighted wording (including OCR punctuation/spacing) instead
+        # of highlighting the whole co-occurrence window after sentence expansion.
+        highlight_terms = [
+            match.group(1)
+            for match in re.finditer(r"\[\[H\]\]([\s\S]*?)\[\[/H\]\]", hit.context or "")
+            if normalize(match.group(1))
+        ]
+        context = self._extract_export_sentence_context(
+            vol,
+            hit.norm_start,
+            hit.norm_end,
+            highlight_terms=highlight_terms or None,
+            page_map_cache=page_map_cache,
+        )
+        if context:
+            hit.context = context
+
     def locate_associative(
         self,
         *,
@@ -2282,6 +2328,11 @@ class Corpus:
             )
         elif intent == "research":
             results = self._diversify_by_book(results)
+        # 联想检索的卡片用于阅读原文而不只是定位命中字词：最终候选尽量从真实句界开始、在真实句界
+        # 结束，并允许查看相邻一页以补齐跨页句。普通精确检索、Agent 核验与召回排序均保持原行为。
+        page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
+        for hit in results:
+            self._complete_associative_hit_context(hit, page_map_cache)
         return results
 
     def locate_subject_index(
@@ -2525,6 +2576,8 @@ class Corpus:
             citations=citations,
             section_title=section_title,
             fuzzy_errors=fuzzy_errors,
+            norm_start=norm_start,
+            norm_end=norm_end,
         )
 
     @staticmethod

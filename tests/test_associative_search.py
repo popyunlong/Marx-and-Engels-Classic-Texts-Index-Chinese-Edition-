@@ -206,6 +206,40 @@ class AssociativeUnitTests(unittest.TestCase):
         self.assertTrue(res, "片段召回应能在整句对不上时定位到真实段落")
         self.assertTrue(res[0].citation.startswith("《"))
 
+    def test_locate_associative_expands_cross_page_hit_to_complete_sentence(self) -> None:
+        page1_raw = "本页前一句已经结束。跨页完整句的前半部分仍在这里，"
+        page2_raw = "后半部分包含关键命中片段并在这里结束。下一句不应被带入。"
+        pages = [
+            search_module.Page(1, "1", page1_raw, search_module.normalize(page1_raw)),
+            search_module.Page(2, "2", page2_raw, search_module.normalize(page2_raw)),
+        ]
+        volume = search_module.Volume.build("测试书", 1, "test.pdf", "测试书", pages)
+        corpus = object.__new__(search_module.Corpus)
+        corpus.books = {"测试书": [volume]}
+        corpus._volumes_by_source_file = {"test.pdf": volume}
+        corpus.book_config_by_key = {}
+        corpus.volumes_cfg = {"publisher": "测试出版社", "place": "北京"}
+        corpus._make_citation = lambda *args, **kwargs: "《测试书》第2页。"
+        corpus._make_citations = lambda *args, **kwargs: {}
+        corpus.get_section_for_page = lambda *args, **kwargs: None
+
+        direct_hits = corpus.locate_quote("关键命中片段", allow_fuzzy=False)
+        hits = corpus.locate_associative(
+            quotes=["关键命中片段"],
+            keywords=[],
+            fragments=[],
+        )
+
+        self.assertTrue(direct_hits)
+        self.assertNotIn("跨页完整句的前半部分", direct_hits[0].context)
+        self.assertTrue(hits)
+        context = hits[0].context
+        self.assertIn("跨页完整句的前半部分仍在这里", context)
+        self.assertIn("后半部分包含[[H]]关键命中片段[[/H]]并在这里结束。", context)
+        self.assertNotIn("本页前一句", context)
+        self.assertNotIn("下一句不应被带入", context)
+        self.assertTrue(context.endswith("。"), context)
+
     def test_locate_associative_capped_and_sorted(self) -> None:
         # book_scope 同上：避免超高频两字词在全语料上的无界扫描拖垮门禁。
         book, sample = _corpus_sample(min_len=60)
