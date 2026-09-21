@@ -123,7 +123,7 @@ jobs:
       - name: Install release-gate test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Verify production is contained in main
         run: |
