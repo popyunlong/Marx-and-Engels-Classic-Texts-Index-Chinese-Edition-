@@ -13,6 +13,5 @@ Filter "/etc/tinyproxy/citation-agent.filter"
 # HTTPS CONNECT requests must be filtered by the parsed destination host.
 # Tinyproxy documents URL filtering as plain-HTTP only.
 FilterURLs Off
-FilterType bre
 FilterCaseSensitive On
 FilterDefaultDeny Yes

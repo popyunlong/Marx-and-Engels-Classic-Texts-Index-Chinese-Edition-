@@ -229,6 +229,9 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     proxy_filter = (ROOT / "deploy" / "citation-agent.filter.example").read_text(
         encoding="utf-8"
     )
+    test_worker = (
+        ROOT / "deploy" / "marx-search-citation-agent-test-worker.service"
+    ).read_text(encoding="utf-8")
 
     assert "citation_agent_test_web.py" in manifest
     assert "deploy/citation-agent.filter.example" in manifest
@@ -237,3 +240,5 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     assert "FilterURLs Off" in proxy
     assert "FilterDefaultDeny Yes" in proxy
     assert proxy_filter.strip() == r"^api\.deepseek\.com$"
+    assert "UMask=0007" in test_worker
+    assert "UMask=0077" not in test_worker

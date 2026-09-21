@@ -15,7 +15,9 @@ Environment=CITATION_ASSISTANT_SOFFICE=/usr/bin/libreoffice
 ExecStart=/opt/marx-search/.venv/bin/python scripts/citation_agent_test_worker.py
 Restart=always
 RestartSec=3
-UMask=0077
+# The redacted SQLite/WAL queue is shared only with the dedicated Agent group.
+# Keep group write permission so either isolated worker may create WAL sidecars.
+UMask=0007
 Nice=15
 CPUQuota=25%
 MemoryHigh=1400M
