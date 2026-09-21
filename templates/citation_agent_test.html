@@ -3,49 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>论文插注校注 Agent｜管理员测试 - {{ app_name }}</title>
+  <title>论文插注校注 Agent - {{ app_name }}</title>
+  <meta name="description" content="以站内原文证据为边界的论文插注与引文校注 Agent。">
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=3">
   <link rel="stylesheet" href="/static/citation-assistant/citation-assistant.css?v=4">
-  <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=3">
+  <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=4">
 </head>
-<body class="v2 ca-page cat-page">
+<body class="v2 ca-page cat-page{% if not citation_access %} cat-preview-page{% endif %}">
   {% include "_appnav.html" %}
 
-  <main class="ca-shell" id="citationAgentTest"
+  <main class="ca-shell cat-shell" id="citationAgentTest"
         data-csrf="{{ csrf_token }}"
         data-job='{{ (job or {})|tojson|forceescape }}'
         data-jobs='{{ jobs|tojson|forceescape }}'
         data-scope='{{ book_scope_tree|tojson|forceescape }}'
+        data-access="{{ '1' if citation_access else '0' }}"
+        data-api-base="/api/citation-agent"
+        data-upgrade-url="{{ upgrade_url }}"
         data-gb2025-approved="{{ '1' if gb2025_approved else '0' }}">
     <section class="ca-hero cat-hero">
-      <div>
-        <p class="ca-eyebrow">管理员隔离测试 · 不影响现有栏目</p>
-        <h1>论文插注校注 Agent 测试版</h1>
-        <p>这一入口使用独立任务库、独立文件目录和独立 worker。模型只参与脱敏检索规划；所有出处、卷页和原文仍由所选站内文库硬核验。</p>
+      <div class="cat-hero-copy">
+        <div class="cat-product-line"><span class="cat-live-dot"></span> Evidence-bound Agent <em>{{ '正式版' if citation_access else '功能预览' }}</em></div>
+        <h1>让论文中的每一条引文<br><span>回到可验证的原文</span></h1>
+        <p>Agent 负责发现遗漏与组织检索，站内文库负责最后裁决。只有经过原文、版本和印刷页三重核验的结果，才会进入可编辑的 Word 与批注 PDF。</p>
+        <div class="cat-hero-tags" aria-label="核心能力">
+          <span>站内原文硬核验</span><span>直接引文补漏</span><span>观点依据发现</span><span>Word + PDF</span>
+        </div>
       </div>
-      <div class="ca-privacy"><b>安全边界</b><br>不联网找文献；未核实、越出范围和无站内证据的项目不会写入 Word 或 PDF。</div>
+      <aside class="cat-trust-card" aria-label="安全与隐私说明">
+        <div class="cat-trust-head"><span>VERIFIED WORKFLOW</span><b>证据先于生成</b></div>
+        <dl>
+          <div><dt>01</dt><dd><b>不联网拼凑出处</b><small>仅在你指定的站内文库中工作</small></dd></div>
+          <div><dt>02</dt><dd><b>Agent 不能自证正确</b><small>模型结论必须通过本地工具复核</small></dd></div>
+          <div><dt>03</dt><dd><b>文件七天自动清理</b><small>原稿始终保持不变，可随时删除任务</small></dd></div>
+        </dl>
+      </aside>
     </section>
 
-    <aside class="cat-isolation" role="note">
-      <div><b>当前正式栏目保持原样</b><span>本页只供管理员新建测试任务，不接管旧任务，也不会对会员显示。</span></div>
-      <a href="{{ url_for('citation_assistant_page') }}">打开现有栏目 →</a>
+    <section class="cat-process" aria-label="处理流程">
+      <div><span>01</span><b>上传论文</b><small>读取章节与现有注释</small></div>
+      <i></i><div><span>02</span><b>限定文库</b><small>范围冻结，Agent 不得越界</small></div>
+      <i></i><div><span>03</span><b>证据核验</b><small>逐字、版本与页码复核</small></div>
+      <i></i><div><span>04</span><b>审阅导出</b><small>Word 与精确定位 PDF</small></div>
+    </section>
+
+    {% if citation_access %}
+    <aside class="cat-access-card cat-access-member" role="status">
+      <div><span class="cat-access-icon">✓</span><p><b>正式 Agent 已解锁</b><small>你的任务使用独立文件空间与证据核验队列。</small></p></div>
+      <a href="{{ url_for('citation_assistant_page') }}">查看旧版历史任务</a>
     </aside>
+    {% else %}
+    <aside class="cat-access-card cat-access-preview" role="note">
+      <div><span class="cat-access-icon">◇</span><p><b>当前为交互预览</b><small>游客和普通账号可查看完整流程；上传、审核与导出仅对有效会员开放。</small></p></div>
+      <a href="{{ upgrade_url }}">{{ access_cta_label }} <span>→</span></a>
+    </aside>
+    {% endif %}
 
     <div id="catNotice" class="ca-notice" hidden></div>
 
     {% if not job %}
-    <section class="ca-card ca-upload-card">
-      <div class="ca-card-head">
-        <div><span class="ca-step">T</span><h2>新建隔离测试任务</h2></div>
-        <p>上限 {{ max_mb }}MB；测试文件同样在 7 天后清理。</p>
+    <section class="ca-card ca-upload-card cat-main-card{% if not citation_access %} cat-card-preview{% endif %}">
+      <div class="ca-card-head cat-card-head">
+        <div><span class="ca-step">01</span><div><p class="cat-kicker">START A REVIEW</p><h2>创建校注任务</h2></div></div>
+        <p>支持 .docx · 单文件上限 {{ max_mb }}MB · 七天后自动清理</p>
       </div>
-      <form id="catUploadForm" class="ca-form">
-        <label class="ca-file" id="catFileDrop">
+      <form id="catUploadForm" class="ca-form"{% if not citation_access %} inert aria-disabled="true"{% endif %}>
+        <label class="ca-file cat-file" id="catFileDrop">
           <input type="file" name="file" id="catFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
           <span class="ca-file-icon">W</span>
-          <span><b id="catFileName">选择匿名测试 .docx</b><small>优先使用已脱敏黄金样本；也可拖入此处</small></span>
+          <span><b id="catFileName">选择论文 .docx</b><small>点击选择文件，或将文档拖入此处</small></span>
+          <em>{{ '安全上传' if citation_access else '预览状态' }}</em>
         </label>
         <div class="ca-grid cat-grid">
           <label><span>处理方式</span><select name="mode" id="catModeSelect"><option value="both">插注＋校注（推荐）</option><option value="generate">插注</option><option value="audit">校注</option></select></label>
@@ -53,25 +82,47 @@
           <label><span>识别深度</span><select name="recognition_depth"><option value="direct_only" selected>仅直接引文（默认）</option><option value="direct_and_paraphrase">直接引文＋观点依据发现（实验）</option></select><small>观点依据只表示站内文献可能支持论文观点，不证明论文语句出自该文献，且永不自动采用。</small></label>
           <label><span>引文格式</span><select name="citation_style"><option value="mkszyj" selected>《马克思主义研究》</option>{% if gb2025_approved %}<option value="auto">自动识别</option><option value="gb2025">GB/T 7714—2025</option>{% endif %}<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option></select></label>
         </div>
-        <div class="ca-rule-note"><b>自动采用闸门</b><span>只有唯一、归一化逐字一致且印刷页可靠的命中才可能自动采用；Agent 自报的出处与置信度一律无效。</span></div>
-        <div class="ca-scope-block">
-          <span>必选步骤：指定著作</span>
+        <div class="ca-rule-note cat-rule-note"><b>自动采用闸门</b><span>只有唯一、归一化逐字一致且印刷页可靠的命中才可能自动采用；Agent 自报的出处与置信度不能越过证据闸门。</span></div>
+        <div class="ca-scope-block cat-scope-block">
+          <div class="cat-scope-title"><span>指定核验文库</span><em>必选</em></div>
           <div id="catBookScope"></div>
-          <small>必须勾选至少一部著作、卷册或个人文库资料；系统不再把空选择解释为全库。Agent 无权扩大范围。</small>
+          <small>至少选择一部著作、卷册或个人文库资料。系统不会把空选择解释成扫描全库，Agent 也无权扩大范围。</small>
         </div>
-        <button class="ca-primary" type="submit">上传到管理员测试区</button>
+        {% if citation_access %}
+        <button class="ca-primary cat-primary" type="submit"><span>开始读取论文</span><small>下一步确认章节与范围</small></button>
+        {% else %}
+        <div class="cat-preview-gate"><span>正式版将从这里安全上传并读取论文</span><a href="{{ upgrade_url }}">{{ access_cta_label }} →</a></div>
+        {% endif %}
       </form>
     </section>
 
-    <section class="ca-card">
-      <div class="ca-card-head"><div><h2>管理员测试任务</h2></div><p>这里不显示正式栏目的任务。</p></div>
+    {% if citation_access %}
+    <section class="ca-card cat-history-card">
+      <div class="ca-card-head"><div><span class="ca-step cat-step-muted">02</span><h2>最近任务</h2></div><p>过期或删除后无法恢复。</p></div>
       <div id="catJobList" class="ca-job-list"></div>
     </section>
     {% else %}
-    <section class="ca-card ca-workspace">
+    <section class="ca-card cat-preview-result" aria-label="结果界面预览">
+      <div class="cat-preview-result-head"><div><p class="cat-kicker">RESULT PREVIEW</p><h2>审核结果会这样呈现</h2></div><span>示例数据</span></div>
+      <div class="cat-preview-metrics">
+        <div><strong>28</strong><span>精确证据已采用</span></div>
+        <div><strong>10</strong><span>需要人工判断</span></div>
+        <div><strong>0</strong><span>站外无证据审核卡</span></div>
+      </div>
+      <article class="cat-preview-candidate">
+        <header><span>直接引文</span><em>逐字一致</em><b>唯一出处</b></header>
+        <blockquote>“理论一经掌握群众，也会变成物质力量。”</blockquote>
+        <div><small>站内证据</small><p>《马克思恩格斯文集》第1卷，人民出版社2009年版，第11页</p></div>
+        <footer><span>原文与印刷页已核验</span><button type="button" disabled>采信此条</button></footer>
+      </article>
+      <p class="cat-preview-footnote">站外引文、超出所选文库或缺少站内证据的项目会直接进入统计，不再堆进人工审核列表。</p>
+    </section>
+    {% endif %}
+    {% else %}
+    <section class="ca-card ca-workspace cat-workspace">
       <div class="ca-card-head">
-        <div><a class="ca-back" href="{{ url_for('citation_agent_test_page') }}">← 返回测试任务</a><h2>{{ job.original_filename }}</h2></div>
-        <button type="button" class="ca-danger-link" id="catDeleteJob">删除测试任务和文件</button>
+        <div><a class="ca-back" href="{{ url_for('citation_agent_page') }}">← 返回任务列表</a><h2>{{ job.original_filename }}</h2></div>
+        <button type="button" class="ca-danger-link" id="catDeleteJob">删除任务和文件</button>
       </div>
       <div id="catStatusPanel"></div>
       <div id="catTimeline" class="cat-timeline"></div>
@@ -86,7 +137,7 @@
           <div><strong id="catNoEvidence">0</strong><span>无站内证据</span></div>
         </div>
         <div id="catAgentWarning"></div>
-        <div class="ca-exportbar ca-exportbar-top"><div><b>只导出经过证据闸门的可操作候选</b><p>插注模式只生成浅蓝色 Word；校注和组合模式从最终 Word 生成批注 PDF，任何批注定位不唯一都会拒绝发布 PDF。</p></div><button class="ca-primary" type="button" id="catExport">生成测试输出</button></div>
+        <div class="ca-exportbar ca-exportbar-top"><div><b>只导出经过证据闸门的可操作候选</b><p>插注模式只生成浅蓝色 Word；校注和组合模式从最终 Word 生成批注 PDF，任何批注定位不唯一都会拒绝发布 PDF。</p></div><button class="ca-primary" type="button" id="catExport">生成输出</button></div>
         <div class="ca-review-tabs" role="tablist" aria-label="候选状态">
           <button type="button" class="active" data-cat-decision="pending">待审核 <span id="catPendingTab">0</span></button>
           <button type="button" data-cat-decision="accepted">已采信 <span id="catAcceptedTab">0</span></button>
@@ -107,6 +158,6 @@
   </main>
 
   <script src="/static/book-scope/book-scope.js?v=5"></script>
-  <script src="/static/citation-agent-test/citation-agent-test.js?v=8"></script>
+  <script src="/static/citation-agent-test/citation-agent-test.js?v=9"></script>
 </body>
 </html>

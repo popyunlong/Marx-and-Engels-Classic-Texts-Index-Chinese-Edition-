@@ -230,6 +230,10 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
         encoding="utf-8"
     )
     appnav = (ROOT / "templates" / "_appnav.html").read_text(encoding="utf-8")
+    agent_web = (ROOT / "citation_agent_test_web.py").read_text(encoding="utf-8")
+    agent_template = (ROOT / "templates" / "citation_agent_test.html").read_text(
+        encoding="utf-8"
+    )
     test_worker = (
         ROOT / "deploy" / "marx-search-citation-agent-test-worker.service"
     ).read_text(encoding="utf-8")
@@ -243,5 +247,12 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     assert proxy_filter.strip() == r"^api\.deepseek\.com$"
     assert "UMask=0007" in test_worker
     assert "UMask=0077" not in test_worker
-    assert "url_for('citation_agent_test_page') if is_admin" in appnav
+    assert "url_for('citation_agent_page')" in appnav
     assert appnav.count('href="{{ _citation_href }}"') == 2
+    assert '@app.get("/citation-agent")' in agent_web
+    assert '@app.post("/api/citation-agent/jobs")' in agent_web
+    assert 'web["_citation_assistant_enabled_for_user"](user)' in agent_web
+    assert "论文插注校注 Agent 正式版仅对有效会员开放" in agent_web
+    assert 'data-access="{{ \'1\' if citation_access else \'0\' }}"' in agent_template
+    assert "游客和普通账号可查看完整流程" in agent_template
+    assert "查看旧版历史任务" in agent_template

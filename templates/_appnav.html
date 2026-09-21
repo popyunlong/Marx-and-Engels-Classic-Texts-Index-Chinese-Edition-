@@ -6,7 +6,7 @@
    local_console_available / account_center_label / sponsor_enabled / csrf_token。
    ============================================================================= #}
 {% set _p = layout_page | default('search') %}
-{% set _citation_href = url_for('citation_agent_test_page') if is_admin else url_for('citation_assistant_page') %}
+{% set _citation_href = url_for('citation_agent_page') %}
 <header class="v2nav">
   <a class="v2brand" href="{{ url_for('layout_search') }}">
     <span class="v2brand-mark">马</span>
