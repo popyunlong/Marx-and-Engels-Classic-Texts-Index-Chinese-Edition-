@@ -360,6 +360,18 @@ def list_storing_book_recommendations() -> list[dict]:
     return [_row_to_dict(row) or {} for row in rows]
 
 
+def mark_book_recommendation_stored(recommendation_id: int) -> bool:
+    """Only one ingest worker may complete a recommendation and notify its admin."""
+    with _connect() as conn:
+        result = conn.execute(
+            "UPDATE user_book_recommendations SET status = 'pending', fail_reason = '', "
+            "stored_at = ? WHERE id = ? AND status = 'storing'",
+            (utc_now_text(), int(recommendation_id)),
+        )
+        conn.commit()
+        return result.rowcount == 1
+
+
 def set_book_recommendation_status(
     recommendation_id: int, status: str, *, fail_reason: str = "",
 ) -> None:
@@ -375,6 +387,28 @@ def set_book_recommendation_status(
                 normalized, str(fail_reason or "").strip()[:500], stored_at, stored_at,
                 int(recommendation_id),
             ),
+        )
+        conn.commit()
+
+
+def archive_book_recommendations(recommendation_ids: list[int] | tuple[int, ...]) -> None:
+    """Atomically mark one fully published recommendation batch as processed."""
+    ids = tuple(dict.fromkeys(int(value) for value in recommendation_ids if int(value) > 0))
+    if not ids:
+        raise ValueError("荐书批次不能为空。")
+    placeholders = ",".join("?" for _ in ids)
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            f"SELECT id,status FROM user_book_recommendations WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        if len(rows) != len(ids) or any(str(row["status"]) != "pending" for row in rows):
+            raise ValueError("荐书记录已变化，不能归档发布批次。")
+        conn.execute(
+            f"UPDATE user_book_recommendations SET status='archived',fail_reason='' "
+            f"WHERE id IN ({placeholders})",
+            ids,
         )
         conn.commit()
 

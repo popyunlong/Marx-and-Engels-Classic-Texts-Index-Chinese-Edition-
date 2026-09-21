@@ -222,6 +222,10 @@ def _append_xuanbian_series_specs() -> None:
         "陈独秀文集": ("chenduxiu", "refresh_printed"),
         "李大钊全集": ("lidazhao_qj", "refresh_printed"),
         "斯大林全集": ("stalin_qj", "refresh_printed"),
+        "刘少奇年谱": ("liu_np", "refresh_printed"),
+        "刘少奇选集": ("liu_xuan", "refresh_printed"),
+        "中共中央文件选集（1921—1949）": ("party_files_1921", "refresh_printed"),
+        "中共中央文件选集（1949—1966）": ("party_files_1949", "refresh_printed"),
     }
     for book, (prefix, toc_mode) in series.items():
         for item in data.get(book, []):
@@ -239,6 +243,11 @@ def _append_xuanbian_series_specs() -> None:
                 "source_file": item["file"],
                 "sidecar": side,
                 "toc": toc_mode,
+                "expected_pages": item.get("page_count"),
+                "header_page_numbers": book in {
+                    "刘少奇年谱", "刘少奇选集", "中共中央文件选集（1921—1949）",
+                    "中共中央文件选集（1949—1966）",
+                },
                 # 《斯大林全集》1953—1956 繁体排印本的页码印成汉字（「九三」=93），
                 # 只有它需要汉字页码判据；其余书库一律阿拉伯数字，开关关闭以免误判。
                 "cn_page_numbers": book == "斯大林全集",
@@ -747,23 +756,25 @@ def merge_printed_toc(toc: list[dict], texts: dict[int, str], rows: list[tuple],
     return merged, added
 
 
-def update_hash() -> None:
+def update_hash(db_path: Path = BUILD_DB_PATH) -> None:
     digest = hashlib.sha256()
-    with BUILD_DB_PATH.open("rb") as fh:
+    with db_path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1024 * 1024), b""):
             digest.update(chunk)
-    HASH_PATH.write_text(digest.hexdigest() + "\n", encoding="utf-8")
+    db_path.with_suffix(db_path.suffix + ".sha256").write_text(digest.hexdigest() + "\n", encoding="utf-8")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="注入扫描卷 OCR 正文与页码/目录。")
     ap.add_argument("--only", nargs="*", help="只处理指定卷 id（默认全部五卷）")
+    ap.add_argument("--db", type=Path, default=BUILD_DB_PATH,
+                    help="候选数据库路径；默认 data/corpus.sqlite")
     args = ap.parse_args()
     specs = [s for s in VOLUMES if not args.only or s["id"] in args.only]
     if not specs:
         raise SystemExit("没有匹配的卷。可选：" + ", ".join(s["id"] for s in VOLUMES))
 
-    conn = sqlite3.connect(str(BUILD_DB_PATH))
+    conn = sqlite3.connect(str(args.db))
     try:
         for spec in specs:
             texts = load_sidecar(ROOT / spec["sidecar"])
@@ -774,17 +785,18 @@ def main() -> None:
             # 可能合法地变化——《李大钊年谱》原是上下册合订的单一 PDF，因印刷页码重号
             # 拆成两个文件后卷一从 1829 页变 957 页，若拿库里的旧值当权威就会永远拦着不让重建。
             # PDF 一定在（source_file 就是阅读器用的那个文件），读页数很廉价。
-            expected = None
-            try:
-                import fitz  # noqa: PLC0415
-                with fitz.open(ROOT / spec["source_file"]) as _doc:
-                    expected = _doc.page_count
-            except Exception as exc:  # noqa: BLE001
-                print(f"[{spec['id']}] 提示：无法读取 PDF 页数（{exc}），改用库中既有页数校验")
-                expected = conn.execute(
-                    "SELECT MAX(pdf_page) FROM pages WHERE book=? AND volume=?",
-                    (spec["book"], spec["volume"]),
-                ).fetchone()[0]
+            expected = spec.get("expected_pages")
+            if not expected:
+                try:
+                    import fitz  # noqa: PLC0415
+                    with fitz.open(ROOT / spec["source_file"]) as _doc:
+                        expected = _doc.page_count
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[{spec['id']}] 提示：无法读取 PDF 页数（{exc}），改用库中既有页数校验")
+                    expected = conn.execute(
+                        "SELECT MAX(pdf_page) FROM pages WHERE book=? AND volume=?",
+                        (spec["book"], spec["volume"]),
+                    ).fetchone()[0]
             if expected and (not texts or max(texts) < expected or len(texts) < expected):
                 missing = sorted(set(range(1, (expected or 0) + 1)) - set(texts))
                 raise SystemExit(
@@ -841,7 +853,7 @@ def main() -> None:
         conn.commit()
     finally:
         conn.close()
-    update_hash()
+    update_hash(args.db)
     print("完成。")
 
 

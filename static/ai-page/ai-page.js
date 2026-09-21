@@ -3,7 +3,7 @@
  * 浏览器 IndexedDB 保存本机副本；会员明确勾选后同步到独立的个人文库服务器。
  * 每条提问可选两档深度：
  *   · 快速问答 → /api/ai/search-chat（多轮、可选检索引文库接地）；扣「随心问」token 额度。
- *   · 研究综述 → /api/search/associative?mode=research（一次性深度长文 + 20–24 条真实引用）；
+ *   · 研究综述 → /api/search/associative?mode=research（一次性 5000 字以上长文 + 最多 30 条按需引文）；
  *     扣「研究型检索」每周次数额度。综述作为一条 assistant 气泡内联进会话，后续追问带它做上下文。
  * 对话/Markdown/引文渲染逻辑与抽屉一致（此处为自包含拷贝，避免改动全站抽屉带来回归）。
  */
@@ -491,11 +491,13 @@
     var links = [];
     for (var i = 0; i < evidence.length; i++) {
       var ev = evidence[i] || {};
-      if (!ev.viewer_url) continue;
       var kindLabel = ev.kind === "paraphrase" ? "转述出处" : "逐字引文";
       var pageLabel = ev.printed_page ? ("第 " + ev.printed_page + " 页") : (ev.pdf_page ? ("第 " + ev.pdf_page + " 页（PDF）") : "");
-      links.push('<a class="ai-citation-open" href="' + escAttr(ev.viewer_url) + '" target="_blank" rel="noopener">' +
-        esc(kindLabel + (pageLabel ? "·" + pageLabel : "")) + " →</a>");
+      var citationText = pickCite(ev) || (kindLabel + (pageLabel ? " · " + pageLabel : " · 页码待核验"));
+      links.push('<div class="aip-cite-evidence"><div' + (citeDataAttr(ev) ? ' data-citations="' + citeDataAttr(ev) + '"' : '') + '>' + esc(citationText) + '</div>' +
+        (ev.context ? '<div class="ai-citation-ctx">' + ctxHtml(ev.context) + '</div>' : '') +
+        (ev.viewer_url ? '<a class="ai-citation-open" href="' + escAttr(ev.viewer_url) + '" target="_blank" rel="noopener">' +
+        esc(kindLabel + (pageLabel ? " · " + pageLabel : "")) + ' →</a>' : '') + '</div>');
     }
     return links.join("");
   }
@@ -503,6 +505,7 @@
     var citations = message.citations;
     if (!Array.isArray(citations) || !citations.length) return "";
     var isResearch = message.kind === "research";
+    var pendingPages = citations.filter(function (c) { return c.location_status === "unresolved" || c.location_status === "partial"; }).length;
     var scope = message.groundingScope;
     var scopeNote = (scope && scope.applied && scope.label)
       ? '<span class="ai-citations-scope">· 检索范围：' + esc(scope.label) + (scope.manual ? "（手动指定）" : "（智能判断）") + "</span>"
@@ -510,6 +513,7 @@
     var title = isResearch
       ? '引用原文 · 综述所据（' + citations.length + "）" + scopeNote
       : '引用原文 · 来自引文库（' + citations.length + "）" + scopeNote;
+    if (pendingPages) title += " · " + pendingPages + " 条页码待核验";
     // 引用条目默认折叠：标题做成开合按钮，点击展开全部条目（快速问答与研究综述通用）。
     // 每次 renderMessages 重绘会恢复默认折叠态（历史里不存开合状态，保持默认收起）。
     var cardsHtml = citations.map(function (c, i) {
@@ -517,7 +521,13 @@
       var cite = esc(pickCite(c));
       var dataAttr = citeDataAttr(c);   // 供「引用格式」切换时就地重写此条出处串
       var ctx = ctxHtml(c.context);
-      var evLinks = isResearch ? renderEvidenceLinks(c.evidence) : "";
+      var evLinks = renderEvidenceLinks(c.evidence);
+      if (evLinks) ctx = "";
+      var workTitle = c.work_title ? ("篇目：《" + esc(c.work_title) + "》") : "篇目：未核验";
+      var workAuthors = Array.isArray(c.work_authors) && c.work_authors.length
+        ? ("责任者：" + esc(c.work_authors.join("、"))) : "责任者：未核验";
+      var provenance = '<div class="aip-cite-provenance">' + workTitle + " · " + workAuthors +
+        (c.provenance_verified ? ' <span class="aip-cite-verified">已核验</span>' : "") + "</div>";
       // 研究综述引文条对齐检索页 .rv-cite：金色 [N] 序号 + 「综述已引用」「名目索引」徽标。
       var badges = "";
       if (isResearch) {
@@ -530,7 +540,7 @@
         ? '<a class="ai-citation-open" href="' + escAttr(c.viewer_url) + '" target="_blank" rel="noopener">打开原文页 →</a>' : "";
       var actions = '<div class="aip-cite-actions">' +
         '<button type="button" class="aip-cite-copy" data-copy-cite>复制引文</button>' + openLink + "</div>";
-      return '<div class="ai-citation-item"><div class="ai-citation-cite">' + citeSpan + "</div>" +
+      return '<div class="ai-citation-item"><div class="ai-citation-cite">' + citeSpan + "</div>" + provenance +
         (ctx ? '<div class="ai-citation-ctx">' + ctx + "</div>" : "") + evLinks + actions + "</div>";
     }).join("");
     return '<div class="ai-citations aip-cites-collapsed">' +
@@ -553,9 +563,139 @@
     return '<div class="chat-empty">在下方输入你的问题，开始一段可连续追问的研究对话。' +
       '<span class="aip-eg">例如：「谈谈马克思对异化劳动的分析」，或切换「研究综述」深挖一个专题。</span></div>';
   }
+  function quoteDisplayMap(text) {
+    var normalized = "", starts = [], ends = [], offset = 0;
+    Array.from(String(text || "")).forEach(function (ch) {
+      var folded = ch.normalize("NFKC").replace(/[“”「」]/g, '"').replace(/[‘’『』]/g, "'");
+      Array.from(folded).forEach(function (c) {
+        if (!/\s/.test(c)) { normalized += c; for (var j = 0; j < c.length; j++) { starts.push(offset); ends.push(offset + ch.length); } }
+      });
+      offset += ch.length;
+    });
+    return { text: normalized, starts: starts, ends: ends };
+  }
+  function verifiedQuoteRanges(text, message, quoteBlock) {
+    var refs = new Set(), ranges = [], map = quoteDisplayMap(text);
+    String(text).replace(/\[(\d+(?:\s*[,，、]\s*\d+)*)\]/g, function (_, group) {
+      group.match(/\d+/g).forEach(function (id) { refs.add(Number(id)); }); return _;
+    });
+    (message.citations || []).forEach(function (citation) {
+      var index = citation.grounding_index || citation.review_index;
+      if (!refs.has(Number(index))) return;
+      (citation.evidence || []).forEach(function (ev) {
+        if (ev.kind !== "quote" || !ev.quote || !(ev.text_verified === true || ev.location_status === "verified")) return;
+        var needle = quoteDisplayMap(ev.quote).text;
+        if (needle.length < 4) return;
+        var at = map.text.indexOf(needle);
+        while (at >= 0) {
+          var left = map.starts[at], right = map.ends[at + needle.length - 1];
+          if (needle.length >= 20 || quoteBlock || (/[“「『"']/.test(text.slice(left-1,left)) && /[”」』"']/.test(text.slice(right,right+1)))) {
+            if (/[“「『"']/.test(text.slice(left-1,left)) && /[”」』"']/.test(text.slice(right,right+1))) { left--; right++; }
+            ranges.push([left, right]);
+          }
+          at = map.text.indexOf(needle, at + needle.length);
+        }
+      });
+    });
+    ranges.sort(function (a, b) { return a[0] - b[0] || b[1] - a[1]; });
+    var merged = [];
+    ranges.forEach(function (r) {
+      var last = merged[merged.length - 1];
+      if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else merged.push(r.slice());
+    });
+    return merged;
+  }
+  function quoteDisplayContent(message) {
+    // History is immutable: repair display/export boundaries only from saved
+    // verified evidence. Never infer an absent card or a new source number.
+    var fenced = false;
+    return String(message.content || "").split("\n").map(function (line) {
+      if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return line; }
+      if (fenced || /^\s*(?:>|#)/.test(line)) return line;
+      var protectedRanges = [], stack = [], openAt = 0, pairs = {"“":"”", "「":"」", "『":"』", '"':'"'};
+      for (var i = 0; i < line.length; i++) {
+        var ch = line[i];
+        if (stack.length && ch === stack[stack.length-1]) {
+          stack.pop(); if (!stack.length) protectedRanges.push([openAt,i+1]);
+        } else if (pairs[ch]) { if (!stack.length) openAt=i; stack.push(pairs[ch]); }
+      }
+      var literalRanges = [];
+      line.replace(/`[^`]*`|!?\[[^\]]*\]\([^)]*\)/g,function (m,offset) { literalRanges.push([offset,offset+m.length]); return m; });
+      var ranges = verifiedQuoteRanges(line, message, false).filter(function (r) {
+        if (literalRanges.some(function (p) { return r[0] < p[1] && r[1] > p[0]; })) return false;
+        return !protectedRanges.some(function (p) {
+          return r[0] < p[1] && r[1] > p[0] && !(r[0] < p[0] && r[1] > p[1]);
+        });
+      });
+      for (var j=ranges.length-1;j>=0;j--) { var r=ranges[j]; line=line.slice(0,r[0])+"“"+line.slice(r[0],r[1])+"”"+line.slice(r[1]); }
+      return line;
+    }).join("\n");
+  }
+  function renderAnswerMarkdown(message, exporting) {
+    message = Object.assign({}, message, { content: quoteDisplayContent(message) });
+    var html = exporting ? renderExportMarkdown(message.content || "") : renderBasicMarkdown(stripInlineCitations(message.content));
+    try {
+      var root = document.createElement("div"); root.innerHTML = html;
+      root.querySelectorAll("p,li,blockquote,td").forEach(function (block) {
+        if (block.querySelector("p,li,blockquote,td")) return;
+        var ranges = verifiedQuoteRanges(block.textContent, message, block.tagName === "BLOCKQUOTE");
+        if (!ranges.length) return;
+        var walker = document.createTreeWalker(block, 4), nodes = [], pos = 0, node;
+        while ((node = walker.nextNode())) {
+          nodes.push({node:node, start:pos, end:pos + node.textContent.length}); pos += node.textContent.length;
+        }
+        nodes.forEach(function (item) {
+          if (item.node.parentElement.closest("code,pre,a,.aip-direct-quote")) return;
+          var spans = ranges.map(function (r) { return [Math.max(r[0], item.start)-item.start, Math.min(r[1], item.end)-item.start]; }).filter(function (r) { return r[0] < r[1]; });
+          if (!spans.length) return;
+          var fragment = document.createDocumentFragment(), text = item.node.textContent, cursor = 0;
+          spans.forEach(function (r) {
+            fragment.appendChild(document.createTextNode(text.slice(cursor, r[0])));
+            var span = document.createElement("span"); span.className = "aip-direct-quote";
+            span.textContent = text.slice(r[0], r[1]); fragment.appendChild(span); cursor = r[1];
+          });
+          fragment.appendChild(document.createTextNode(text.slice(cursor))); item.node.replaceWith(fragment);
+        });
+      });
+      return root.innerHTML;
+    } catch (_) { return html; }
+  }
+  function numberMessageCitations(message) {
+    if (!message || message.role !== "assistant" || !Array.isArray(message.citations) || !message.citations.length) return message;
+    var cards = {}, ids = [], order = [], map = {};
+    message.citations.forEach(function (card, i) {
+      var id = Number(card.grounding_index || card.review_index || i + 1);
+      if (!cards[id]) ids.push(id);
+      cards[id] = card;
+    });
+    // Keep Markdown links, fenced/inline code and reference definitions literal.
+    var tokens = /(^```[^\n]*\n[\s\S]*?^```[^\n]*$|^~~~[^\n]*\n[\s\S]*?^~~~[^\n]*$|`[^`\n]*`|!?\[[^\]\n]*\]\([^\n)]*\)|^\[\d+\]:[^\n]*)|(\[\d+(?:\s*[,，、]\s*\d+)*\])/gm;
+    var content = quoteDisplayContent(message);
+    content.replace(tokens, function (token, literal, ref) {
+      if (ref) ref.match(/\d+/g).forEach(function (value) {
+        var id = Number(value);
+        if (cards[id] && order.indexOf(id) < 0) order.push(id);
+      });
+      return token;
+    });
+    ids.forEach(function (id) { if (order.indexOf(id) < 0) order.push(id); });
+    order.forEach(function (id, i) { map[id] = i + 1; });
+    return Object.assign({}, message, {
+      content: content.replace(tokens, function (token, literal, ref) {
+        return ref ? ref.replace(/\d+/g, function (id) { return map[Number(id)] || id; }) : token;
+      }),
+      citations: order.map(function (id) {
+        var card = Object.assign({}, cards[id]);
+        if (card.grounding_index !== undefined || card.review_index === undefined) card.grounding_index = map[id];
+        if (card.review_index !== undefined) card.review_index = map[id];
+        return card;
+      })
+    });
+  }
   function renderMessages() {
     if (!messages.length) { messagesEl.innerHTML = emptyStateHtml(); return; }
     messagesEl.innerHTML = messages.map(function (message, messageIndex) {
+      message = numberMessageCitations(message);
       if (message.role === "user") return '<div class="msg user">' + esc(message.content) + "</div>";
       var isResearch = message.kind === "research";
       if (message.pending) {
@@ -573,7 +713,7 @@
         '</span></span>';
       return '<div class="msg assistant' + (isResearch ? " research" : "") + '">' +
         '<div class="msg-head"><span class="msg-title">' + kindPill + "AI 回答</span>" + exportTools + "</div>" +
-        '<div class="msg-body' + (isResearch ? " aip-essay" : "") + '">' + renderBasicMarkdown(stripInlineCitations(message.content)) + "</div>" +
+        '<div class="msg-body' + (isResearch ? " aip-essay" : "") + '">' + renderAnswerMarkdown(message, false) + "</div>" +
         renderWarnings(message.warnings) + renderCitations(message) + renderSources(message.sources) + "</div>";
     }).join("");
   }
@@ -684,6 +824,7 @@
   }
 
   function exportCitationHtml(message) {
+    message = numberMessageCitations(message);
     var citations = Array.isArray(message.citations) ? message.citations : [];
     if (!citations.length) return "";
     return '<section class="citations"><h3>引用原文与出处</h3><ol>' + citations.map(function (citation, index) {
@@ -691,6 +832,11 @@
       var context = String(citation.context || "").replace(/\[\[\/?H\]\]/g, "").trim();
       var url = exportUrl(citation.viewer_url || "");
       return '<li value="' + Number(number || index + 1) + '"><p class="cite">' + esc(pickCite(citation) || "出处未提供") + '</p>' +
+        (Array.isArray(citation.evidence) ? citation.evidence.map(function (ev) {
+          var link = exportUrl(ev.viewer_url || "");
+          return '<p>' + esc(pickCite(ev) || "页码待核验") + '</p><blockquote>' + ctxHtml(ev.context || "") + '</blockquote>' +
+            (link ? '<a href="' + escAttr(link) + '">打开对应原文页</a>' : '');
+        }).join("") : '') +
         (context ? '<blockquote>' + esc(context) + '</blockquote>' : '') +
         (url ? '<a href="' + escAttr(url) + '" target="_blank" rel="noopener noreferrer">打开原文页</a>' : '') + '</li>';
     }).join("") + "</ol></section>";
@@ -705,13 +851,14 @@
     }).join("") + "</ol></section>";
   }
   function exportMessageHtml(message, answerNo) {
+    message = numberMessageCitations(message);
     if (!message || message.pending) return "";
     if (message.role === "user") return '<section class="turn user"><div class="turn-label">用户</div><div class="user-text">' + esc(message.content || "") + "</div></section>";
     var kind = message.kind === "research" ? "研究综述" : "快速问答";
     var warnings = Array.isArray(message.warnings) && message.warnings.length
       ? '<ul class="warnings">' + message.warnings.map(function (item) { return "<li>" + esc(item) + "</li>"; }).join("") + "</ul>" : "";
-    return '<section class="turn assistant"><div class="turn-label">' + esc(kind) + ' · AI 回复 ' + answerNo + '</div>' +
-      '<div class="answer">' + renderExportMarkdown(message.content || "") + '</div>' + warnings +
+    return '<section class="turn assistant' + (message.kind === "research" ? " research" : "") + '"><div class="turn-label">' + esc(kind) + ' · AI 回复 ' + answerNo + '</div>' +
+      '<div class="answer">' + renderAnswerMarkdown(message, true) + '</div>' + warnings +
       exportCitationHtml(message) + exportSourcesHtml(message.sources) + "</section>";
   }
   function buildSessionHtml(session) {
@@ -721,6 +868,7 @@
       return exportMessageHtml(message, answerNo);
     }).join("");
     var css = "*{box-sizing:border-box}body{margin:0;background:#f4efe7;color:#29211b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;line-height:1.8}.page{max-width:920px;margin:32px auto;padding:0 20px 64px}.doc-head{background:#fffdf8;border:1px solid #e5d8ca;border-radius:18px;padding:28px 32px;margin-bottom:18px;box-shadow:0 10px 30px rgba(70,45,25,.06)}h1{margin:0 0 8px;font-family:'Songti SC','SimSun',serif;font-size:28px;line-height:1.4}.meta{color:#806f61;font-size:13px}.turn{border-radius:18px;margin:14px 0;padding:22px 26px;border:1px solid #e6d9cc}.turn.user{margin-left:14%;background:#eee3d7}.turn.assistant{background:#fffdf9}.turn-label{color:#8f1d1d;font-size:13px;font-weight:700;margin-bottom:10px}.user-text{white-space:pre-wrap}.answer{font-family:'Songti SC','SimSun',serif;font-size:16px}.answer h3{font-size:19px;border-left:4px solid #8f1d1d;padding-left:10px;margin:25px 0 12px}.answer h4,.answer h5{font-size:17px;margin:22px 0 10px}.answer p,.answer ul,.answer ol,.answer blockquote{margin:10px 0}.answer blockquote,.citations blockquote{margin:8px 0;padding:9px 12px;border-left:3px solid #c9a227;background:#faf4e7}.answer table{width:100%;border-collapse:collapse}.answer th,.answer td{border:1px solid #d9c9ba;padding:7px 9px}.answer pre{overflow:auto;background:#2f2925;color:#fff;padding:14px;border-radius:10px}.citations,.sources{margin-top:20px;padding-top:14px;border-top:1px solid #eadfd4}.citations h3,.sources h3{font-size:16px;margin:0 0 8px}.citations li,.sources li{margin:9px 0}.cite{font-weight:700;margin:0}.citations a,.sources a,.answer a{color:#8f1d1d}.sources small{display:block;color:#806f61}.warnings{color:#805f00}.empty{padding:24px;color:#806f61;background:#fffdf9;border-radius:16px}@media(max-width:640px){.page{margin:0;padding:12px}.doc-head,.turn{padding:18px}.turn.user{margin-left:5%}}@media print{body{background:#fff}.page{max-width:none;margin:0;padding:0}.doc-head,.turn{box-shadow:none;break-inside:avoid}.turn.user{margin-left:8%}}";
+    css += '.aip-direct-quote{font-family:KaiTi,STKaiti,"楷体","Kaiti SC",serif;font-style:normal}.assistant.research .answer blockquote{padding:0;border:0;background:transparent}';
     return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) +
       '</title><style>' + css + '</style></head><body><main class="page"><header class="doc-head"><h1>' + esc(title) + '</h1><div class="meta">最后更新：' +
       esc(localDateTime(session.updatedAt)) + '　·　本文件由 AI 研究对话在本地生成</div></header>' + (turns || '<div class="empty">此会话暂无可导出的内容。</div>') + "</main></body></html>";
@@ -904,25 +1052,46 @@
   }
   function wordInlineXml(text, state, runOptions) {
     runOptions = runOptions || {};
-    function run(value, extras) { return wordRunXml(value, Object.assign({}, runOptions, extras || {})); }
+    var formatted = wordNormalizeChinesePunctuation(String(text || "")), plain = "", positions = [];
+    for (var i=0;i<formatted.length;i++) {
+      if (formatted[i] === "*" || formatted[i] === "_") continue;
+      plain += formatted[i]; positions.push(i);
+    }
+    var quoteRanges = verifiedQuoteRanges(plain, state.message || {}, runOptions.quoteBlock).map(function (r) {
+      return [positions[r[0]],positions[r[1]-1]+1];
+    });
+    function run(value, extras, offset) {
+      var opts = Object.assign({}, runOptions, extras || {});
+      if (offset === undefined || opts.code) return wordRunXml(value, opts);
+      var parts = [], cursor = 0;
+      quoteRanges.forEach(function (r) {
+        var a = Math.max(0, r[0]-offset), b = Math.min(value.length, r[1]-offset);
+        if (a >= b) return;
+        if (a > cursor) parts.push(wordRunXml(value.slice(cursor,a),opts));
+        parts.push(wordRunXml(value.slice(a,b),Object.assign({},opts,{eastAsiaFont:"楷体"})));
+        cursor=b;
+      });
+      if (cursor < value.length) parts.push(wordRunXml(value.slice(cursor),opts));
+      return parts.join("");
+    }
     // 先在整段文本上处理标点，避免引号被粗体、链接或注释标记拆成多个运行后无法成对识别。
     var source = wordNormalizeChinesePunctuation(String(text || "")), out = [], cursor = 0;
     var re = /(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(`[^`]+`)|(\*[^*]+\*)|(\[\d+\])/g, match;
     while ((match = re.exec(source))) {
-      if (match.index > cursor) out.push(run(source.slice(cursor, match.index)));
+      if (match.index > cursor) out.push(run(source.slice(cursor, match.index), null, cursor));
       var token = match[0], link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/), citation = token.match(/^\[(\d+)\]$/);
       if (link) out.push(run(link[1]));
       else if (citation && state.citationMap[citation[1]]) {
         var noteId = state.notes.length + 1;
         state.notes.push({ id: noteId, text: state.citationMap[citation[1]] });
         out.push(wordNoteReferenceXml(noteId, state.kind));
-      } else if (/^\*\*/.test(token)) out.push(run(token.slice(2, -2), { bold: true }));
+      } else if (/^\*\*/.test(token)) out.push(run(token.slice(2, -2), { bold: true }, match.index+2));
       else if (/^`/.test(token)) out.push(run(token.slice(1, -1), { code: true, eastAsiaFont: "仿宋" }));
-      else if (/^\*/.test(token)) out.push(run(token.slice(1, -1), { italic: true }));
+      else if (/^\*/.test(token)) out.push(run(token.slice(1, -1), { italic: true }, match.index+1));
       else out.push(run(token));
       cursor = re.lastIndex;
     }
-    if (cursor < source.length) out.push(run(source.slice(cursor)));
+    if (cursor < source.length) out.push(run(source.slice(cursor), null, cursor));
     return out.join("") || run("");
   }
   function wordParagraphXml(text, state, style, options) {
@@ -931,7 +1100,7 @@
     if (options.numId) ppr.push('<w:numPr><w:ilvl w:val="0"/><w:numId w:val="' + options.numId + '"/></w:numPr>');
     if (options.keepNext) ppr.push("<w:keepNext/>");
     var eastAsiaFont = style === "Title" ? "黑体" : (style === "Code" ? "仿宋" : "宋体");
-    var inlineOptions = { eastAsiaFont: eastAsiaFont };
+    var inlineOptions = { eastAsiaFont: eastAsiaFont, quoteBlock: style === "Quote" };
     return "<w:p><w:pPr>" + ppr.join("") + "</w:pPr>" +
       (options.literal
         ? wordRunXml(text, Object.assign({}, inlineOptions, options.literal))
@@ -963,7 +1132,12 @@
       if (atx) { flushParagraph(); blocks.push({ type: "h", level: Math.min(3, atx[1].length), text: atx[2].replace(/\s*#+\s*$/, "") }); continue; }
       if (/^([-*_])\s*\1\s*\1(?:\s*\1)*$/.test(trimmed)) { flushParagraph(); continue; }
       var quote = trimmed.match(/^[>＞]\s*(.+)$/), unordered = trimmed.match(/^[-*+]\s+(.+)$/), ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
-      if (quote) { flushParagraph(); blocks.push({ type: "quote", text: quote[1] }); continue; }
+      if (quote) {
+        flushParagraph();
+        if (i > 0 && /^[>＞]\s*/.test(lines[i-1].trim()) && blocks.length && blocks[blocks.length-1].type === "quote") blocks[blocks.length-1].text += " " + quote[1];
+        else blocks.push({ type: "quote", text: quote[1] });
+        continue;
+      }
       if (unordered || ordered) { flushParagraph(); blocks.push({ type: "list", ordered: !!ordered, text: (ordered || unordered)[1] }); continue; }
       paragraph.push(trimmed);
     }
@@ -1051,8 +1225,9 @@
     }).join("");
   }
   function buildAnswerDocx(message, title, kind) {
+    message = numberMessageCitations(message);
     if (kind !== "footnote" && kind !== "endnote") throw new Error("invalid Word note kind");
-    var state = { kind: kind, citationMap: wordCitationMap(message), notes: [] };
+    var state = { kind: kind, citationMap: wordCitationMap(message), notes: [], message: message };
     var body = wordParagraphXml(title, state, "Title") + wordBodyXml(message, state);
     var isEndnote = kind === "endnote", notePart = "footnotes";
     if (isEndnote) body += wordEndnoteSectionXml(state.notes);
@@ -1355,13 +1530,14 @@
     // 最紧凑层仍保留引文序号、三种出处格式和原文链接；只省略占空间较大的
     // 上下文与 evidence。这样容量降级后仍能显示「引用原文」索引和引用格式选择。
     var keep = ["grounding_index", "review_index", "citation", "citations", "viewer_url", "book", "volume",
-      "title", "source_file", "pdf_page", "pdf_pages", "printed_page", "subject_label", "review_quoted", "review_quote_unmatched"];
+      "title", "source_file", "pdf_page", "pdf_pages", "printed_page", "subject_label", "review_quoted", "review_quote_unmatched",
+      "document_id", "work_title", "work_authors", "provenance_verified", "kind", "quote", "text_verified", "location_status", "printed_pages", "page_refs", "page_location", "quote_page_verified", "candidate_pdf_pages"];
     var out = {};
     keep.forEach(function (key) { if (citation[key] !== undefined) out[key] = citation[key]; });
     if (!textOnly && citation.context) out.context = String(citation.context).slice(0, 360);
-    if (!textOnly && Array.isArray(citation.evidence)) {
-      out.evidence = citation.evidence.slice(0, 3).map(function (ev) {
-        return compactCitation(ev, false) || {};
+    if (Array.isArray(citation.evidence)) {
+      out.evidence = citation.evidence.map(function (ev) {
+        return compactCitation(ev, textOnly) || {};
       });
     }
     return out;
@@ -2515,22 +2691,29 @@
     return message.citations.slice(0, 40).map(function (citation) {
       if (!citation || typeof citation !== "object") return null;
       var ref = {};
-      ["source_file", "pdf_page", "citation", "viewer_url"].forEach(function (key) {
+      ["source_file", "pdf_page", "citation", "viewer_url", "grounding_index", "review_index"].forEach(function (key) {
         if (citation[key] !== undefined && citation[key] !== null) ref[key] = citation[key];
       });
-      if (Array.isArray(citation.pdf_pages)) ref.pdf_pages = citation.pdf_pages.slice(0, 6);
+      if (Array.isArray(citation.pdf_pages)) ref.pdf_pages = citation.pdf_pages.slice();
+      if (Array.isArray(citation.candidate_pdf_pages)) ref.candidate_pdf_pages = citation.candidate_pdf_pages.slice();
       if (citation.context) ref.context = String(citation.context).slice(0, 360);
       return Object.keys(ref).length ? ref : null;
     }).filter(Boolean);
   }
-  function buildHistory() {
+  function buildHistory(question) {
+    var augmenting = /(?:增加|增补|补充|补足|补齐|更多).{0,16}(?:引文|引用|原文|证据|来源)|(?:引文|引用|原文|证据|来源).{0,16}(?:增加|增补|补充|补足|更多|上限)/.test(question || "");
+    var lastAssistant = -1;
+    messages.forEach(function (m, i) { if (!m.pending && m.role === "assistant") lastAssistant = i; });
+    var fullAnswer = lastAssistant >= 0 ? messages[lastAssistant] : null;
     return messages
       .filter(function (m) { return !m.pending && (m.role === "user" || m.role === "assistant"); })
       .map(function (m) {
-        var content = String(m.content || "");
-        if (content.length > HISTORY_CHAR_CAP) content = content.slice(0, HISTORY_CHAR_CAP) + "……（此处略）";
+        var numbered = numberMessageCitations(m);
+        var content = String(numbered.content || "");
+        var charCap = augmenting && m === fullAnswer ? 80000 : HISTORY_CHAR_CAP;
+        if (content.length > charCap) content = content.slice(0, charCap) + "……（此处略）";
         var item = { role: m.role, content: content };
-        var citationRefs = historyCitationRefs(m);
+        var citationRefs = historyCitationRefs(numbered);
         if (citationRefs.length) item.citation_refs = citationRefs;
         return item;
       });
@@ -2541,7 +2724,7 @@
     if (!runtimeEnabled() || !depthAllowed(depth) || streaming) return;
     var question = String(text || "").trim();
     if (!question) return;
-    var history = buildHistory();
+    var history = buildHistory(question);
     var isResearch = depth === "research";
 
     messages.push({ role: "user", content: question });

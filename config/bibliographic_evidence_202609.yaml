@@ -1,0 +1,35 @@
+# 同版 PDF 的固定书目证据页。所有页码均为 PDF 页码（从 1 起），用于强制 Terra 视觉复核；
+# 目录的连续页范围由识别正文再自动扩展，避免只抽到写有“目录”标题的第一页。
+books:
+  现代君主论:
+    default: {title: [3], copyright: [4], toc: [8]}
+  论文学:
+    default: {title: [2], copyright: [3], toc: [4, 5, 6, 7]}
+  葛兰西政治著作选（1921—1926）:
+    default: {title_and_source_conflict: [1, 2], toc: [3, 4, 5, 6, 7, 8, 9]}
+  葛兰西文选:
+    default: {title: [3], copyright: [4], toc: [11, 12, 13, 14, 15, 16]}
+  刘少奇年谱:
+    volumes:
+      1: {title: [3], copyright: [4], toc: [8, 9]}
+      2: {title: [3], copyright: [4], toc: [5]}
+  刘少奇选集:
+    volumes:
+      # 上卷这份扫描实际没有版权/CIP页：PDF2是空白封二，PDF4—5是1981年《出版说明》。
+      # 把缺页本身也列为证据，防止视觉模型再次把《出版说明》误当版权页。
+      1: {title: [3], blank_verso: [2], publication_note: [4, 5], toc: [6, 7, 8, 9]}
+      2: {title: [3], copyright_cip: [4], toc_start: [5]}
+  中共中央文件选集（1921—1949）:
+    default: {title: [2], copyright: [3], toc_start: [6]}
+    volumes:
+      9: {copyright: [4]}
+      18: {copyright: [4]}
+  中共中央文件选集（1949—1966）:
+    default: {title: [2], copyright_cip: [3]}
+
+auxiliary:
+  中共中央文件选集（1949—1966）总目录:
+    title: [2]
+    copyright_cip: [3]
+    volume_map: [7, 8, 9, 10, 11]
+    contents_from: 12

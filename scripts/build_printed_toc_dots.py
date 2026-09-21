@@ -32,6 +32,7 @@ import re
 import sqlite3
 import sys
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,9 @@ _ENTRY = re.compile(
     r"^(?P<title>.+?)\s*[.．。·・･•∙…⋯‥\-—_]{2,}\s*[（(]?(?P<page>\d{1,4})[）)]?\s*"
     r"(?P<tail>[（(].*?[）)])?\s*$"
 )
+_INLINE_ENTRY = re.compile(
+    r"(?P<title>.*?)[.．。·・･•∙…⋯‥\-—_]{2,}\s*[（(]?(?P<page>\d{1,4})[）)]?(?=\s|$)"
+)
 # 目录页页眉/页脚：「目录」「目录 3」「2 李大钊全集 第一卷」「陈独秀文集 第二卷 5」等。
 _TOC_HEAD = re.compile(r"^\s*(?:\d{1,4}\s*)?(?:目\s*录|目\s*次)\s*(?:\d{1,4})?\s*$")
 # 结构性尾部条目：索引/对照表之类，保留但标 kind=section
@@ -69,14 +73,14 @@ _YEAR_TITLE = re.compile(r"^(?:1[89]|20)\d{2}\s*年$")
 _TOC_GAP_TOLERANCE = 2
 
 
-def update_hash() -> None:
-    if not DB_PATH.exists():
+def update_hash(db_path: Path = DB_PATH) -> None:
+    if not db_path.exists():
         return
     digest = hashlib.sha256()
-    with DB_PATH.open("rb") as fh:
+    with db_path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
-    HASH_PATH.write_text(digest.hexdigest() + "\n", encoding="utf-8")
+    db_path.with_suffix(db_path.suffix + ".sha256").write_text(digest.hexdigest() + "\n", encoding="utf-8")
 
 
 def clean_title(raw: str) -> str:
@@ -145,6 +149,17 @@ def parse_entries(rows: list[tuple], toc_pages: list[int]) -> list[dict]:
             if _TOC_HEAD.match(line):
                 acc = []
                 continue
+            # GLM occasionally preserves a dense two-column TOC as one long
+            # physical line. Parse every leader+page pair instead of letting
+            # the anchored rule collapse the whole line into its final entry.
+            inline = list(_INLINE_ENTRY.finditer(line))
+            if len(inline) >= 2:
+                for index, item in enumerate(inline):
+                    title = clean_title(" ".join((acc if index == 0 else []) + [item.group("title")]))
+                    if len(title) >= 2:
+                        out.append({"title": title, "printed": int(item.group("page"))})
+                acc = []
+                continue
             m = _ENTRY.match(line)
             if not m:
                 # 没有引线也没有页码：多半是折行的标题上半截，或纯日期括注行。
@@ -173,7 +188,8 @@ def build_for_volume(conn: sqlite3.Connection, book: str, volume: int) -> tuple[
     if not rows:
         return [], "无 pages"
 
-    toc_pages = find_toc_pages(rows)
+    max_scan = min(len(rows), 180) if book.startswith("中共中央文件选集") else 60
+    toc_pages = find_toc_pages(rows, max_scan=max_scan)
     if not toc_pages:
         return [], "未找到印刷目录页"
     parsed = parse_entries(rows, toc_pages)
@@ -189,6 +205,16 @@ def build_for_volume(conn: sqlite3.Connection, book: str, volume: int) -> tuple[
             continue
         printed_to_pdf.setdefault(int(printed), pdf_page)
 
+    # 篇首页的印刷页码偶尔被 OCR 漏掉（最常见的是正文第一页），但其后大量页码映射
+    # 仍能给出稳定偏移。只在至少三页支持、且众数没有并列歧义时，才用该偏移补映射；
+    # 这样能恢复「印刷第 1 页 → PDF 第 129 页」，又不会凭单个噪声数字猜页。
+    offsets = Counter(pdf_page - printed for printed, pdf_page in printed_to_pdf.items())
+    modal_offset: int | None = None
+    if offsets:
+        ranked = offsets.most_common(2)
+        if ranked[0][1] >= 3 and (len(ranked) == 1 or ranked[0][1] > ranked[1][1]):
+            modal_offset = int(ranked[0][0])
+
     entries: list[dict] = []
     last_printed = -1
     dropped_back = dropped_unmapped = dropped_head = 0
@@ -201,6 +227,10 @@ def build_for_volume(conn: sqlite3.Connection, book: str, volume: int) -> tuple[
             dropped_back += 1
             continue
         pdf_page = printed_to_pdf.get(printed)
+        if pdf_page is None and modal_offset is not None:
+            inferred = printed + modal_offset
+            if body_from <= inferred <= int(rows[-1][0]):
+                pdf_page = inferred
         if pdf_page is None:
             dropped_unmapped += 1
             continue
@@ -227,6 +257,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--volumes", nargs="*", type=int)
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--db", type=Path, default=DB_PATH, help="候选数据库路径")
     return ap.parse_args()
 
 
@@ -239,7 +270,7 @@ def main() -> None:
     else:
         raise SystemExit("请指定 --book <书库键> 或 --all")
 
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(args.db))
     total = 0
     try:
         for book, vols in targets.items():
@@ -273,7 +304,7 @@ def main() -> None:
     if args.dry_run:
         print("\n[dry-run] 未写库。")
     else:
-        update_hash()
+        update_hash(args.db)
         print(f"\n已写入 toc_entries 共 {total} 条，并重算 sha256。")
 
 

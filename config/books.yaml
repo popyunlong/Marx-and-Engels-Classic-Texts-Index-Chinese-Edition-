@@ -821,7 +821,13 @@ books:
   publisher: 中央文献出版社
   sort_order: 152
   tag_class: xi-zb-zhengjiguan
-  collection: xi_thought
+  collection: user_recommended
+  recommendation_id: 13
+  recommender_name: wljia
+  recommender_email_masked: 973xxx211@qq.com
+  public_from: 2026-09-20T18:10:49+00:00
+  public_until: 2026-10-20T18:10:49+00:00
+  quality_note: 用户上传版本与站内同名高清扫描本逐页一致，沿用已核准正文与目录
   available: true
   single_volume: true
 
@@ -1190,3 +1196,917 @@ books:
   translators: [洪谦, 荣震华, 王太庆等]
   available: true
   single_volume: true
+
+# Restored 2026-09 published catalog entries after configuration rollback.
+- key: 刘少奇选集
+  title: 《刘少奇选集》
+  short_title: 刘少奇《选集》
+  citation_title: 刘少奇选集
+  folder: pdfs/刘少奇
+  sort_order: 54
+  tag_class: liuxuan
+  collection: marxism_china
+  publisher: 人民出版社
+  authors:
+  - 刘少奇
+  volume_labels:
+    1: 上卷
+    2: 下卷
+  edition_note: 上卷1981年12月第1版；下卷2018年11月重印本
+  source_edition: 上卷扫描本无版权/CIP页，《出版说明》署1981年8月；下卷版权页载原1985年12月第1版、2018年11月重印
+  available: true
+- key: 刘少奇年谱
+  title: 《刘少奇年谱（增订本）》
+  short_title: 刘少奇《年谱》
+  citation_title: 刘少奇年谱
+  folder: pdfs/刘少奇
+  sort_order: 156
+  tag_class: liunianpu
+  collection: leader_chronicles
+  publisher: 中央文献出版社
+  editors:
+  - 中共中央党史和文献研究院
+  edition_note: 增订本
+  source_edition: 闫建琪主编、王双梅副主编、陈晋主审；2018年11月第1版第1次印刷
+  available: true
+- key: 中共中央文件选集（1921—1949）
+  title: 《中共中央文件选集（1921—1949）》
+  short_title: 中央文件·1921—1949
+  citation_title: 中共中央文件选集（1921—1949）
+  folder: pdfs/中共中央文件选集（1921—1949）
+  sort_order: 108
+  tag_class: central-files-1921
+  collection: party_state_documents
+  publisher: 中共中央党校出版社
+  editors:
+  - 中央档案馆
+  volume_unit: 册
+  available: true
+- key: 中共中央文件选集（1949—1966）
+  title: 《中共中央文件选集（1949—1966）》
+  short_title: 中央文件·1949—1966
+  citation_title: 中共中央文件选集（1949—1966）
+  folder: pdfs/中共中央文件选集（1949—1966）
+  sort_order: 109
+  tag_class: central-files-1949
+  collection: party_state_documents
+  publisher: 人民出版社
+  editors:
+  - 中央档案馆
+  - 中共中央文献研究室
+  volume_unit: 册
+  edition_note: 2013年6月第1版
+  available: true
+- key: 习近平关于严明党的纪律和规矩论述摘编
+  title: 《习近平关于严明党的纪律和规矩论述摘编》
+  short_title: 《习近平关于严明党的纪律和规矩论述摘编》（试用）
+  citation_title: 习近平关于严明党的纪律和规矩论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中国方正出版社；中央文献出版社（出版），中国方正出版社（发行）
+  available: true
+  sort_order: 193
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于城市工作论述摘编
+  title: 《习近平关于城市工作论述摘编》
+  short_title: 《习近平关于城市工作论述摘编》（试用）
+  citation_title: 习近平关于城市工作论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 194
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于调查研究论述摘编
+  title: 《习近平关于调查研究论述摘编》
+  short_title: 《习近平关于调查研究论述摘编》（试用）
+  citation_title: 习近平关于调查研究论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 党建读物出版社；中央文献出版社
+  available: true
+  sort_order: 195
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于社会主义政治建设论述摘编
+  title: 《习近平关于社会主义政治建设论述摘编》
+  short_title: 《习近平关于社会主义政治建设论述摘编》（试用）
+  citation_title: 习近平关于社会主义政治建设论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 196
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于党风廉政建设和反腐败斗争论述摘编
+  title: 《习近平关于党风廉政建设和反腐败斗争论述摘编》
+  short_title: 《习近平关于党风廉政建设和反腐败斗争论述摘编》（试用）
+  citation_title: 习近平关于党风廉政建设和反腐败斗争论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社；中国方正出版社
+  available: true
+  sort_order: 197
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于中国特色大国外交论述摘编
+  title: 《习近平关于中国特色大国外交论述摘编》
+  short_title: 《习近平关于中国特色大国外交论述摘编》（试用）
+  citation_title: 习近平关于中国特色大国外交论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 198
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于实现中华民族伟大复兴的中国梦论述摘编
+  title: 《习近平关于实现中华民族伟大复兴的中国梦论述摘编》
+  short_title: 《习近平关于实现中华民族伟大复兴的中国梦论述摘编》（试用）
+  citation_title: 习近平关于实现中华民族伟大复兴的中国梦论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 199
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于“三农”工作论述摘编
+  title: 《习近平关于“三农”工作论述摘编》
+  short_title: 《习近平关于“三农”工作论述摘编》（试用）
+  citation_title: 习近平关于“三农”工作论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 200
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平关于青少年和共青团工作论述摘编
+  title: 《习近平关于青少年和共青团工作论述摘编》
+  short_title: 《习近平关于青少年和共青团工作论述摘编》（试用）
+  citation_title: 习近平关于青少年和共青团工作论述摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 中央文献出版社
+  available: true
+  sort_order: 201
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平新时代中国特色社会主义思想专题摘编
+  title: 《习近平新时代中国特色社会主义思想专题摘编》
+  short_title: 《习近平新时代中国特色社会主义思想专题摘编》（试用）
+  citation_title: 习近平新时代中国特色社会主义思想专题摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 党建读物出版社；中央文献出版社
+  available: true
+  sort_order: 202
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: 习近平新时代中国特色社会主义思想的世界观和方法论专题摘编
+  title: 《习近平新时代中国特色社会主义思想的世界观和方法论专题摘编》
+  short_title: 《习近平新时代中国特色社会主义思想的世界观和方法论专题摘编》（试用）
+  citation_title: 习近平新时代中国特色社会主义思想的世界观和方法论专题摘编
+  folder: pdfs/自动入库
+  single_volume: true
+  publisher: 党建读物出版社；中央文献出版社
+  available: true
+  sort_order: 203
+  collection: xi_thought
+  tag_class: xi-gangyao
+- key: smith_collected_2014
+  title: 《亚当·斯密全集》
+  short_title: 《亚当·斯密全集》
+  citation_title: 亚当·斯密全集
+  authors:
+  - 亚当·斯密
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: false
+  collection: smith_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 204
+  volume_labels:
+    1: 第1卷
+    2: 第2卷
+    3: 第3卷
+    4: 第4卷
+    5: 第5卷
+    6: 第6卷
+    7: 第7卷
+  volume_bibliography:
+    1:
+      translators:
+      - 蒋自强
+      - 钦北愚
+      - 朱钟棣
+      - 沈凯璋
+      editors: []
+      place: 北京
+      edition_note: ''
+    2:
+      translators:
+      - 郭大力
+      - 王亚南
+      editors: []
+      place: 北京
+      edition_note: ''
+    3:
+      translators:
+      - 郭大力
+      - 王亚南
+      editors: []
+      place: 北京
+      edition_note: ''
+    4:
+      translators:
+      - 石小竹
+      - 孙明丽
+      editors: []
+      place: 北京
+      edition_note: ''
+    5:
+      translators:
+      - 石小竹
+      editors: []
+      place: 北京
+      edition_note: ''
+    6:
+      translators:
+      - 陈福生
+      - 陈振骅
+      editors:
+      - 坎南
+      place: 北京
+      edition_note: ''
+    7:
+      translators:
+      - 林国夫
+      - 吴良健
+      - 王翼龙
+      - 蔡受百
+      editors:
+      - 欧内斯特·莫斯纳
+      - 伊恩·辛普森·罗斯
+      place: 北京
+      edition_note: ''
+- key: ricardo_collected_2013
+  title: 《大卫·李嘉图全集》
+  short_title: 《大卫·李嘉图全集》
+  citation_title: 大卫·李嘉图全集
+  authors:
+  - 大卫·李嘉图
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: false
+  collection: ricardo_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 205
+  volume_labels:
+    1: 第1卷
+    2: 第2卷
+    3: 第3卷
+    4: 第4卷
+    5: 第5卷
+    6: 第6卷
+    7: 第7卷
+    8: 第8卷
+    9: 第9卷
+    10: 第10卷
+  volume_bibliography:
+    1:
+      translators:
+      - 郭大力
+      - 王亚南
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    2:
+      translators:
+      - 蔡受百
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    3:
+      translators:
+      - 寿勉成
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    4:
+      translators:
+      - 蔡受百
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    5:
+      translators:
+      - 蔡受百
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    6:
+      translators:
+      - 胡世凯
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    7:
+      translators:
+      - 于树生
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    8:
+      translators:
+      - 寿进文
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    9:
+      translators:
+      - 胡世凯
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+    10:
+      translators:
+      - 陈福生
+      - 林纪熹
+      editors:
+      - 彼罗·斯拉法
+      - M. H. 多布
+      place: 北京
+      edition_note: ''
+- key: mill_principles_2009
+  title: 《政治经济学原理及其在社会哲学上的若干应用》
+  short_title: 《政治经济学原理及其在社会哲学上的若干应用》
+  citation_title: 政治经济学原理及其在社会哲学上的若干应用
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: false
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 206
+  volume_labels:
+    1: 上卷
+    2: 下卷
+  volume_bibliography:
+    1:
+      translators:
+      - 赵荣潜
+      - 桑炳彦
+      - 朱泱
+      - 胡企林
+      editors: []
+      place: 北京
+      edition_note: ''
+    2:
+      translators:
+      - 胡企林
+      - 朱泱
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: proudhon_poverty_2010
+  title: 《贫困的哲学》
+  short_title: 《贫困的哲学》
+  citation_title: 贫困的哲学
+  authors:
+  - 蒲鲁东
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: false
+  collection: proudhon_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 207
+  volume_labels:
+    1: 上卷
+    2: 下卷
+  volume_bibliography:
+    1:
+      translators:
+      - 余叔通
+      - 王雪华
+      editors: []
+      place: 北京
+      edition_note: ''
+    2:
+      translators:
+      - 余叔通
+      - 王雪华
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: mill_14456886
+  title: 《功利主义》
+  short_title: 《功利主义》
+  citation_title: 功利主义
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 208
+  volume_bibliography:
+    1:
+      translators:
+      - 徐大建
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: mill_14513946
+  title: 《论政治经济学的若干未定问题》
+  short_title: 《论政治经济学的若干未定问题》
+  citation_title: 论政治经济学的若干未定问题
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 209
+  volume_bibliography:
+    1:
+      translators:
+      - 张涵
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: mill_14513954
+  title: 《论自由》
+  short_title: 《论自由》
+  citation_title: 论自由
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 210
+  volume_bibliography:
+    1:
+      translators:
+      - 许宝骙
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: mill_15533683
+  title: 《道德科学的逻辑》
+  short_title: 《道德科学的逻辑》
+  citation_title: 道德科学的逻辑
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 211
+  volume_bibliography:
+    1:
+      translators:
+      - 李涤非
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: mill_12553272
+  title: 《代议制政府》
+  short_title: 《代议制政府》
+  citation_title: 代议制政府
+  authors:
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 212
+  volume_bibliography:
+    1:
+      translators:
+      - 汪瑄
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: proudhon_property_2017
+  title: 《什么是所有权：或对权利和政治的原理的研究》
+  short_title: 《什么是所有权：或对权利和政治的原理的研究》
+  citation_title: 什么是所有权：或对权利和政治的原理的研究
+  authors:
+  - 蒲鲁东
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: proudhon_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 213
+  volume_bibliography:
+    1:
+      translators:
+      - 孙署冰
+      editors: []
+      place: 北京
+      edition_note: ''
+- key: women_rights_subjection_2017
+  title: 《女权辩护；妇女的屈从地位》
+  short_title: 《女权辩护；妇女的屈从地位》
+  citation_title: 女权辩护；妇女的屈从地位
+  authors:
+  - 玛丽·沃斯通克拉夫特
+  - 约翰·斯图尔特·穆勒
+  publisher: 商务印书馆
+  place: 北京
+  single_volume: true
+  collection: mill_works
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 214
+  volume_bibliography:
+    1:
+      translators:
+      - 王蓁
+      - 汪溪
+      editors: []
+      place: 北京
+      edition_note: ''
+      work_ranges:
+      - start: 13
+        end: 294
+        title: 女权辩护
+        authors:
+        - 玛丽·沃斯通克拉夫特
+        translators:
+        - 王蓁
+      - start: 295
+        end: 406
+        title: 妇女的屈从地位
+        authors:
+        - 约翰·斯图尔特·穆勒
+        translators:
+        - 汪溪
+- key: user_rec_zhijiang_xinyu_2007
+  title: 《之江新语》
+  short_title: 《之江新语》
+  citation_title: 之江新语
+  authors:
+  - 习近平
+  publisher: 浙江人民出版社
+  place: 杭州
+  single_volume: true
+  collection: user_recommended
+  translators: &id001 []
+  editors: &id002 []
+  edition_note: 2007年8月第1版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 215
+  recommendation_id: 1
+  recommender_name: 刘
+  recommender_email_masked: 158xxxx489@qq.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id001
+      editors: *id002
+      place: 杭州
+      edition_note: 2007年8月第1版
+- key: user_rec_hegel_history_2006
+  title: 《历史哲学》
+  short_title: 《历史哲学》
+  citation_title: 历史哲学
+  authors:
+  - 黑格尔
+  publisher: 上海书店出版社
+  place: 上海
+  single_volume: true
+  collection: user_recommended
+  translators: &id003
+  - 王造时
+  editors: &id004 []
+  edition_note: 2006年版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 216
+  recommendation_id: 2
+  recommender_name: 青黑
+  recommender_email_masked: keyxxx262@163.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id003
+      editors: *id004
+      place: 上海
+      edition_note: 2006年版
+- key: user_rec_gao_german_philosophy_2020
+  title: 《德国哲学的发展》
+  short_title: 《德国哲学的发展》
+  citation_title: 德国哲学的发展
+  authors:
+  - 高宣扬
+  publisher: 上海交通大学出版社
+  place: 上海
+  single_volume: true
+  collection: user_recommended
+  translators: &id005 []
+  editors: &id006 []
+  edition_note: 2020年版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 217
+  recommendation_id: 3
+  recommender_name: Lier
+  recommender_email_masked: 101xxxx067@qq.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id005
+      editors: *id006
+      place: 上海
+      edition_note: 2020年版
+- key: user_rec_hiroi_postcapitalism_2021
+  title: 《后资本主义时代》
+  short_title: 《后资本主义时代》
+  citation_title: 后资本主义时代
+  authors:
+  - 广井良典
+  publisher: 四川人民出版社
+  place: 成都
+  single_volume: true
+  collection: user_recommended
+  translators: &id007
+  - 张玲
+  editors: &id008 []
+  edition_note: 2021年版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 218
+  recommendation_id: 4
+  recommender_name: Lier
+  recommender_email_masked: 101xxxx067@qq.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id007
+      editors: *id008
+      place: 成都
+      edition_note: 2021年版
+- key: user_rec_varoufakis_technofeudalism_2024
+  title: 《技术封建主义》
+  short_title: 《技术封建主义》
+  citation_title: 技术封建主义
+  authors:
+  - 雅尼斯·瓦鲁法基斯
+  publisher: 九月虺图书
+  place: '[出版地不详]'
+  single_volume: true
+  collection: user_recommended
+  translators: &id009
+  - 蓝江
+  editors: &id010 []
+  edition_note: 2024年2月个人制作版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 219
+  recommendation_id: 5
+  recommender_name: lalala
+  recommender_email_masked: 189xxxxx936@163.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id009
+      editors: *id010
+      place: '[出版地不详]'
+      edition_note: 2024年2月个人制作版
+- key: user_rec_fraser_cannibal_capitalism_2023
+  title: 《食人资本主义》
+  short_title: 《食人资本主义》
+  citation_title: 食人资本主义
+  authors:
+  - 南希·弗雷泽
+  publisher: 上海人民出版社
+  place: 上海
+  single_volume: true
+  collection: user_recommended
+  translators: &id011
+  - 蓝江
+  editors: &id012 []
+  edition_note: 2023年版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 220
+  recommendation_id: 6
+  recommender_name: lalala
+  recommender_email_masked: 189xxxxx936@163.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id011
+      editors: *id012
+      place: 上海
+      edition_note: 2023年版
+- key: user_rec_rosa_alienation_2018
+  title: 《新异化的诞生》
+  short_title: 《新异化的诞生》
+  citation_title: 新异化的诞生
+  authors:
+  - 哈特穆特·罗萨
+  publisher: 上海人民出版社
+  place: 上海
+  single_volume: true
+  collection: user_recommended
+  translators: &id013
+  - 郑作彧
+  editors: &id014 []
+  edition_note: 2018年版
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 221
+  recommendation_id: 7
+  recommender_name: lalala
+  recommender_email_masked: 189xxxxx936@163.com
+  public_from: '2026-09-12T18:57:40+00:00'
+  public_until: '2026-10-12T18:57:40+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id013
+      editors: *id014
+      place: 上海
+      edition_note: 2018年版
+- key: user_rec_xi_culture_selected_2026
+  title: 《习近平文化文选》
+  short_title: 《习近平文化文选》
+  citation_title: 习近平文化文选
+  authors:
+  - 习近平
+  publisher: 中央文献出版社
+  place: 北京
+  single_volume: false
+  collection: user_recommended
+  translators: &id015 []
+  editors: &id016
+  - 中共中央党史和文献研究院
+  edition_note: 2026年8月第1版（2026年8月第3次印刷）
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 222
+  recommendation_id: 8
+  recommender_name: abc
+  recommender_email_masked: 267xxxx670@qq.com
+  public_from: '2026-09-13T00:59:02+00:00'
+  public_until: '2026-10-13T00:59:02+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_labels:
+    1: 第1卷
+    2: 第2卷
+  volume_bibliography:
+    1:
+      translators: *id015
+      editors: *id016
+      place: 北京
+      edition_note: 2026年8月第1版（2026年8月第3次印刷）
+    2:
+      translators: []
+      editors:
+      - 中共中央党史和文献研究院
+      place: 北京
+      edition_note: 2026年8月第1版（2026年8月第7次印刷）
+- key: user_rec_marx_biography_mclellan_2016
+  title: 《马克思传》
+  short_title: 《马克思传》
+  citation_title: 马克思传
+  authors:
+  - 戴维·麦克莱伦
+  publisher: 中国人民大学出版社
+  place: 北京
+  single_volume: true
+  collection: user_recommended
+  translators: &id017
+  - 王珍
+  editors: &id018 []
+  edition_note: 第4版典藏版（2016年10月出版）
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 223
+  recommendation_id: 11
+  recommender_name: 李博
+  recommender_email_masked: 269xxxx264@qq.com
+  public_from: '2026-09-13T17:58:21+00:00'
+  public_until: '2026-10-13T17:58:21+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id017
+      editors: *id018
+      place: 北京
+      edition_note: 第4版典藏版（2016年10月出版）
+- key: user_rec_china_marxist_party_theory_2021
+  title: 《中国化的马克思主义党建理论体系概论》
+  short_title: 《中国化的马克思主义党建理论体系概论》
+  citation_title: 中国化的马克思主义党建理论体系概论
+  authors:
+  - 全国党的建设研究会
+  publisher: 党建读物出版社
+  place: 北京
+  single_volume: true
+  collection: user_recommended
+  translators: &id019 []
+  editors: &id020 []
+  edition_note: 2021年3月第1版（2021年3月第1次印刷）
+  source_edition: ''
+  folder: pdfs/自动入库
+  available: true
+  tag_class: default
+  sort_order: 224
+  recommendation_id: 12
+  recommender_name: superkar1
+  recommender_email_masked: karxxxxxxarx@163.com
+  public_from: '2026-09-13T17:58:21+00:00'
+  public_until: '2026-10-13T17:58:21+00:00'
+  quality_note: 识别文本持续校对，请以 PDF 原文为准
+  volume_bibliography:
+    1:
+      translators: *id019
+      editors: *id020
+      place: 北京
+      edition_note: 2021年3月第1版（2021年3月第1次印刷）

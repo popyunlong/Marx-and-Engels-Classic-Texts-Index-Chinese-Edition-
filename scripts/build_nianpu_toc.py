@@ -66,6 +66,7 @@ HASH_PATH = DB_PATH.with_suffix(DB_PATH.suffix + ".sha256")
 DEFAULT_TARGETS: dict[str, list[int] | None] = {
     "斯大林年谱": None,
     "邓小平年谱": None,
+    "刘少奇年谱": None,
 }
 
 # 年谱合理年份区间：马克思生年之后、当下之前。用于挡掉 OCR 把「第1879页」之类读成年份。
@@ -90,14 +91,14 @@ _HEAD_MIN_PAGES_DENSE = 2     # 逐页页眉版式下的最少出现页数
 _HEAD_MIN_PAGES_SPARSE = 1    # 稀疏版式（年份只印在年段首页）下单页即采信
 
 
-def update_hash() -> None:
-    if not DB_PATH.exists():
+def update_hash(db_path: Path = DB_PATH) -> None:
+    if not db_path.exists():
         return
     digest = hashlib.sha256()
-    with DB_PATH.open("rb") as fh:
+    with db_path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
-    HASH_PATH.write_text(digest.hexdigest() + "\n", encoding="utf-8")
+    db_path.with_suffix(db_path.suffix + ".sha256").write_text(digest.hexdigest() + "\n", encoding="utf-8")
 
 
 def detect_page_years(text: str) -> tuple[int | None, int | None]:
@@ -203,6 +204,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--volumes", nargs="*", type=int, help="只处理指定卷（配合单个 --book）")
     ap.add_argument("--all", action="store_true", help="处理内置目标表里的全部书")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--db", type=Path, default=DB_PATH, help="候选数据库路径")
     return ap.parse_args()
 
 
@@ -215,7 +217,7 @@ def main() -> None:
     else:
         raise SystemExit("请指定 --book <书库键> 或 --all")
 
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(args.db))
     total = 0
     try:
         for book, vols in targets.items():
@@ -256,7 +258,7 @@ def main() -> None:
     if args.dry_run:
         print("\n[dry-run] 未写库。")
     else:
-        update_hash()
+        update_hash(args.db)
         print(f"\n已写入 toc_entries 共 {total} 条，并重算 sha256。")
 
 

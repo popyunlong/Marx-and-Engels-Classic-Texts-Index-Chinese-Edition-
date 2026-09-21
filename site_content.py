@@ -164,7 +164,8 @@ SITE_TEXT_DEFINITIONS = (
     ),
     SiteTextDefinition("index.search_title", "首页", "检索面板标题", "引文检索", multiline=False),
     SiteTextDefinition("index.search_placeholder", "首页", "检索输入框提示", "把需要核查的原文粘贴到这里。"),
-    SiteTextDefinition("index.search_standard_tab", "首页", "检索模式标签：标准检索", "标准检索", multiline=False),
+    SiteTextDefinition("index.search_standard_tab", "首页", "检索模式标签：精确检索", "精确检索", multiline=False),
+    SiteTextDefinition("search.fuzzy_tab", "模糊检索", "模糊检索标签文字", "模糊检索", multiline=False),
     SiteTextDefinition("search.assoc_tab", "联想检索", "联想检索标签文字", "联想检索", multiline=False),
     SiteTextDefinition("index.search_help_trigger_title", "首页", "检索使用提示按钮悬浮文字", "使用提示", multiline=False),
     SiteTextDefinition("index.search_help_title", "首页", "检索使用提示标题", "使用提示", multiline=False),
@@ -173,7 +174,7 @@ SITE_TEXT_DEFINITIONS = (
         "index.search_help_body",
         "首页",
         "检索框下方使用提示内容（留空则不显示问号提示；支持换行）",
-        "（1）如果你记得完整原文，请直接粘贴完整句子。\n（2）如果只记得几个关键词，可用空格分隔，并勾选同段多词检索。\n（3）若只是记得大意或研究论题，请切换到联想检索或研究型检索。",
+        "（1）如果你记得完整原文，请直接粘贴完整句子。\n（2）如果只记得几个关键词，可用空格分隔，并勾选同段多词检索。\n（3）若原句可能有错漏字，请切换到模糊检索；若只记得大意或篇章线索，请切换到联想检索。",
     ),
     SiteTextDefinition(
         "index.search_cooc_label",
@@ -187,7 +188,7 @@ SITE_TEXT_DEFINITIONS = (
         "index.search_shortcut",
         "首页",
         "检索快捷键提示",
-        "快捷键：Ctrl / Command + Enter",
+        "Enter 检索，Shift + Enter 换行",
         multiline=False,
     ),
     SiteTextDefinition("index.runtime_title", "首页", "运行状态标题", "运行状态", multiline=False),
@@ -615,6 +616,26 @@ SITE_TEXT_DEFINITIONS = (
         "阅读页",
         "图像加载失败提示",
         "当前页图像加载失败，但下方文本与右侧 AI 讲解仍可继续使用。",
+    ),
+    # 模糊检索：只做本地词面近似定位，与大意／篇章联想分开。
+    SiteTextDefinition(
+        "search.fuzzy_placeholder",
+        "模糊检索",
+        "模糊检索输入框提示",
+        "输入记得的原句，可含少量错字、漏字或断句差异。",
+    ),
+    SiteTextDefinition(
+        "search.fuzzy_no_access",
+        "模糊检索",
+        "模糊检索无权限提示",
+        "当前账号尚未开放模糊检索，请先开通后再使用。",
+    ),
+    SiteTextDefinition(
+        "search.fuzzy_tab_title",
+        "模糊检索",
+        "模糊检索标签禁用悬浮提示",
+        "模糊检索需要相应权限",
+        multiline=False,
     ),
     # 联想检索：页面 JS 内的用户可见文字，通过模板 {{ site_text(..) | tojson }} 注入到脚本里，可后台编辑。
     SiteTextDefinition(

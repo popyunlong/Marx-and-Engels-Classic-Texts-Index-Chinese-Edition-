@@ -637,3 +637,81 @@ books:
     sha256: 925b2bc20436706f9beac2d5c85c68767c4d439cc0136a4b0f77638aba03b993
     page_count: 735
     metadata_verified: false
+  - key: 现代君主论
+    volume: 1
+    file: 'pdfs/西马文库/现代君主论 (（意）葛兰西（Gramsci，A.）著；陈越译 etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf'
+    stored_file: pdfs/西马文库/现代君主论.pdf
+    status: ready
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: '2026-09-04'
+    sha256: 856e3a7bfe1df07f57b701a71e5475e5f2144f347629910c8509abfff98c686a
+    page_count: 175
+    toc_pages: [8]
+    prefer_printed_toc: true
+    reviewed_page_text:
+      105: 附录
+    metadata_verified: true
+    evidence_pdf_pages: [3, 4, 8]
+  - key: 论文学
+    volume: 1
+    file: 'pdfs/西马文库/葛兰西 论文学 (（意）葛兰西著；吕同六译) (z-library.sk, 1lib.sk, z-lib.sk).pdf'
+    stored_file: pdfs/西马文库/论文学.pdf
+    status: ready
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: '2026-09-04'
+    sha256: 1988127413e5b465d6e59a7c9bcab9e576aef5a350dc4660be3c4e24819d4d72
+    page_count: 210
+    toc_pages: [4, 5, 6, 7]
+    prefer_printed_toc: true
+    reviewed_page_text:
+      1: "葛兰西\n论文学"
+    metadata_verified: true
+    evidence_pdf_pages: [2, 3, 4, 5, 6, 7]
+  - key: 葛兰西政治著作选（1921—1926）
+    volume: 1
+    file: 'pdfs/西马文库/葛兰西政治著作选(1921-1926)(最终修订版) (葛兰西) (z-library.sk, 1lib.sk, z-lib.sk).pdf'
+    stored_file: pdfs/西马文库/葛兰西政治著作选（1921—1926）.pdf
+    status: ready
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: '2026-09-04'
+    sha256: ba064f395f1e582cf1535293df29a3d14150830966f2ddc5181af43eb63a4e2b
+    page_count: 622
+    toc_pages: [3, 4, 5, 6, 7, 8, 9]
+    prefer_printed_toc: true
+    reviewed_page_text:
+      141: "II\n罗马大会"
+      402: "V\n里昂大会"
+    metadata_verified: true
+    evidence_pdf_pages: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    title_conflict: 文件名1921—1926；内封1920—1926并标第二卷
+  - key: 葛兰西文选
+    volume: 1
+    file: 'pdfs/西马文库/葛兰西文选 (李鹏程编, (意)安东尼奥·葛兰西著 , 李鹏程编, 葛兰西, 李鹏程 etc.) (z-library.sk, 1lib.sk, z-lib.sk).pdf'
+    stored_file: pdfs/西马文库/葛兰西文选.pdf
+    status: ready
+    upload: true
+    strict_glm: true
+    source_url: user-provided-local-file
+    license_basis: 用户提供文件并确认自行处理使用权利
+    downloaded_at: '2026-09-04'
+    sha256: d7fb4026189ab2cb11df34434c4a0416d2c79b916cb67c12b72d354b12f90f3a
+    page_count: 419
+    toc_pages: [11, 12, 13, 14, 15, 16]
+    prefer_printed_toc: true
+    reviewed_page_text:
+      17: 政论
+      127: 现代君主
+      183: 国家和市民社会
+      233: 马克思主义问题
+      365: 文化生活问题
+    metadata_verified: true
+    evidence_pdf_pages: [3, 4, 11, 12, 13, 14, 15, 16]

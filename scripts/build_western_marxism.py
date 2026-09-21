@@ -253,7 +253,14 @@ def run_ocr(spec: dict, *, workers: int, scale: float, limit: int, extract_toc: 
 
     with out.open("a", encoding="utf-8") as fh:
         for page_no in blanks:
-            fh.write(json.dumps({"pdf_page": page_no, "text": "", "ok": True, "blank": True, "finish": "stop"}, ensure_ascii=False) + "\n")
+            # 低墨量只是“疑似空白”，用本地非生成式 OCR 再确认一次；找到字则救回，
+            # 完全无字才留下可审计的 blank-confirmed 标记。
+            rescued = local_ocr_page(doc[page_no - 1])
+            row = {"pdf_page": page_no, "text": rescued, "ok": True, "finish": "stop",
+                   "src": "rapidocr-blank-rescue" if rescued else "blank-confirmed"}
+            if not rescued:
+                row["blank"] = True
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         fallback_pages: list[int] = []
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
             futures: dict = {}
@@ -280,7 +287,7 @@ def run_ocr(spec: dict, *, workers: int, scale: float, limit: int, extract_toc: 
                     row = {"pdf_page": page_no, "text": cleaned, "ok": ok, "finish": response.get("finish", ""), "trunc": is_truncated}
                     if response.get("finish") == "error":
                         row["error"] = response.get("error", "")
-                    if is_truncated or response.get("finish") == "error":
+                    if is_truncated or response.get("finish") == "error" or not ok:
                         fallback_pages.append(page_no)
                     fh.write(json.dumps(row, ensure_ascii=False) + "\n")
                     fh.flush()
@@ -328,14 +335,17 @@ def run_ocr(spec: dict, *, workers: int, scale: float, limit: int, extract_toc: 
         for n, page in enumerate(doc, 1):
             raw = page.get_text("text")
             page_texts[n] = raw if text_layer_usable(raw) else str(sidecar.get(n, {}).get("text") or "")
-        candidates: set[int] = set(int(x) for x in (spec.get("toc_pages") or []) if str(x).isdigit())
-        for n, text in page_texts.items():
-            if "目录" in text[:500]:
-                candidates.update(range(n, min(doc.page_count, n + 12) + 1))
-        entries: list[dict] = []
-        for n in sorted(candidates):
-            response = call_glm(api_key, render_b64(doc[n - 1], scale), TOC_PROMPT)
-            entries.extend(parse_toc_response(response.get("text", ""), source_pdf_page=n))
+        configured_toc = set(int(x) for x in (spec.get("toc_pages") or []) if str(x).isdigit())
+        candidates: set[int] = set(configured_toc)
+        if not configured_toc:
+            for n, text in page_texts.items():
+                if "目录" in text[:500]:
+                    candidates.update(range(n, min(doc.page_count, n + 12) + 1))
+        entries = parse_printed_toc_pages(str(spec["key"]), page_texts, candidates)
+        if not entries:
+            for n in sorted(candidates):
+                response = call_glm(api_key, render_b64(doc[n - 1], scale), TOC_PROMPT)
+                entries.extend(parse_toc_response(response.get("text", ""), source_pdf_page=n))
         dedup: dict[tuple[str, str], dict] = {}
         for entry in entries:
             dedup.setdefault((entry["title"], entry["printed_page"]), entry)
@@ -369,12 +379,96 @@ def parse_toc_response(text: str, *, source_pdf_page: int = 0) -> list[dict]:
     return entries
 
 
+_PRINTED_TOC_ENTRY_RE = re.compile(
+    r"^(.*?)(?:\s*[/／]\s*|[.．·…]{2,}|\s+)(\d{1,4})\s*$"
+)
+_PRINTED_TOC_GLUE_RE = re.compile(r"^(.+?[\u3400-\u9fff）》”])\s*(\d{1,4})\s*$")
+
+
+def parse_printed_toc_pages(key: str, page_texts: dict[int, str], candidates: set[int]) -> list[dict]:
+    """Parse the four reviewed Gramsci printed TOCs without inventing entries.
+
+    GLM supplies the page transcription for scan-only PDFs; this parser turns
+    only lines that visibly end in a printed page number into navigation data.
+    It avoids asking a vision model to reinterpret already-transcribed body
+    pages, which previously created false TOC entries when body prose happened
+    to contain the word “目录”.
+    """
+    if key not in {"现代君主论", "论文学", "葛兰西政治著作选（1921—1926）", "葛兰西文选"}:
+        return []
+    result: list[dict] = []
+    waiting_headings: list[tuple[str, int]] = []
+    continued = ""
+    in_appendix = False
+    selection_section = False
+    selection_subsection = False
+
+    def add(title: str, printed: str, level: int, source_page: int) -> None:
+        clean = re.sub(r"[.．·…\s]+$", "", title.strip())
+        clean = re.sub(r"^\d{1,3}[.、]\s*", "", clean)
+        if len(clean) >= 2:
+            result.append({"title": clean, "level": level, "printed_page": printed,
+                           "source_pdf_page": source_page})
+
+    for source_page in sorted(candidates):
+        for raw_line in str(page_texts.get(source_page) or "").splitlines():
+            line = re.sub(r"\s+", " ", raw_line).strip()
+            if not line or line in {"目录", "目次", "·葛兰西文选·", "葛兰西文选·"} or re.fullmatch(r"\d{1,3}", line):
+                continue
+            match = _PRINTED_TOC_ENTRY_RE.match(line) or _PRINTED_TOC_GLUE_RE.match(line)
+            if match:
+                title, printed = match.group(1).strip(), match.group(2)
+                if continued:
+                    title = continued + " " + title
+                    continued = ""
+                if waiting_headings:
+                    # Multiple consecutive Roman headings in the political volume
+                    # are unpaged subparts of item 75, not navigable chapter heads.
+                    headings = waiting_headings if len(waiting_headings) == 1 else []
+                    for heading, heading_page in headings:
+                        if key == "葛兰西政治著作选（1921—1926）":
+                            add(heading, printed, 1, heading_page)
+                        elif key == "葛兰西文选":
+                            heading_level = 3 if heading == "意大利的形势和意共的任务" else 2
+                            add(heading, printed, heading_level, heading_page)
+                            selection_section = True
+                            selection_subsection = heading_level == 3
+                    waiting_headings.clear()
+                if key in {"现代君主论", "论文学"}:
+                    level = 2 if key == "现代君主论" and in_appendix else 1
+                    if key == "现代君主论" and title == "附录":
+                        level, in_appendix = 1, True
+                elif key == "葛兰西政治著作选（1921—1926）":
+                    level = 2 if re.match(r"^\d{1,3}[.、]", match.group(1).strip()) else 1
+                else:
+                    if re.match(r"^[一二三四五六七八九十]+、", title):
+                        level, selection_subsection = 3, True
+                    else:
+                        level = 4 if selection_subsection else (3 if selection_section else 1)
+                add(title, printed, level, source_page)
+                continue
+            if key == "葛兰西政治著作选（1921—1926）" and re.match(r"^\d{1,3}[.、]", line):
+                continued = line
+                continue
+            # Unpaged typography lines are section heads; their landing page is
+            # the next numbered child. Page-running heads were filtered above.
+            if len(line) <= 60 and not line.startswith(("——", "--")):
+                waiting_headings.append((line, source_page))
+                if key == "葛兰西文选" and line not in {"意大利的形势和意共的任务"}:
+                    selection_subsection = False
+    dedup: dict[tuple[str, str], dict] = {}
+    for item in result:
+        dedup.setdefault((item["title"], item["printed_page"]), item)
+    return list(dedup.values())
+
+
 def load_toc(doc, spec: dict, printed_to_pdf: dict[str, int], pages: list[tuple]) -> list[dict]:
     rows: list[dict] = []
-    for level, title, pdf_page, *_ in doc.get_toc(simple=True) or []:
-        title = str(title or "").strip()
-        if title and 1 <= int(pdf_page) <= doc.page_count:
-            rows.append({"title": title, "pdf_page": int(pdf_page), "printed_page": "", "level": max(1, min(6, int(level or 1)))})
+    if not spec.get("prefer_printed_toc"):
+        for level, title, pdf_page, *_ in doc.get_toc(simple=True) or []:
+            title = str(title or "").strip()
+            if title and 1 <= int(pdf_page) <= doc.page_count:
+                rows.append({"title": title, "pdf_page": int(pdf_page), "printed_page": "", "level": max(1, min(6, int(level or 1)))})
     if rows:
         return rows
     sidecar = toc_sidecar_path(str(spec["key"]))
@@ -391,10 +485,12 @@ def load_toc(doc, spec: dict, printed_to_pdf: dict[str, int], pages: list[tuple]
         # 同一 printed_page 大量重复时不信任它，改用「目录标题回查 OCR 正文」定位。
         pdf_page = None if printed_counts.get(printed, 0) > 3 else printed_to_pdf.get(printed)
         title_norm = normalize(str(item.get("title") or ""))
-        source_toc_page = int(item.get("source_pdf_page") or 0)
-        if title_norm:
+        toc_page_numbers = {
+            int(x) for x in (spec.get("toc_pages") or []) if str(x).isdigit()
+        } or {int(item.get("source_pdf_page") or 0)}
+        if pdf_page is None and title_norm:
             for page_row in pages:
-                if int(page_row[3]) <= source_toc_page:
+                if int(page_row[3]) in toc_page_numbers:
                     continue
                 if title_norm in str(page_row[6] or "")[:500]:
                     pdf_page = int(page_row[3])
@@ -412,6 +508,9 @@ def build_rows(spec: dict, *, allow_unverified_metadata: bool) -> tuple[list[tup
     if not spec.get("license_basis"):
         raise RuntimeError(f"{spec['key']}: 未记录 license_basis")
     pdf_path = ROOT / str(spec["file"])
+    # OCR/证据读取本地用户提供的原文件；数据库与阅读器只记录经过白名单上传后的稳定路径。
+    # 旧记录没有 stored_file，行为保持不变。
+    stored_file = str(Path(spec.get("stored_file") or spec["file"]).as_posix())
     if not pdf_path.exists():
         raise RuntimeError(f"{spec['key']}: PDF 缺失 {pdf_path}")
     expected_hash = str(spec.get("sha256") or "").lower()
@@ -420,12 +519,17 @@ def build_rows(spec: dict, *, allow_unverified_metadata: bool) -> tuple[list[tup
         raise RuntimeError(f"{spec['key']}: SHA-256 与来源清单不一致")
 
     sidecar = load_page_sidecar(sidecar_path(str(spec["key"])))
+    reviewed_page_text = {
+        int(page_no): str(text) for page_no, text in (spec.get("reviewed_page_text") or {}).items()
+    }
     pages: list[tuple] = []
     suspicious: list[dict] = []
     with fitz.open(pdf_path) as doc:
         for n, page in enumerate(doc, 1):
             extracted = page.get_text("text")
-            if text_layer_usable(extracted):
+            if n in reviewed_page_text:
+                raw = reviewed_page_text[n]
+            elif text_layer_usable(extracted):
                 raw = extracted
             else:
                 row = sidecar.get(n)
@@ -441,7 +545,7 @@ def build_rows(spec: dict, *, allow_unverified_metadata: bool) -> tuple[list[tup
                 if n not in reviewed_low_ink and not row.get("blank") and ink < 0.004 and len(normalize(raw)) >= 80:
                     suspicious.append({"pdf_page": n, "reason": "low_ink_long_text", "ink_ratio": round(ink, 6), "chars": len(normalize(raw))})
             printed = detect_printed_page_from_page(page) or detect_printed_page_from_text(raw, doc.page_count)
-            pages.append((spec["key"], 1, str(Path(spec["file"]).as_posix()), n, printed, raw, normalize(raw)))
+            pages.append((spec["key"], 1, stored_file, n, printed, raw, normalize(raw)))
         # 相邻页出现长文本完全相同，通常是模型对空白/模糊页重复编造。
         for left, right in zip(pages, pages[1:]):
             if len(left[6]) >= 120 and left[6] == right[6]:
@@ -455,7 +559,7 @@ def build_rows(spec: dict, *, allow_unverified_metadata: bool) -> tuple[list[tup
         printed_to_pdf = {str(row[4]): int(row[3]) for row in pages if row[4] and not str(row[4]).startswith("pre-")}
         toc = load_toc(doc, spec, printed_to_pdf, pages)
         toc_rows = [
-            (spec["key"], 1, str(Path(spec["file"]).as_posix()), row["title"], row["pdf_page"],
+            (spec["key"], 1, stored_file, row["title"], row["pdf_page"],
              row.get("printed_page") or next((p[4] for p in pages if p[3] == row["pdf_page"]), None),
              row["level"], "body", i)
             for i, row in enumerate(toc, 1)

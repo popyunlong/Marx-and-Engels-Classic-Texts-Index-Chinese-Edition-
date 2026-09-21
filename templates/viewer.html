@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>{{ pdf_name }} - {{ app_name }}</title>
+  <title>{{ reader_heading.title }} - {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
@@ -80,6 +80,8 @@
       font-size: clamp(1.15rem, 1.8vw, 1.55rem);
       line-height: 1.55;
       max-width: 760px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .reader-actions {
       display: flex;
@@ -371,8 +373,11 @@
       width: min(100%, 1120px);
       margin: 0 auto;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      overflow-wrap: anywhere;
       gap: 16px;
     }
+    .page-frame > * { min-width: 0; }
     .page-image-wrap, .page-text-wrap {
       background: rgba(255, 255, 255, 0.92);
       border: 1px solid rgba(36, 29, 23, 0.08);
@@ -404,6 +409,8 @@
     .page-image {
       display: block;
       width: min(100%, 960px);
+      max-width: 100%;
+      height: auto;
       margin: 0 auto;
       background: white;
       border-radius: 8px;
@@ -586,6 +593,7 @@
       padding: 14px 16px;
       line-height: 2;
       white-space: pre-wrap;
+      overflow-wrap: anywhere;
       user-select: text;
       min-height: 180px;
     }
@@ -1022,11 +1030,17 @@
         var u = new URL('/page-image', window.location.origin);
         u.searchParams.set('file', {{ source_file | tojson }});
         u.searchParams.set('page', {{ page | tojson }});
-        u.searchParams.set('rev', '11');   // 必须与下方 buildPageImageUrl 的 rev 同步
         var q = {{ query_text | tojson }};
         var h = {{ highlight_text | default(query_text) | tojson }};
+        var grev = {{ ocr_geometry_revision | default('') | tojson }};
+        // 仅击穿带高亮的旧图；普通阅读仍用 rev=11，保留浏览器热缓存。
+        u.searchParams.set('rev', (q || h) ? '12' : '11');   // 必须与下方 buildPageImageUrl 同步
+        if ((q || h) && grev) u.searchParams.set('grev', grev);
         if (q) u.searchParams.set('q', q);
         if (h && h !== q) u.searchParams.set('h', h);
+        var lr = new URL(window.location.href).searchParams.get('lr');
+        if (lr) u.searchParams.set('lr', lr);
+        if ({{ (layout_warning | default('')) | tojson }}) { u.searchParams.delete('q'); u.searchParams.delete('h'); u.searchParams.delete('lr'); }
         var im = new Image();
         try { im.fetchPriority = 'high'; } catch (e) {}
         im.src = u.toString();   // 立即发起首屏页图下载（命中同 URL 缓存供正式加载复用）
@@ -1036,11 +1050,13 @@
   {% endif %}
 </head>
 <body class="mode-{{ render_mode | default('image') }}{% if basic_reader_mode %} reader-basic{% endif %}">
+{% if layout_warning %}<div role="status" style="padding:12px;background:#fff2ce;color:#743b00">{{ layout_warning }}</div>{% endif %}
+
   <div class="layout">
     <main class="viewer-panel">
       <div class="reader-head">
         <div class="reader-title-row">
-          <h1 class="reader-title">{{ volume.display_title if volume else pdf_name }}</h1>
+          <h1 class="reader-title">{{ reader_heading.title }}</h1>
           <div class="reader-actions">
             <details class="toc-popover" id="tocPanel">
               <summary class="tool-btn secondary">目录</summary>
@@ -1079,9 +1095,9 @@
         </div>
         <div class="reader-meta">
           {% if volume %}
-          <div>卷次：<span>{{ volume.book }} 第 {{ volume.volume }} 卷</span></div>
+          <div>书目：<span>{{ reader_heading.title }}</span></div>
           {% endif %}
-          <div>当前位置：书本第 <span id="currentPage">{{ current_page_label }}</span> 页</div>
+          <div>当前位置：<span id="currentPage">{% if current_page_label and not current_page_label.startswith('PDF-') %}书本第 {{ current_page_label | replace('pre-', '') | upper }} 页{% else %}PDF 第 {{ page }} 页{% endif %}</span></div>
           <div>篇章：<span id="currentSection">{{ current_section or "未识别" }}</span></div>
           <div>程序版本：<span>{{ app_version_display }}</span></div>
         </div>
@@ -1095,7 +1111,7 @@
               class="page-jump-input"
               id="bookPageInput"
               type="text"
-              value="{% if current_page_label and not current_page_label.startswith('PDF-') %}{{ current_page_label | replace('pre-', '') }}{% endif %}"
+              value="{% if current_page_label and not current_page_label.startswith('PDF-') %}{{ current_page_label | replace('pre-', '') | upper }}{% endif %}"
               placeholder="页码"
               autocomplete="off"
               spellcheck="false"
@@ -1153,7 +1169,7 @@
           <nav class="page-footer-nav" aria-label="PDF 页面底部分页">
             <button type="button" class="tool-btn" id="bottomPrevBtn" aria-label="上一页，并回到新页面顶部">上一页</button>
             <div class="page-footer-indicator" id="bottomPageIndicator">
-              {% if current_page_label and not current_page_label.startswith('PDF-') %}书本第 {{ current_page_label | replace('pre-', '') }} 页 · {% endif %}PDF 第 {{ page }} / {{ page_count }} 页
+              {% if current_page_label and not current_page_label.startswith('PDF-') %}书本第 {{ current_page_label | replace('pre-', '') | upper }} 页 · {% endif %}PDF 第 {{ page }} / {{ page_count }} 页
             </div>
             <button type="button" class="tool-btn" id="bottomNextBtn" aria-label="下一页，并回到新页面顶部">下一页</button>
           </nav>
@@ -1175,7 +1191,7 @@
               </span>
             </div>
             <div class="page-cite-text" id="pageCiteText"></div>
-            <div class="page-cite-note">默认按《马克思主义研究》格式；切换后可直接复制，均含本页印刷页码。</div>
+            <div class="page-cite-note">默认按《马克思主义研究》格式；切换后可直接复制。有书本页码时优先显示，未核实时注明 PDF 页码。</div>
             <div class="page-cite-source" id="pageSource" hidden>原文来源：<a id="pageSourceLink" href="#" target="_blank" rel="noopener noreferrer"></a></div>
           </section>
 
@@ -1271,7 +1287,7 @@
             <input type="checkbox" id="aiThisVol" checked>
             <span class="ai-thisvol-text">
               <b>指定本部著作</b>
-              <span class="ai-thisvol-vol">只检索本卷 · {{ volume.display_title }}</span>
+              <span class="ai-thisvol-vol">只检索本卷 · {{ reader_heading.title }}</span>
             </span>
           </label>
           {% endif %}
@@ -1318,12 +1334,17 @@
   const initialSection = {{ current_section | tojson }};
   const sourceFile = {{ source_file | tojson }};
   const queryText = {{ query_text | tojson }};
+  let layoutPageMatches = {{ layout_page_matches | default([]) | tojson }};
+  let activeLayoutRef = new URL(window.location.href).searchParams.get("lr") || "";
+  let activeLayoutQuery = {{ query_text | tojson }};
   const highlightQueryText = {{ highlight_text | default(query_text) | tojson }};
+  const ocrGeometryRevision = {{ ocr_geometry_revision | default('') | tojson }};
   const pageCount = {{ page_count | tojson }};
   const pageLabels = {{ page_labels | tojson }};
+  const pageSegments = {{ page_segments | default({}) | tojson }};
   const renderMode = {{ render_mode | default('image') | tojson }};
   const viewerMode = {{ viewer_mode | tojson }};
-  const readingTitle = {{ (volume.display_title if volume else pdf_name) | tojson }};
+  const readingTitle = {{ reader_heading.title | tojson }};
   let currentPageNumber = {{ page | tojson }};
   let aiTokenQuotaState = {{ (state.ai_token_quota or {}) | tojson }};
 
@@ -1704,9 +1725,12 @@
   function buildViewerUrl(page) {
     const url = new URL('/viewer', window.location.origin);
     url.searchParams.set('file', sourceFile);
+    const layoutRef = activeLayoutRef;
+    if (layoutRef) url.searchParams.set('lr', layoutRef);
     url.searchParams.set('page', page);
     if (viewerMode) url.searchParams.set('mode', viewerMode);
     if (queryText) url.searchParams.set('q', queryText);
+    if (activeLayoutRef) url.searchParams.set('q', activeLayoutQuery);
     if (highlightQueryText && highlightQueryText !== queryText) url.searchParams.set('h', highlightQueryText);
     const label = pageLabels[String(page)] || pageLabels[page] || '';
     if (label && !String(label).startsWith('PDF-')) {
@@ -1721,13 +1745,21 @@
   function buildPageImageUrl(page) {
     const url = new URL('/page-image', window.location.origin);
     url.searchParams.set('file', sourceFile);
+    const layoutRef = activeLayoutRef;
+    if (layoutRef) url.searchParams.set('lr', layoutRef);
     url.searchParams.set('page', page);
     // rev 与服务端渲染版本号联动：渲染参数升级时同步 +1，用以击穿浏览器对 /page-image 的
-    // 24h 缓存（URL 变化即重新拉取，看过的页也立刻显示新清晰度）。服务端忽略 rev、缓存键不含
+    // 7d 缓存（URL 变化即重新拉取，看过的页也立刻显示新结果）。服务端忽略 rev、缓存键不含
     // rev，故不影响服务端缓存命中，仅作用于浏览器端。
-    url.searchParams.set('rev', '11');
+    // 高亮逻辑升级只定向击穿高亮图；无 q/h 的普通翻页 URL 保持不变。
+    url.searchParams.set('rev', (queryText || highlightQueryText) ? '12' : '11');
+    if ((queryText || highlightQueryText) && ocrGeometryRevision) {
+      url.searchParams.set('grev', ocrGeometryRevision);
+    }
     if (queryText) url.searchParams.set('q', queryText);
+    if (activeLayoutRef) url.searchParams.set('q', activeLayoutQuery);
     if (highlightQueryText && highlightQueryText !== queryText) url.searchParams.set('h', highlightQueryText);
+    if ({{ (layout_warning | default("")) | tojson }}) { url.searchParams.delete("q"); url.searchParams.delete("h"); url.searchParams.delete("lr"); }
     return url.toString();
   }
 
@@ -1738,7 +1770,7 @@
   function getPrintedPageLabel(page) {
     const label = getRawPageLabel(page);
     if (!label || label.startsWith('PDF-')) return '';
-    return label.startsWith('pre-') ? label.replace(/^pre-/, '') : label;
+    return label.startsWith('pre-') ? label.replace(/^pre-/, '').toUpperCase() : label;
   }
 
   function getPageLabel(page) {
@@ -1826,7 +1858,7 @@
   function updatePager() {
     const pageLabel = getPageLabel(currentPageNumber);
     const printedPageLabel = getPrintedPageLabel(currentPageNumber);
-    const locationText = `${printedPageLabel ? `书本第 ${printedPageLabel} 页 · ` : ''}PDF 第 ${currentPageNumber} / ${pageCount} 页`;
+    const locationText = `${pageSegments[currentPageNumber] ? pageSegments[currentPageNumber] + ' · ' : ''}${printedPageLabel ? `书本第 ${printedPageLabel} 页 · ` : ''}PDF 第 ${currentPageNumber} / ${pageCount} 页`;
     clearPageJumpStatus();
     if (bookPageInput) {
       bookPageInput.value = printedPageLabel;
@@ -1839,7 +1871,7 @@
     }
     if (pdfPageInput) pdfPageInput.value = String(currentPageNumber);
     if (bottomPageIndicator) bottomPageIndicator.textContent = locationText;
-    currentPage.textContent = pageLabel;
+    currentPage.textContent = printedPageLabel ? `书本第 ${printedPageLabel} 页` : `PDF 第 ${currentPageNumber} 页`;
     const setDisabled = (button, disabled) => {
       if (!button) return;
       if (disabled) {
@@ -2002,14 +2034,21 @@
     }
     const src = currentPageContext && currentPageContext.source_url ? currentPageContext.source_url : '';
     if (pageSource && pageSourceLink) {
-      if (src && cite) {
-        let host = '';
-        try { host = new URL(src).hostname.replace(/^www\./, ''); } catch (e) { host = src; }
+      let sourceUrl = null;
+      try { if (src) sourceUrl = new URL(src, window.location.href); } catch (e) {}
+      const isCurrentReaderPage = sourceUrl && sourceUrl.origin === window.location.origin
+        && sourceUrl.pathname === '/viewer'
+        && sourceUrl.searchParams.get('file') === sourceFile
+        && Number(sourceUrl.searchParams.get('page') || 1) === currentPageNumber;
+      if (src && cite && !isCurrentReaderPage) {
+        const host = sourceUrl ? sourceUrl.hostname.replace(/^www\./, '') : src;
         pageSourceLink.href = src;
         pageSourceLink.textContent = host;
         pageSource.hidden = false;
       } else {
         pageSource.hidden = true;
+        pageSourceLink.removeAttribute('href');
+        pageSourceLink.textContent = '';
       }
     }
     return cite;
@@ -2046,7 +2085,19 @@
     // 高亮：检索来源词 + 「查找本书」当前词，合并去重
     const terms = [...new Set([...queryTerms(findHighlight), ...queryTerms(highlightQueryText || queryText)])]
       .sort((a, b) => b.length - a.length);
-    pageText.innerHTML = highlightText(currentPageContext.current_text || '', terms);
+    if (activeLayoutRef) {
+      const spans = layoutPageMatches.filter(m => Number(m.pdf_page) === Number(currentPageNumber));
+      const raw = currentPageContext.current_text || '';
+      let cursor = 0, html = '';
+      for (const m of spans) {
+        if (raw.slice(m.raw_start, m.raw_end) !== m.text || m.raw_start < cursor) { html = esc(raw); cursor = raw.length; break; }
+        html += esc(raw.slice(cursor, m.raw_start)) + '<mark>' + esc(m.text) + '</mark>';
+        cursor = m.raw_end;
+      }
+      pageText.innerHTML = html + esc(raw.slice(cursor));
+    } else {
+      pageText.innerHTML = highlightText(currentPageContext.current_text || '', terms);
+    }
   }
 
   // ===== 查找本书（在当前著作内查词句，命中页跳转 + 文字面板高亮）=====
@@ -2102,6 +2153,7 @@
         const more = data.truncated ? `（仅列前 ${findMatches.length} 页）` : '';
         findCount.textContent = `共 ${data.total} 处 · ${data.pages} 页${more}`;
       }
+      if (data.exact_search_complete === false) findCount.textContent += ' · 排版补充检索未完成，请稍后重试';
       renderPageText();
     } catch (e) {
       if (seq === findReqSeq) findCount.textContent = '查找失败';
@@ -2116,6 +2168,9 @@
       const act = findResults.querySelector('.find-hit.active');
       if (act) act.scrollIntoView({ block: 'nearest' });
     }
+    layoutPageMatches = m.page_matches || [];
+    activeLayoutRef = m.layout_hit_ref || "";
+    activeLayoutQuery = findHighlight;
     loadPage(m.pdf_page);
   }
   if (findToggle) findToggle.addEventListener('click', (e) => {
@@ -2718,19 +2773,15 @@
       showPageJumpError('请输入有效的书本页码。', bookPageInput);
       return;
     }
-    if (token.toLowerCase() === normalizePageInput(getPrintedPageLabel(currentPageNumber)).toLowerCase()) {
-      updatePager();
-      return;
-    }
     const candidates = printedPageCandidates(bookPageInput.value);
     if (!candidates.length) {
       showPageJumpError(`未找到书本第 ${token} 页，请核对页码或改用 PDF 页码。`, bookPageInput);
       return;
     }
     if (candidates.length > 1) {
-      const choices = candidates.slice(0, 5).join('、');
+      const choices = candidates.slice(0, 5).map(page => `${pageSegments[page] ? pageSegments[page] + '，' : ''}PDF 第 ${page} 页`).join('；');
       const more = candidates.length > 5 ? '等' : '';
-      showPageJumpError(`书本第 ${token} 页对应多个位置（PDF 第 ${choices}${more} 页），请改用 PDF 页码。`, bookPageInput);
+      showPageJumpError(`书本第 ${token} 页对应多个位置（${choices}${more}），请在 PDF 页码框选择对应位置。`, bookPageInput);
       return;
     }
     loadPage(candidates[0]);
@@ -3051,8 +3102,8 @@
   (function () {
     if (!window.MarxNotes) return;
     var BOOK_KEY = {{ ('viewer:' ~ source_file) | tojson }};
-    var BOOK_TITLE = {{ (volume.book if volume else pdf_name) | tojson }};
-    var VOL_LABEL = {{ (('第 ' ~ volume.volume ~ ' 卷') if volume else '') | tojson }};
+    var BOOK_TITLE = {{ reader_heading.book_title | tojson }};
+    var VOL_LABEL = {{ reader_heading.volume_label | tojson }};
     var panel = window.MarxNotes.mountReaderPanel({
       reader: 'viewer',
       selectionBubble: '#pageText',
@@ -3080,3 +3131,4 @@
   {% include "_marx_mascot.html" %}
 </body>
 </html>
+

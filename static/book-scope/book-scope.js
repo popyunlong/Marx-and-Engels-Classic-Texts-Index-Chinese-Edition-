@@ -262,6 +262,10 @@
         return out;
       },
       count: function () { return Object.keys(sel).length; },
+      setTokens: function (tokens) {
+        sel = fromTokens(tokens);
+        persist(); paint(); onChange();
+      },
       hasSelection: function () { return Object.keys(sel).length > 0; },
       clear: function () { sel = {}; persist(); paint(); onChange(); }
     };

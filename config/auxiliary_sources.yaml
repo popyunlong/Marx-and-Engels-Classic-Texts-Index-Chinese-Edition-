@@ -1,0 +1,11 @@
+sources:
+  - key: 中共中央文件选集（1949—1966）总目录
+    role: toc_crosscheck_only
+    public: false
+    source: pdfs/中共中央文件选集/中共中央文件选集1949年10月_1966年5月总目录_13360592.pdf
+    file: pdfs/辅助资料/中共中央文件选集（1949—1966）总目录.pdf
+    page_count: 555
+    sha256: d41a3cfcb54b36a7d0bdc3ce66f9611ad645daf50058193852e1770b34e301c8
+    evidence_pdf_pages: {title: 2, copyright: 3, volume_map: [7, 8, 9, 10, 11], contents_from: 12}
+    isbn: 978-7-01-012314-1
+    note: 仅用于标题、年份和页码校对，不写入 pages/toc_entries，不产生公开检索结果。

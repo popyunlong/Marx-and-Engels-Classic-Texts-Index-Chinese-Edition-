@@ -476,6 +476,9 @@
       margin-bottom: 10px;
     }
     .search-mode-row .search-mode-tabs { margin-bottom: 0; }
+    .assoc-group-heading { font-size: 15px; color: #284568; margin: 18px 0 8px; }
+    .assoc-strategy-results .assoc-group-heading { color: #f3deb0; }
+    .assoc-strategy-results .empty { color: #243b55; background: #f4f0e6; border-color: #ccb977; }
     .search-mode-tabs {
       display: inline-flex;
       gap: 6px;
@@ -497,6 +500,43 @@
       background: #fff;
       color: var(--accent);
       border-color: var(--accent);
+    }
+    .search-mode-tab[data-mode="fuzzy"].active {
+      color: #173a60;
+      background: linear-gradient(180deg, #f8fbff, #dfeaf6);
+      border-color: #6e91b5;
+      box-shadow: 0 2px 7px rgba(40,69,104,.16);
+    }
+    /* 模糊检索恢复旧版深蓝样态；仅在点选模糊标签后生效。 */
+    .panel.fuzzy-mode {
+      color: #edf5ff;
+      background:
+        linear-gradient(180deg, rgba(22,58,99,.98), rgba(15,37,66,.99)),
+        repeating-linear-gradient(45deg, rgba(119,166,214,.09) 0 2px, transparent 2px 13px);
+      border: 1px solid #6e91b5;
+      box-shadow: 0 0 0 3px rgba(15,37,66,.42), 0 16px 42px rgba(12,28,52,.34);
+    }
+    .panel.fuzzy-mode h2 { color: #f4f8ff; }
+    .panel.fuzzy-mode .muted { color: #cad8e8; }
+    .panel.fuzzy-mode .search-mode-tabs { background: rgba(255,255,255,.09); border-color: rgba(174,204,235,.42); }
+    .panel.fuzzy-mode #q {
+      color: #173a60; background: linear-gradient(180deg, #fbfdff, #eef5fc);
+      border-color: #7fa2c5; box-shadow: inset 0 1px 7px rgba(31,78,121,.10);
+    }
+    .panel.fuzzy-mode #q::placeholder { color: #617994; }
+    .panel.fuzzy-mode #q:focus { border-color: #a9c8e8; box-shadow: 0 0 0 3px rgba(126,169,211,.25); }
+    .panel.fuzzy-mode #submitBtn.primary {
+      color: #173a60; border-color: #b7d2ec;
+      background: linear-gradient(180deg, #f7fbff, #c8ddf1);
+    }
+    .panel.fuzzy-mode #submitBtn.primary:hover { background: linear-gradient(180deg, #fff, #d9e9f7); }
+    /* 模糊、联想未选中时使用同一组中性灰按钮；联想的黑金样式只在点选后显现。 */
+    .search-mode-tab[data-mode="fuzzy"]:not(.active),
+    .search-mode-tab[data-mode="associative"]:not(.active) {
+      color: #626b76;
+      background: linear-gradient(180deg, #f4f5f6, #e2e5e8);
+      border-color: #c8cdd2;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.78), 0 1px 3px rgba(42,48,56,.10);
     }
     .search-mode-tab:disabled { opacity: .5; cursor: not-allowed; }
 
@@ -556,20 +596,19 @@
     /* 标准检索视觉零改动。配色：群青/普鲁士蓝底，象牙卷帙，安提克金描边与金线斜纹。      */
     /* ===================================================================== */
     .search-mode-tab[data-mode="associative"].active {
-      color: #fdf6e3;
-      background: linear-gradient(180deg, #25507f, var(--oil-blue));
-      border-color: var(--oil-gold);
-      box-shadow: 0 1px 0 rgba(201,162,39,.55) inset, 0 3px 8px rgba(15,37,66,.32);
+      color: #f6ecc6;
+      background: linear-gradient(180deg, #3a3b45 0%, #1a1b22 52%, #08090d 100%);
+      border-color: #c9a227;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 0 0 1px rgba(201,162,39,.35), 0 3px 9px rgba(0,0,0,.42);
     }
-    /* 联想模式：整张检索面板化为镶金蓝框（绅士油画质感） */
+    /* 联想模式：使用黑色鎏金框，与轻量的模糊检索明确区分。 */
     .panel.assoc-mode {
       color: #f3ecd9;
       background:
-        linear-gradient(180deg, rgba(22,58,99,.96), rgba(15,37,66,.98)),
-        repeating-linear-gradient(45deg, rgba(201,162,39,.10) 0 2px, transparent 2px 12px),
-        repeating-linear-gradient(-45deg, rgba(255,255,255,.045) 0 1px, transparent 1px 9px);
-      border: 1px solid var(--oil-gold);
-      box-shadow: 0 0 0 3px rgba(15,37,66,.92), 0 0 0 4px rgba(201,162,39,.5), 0 18px 50px rgba(12,28,52,.42);
+        linear-gradient(180deg, rgba(30,31,37,.98), rgba(10,11,14,.99)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.08) 0 2px, transparent 2px 13px);
+      border: 1px solid #c9a227;
+      box-shadow: 0 0 0 3px rgba(8,9,12,.96), 0 0 0 4px rgba(201,162,39,.48), 0 18px 50px rgba(0,0,0,.5);
     }
     .panel.assoc-mode h2 { color: #f6edd2; letter-spacing: .04em; }
     .panel.assoc-mode .muted { color: #c7d4e6; }
@@ -679,7 +718,22 @@
     }
     .search-scope-hint { color: #b9c2cf; font-size: .8rem; flex-basis: 100%; }
     .panel.assoc-mode .search-scope-hint { color: #c7d4e6; }
+    /* 精确/模糊模式为浅色面板：保留截图中的暗底金边 chips，同时让标题与提示清晰可读。 */
+    .panel:not(.assoc-mode):not(.research-mode) .search-scope-row { color: #31445d; }
+    .panel:not(.assoc-mode):not(.research-mode) .search-scope-label { color: #6f5315; }
+    .panel:not(.assoc-mode):not(.research-mode) .search-scope-hint { color: #657286; }
+    .panel.fuzzy-mode .search-scope-row { color: #e4eef9; }
+    .panel.fuzzy-mode .search-scope-label { color: #d7e8f8; }
+    .panel.fuzzy-mode .search-scope-hint { color: #bfd0e3; }
+    .panel.fuzzy-mode .search-chip {
+      color: #dceafa; background: rgba(9,30,53,.62); border-color: rgba(155,193,229,.52);
+    }
+    .panel.fuzzy-mode .search-chip:hover { color: #fff; border-color: #c5def5; }
+    .panel.fuzzy-mode .search-chip.active {
+      color: #173a60; background: linear-gradient(180deg, #f7fbff, #bdd6ec); border-color: #d9ebfb;
+    }
     /* 研究模式输入框：炭灰/石墨底 + 古金细边 + 浅金字（仅覆盖研究模式，不影响联想检索的象牙风） */
+    .panel.assoc-mode #q.brainstorm,
     .panel.research-mode #q.brainstorm {
       color: #efe7d0;
       background-color: #2c2d33;
@@ -689,7 +743,9 @@
       border: 1px solid rgba(201,162,39,.55);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 24px rgba(0,0,0,.34);
     }
+    .panel.assoc-mode #q.brainstorm::placeholder,
     .panel.research-mode #q.brainstorm::placeholder { color: #9b9aa3; }
+    .panel.assoc-mode #q.brainstorm:focus,
     .panel.research-mode #q.brainstorm:focus {
       border-color: #e8dcae;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 0 0 3px rgba(201,162,39,.22);
@@ -719,6 +775,14 @@
         linear-gradient(180deg, var(--oil-blue), var(--oil-blue-deep)),
         repeating-linear-gradient(45deg, rgba(201,162,39,.08) 0 2px, transparent 2px 13px);
       box-shadow: 0 0 0 4px rgba(201,162,39,.32), 0 18px 50px rgba(12,28,52,.4);
+    }
+    /* 联想结果与模糊结果分色：模糊沿用上方深蓝，联想使用黑色鎏金。 */
+    .assoc-results.semantic-results {
+      background:
+        linear-gradient(180deg, rgba(30,31,37,.99), rgba(8,9,13,.995)),
+        repeating-linear-gradient(45deg, rgba(201,162,39,.08) 0 2px, transparent 2px 13px);
+      border-color: #c9a227;
+      box-shadow: 0 0 0 4px rgba(8,9,12,.78), 0 0 0 5px rgba(201,162,39,.42), 0 18px 50px rgba(0,0,0,.5);
     }
     .assoc-result-head h2 { color: #f6edd2; margin: 0 0 4px; letter-spacing: .04em; }
     .assoc-lede { color: #c7d4e6; font-size: .92rem; line-height: 1.6; margin-bottom: 4px; }
@@ -1974,18 +2038,30 @@
     .results-handle .rh-txt { display: inline-flex; align-items: center; gap: 6px; line-height: 1; }
     .results-handle .rh-arrows { font-size: 0.98rem; }
     #resultsHpx, #resultsHmax { font-variant-numeric: tabular-nums; }
-    /* 联想（油画蓝）：框着色 + 剥去内层 .assoc-results 外框，让象牙卡直接坐蓝底 */
-    .results-box.is-bounded.theme-assoc {
+    /* 模糊（旧版油画蓝）：框着色 + 剥去内层外框，让象牙卡直接坐蓝底。 */
+    .results-box.is-bounded.theme-fuzzy {
       background: linear-gradient(180deg, #163a63, #0f2542); border-color: #c9a227;
       box-shadow: 0 0 0 3px rgba(15, 37, 66, 0.5), 0 16px 40px rgba(12, 28, 52, 0.4);
     }
+    .results-box.is-bounded.theme-fuzzy .results-box-head { border-bottom-color: #c9a227; }
+    .results-box.is-bounded.theme-fuzzy .results-fade { background: linear-gradient(180deg, rgba(15, 37, 66, 0), rgba(15, 37, 66, 0.9)); }
+    .results-box.is-bounded.theme-fuzzy .results-handle { background: linear-gradient(180deg, #1f4e79, #163a63); color: #e8cf86; border-top-color: #c9a227; }
+    .results-box.is-bounded.theme-fuzzy .results-handle:hover { background: linear-gradient(180deg, #24598a, #1a4370); color: #f6ecc6; }
+    /* 联想：黑曜石底 + 古金框，与联想输入面板保持一致。 */
+    .results-box.is-bounded.theme-assoc {
+      background: linear-gradient(180deg, #1e1f25, #08090d); border-color: #c9a227;
+      box-shadow: 0 0 0 3px rgba(8,9,12,.9), 0 0 0 4px rgba(201,162,39,.44), 0 18px 48px rgba(0,0,0,.48);
+    }
     .results-box.is-bounded.theme-assoc .results-box-head { border-bottom-color: #c9a227; }
+    .results-box.is-bounded.theme-assoc .results-fade { background: linear-gradient(180deg, rgba(8,9,13,0), rgba(8,9,13,.92)); }
+    .results-box.is-bounded.theme-assoc .results-handle { background: linear-gradient(180deg, #34353d, #17181d); color: #e8cf86; border-top-color: #c9a227; }
+    .results-box.is-bounded.theme-assoc .results-handle:hover { background: linear-gradient(180deg, #41424b, #202127); color: #fff0bd; }
+    .results-box.theme-fuzzy .book-tabs,
     .results-box.theme-assoc .book-tabs { display: none; }
+    .results-box.theme-fuzzy .results-scroll,
     .results-box.theme-assoc .results-scroll { background: transparent; }
+    .results-box.theme-fuzzy .assoc-results,
     .results-box.theme-assoc .assoc-results { background: none; border: none; box-shadow: none; padding: 0; border-radius: 0; }
-    .results-box.is-bounded.theme-assoc .results-fade { background: linear-gradient(180deg, rgba(15, 37, 66, 0), rgba(15, 37, 66, 0.9)); }
-    .results-box.is-bounded.theme-assoc .results-handle { background: linear-gradient(180deg, #1f4e79, #163a63); color: #e8cf86; border-top-color: #c9a227; }
-    .results-box.is-bounded.theme-assoc .results-handle:hover { background: linear-gradient(180deg, #24598a, #1a4370); color: #f6ecc6; }
     .ai-card {
       display: grid;
       gap: 12px;
@@ -2567,8 +2643,9 @@
             <div class="search-mode-row">
               <div class="search-mode-tabs" role="tablist" aria-label="检索模式">
                 <button type="button" class="search-mode-tab active" data-mode="standard" aria-pressed="true">{{ site_text('index.search_standard_tab') }}</button>
+                <button type="button" class="search-mode-tab" data-mode="fuzzy" aria-pressed="false">{{ site_text('search.fuzzy_tab') }}</button>
                 <button type="button" class="search-mode-tab" data-mode="associative" aria-pressed="false">{{ site_text('search.assoc_tab') }}</button>
-                {# 「研究型检索」入口已移至独立的「AI 研究对话」页(/ai)，首页搜索面板保留精确/模糊 + 联想两档。 #}
+                {# 「研究型检索」入口已移至独立的「AI 研究对话」页(/ai)。 #}
               </div>
               <button type="button" id="searchHelpTrigger" class="help-trigger" aria-expanded="false" aria-controls="searchHelpPanel" title="{{ site_text('index.search_help_trigger_title') }}" hidden>?</button>
             </div>
@@ -2595,15 +2672,15 @@
                 {% endif %}
               </span>
             </div>
-            {# 检索范围（著作群）：联想/研究检索共用。「自动」按语义路由；也可多选著作群限定。 #}
-            <div class="search-scope-row hidden" id="searchScopeRow">
+            {# 检索范围（著作群）：精确/模糊/联想共用，「自动」的执行语义由当前模式决定。 #}
+            <div class="search-scope-row" id="searchScopeRow">
               <span class="search-scope-label">检索范围</span>
               <div class="search-scope-chips" id="searchScopeChips" role="group" aria-label="检索范围（可多选著作群）">
                 {% for s in (search_scopes or []) %}
                 <button type="button" class="search-chip" data-scope="{{ s.id }}" aria-pressed="false">{{ s.label }}</button>
                 {% endfor %}
               </div>
-              <span class="search-scope-hint">选「自动」由 AI 判断该问题属于哪位作者/文献；也可勾选一个或多个著作群限定检索</span>
+              <span class="search-scope-hint" id="assocScopeHint">选「自动」由 AI 判断该问题属于哪位作者/文献；也可勾选一个或多个著作群限定检索</span>
             </div>
             <div class="row">
               <button type="submit" class="primary" id="submitBtn" {% if not state.search_enabled or not state.feature_access.search %}disabled{% endif %}>{{ site_text('index.search_submit') }}</button>
@@ -2789,14 +2866,30 @@
             <h3 class="v2cat-title">{{ group.label }}<span class="v2cat-n">{{ group.books|length }} 部 · {{ group.volume_count }} 卷</span></h3>
             <div class="v2books">
               {% for book in group.books %}
+              {% if book.key in ['smith_collected_2014', 'ricardo_collected_2013'] %}
+              {% for volume in book.volumes %}
+              <a class="v2book" data-bk="{{ book.key }}" data-volume-index="{{ loop.index0 }}" href="{{ volume.viewer_url }}&from=v2read">
+                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=volume.source_file) }}" alt="{{ volume.display_title }} 封面" onerror="this.remove()"></span>
+                <span class="v2book-body">
+                  <span class="v2book-title">{{ volume.display_title }}</span>
+                  <span class="v2book-meta">{{ volume.volume_heading }}{% if volume.page_count %} · {{ volume.page_count }} 页{% endif %}</span>
+                  <span class="v2book-tag">{% if volume.catalog_indexed %}AI 导读{% else %}原书已上线{% endif %}</span>
+                </span>
+              </a>
+              {% endfor %}
+              {% else %}
               <a class="v2book" data-bk="{{ book.key }}" href="{% if book.entry_volume.viewer_url %}{{ book.entry_volume.viewer_url }}&from=v2read{% else %}#{% endif %}">
                 <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=book.volumes[0].source_file) }}" alt="{{ book.title }} 封面" onerror="this.remove()"></span>
                 <span class="v2book-body">
                   <span class="v2book-title">{{ book.title }}</span>
                   <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>
+                  {% if book.recommender_name and book.recommender_email_masked %}
+                  <span class="v2book-recommender">推荐人：{{ book.recommender_name }}（{{ book.recommender_email_masked }}）</span>
+                  {% endif %}
                   <span class="v2book-tag">{% if book.catalog_complete %}AI 导读{% else %}原书已上线{% endif %}</span>
                 </span>
               </a>
+              {% endif %}
               {% endfor %}
             </div>
           </section>
@@ -2938,7 +3031,13 @@
               .catch(function(){ list.innerHTML='<div class="v2toc-empty">目录载入失败，请重试。</div>'; });
           }
           document.querySelectorAll('.v2book[data-bk]').forEach(function(card){ card.addEventListener('click',function(e){
-            var book=byKey[card.getAttribute('data-bk')]; if(!book) return; e.preventDefault(); showVolumes(book); open();
+            var book=byKey[card.getAttribute('data-bk')]; if(!book) return;
+            var vi=card.getAttribute('data-volume-index');
+            if(vi!==null){
+              var volume=book.volumes[Number(vi)]; if(!volume) return;
+              book=Object.assign({},book,{title:volume.title||book.title,volumes:[volume]});
+            }
+            e.preventDefault(); showVolumes(book); open();
           }); });
           elBack.addEventListener('click',function(){ if(curBook) showVolumes(curBook); });
           document.getElementById('v2DrawerClose').addEventListener('click',close);
@@ -3211,7 +3310,7 @@
      后面几段脚本（使用提示/篇章直达/注册分布/赞助）本身都有空值早返回，可全局保留。 #}
   {% if show_search %}
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
-  <script src="/static/book-scope/book-scope.js?v=3"></script>
+  <script src="/static/book-scope/book-scope.js?v=4"></script>
   <script>
   const requestToken = {{ request_token | tojson }};
   const csrfToken = {{ csrf_token | tojson }};
@@ -3264,6 +3363,7 @@
   const BOOK_SCOPE_TREE = {{ (book_scope_tree or []) | tojson }};
   const bookScopeMount = document.getElementById('bookScopeMount');
   let bookScopeCtl = null;
+  let searchMode = 'standard';
   const out = document.getElementById('results');
   const bookTabsEl = document.getElementById('searchBookTabs');
   const aiMessages = document.getElementById('aiMessages');
@@ -3337,7 +3437,9 @@
     state.searchExportContext = {
       q: payload.query,
       mode: payload.searchCooc ? 'cooccurrence' : 'exact',
-      scope: Array.isArray(payload.requested_book_scope) ? payload.requested_book_scope.slice() : null,
+      scope: Array.isArray(payload.requested_scope)
+        ? payload.requested_scope.slice()
+        : (Array.isArray(payload.requested_book_scope) ? payload.requested_book_scope.slice() : null),
       book: payload.book_filter || ''
     };
     if (searchExportControls) searchExportControls.hidden = false;
@@ -3449,7 +3551,7 @@
   })();
 
   // ===== 检索结果框：定位于检索面板正下方，随内容自适应 =====================
-  // 精确/模糊 → 中性有界可拉伸框；联想 → 油画蓝有界框；研究/加载/空态 → 自然铺展。
+  // 精确 → 中性框；模糊 → 油画蓝框；联想 → 黑色鎏金框；研究/加载/空态 → 自然铺展。
   // 向下拖动展开，上限=完整结果自然长度；不持久化，刷新即回初始收起高度(DEFAULT)。
   (function initResultsBox() {
     const box = document.getElementById('resultsBox');
@@ -3486,6 +3588,7 @@
     function detectKind() {
       if (out.childElementCount === 0) return 'none';
       if (out.querySelector('.assoc-results.research')) return 'research';
+      if (out.querySelector('.assoc-results.fuzzy-results')) return 'fuzzy';
       if (out.querySelector('.assoc-results')) return 'associative';
       if (out.querySelector('.search-loading')) return 'loading';
       if (out.querySelector('.empty')) return 'empty';
@@ -3493,15 +3596,16 @@
     }
     function update() {
       const kind = detectKind();
-      const hasResults = (kind === 'standard' || kind === 'associative' || kind === 'research');
+      const hasResults = (kind === 'standard' || kind === 'fuzzy' || kind === 'associative' || kind === 'research');
       box.classList.toggle('is-active', kind !== 'none');
       box.classList.toggle('has-results', hasResults);   // 有实际结果才显示「收起/退出」工具行
+      box.classList.toggle('theme-fuzzy', kind === 'fuzzy');
       box.classList.toggle('theme-assoc', kind === 'associative');
       box.classList.toggle('theme-research', kind === 'research');
-      bounded = (kind === 'standard' || kind === 'associative');
+      bounded = (kind === 'standard' || kind === 'fuzzy' || kind === 'associative');
       box.classList.toggle('is-bounded', bounded);
       // 联想/研究无书库分栏——强制隐藏，避免上一次标准检索的分栏残留
-      if ((kind === 'associative' || kind === 'research') && bookTabsEl) bookTabsEl.hidden = true;
+      if ((kind === 'fuzzy' || kind === 'associative' || kind === 'research') && bookTabsEl) bookTabsEl.hidden = true;
       // 头部：有结果（含工具行）或书库栏/引用格式栏可见时显示，否则整条收起
       if (head) head.style.display = (hasResults || (bookTabsEl && !bookTabsEl.hidden) || (citeBar && !citeBar.hidden)) ? '' : 'none';
       if (bounded) {
@@ -3999,7 +4103,9 @@
   }
 
   function saveSearchState(payload) {
-    try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(payload)); } catch (_) {}
+    const saved = Object.assign({}, payload, { owner_uid: currentUid });
+    if (!saved.kind && (saved.mode === 'results' || saved.mode === 'empty')) saved.kind = 'standard';
+    try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(saved)); } catch (_) {}
   }
 
   function loadSearchState() {
@@ -4047,7 +4153,8 @@
   }
 
   function historySignature(entry) {
-    return [entry.kind || '', entry.query || '', entry.searchCooc ? 'c' : '', entry.intent || ''].join('|');
+    return [entry.kind || '', entry.query || '', entry.searchCooc ? 'c' : '', entry.intent || '',
+      (entry.payload || {}).retrieval_strategy || '', JSON.stringify((entry.payload || {}).requested_scope || null)].join('|');
   }
 
   function recordSearchHistory(entry) {
@@ -4075,9 +4182,9 @@
   function standardRequestedBookKeys(payload) {
     const keys = new Set();
     if (payload && payload.book_filter) keys.add(String(payload.book_filter));
-    let tokens = (payload && Array.isArray(payload.requested_book_scope))
-      ? payload.requested_book_scope
-      : null;
+    let tokens = payload && payload.requested_scope != null
+      ? (Array.isArray(payload.requested_scope) ? payload.requested_scope : [payload.requested_scope])
+      : ((payload && Array.isArray(payload.requested_book_scope)) ? payload.requested_book_scope : null);
     if (!tokens && bookScopeCtl && bookScopeCtl.hasSelection()) tokens = bookScopeCtl.getTokens();
     (tokens || []).forEach(token => {
       const text = String(token || '');
@@ -4087,6 +4194,11 @@
         const cut = body.lastIndexOf(':');
         if (cut > 0) keys.add(body.slice(0, cut));
       }
+    });
+    // 著作群 token 要展开为其下真实书库，用于过滤精确检索的书库分栏。
+    (tokens || []).forEach(token => {
+      const group = BOOK_SCOPE_TREE.find(item => item.id === String(token || ''));
+      if (group) (group.books || []).forEach(book => keys.add(String(book.key || '')));
     });
     return keys;
   }
@@ -4099,14 +4211,26 @@
   }
 
   function standardScopeApplied(payload) {
+    const requested = payload && payload.requested_scope != null
+      ? (Array.isArray(payload.requested_scope) ? payload.requested_scope : [payload.requested_scope])
+      : [];
     return !!(
       (payload && payload.search_scope && payload.search_scope.applied) ||
-      standardRequestedBookKeys(payload).size
+      standardRequestedBookKeys(payload).size ||
+      requested.some(token => !['', 'auto', 'all'].includes(String(token || '')))
     );
   }
 
   function standardScopeLabel(payload) {
     if (payload && payload.search_scope && payload.search_scope.label) return payload.search_scope.label;
+    const requested = payload && payload.requested_scope != null
+      ? (Array.isArray(payload.requested_scope) ? payload.requested_scope : [payload.requested_scope])
+      : [];
+    const groupLabels = requested.map(token => {
+      const group = BOOK_SCOPE_TREE.find(item => item.id === String(token || ''));
+      return group ? group.label : '';
+    }).filter(Boolean);
+    if (groupLabels.length) return groupLabels.join('、');
     const keys = standardRequestedBookKeys(payload);
     const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
     return counts.filter(item => keys.has(String(item.key || '')))
@@ -4124,16 +4248,16 @@
     return { hits, books: visibleCounts.length };
   }
 
-  function historyKindLabel(kind) {
-    if (kind === 'assoc') return '联想';
-    if (kind === 'review') return '研究';
+  function historyKindLabel(entry) {
+    if (entry.kind === 'assoc') return (entry.payload || {}).retrieval_strategy === 'textual' ? '模糊' : '联想';
+    if (entry.kind === 'review') return '研究';
     return '精确';
   }
 
   function historySummaryText(entry) {
     const s = entry.summary || {};
     if (entry.kind === 'review') return `研究综述 · ${Number(s.cites || 0)} 条引文`;
-    if (entry.kind === 'assoc') return `联想命中 ${Number(s.count || 0)} 段`;
+    if (entry.kind === 'assoc') return `${(entry.payload || {}).retrieval_strategy === 'textual' ? '近似原文' : '联想'}命中 ${Number(s.count || 0)} 段`;
     if (entry.empty) return '未找到匹配结果';
     const hits = Number(s.hits || 0);
     const books = Number(s.books || 0);
@@ -4175,7 +4299,7 @@
           const kind = (entry.kind === 'assoc' || entry.kind === 'review') ? entry.kind : 'standard';
           return `
         <div class="sh-item" data-id="${escAttr(entry.id)}" role="button" tabindex="0" title="点击回看此次检索">
-          <span class="sh-badge ${kind}">${esc(historyKindLabel(kind))}</span>
+          <span class="sh-badge ${kind}">${esc(historyKindLabel(entry))}</span>
           <span class="sh-main">
             <span class="sh-q">${esc(entry.query || '')}</span>
             <span class="sh-meta">${esc(historySummaryText(entry))} · ${esc(formatHistoryTime(entry.ts))}</span>
@@ -4195,15 +4319,19 @@
   function restoreSearchHistory(id) {
     const entry = loadSearchHistory().find(item => item.id === id);
     if (!entry) return;
+    invalidateSearchRequest();
     q.value = entry.query || '';
     if (entry.kind === 'review' && entry.payload) {
       applySearchMode('research');
       renderResearchReview(deepCopySafe(entry.payload), false);
     } else if (entry.kind === 'assoc' && entry.payload) {
-      applySearchMode('associative');
+      applySearchMode(entry.payload.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative');
+      restoreSearchScope(entry.payload.requested_scope);
       renderAssociativeResults(deepCopySafe(entry.payload));
     } else {
       applySearchMode('standard');
+      if (entry.payload) restoreSearchScope(entry.payload.requested_scope != null
+        ? entry.payload.requested_scope : (entry.payload.requested_book_scope || []));
       if (coocCheckbox) coocCheckbox.checked = !!entry.searchCooc;
       if (entry.empty || !entry.payload) {
         renderEmpty('未找到匹配结果。');
@@ -4283,15 +4411,20 @@
     const assocNote = (hit.associative_reason || relTag)
       ? `<div class="assoc-note">${relTag}${hit.associative_reason ? `${reasonPrefix}${esc(hit.associative_reason)}` : ''}${hit.associative_confidence != null ? ` <span class="assoc-conf">（匹配度 ${esc(String(hit.associative_confidence))}）</span>` : ''}</div>`
       : '';
-    const weightBadge = hit.associative_weight != null
+    const weightBadge = hit.textual_match_kind
+      ? `<span class="assoc-weight">${esc(({exact:'整句一致',edited:`错漏字差异 ${hit.textual_difference} 字`,omission:`原句中间多 ${hit.textual_difference} 字`,clue:'仅有部分词语相同'})[hit.textual_match_kind] || '文本线索')}</span>`
+      : hit.associative_weight != null
       ? `<span class="assoc-weight">匹配权重 ${esc(String(hit.associative_weight))}</span>`
       : '';
-    const stageBadge = hit.associative_stage === 'textual'
+    const groupLabels = { preferred: '优先核对', candidate: '其他候选线索', chapter: '篇章线索', textual: '可靠原句候选', textual_clue: '其他文本线索' };
+    const stageBadge = groupLabels[hit.associative_group]
+      ? `<span class="assoc-stage-badge ${hit.associative_stage === 'textual' ? 'textual' : 'semantic'}">${groupLabels[hit.associative_group]}</span>`
+      : hit.associative_stage === 'textual'
       ? '<span class="assoc-stage-badge textual">文本近似·优先</span>'
       : hit.associative_stage === 'semantic'
         ? '<span class="assoc-stage-badge semantic">语义联想·补充</span>'
         : '';
-    const fuzzyBadge = hit.match_type === 'fuzzy'
+    const fuzzyBadge = !hit.textual_match_kind && hit.match_type === 'fuzzy'
       ? `<span class="fuzzy-badge">近似匹配${hit.fuzzy_errors != null ? ` · 相差 ${esc(String(hit.fuzzy_errors))} 字` : ''}</span>`
       : '';
     // 名目索引命中（P2a）：权威「概念→页码」，标注命中的索引词条
@@ -4300,7 +4433,7 @@
       : '';
     return `
       <article class="hit${weightBadge ? ' assoc-hit' : ''}${hit.subject_label ? ' subject-hit' : ''}">
-        <div class="loc">${bookTitle}${hit.personal ? '' : ` 第 ${hit.volume} 卷`} · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${hit.personal ? '<span class="mylib-badge">🔒 我的文库</span>' : ''}${stageBadge}${weightBadge}${fuzzyBadge}</div>
+        <div class="loc">${bookTitle}${hit.personal ? '' : ` 第 ${hit.volume} 卷`} · ${fmtPages(hit.printed_pages, hit.pdf_pages)}${hit.personal ? '<span class="mylib-badge">🔒 我的文库</span>' : ''}${stageBadge}${weightBadge}${fuzzyBadge}${hit.exact_basis === 'layout' ? '<span class="fuzzy-badge">精确命中 · 已忽略排版标记</span>' : ''}</div>
         ${subjectBadge}
         ${assocNote}
         ${section}
@@ -4491,6 +4624,7 @@
       return;
     }
     renderResultsCore(payload);
+    if (payload.exact_search_complete === false) out.insertAdjacentHTML("afterbegin", '<div class="assoc-intent-banner">排版补充检索未完成，以下保留已有结果；请稍后重试。</div>');
     if (standardScopeApplied(payload)) {
       const label = standardScopeLabel(payload) || '已指定著作';
       out.insertAdjacentHTML('afterbegin', `<div class="assoc-intent-banner">本次仅检索：${esc(label)} · 手动指定（清除范围后才恢复全库）</div>`);
@@ -4571,15 +4705,25 @@
   }
 
   // 仅对“登录用户主动发起的新精确检索”启用模糊兜底。翻页、书库切换、
-  // 同段多词和访客请求均不触发，避免重复请求或越权调用站方 AI。
-  function shouldAutoAssoc(text, options, isCooc) {
+  // 同段多词和访客请求均不触发；模糊兜底只做近似原文，绝不再串联联想检索。
+  function shouldAutoFuzzy(text, options, isCooc) {
     if (!isLoggedIn || !assocAccessEnabled || isCooc || !options || options.record !== true) return false;
     const normalized = String(text || '').replace(/\s+/g, '');
     if (normalized.length < 4 || /^(book:|vol:)/i.test(normalized)) return false;
     return true;
   }
 
+  let searchGeneration = 0;
+  function invalidateSearchRequest() {
+    searchGeneration += 1;
+    refreshSubmitButton();
+  }
+  q.addEventListener('input', invalidateSearchRequest);
+  if (coocCheckbox) coocCheckbox.addEventListener('change', invalidateSearchRequest);
+  if (bookScopeMount) bookScopeMount.addEventListener('click', invalidateSearchRequest);
+
   async function doSearch(text, options = {}) {
+    const runId = ++searchGeneration;
     if (!state.searchEnabled) {
       renderEmpty('当前索引不可用，请先检查资料包与数据库校验状态。');
       return;
@@ -4597,36 +4741,51 @@
       ['扫描书库索引', '定位页码与段落', '整理命中结果']
     );
     try {
-      // 「精选到书/卷」有选择时随请求带上 scope（多本/卷级后置过滤）；无选择则不发，保持全库/书库分栏原行为。
-      const bscopeTokens = (bookScopeCtl && bookScopeCtl.hasSelection()) ? bookScopeCtl.getTokens() : null;
+      // 精确检索也使用著作群范围；“自动”在精确模式下归一为全部著作。
+      // 点击结果书库分栏时，显式单书范围优先于当前 chips。
+      // requestedScope 是用户选定的持久范围；点击结果分栏时 API 临时收窄到
+      // 单本，但仍保留原范围，才能继续显示同一著作群内的其它书库与安全翻页。
+      const requestedScope = deepCopySafe(
+        options.scope !== undefined ? options.scope : currentSearchScope('standard')
+      );
+      const apiScope = book ? [`book:${book}`] : requestedScope;
       const searchBody = { q: text, group_page: groupPage, book, mode };
-      if (bscopeTokens) searchBody.scope = bscopeTokens;
+      if (apiScope != null) searchBody.scope = apiScope;
       const resp = await apiFetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(searchBody)
       });
       const data = await resp.json();
-      // 把本次选择写入结果载荷，供分页、历史恢复与旧后端响应的前端隔离使用。
-      if (bscopeTokens && bscopeTokens.length) data.requested_book_scope = bscopeTokens.slice();
-      else if (book) data.requested_book_scope = [`book:${book}`];
+      if (runId !== searchGeneration) return;
+      // 把本次选择写入结果载荷，供分页、历史恢复和书库分栏按范围显示。
+      data.requested_scope = deepCopySafe(requestedScope);
+      const requestedTokens = Array.isArray(requestedScope) ? requestedScope : [requestedScope];
+      const requestedBooks = requestedTokens.filter(token => /^(book:|vol:)/.test(String(token || '')));
+      if (requestedBooks.length) data.requested_book_scope = requestedBooks;
       if (!data.ok) {
         renderEmpty(data.error || '未知错误');
         updateBookTabs(null);
         return;
+      }
+      if (data.exact_search_complete === false) {
+        data.layout_warning = "排版补充检索未完成，以下保留已有结果；请稍后重试。";
       }
       const isCooc = (mode === 'cooccurrence');
       const hasPersonalResults = Array.isArray(data.personal_results) && data.personal_results.length > 0;
       if (!data.results.length && !hasPersonalResults) {
         // 登录用户的首次精确检索零命中，自动转入站方出资的模糊 locate 链路。
         // 这只是检索体验兜底：不改为 research，不进入用户 AI 额度闸门。
-        if (shouldAutoAssoc(text, options, isCooc)) {
+        if (data.exact_search_complete !== false && shouldAutoFuzzy(text, options, isCooc)) {
           // 结果链路已经切换为模糊检索，顶部标签/范围控件也必须同步，
           // 避免在「精确检索」外观下展示模糊结果。
-          applySearchMode('associative');
-          await doAssociativeSearch(text, 'locate', { fallbackFrom: text });
+          const fallbackScope = book ? [`book:${book}`] : deepCopySafe(selectedSearchScope());
+          applySearchMode('fuzzy');
+          restoreSearchScope(fallbackScope);
+          await doAssociativeSearch(text, 'locate', { fallbackFrom: text, strategy: 'textual', scope: fallbackScope, runId });
           return;
         }
+        if (data.exact_search_complete === false) { renderEmpty(data.layout_warning); return; }
         const scopeLabel = standardScopeLabel(data);
         const emptyMessage = standardScopeApplied(data) && scopeLabel
           ? `${scopeLabel}范围内未找到匹配结果。`
@@ -4634,7 +4793,8 @@
         renderEmpty(emptyMessage);
         updateBookTabs(data);
         saveSearchState(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: emptyMessage }, data));
-        if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, empty: true });
+        if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, empty: true,
+          payload: deepCopySafe(Object.assign({ query: text, mode: 'empty', searchCooc: isCooc, message: emptyMessage }, data)) });
         return;
       }
       const payload = Object.assign({ query: text, mode: 'results', searchCooc: isCooc }, data);
@@ -4643,10 +4803,11 @@
       saveSearchState(payload);
       if (options.record) recordSearchHistory({ kind: 'standard', query: text, searchCooc: isCooc, payload: deepCopySafe(payload), summary: summarizeStandard(payload) });
     } catch (error) {
+      if (runId !== searchGeneration) return;
       renderEmpty(error.message || '请求失败');
       updateBookTabs(null);
     } finally {
-      submitBtn.disabled = !state.searchEnabled;
+      if (runId === searchGeneration) refreshSubmitButton();
     }
   }
 
@@ -4754,13 +4915,18 @@
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
-  // 当前检索范围值：'auto' | 'all' | [著作群 id...]（多选）。后端 _resolve_search_scope 三者都吃。
-  function currentSearchScope() {
+  // 界面当前范围：'auto' | 'all' | [著作群 id...]。指定书/卷始终优先。
+  function selectedSearchScope() {
     // D2：「精选到书/卷」有选择即以其为准（覆盖著作群 chips）。
     if (bookScopeCtl && bookScopeCtl.hasSelection()) return bookScopeCtl.getTokens();
     if (searchScopeState.mode === 'all') return 'all';
     if (searchScopeState.mode === 'custom' && searchScopeState.selected.length) return searchScopeState.selected.slice();
     return 'auto';
+  }
+  // 精确检索不做语义路由：其“自动”等同“全部著作”；模糊/联想仍保留智能判断。
+  function currentSearchScope(mode = searchMode) {
+    const selected = selectedSearchScope();
+    return mode === 'standard' && selected === 'auto' ? 'all' : selected;
   }
   (function initSearchScope() {
     if (!searchScopeChips) return;
@@ -4776,6 +4942,7 @@
       const btn = (e.target && e.target.closest) ? e.target.closest('.search-chip') : null;
       const id = btn && btn.getAttribute('data-scope');
       if (!id) return;
+      invalidateSearchRequest();
       if (id === 'auto') searchScopeState = { mode: 'auto', selected: [] };
       else if (id === 'all') searchScopeState = { mode: 'all', selected: [] };
       else {
@@ -4834,9 +5001,19 @@
   }
 
   async function doAssociativeSearch(text, mode, options = {}) {
+    const runId = options.runId === undefined ? ++searchGeneration : options.runId;
+    const stillCurrent = () => runId === searchGeneration;
+    const fail = message => {
+      if (!stillCurrent()) return;
+      renderEmpty(message);
+    };
     const isResearch = (mode === 'research');
+    const strategy = options.strategy || (searchMode === 'fuzzy' ? 'textual' : 'semantic');
+    const requestedScope = deepCopySafe(options.scope !== undefined ? options.scope : currentSearchScope(searchMode));
     if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
-      renderEmpty(isResearch ? {{ site_text('search.research_no_access') | tojson }} : {{ site_text('search.assoc_no_ai') | tojson }});
+      renderEmpty(isResearch ? {{ site_text('search.research_no_access') | tojson }}
+        : strategy === 'textual' ? {{ site_text('search.fuzzy_no_access') | tojson }}
+        : {{ site_text('search.assoc_no_ai') | tojson }});
       return;
     }
     if (!state.searchEnabled) {
@@ -4854,16 +5031,18 @@
     } else {
       renderSearchLoading(
         'associative',
-        {{ site_text('search.assoc_loading') | tojson }},
-        ['提取定位线索', '召回真实原文', '按相关度排序']
+        strategy === 'textual' ? '正在查找近似原文…' : '正在理解大意与篇章线索，查找原文…',
+        strategy === 'textual' ? ['比对原始词句', '定位近似段落', '整理出处'] : ['理解大意与篇章', '召回真实原文', '按语义匹配排序']
       );
     }
     try {
       const resp = await apiFetch('/api/search/associative', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate', scope: currentSearchScope() })
+        body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate', scope: requestedScope,
+          ...(isResearch ? {} : { retrieval_strategy: strategy }) })
       });
+      if (!stillCurrent()) return;
       let data;
       const ctype = (resp.headers.get('content-type') || '').toLowerCase();
       if (ctype.indexOf('text/event-stream') >= 0) {
@@ -4872,7 +5051,7 @@
         // 服务端持续吐字节，这里只需把流读完即可。
         data = await readSseResultStream(resp);
         if (!data) {
-          renderEmpty('研究综述生成超时或返回异常，请稍后重试（如反复失败，可把研究论题写得更聚焦一些）。');
+          fail('研究综述生成超时或返回异常，请稍后重试（如反复失败，可把研究论题写得更聚焦一些）。');
           return;
         }
       } else {
@@ -4880,19 +5059,28 @@
           data = await resp.json();
         } catch (parseErr) {
           // 兜底：万一仍收到 HTML 错误页(如边缘超时)，给可读提示而非 "Unexpected token '<'"。
-          renderEmpty(isResearch
+          fail(isResearch
             ? '研究综述生成耗时较长或服务繁忙，请稍后重试。'
             : '网络繁忙或返回异常，请稍后重试。');
           return;
         }
       }
+      if (!stillCurrent()) return;
       if (data.research_quota) updateResearchQuota(data.research_quota);
       if (data.ai_token_quota) updateAiTokenQuota(data.ai_token_quota);
       if (!data.ok) {
-        renderEmpty(data.error || '未知错误');
+        fail(data.error || '未知错误');
+        return;
+      }
+      // 联想检索必须保持语义策略。即使旧服务或中间层返回了文本降级，
+      // 也不允许在“联想检索”标签下展示近似检索结果。
+      if (!isResearch && strategy === 'semantic' && data.effective_strategy === 'textual') {
+        fail('联想检索未完成语义匹配，本次未展示近似检索候选，请稍后重试。');
         return;
       }
       if (options.fallbackFrom) data.fallback_from = String(options.fallbackFrom);
+      if (!isResearch) data.requested_scope = requestedScope;
+      if (options.fallbackFrom) data.fallback_chain = ['exact','textual'];
       if (data.display_mode === 'research_review') {
         renderResearchReview(data);
         const cits = Array.isArray(data.review_citations) ? data.review_citations : [];
@@ -4907,8 +5095,8 @@
       } else {
         renderAssociativeResults(data);
         const results = Array.isArray(data.results) ? data.results : [];
-        const historyPayload = { kind: 'assoc', query: data.query || text, results, warnings: Array.isArray(data.warnings) ? data.warnings : [], intent: data.intent || '', mode: data.mode || 'auto', scope: data.scope || null, retrieval_breakdown: data.retrieval_breakdown || null, fallback_from: data.fallback_from || '', message: data.message || '' };
-        if (results.length) {
+        const historyPayload = Object.assign({}, data, { kind: 'assoc', query: data.query || text, results });
+        if (results.length || data.retrieval_strategy) {
           recordSearchHistory({
             kind: 'assoc',
             query: data.query || text,
@@ -4925,9 +5113,9 @@
         }
       }
     } catch (error) {
-      renderEmpty(error.message || '请求失败');
+      fail(error.message || '请求失败');
     } finally {
-      submitBtn.disabled = !state.searchEnabled;
+      if (stillCurrent()) refreshSubmitButton();
     }
   }
 
@@ -4939,6 +5127,13 @@
     setSearchExportContext(null);
     const results = Array.isArray(data.results) ? data.results : [];
     const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+    if (data.retrieval_strategy) {
+      assocState = Object.assign({}, data, { results, warnings, page: 1,
+        query: data.query || q.value.trim(), fallbackFrom: data.fallback_from || '' });
+      saveSearchState(Object.assign({}, data, { kind: 'assoc', owner_uid: currentUid, results, warnings }));
+      renderAssociativePage();
+      return;
+    }
     if (!results.length) {
       assocState = null;
       const emptyMessage = data.fallback_from
@@ -5012,8 +5207,46 @@
     }
   }
 
+  function renderStrategyPage() {
+    const data = assocState;
+    const textual = data.retrieval_strategy === 'textual';
+    const total = data.results.length;
+    const totalPages = Math.max(1, Math.ceil(total / ASSOC_PAGE_SIZE));
+    const page = Math.min(Math.max(1, data.page || 1), totalPages);
+    data.page = page;
+    const start = (page - 1) * ASSOC_PAGE_SIZE;
+    const slice = data.results.slice(start, start + ASSOC_PAGE_SIZE);
+    const labels = { preferred: '优先核对', candidate: '其他候选线索', chapter: '篇章线索', textual: '可靠原句候选', textual_clue: '其他文本线索' };
+    let previousGroup = '';
+    const rows = slice.map((hit, i) => {
+      const group = hit.associative_group || 'candidate';
+      const heading = group !== previousGroup ? `<h3 class="assoc-group-heading">${labels[group] || labels.candidate}</h3>` : '';
+      previousGroup = group;
+      return heading + renderHitRow(hit, `assoc-${start + i}`);
+    }).join('');
+    const pager = totalPages > 1 ? `<div class="pager group-list-pager">
+      <button class="secondary" data-action="assoc-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页组</button>
+      <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} 段</span>
+      <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button></div>` : '';
+    const description = textual ? (data.textual_reliable_count != null ? `找到 ${data.textual_reliable_count} 条可靠原句候选；零碎匹配另列为文本线索。` : '按输入词句查找，供核对原文。')
+      : data.effective_strategy === 'textual' ? '本次仅返回文本候选，尚未完成大意联想。'
+      : data.semantic_ranked ? '优先展示语义匹配的原文候选，其余段落作为继续查找的线索。'
+      : '已按线索召回候选，尚未完成语义排序，请逐条核对。';
+    const empty = data.message || (textual ? '未找到近似原文，可切换到联想检索按大意查找。' : '未找到匹配正文，请补充大意、篇名或关键词。');
+    const heading = textual ? '模糊检索结果' : {{ site_text('search.assoc_result_heading') | tojson }};
+    out.innerHTML = `<div class="assoc-results assoc-strategy-results ${textual ? 'fuzzy-results' : 'semantic-results'}">
+      <div class="assoc-result-head"><h2>${esc(heading)}</h2>
+        <div class="assoc-lede">${description}${total ? ` 共 ${total} 段。` : ''}</div></div>
+      ${data.fallbackFrom ? '<div class="assoc-fallback-banner">精确检索未命中，已自动转为模糊检索；本次不会自动进入联想检索。</div>' : ''}
+      ${scopeBannerHtml(data.scope)}
+      ${data.warnings.length ? `<div class="assoc-note" role="status">${data.warnings.map(esc).join('；')}</div>` : ''}
+      ${total ? `${pager}<div class="assoc-list">${rows}</div>${pager}` : `<div class="empty">${esc(empty)}</div>`}
+    </div>`;
+  }
+
   function renderAssociativePage() {
     if (!assocState) return;
+    if (assocState.retrieval_strategy) { renderStrategyPage(); return; }
     const { results, warnings } = assocState;
     const total = results.length;
     const totalPages = Math.max(1, Math.ceil(total / ASSOC_PAGE_SIZE));
@@ -5323,25 +5556,38 @@
     }
   }
 
-  // 检索模式：standard（精确/模糊）/ associative（AI 联想定位）。共用文本框与“开始检索”按钮。
-  let searchMode = 'standard';
+  // 检索模式：standard（精确）/ fuzzy（近似原文）/ associative（大意／篇章联想）。
+  function restoreSearchScope(scope) {
+    if (scope == null) return; // Older histories did not store the requested scope.
+    const tokens = Array.isArray(scope) ? scope : [scope];
+    const books = tokens.filter(token => /^(book:|vol:)/.test(String(token)));
+    if (bookScopeCtl && bookScopeCtl.setTokens) bookScopeCtl.setTokens(books);
+    const ids = tokens.filter(token => !/^(book:|vol:)/.test(String(token)) && token !== 'auto' && token !== 'all');
+    searchScopeState = { mode: tokens.includes('all') ? 'all' : ids.length ? 'custom' : 'auto', selected: ids };
+    paintSearchChips();
+  }
   const modeTabs = Array.from(document.querySelectorAll('.search-mode-tab'));
+  modeTabs.forEach(button => button.addEventListener('click', invalidateSearchRequest));
   const STANDARD_PLACEHOLDER = q.getAttribute('placeholder') || '';
+  const FUZZY_PLACEHOLDER = {{ site_text('search.fuzzy_placeholder') | tojson }};
   const ASSOCIATIVE_PLACEHOLDER = {{ site_text('search.assoc_placeholder') | tojson }};
   const RESEARCH_PLACEHOLDER = {{ site_text('search.research_placeholder') | tojson }};
 
   function applySearchMode(mode) {
-    searchMode = (mode === 'associative' || mode === 'research') ? mode : 'standard';
+    searchMode = ['fuzzy', 'associative', 'research'].includes(mode) ? mode : 'standard';
     modeTabs.forEach(tab => {
       const active = tab.dataset.mode === searchMode;
       tab.classList.toggle('active', active);
       tab.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
     const panel = form.closest('.panel');
+    const exact = searchMode === 'standard';
+    const fuzzy = searchMode === 'fuzzy';
     const associative = searchMode === 'associative';
     const research = searchMode === 'research';
-    const aiSearch = associative || research;   // 两种 AI 检索共用暗色面板 + 头脑风暴输入框
+    const aiSearch = associative || research;
     if (panel) {
+      panel.classList.toggle('fuzzy-mode', fuzzy);
       panel.classList.toggle('assoc-mode', associative);
       panel.classList.toggle('research-mode', research);
     }
@@ -5350,36 +5596,41 @@
       q.setAttribute('placeholder', research ? RESEARCH_PLACEHOLDER : ASSOCIATIVE_PLACEHOLDER);
     } else {
       q.classList.remove('brainstorm');
-      // 优先用「使用提示」脚本剥离后的精简 placeholder（写在 dataset.standardPlaceholder）
-      q.setAttribute('placeholder', q.dataset.standardPlaceholder || STANDARD_PLACEHOLDER);
+      q.setAttribute('placeholder', fuzzy ? FUZZY_PLACEHOLDER : (q.dataset.standardPlaceholder || STANDARD_PLACEHOLDER));
     }
-    // 同段多词开关仅在标准检索下露出（两种 AI 检索另有提取逻辑，不适用）
-    if (coocToggle) coocToggle.classList.toggle('hidden', aiSearch);
+    // 同段多词和使用提示只属于精确检索。
+    if (coocToggle) coocToggle.classList.toggle('hidden', !exact);
     // 研究型检索说明条仅在研究模式露出
     if (researchNote) researchNote.classList.toggle('hidden', !research);
-    // 「检索范围」选择条在两种 AI 检索下露出（标准检索无需——结果出来后有书库分栏）
-    if (searchScopeRow) searchScopeRow.classList.toggle('hidden', !aiSearch);
+    // 三种检索共用范围条；“自动”在精确模式按全库处理。
+    if (searchScopeRow) searchScopeRow.classList.remove('hidden');
+    const scopeHint = document.getElementById('assocScopeHint');
+    if (scopeHint) scopeHint.textContent = exact
+      ? '精确检索中选「自动」按全部著作检索；也可勾选著作群或指定书卷。'
+      : fuzzy
+        ? '选「自动」根据输入线索判断范围；也可勾选著作群或指定书卷。'
+        : '选「自动」由 AI 判断相关作者或文献；也可勾选著作群或指定书卷。';
     // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
     const tagGroup = document.getElementById('citationFeatureTags');
-    if (tagGroup) tagGroup.style.display = aiSearch ? 'none' : '';
+    if (tagGroup) tagGroup.style.display = exact ? '' : 'none';
     // 「使用提示」按钮与面板仅对精确检索有意义
     const helpTrigger = document.getElementById('searchHelpTrigger');
     const helpPanel = document.getElementById('searchHelpPanel');
-    if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = aiSearch ? 'none' : '';
-    if (aiSearch && helpPanel) helpPanel.hidden = true;
+    if (helpTrigger && !helpTrigger.hidden) helpTrigger.style.display = exact ? '' : 'none';
+    if (!exact && helpPanel) helpPanel.hidden = true;
     refreshSubmitButton();
   }
 
-  // 当前模式是否对本账号开放（标准检索照旧由 searchEnabled 决定；联想/研究看各自权限位）。
+  // 模糊与联想沿用既有 associative 权限，不因拆分扩大账号权限。
   function modeHasAccess(mode) {
-    if (mode === 'associative') return assocAccessEnabled;
+    if (mode === 'fuzzy' || mode === 'associative') return assocAccessEnabled;
     if (mode === 'research') return researchAccessEnabled;
     return state.searchEnabled;
   }
 
   // 「开始检索」按钮随模式刷新：联想/研究无权限时不禁用，而是变成登录/开通引导按钮（点击跳转）。
   function refreshSubmitButton() {
-    const lockable = (searchMode === 'associative' || searchMode === 'research');
+    const lockable = (searchMode === 'fuzzy' || searchMode === 'associative' || searchMode === 'research');
     if (lockable && !modeHasAccess(searchMode)) {
       submitBtn.disabled = false;
       submitBtn.textContent = isLoggedIn ? LOCKED_MEMBER_CTA : LOCKED_LOGIN_CTA;
@@ -5394,7 +5645,10 @@
   }
 
   modeTabs.forEach(tab => {
-    // 无权限的联想/研究标签保留悬浮说明，但不再禁用——点击即可进入，按钮转为登录/开通引导。
+    // 无权限的模糊/联想标签保留悬浮说明，点击后提交按钮转为登录/开通引导。
+    if (tab.dataset.mode === 'fuzzy' && !assocAccessEnabled) {
+      tab.title = {{ site_text('search.fuzzy_tab_title') | tojson }};
+    }
     if (tab.dataset.mode === 'associative' && !assocAccessEnabled) {
       tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
     }
@@ -5406,6 +5660,7 @@
       applySearchMode(tab.dataset.mode);
     });
   });
+  applySearchMode('standard');
 
   // 点击「开始检索」后把结果区滚入视野：#results 在页面靠下，doSearch/doAssociativeSearch
   // 都会先同步 renderEmpty 出加载态，所以此刻滚动已有内容可见，随后结果就地填充不再跳动。
@@ -5423,8 +5678,10 @@
     if (!text) return;
     if (searchMode === 'research') {
       doAssociativeSearch(text, 'research');
+    } else if (searchMode === 'fuzzy') {
+      doAssociativeSearch(text, 'locate', { strategy: 'textual' });
     } else if (searchMode === 'associative') {
-      doAssociativeSearch(text, 'locate');
+      doAssociativeSearch(text, 'locate', { strategy: 'semantic' });
     } else {
       doSearch(text, { record: true });
     }
@@ -5437,9 +5694,9 @@
   });
 
   q.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      form.requestSubmit();
-    }
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    form.requestSubmit();
   });
 
   // 「AI 随心问」已迁出为全站右侧抽屉(_ai_assistant.html)；首页不再有这些 DOM 元素。
@@ -5501,8 +5758,9 @@
       const query = (payload && payload.query) || q.value.trim();
       if (!query) return;
       const mode = (payload && payload.searchCooc) ? 'cooccurrence' : '';
-      if (bookScopeCtl && bookScopeCtl.hasSelection()) bookScopeCtl.clear();  // 点书库分栏=切到该本，清掉「精选到书/卷」
-      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode });
+      const scope = payload.requested_scope !== undefined
+        ? payload.requested_scope : (payload.requested_book_scope || currentSearchScope('standard'));
+      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode, scope });
     });
   }
 
@@ -5596,7 +5854,9 @@
       const nextPage = Math.max(1, Number(groupListPager.dataset.page || 1));
       if (!query) return;
       const mode = payload.searchCooc ? 'cooccurrence' : '';
-      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '', mode });
+      const scope = payload.requested_scope !== undefined
+        ? payload.requested_scope : (payload.requested_book_scope || currentSearchScope('standard'));
+      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '', mode, scope });
       return;
     }
 
@@ -5611,17 +5871,28 @@
     }
   });
 
-  // 不在页面加载时自动「恢复」上次检索结果。原因：
-  //  1) 从阅读器返回是「新标签页(target=_blank)返回」，原检索标签页全程未刷新，
-  //     结果本就还在 DOM 里——无需恢复，用户要求的「从阅读器返回保留结果」自动满足。
-  //  2) 真正会触发本处的只有手动刷新(F5)、退出登录跳转、重新进入首页。这些场景下
-  //     把上次结果搬回来，会造成「检索说明/模式」与「结果」错乱，甚至显示上一个账号
-  //     的残留结果，故一律给出干净初始态。
-  //  3) 需要回看历史检索，请用下方「历史检索记录」(localStorage，按用户隔离)。
-  // 切勿在此重新 applySearchMode：那会在「使用提示」脚本读取 placeholder 之前把它改成
-  // 联想/研究的说明，污染 dataset.standardPlaceholder，导致精确检索框显示联想检索说明。
-  // 注：sessionStorage 的 SEARCH_STATE_KEY 仍用于本次会话内的翻页/书库筛选，由 doSearch
-  // 实时写入，无需也不应在此恢复渲染。
+  // Only restore the new, owner-tagged strategy results on an actual reload.
+  // Wait for the help script to capture the original standard placeholder first.
+  window.addEventListener('DOMContentLoaded', () => {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    const saved = loadSearchState();
+    if (!navigation || navigation.type !== 'reload' || saved.owner_uid !== currentUid) return;
+    if (saved.kind === 'standard') {
+      q.value = saved.query || '';
+      applySearchMode('standard');
+      if (coocCheckbox) coocCheckbox.checked = !!saved.searchCooc;
+      restoreSearchScope(saved.requested_scope != null ? saved.requested_scope : (saved.requested_book_scope || []));
+      if (saved.mode === 'empty') renderEmpty(saved.message || '未找到匹配结果。');
+      else renderResults(saved);
+      updateBookTabs(saved);
+      return;
+    }
+    if (saved.kind !== 'assoc' || !saved.retrieval_strategy) return;
+    q.value = saved.query || '';
+    restoreSearchScope(saved.requested_scope);
+    applySearchMode(saved.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative');
+    renderAssociativeResults(saved);
+  });
 
   // 历史检索记录：入口按钮开合 + 列表点击回看 / 删除单条 / 清空 + 外部点击/Esc 关闭。
   (function setupSearchHistory() {

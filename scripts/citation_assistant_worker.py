@@ -29,6 +29,7 @@ from app import (  # noqa: E402
     _citation_export_worker,
     _citation_template_version,
     _search_export_worker,
+    _search_export_template_version,
 )
 
 
@@ -54,8 +55,11 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
     processed = 0
     next_cleanup_at = 0.0
     loaded_fingerprint = _corpus_file_fingerprint()
+    loaded_corpus_sha256 = _citation_corpus_sha256()
+    loaded_template_version = _citation_template_version()
+    loaded_export_template_version = _search_export_template_version()
     recovered = tasks.recover_jobs_for_loaded_corpus(
-        _citation_corpus_sha256(), _citation_template_version(),
+        loaded_corpus_sha256, loaded_template_version,
     )
     if recovered["analysis"] or recovered["export"]:
         print(
@@ -81,13 +85,21 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
         # The established citation-assistant lane always has priority.  Search
         # exports may use this process only while that lane is idle.
         try:
-            citation_job = tasks.claim_next_job(worker_id, lease_seconds=900)
+            citation_job = tasks.claim_next_job(
+                worker_id, lease_seconds=900,
+                corpus_sha256=loaded_corpus_sha256,
+                template_version=loaded_template_version,
+            )
         except Exception as exc:
             citation_claim_ok = False
             print(f"citation assistant claim unavailable: {exc}", flush=True)
         if citation_claim_ok and citation_job is None and search_export_tasks.resources_allow_start():
             try:
-                export_job = search_export_tasks.claim_next_job(worker_id)
+                export_job = search_export_tasks.claim_next_job(
+                    worker_id,
+                    corpus_version=loaded_corpus_sha256,
+                    template_version=loaded_export_template_version,
+                )
             except Exception as exc:
                 print(f"search export claim unavailable: {exc}", flush=True)
 

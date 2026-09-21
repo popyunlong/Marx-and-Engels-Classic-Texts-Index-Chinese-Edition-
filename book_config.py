@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +37,24 @@ class BookConfig:
     # 仍保持「题名起首」的既有格式，不会改动已有引文。
     authors: tuple[str, ...] = ()
     translators: tuple[str, ...] = ()
+    # 补充责任者与版本证据。旧书目缺省为空，因此不会改变任何既有引文；新增书目可将
+    # 编者、整理者、电子整理本说明和所据底本透明带入引文。
+    editors: tuple[str, ...] = ()
+    organizers: tuple[str, ...] = ()
+    edition_note: str = ""
+    source_edition: str = ""
     # 阅读器与 AI 检索使用的专题键；空表示仍作为普通独立书库。
     collection: str = ""
+    # 用户荐书公开归属。完整邮箱只保留在既有荐书业务库；公开书目仅保存发布时
+    # 核准的用户名与脱敏邮箱快照，避免阅读热路径查询会员库或意外泄露原地址。
+    recommendation_id: int | None = None
+    recommender_name: str = ""
+    recommender_email_masked: str = ""
+    # 限时公开窗口（UTC ISO-8601，半开区间 [public_from, public_until)）。
+    # 留空表示沿用旧书永久公开行为；available=False 仍拥有最高优先级。
+    public_from: str = ""
+    public_until: str = ""
+    quality_note: str = ""
     # 分卷单位。绝大多数著作以「卷」分卷，故默认「卷」；但《建党以来重要文献选编》
     # 《建国以来重要文献选编》原书封面标的是「第十七册」，引文须作「第17册」才与原书相符。
     # 注意：后台自定义引文模板里写死了「第{volume}卷」，故非「卷」的书库会绕过模板走
@@ -101,6 +117,34 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return default
 
 
+_PRINTED_VOLUME_LABELS = ("上卷", "中卷", "下卷", "上册", "中册", "下册")
+
+
+def _manifest_volume_labels(path: Path) -> dict[str, dict[int, str]]:
+    """Read only explicit printed labels already present in the live manifest."""
+    if not path.is_file():
+        return {}
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, dict[int, str]] = {}
+    for book, rows in payload.items():
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            volume = _coerce_int(row.get("volume"), 0)
+            text = f"{row.get('display_title') or ''} {row.get('file') or ''}"
+            label = next((item for item in _PRINTED_VOLUME_LABELS if item in text), "")
+            if volume > 0 and label:
+                result.setdefault(str(book), {})[volume] = label
+    return result
+
+
 def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
     if not path.exists():
         return list(DEFAULT_BOOK_CONFIGS)
@@ -144,7 +188,23 @@ def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
                 translators=tuple(
                     str(v).strip() for v in (item.get("translators") or []) if str(v).strip()
                 ),
+                editors=tuple(
+                    str(v).strip() for v in (item.get("editors") or []) if str(v).strip()
+                ),
+                organizers=tuple(
+                    str(v).strip() for v in (item.get("organizers") or []) if str(v).strip()
+                ),
+                edition_note=str(item.get("edition_note") or "").strip(),
+                source_edition=str(item.get("source_edition") or "").strip(),
                 collection=str(item.get("collection") or "").strip(),
+                recommendation_id=(
+                    _coerce_int(item.get("recommendation_id"), 0) or None
+                ),
+                recommender_name=str(item.get("recommender_name") or "").strip(),
+                recommender_email_masked=str(item.get("recommender_email_masked") or "").strip(),
+                public_from=str(item.get("public_from") or "").strip(),
+                public_until=str(item.get("public_until") or "").strip(),
+                quality_note=str(item.get("quality_note") or "").strip(),
                 volume_unit=str(item.get("volume_unit") or "卷").strip() or "卷",
                 volume_labels=tuple(
                     (int(k), str(v).strip())
@@ -180,12 +240,25 @@ def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
                 publisher=str(first.get("publisher") or "").strip(),
                 place=str(first.get("place") or "").strip(),
                 tag_class="western-marxism expanded",
-                available=True,
+                available=_coerce_bool(first.get("available"), True),
                 single_volume=len(rows) == 1,
                 authors=tuple(str(v).strip() for v in first.get("authors") or [] if str(v).strip()),
                 translators=tuple(str(v).strip() for v in first.get("translators") or [] if str(v).strip()),
+                editors=tuple(str(v).strip() for v in first.get("editors") or [] if str(v).strip()),
+                organizers=tuple(str(v).strip() for v in first.get("organizers") or [] if str(v).strip()),
+                edition_note=str(first.get("edition_note") or first.get("edition") or "").strip(),
+                source_edition=str(first.get("source_edition") or "").strip(),
                 collection="western_marxism",
             ))
+    derived_labels = _manifest_volume_labels(path.parent / "manifest.yaml")
+    if derived_labels:
+        merged: list[BookConfig] = []
+        for config in configs:
+            labels = dict(config.volume_labels)
+            for volume, label in derived_labels.get(config.key, {}).items():
+                labels.setdefault(volume, label)
+            merged.append(replace(config, volume_labels=tuple(sorted(labels.items()))))
+        configs = merged
     return configs or list(DEFAULT_BOOK_CONFIGS)
 
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from page_labels import page_reference, citation_pages, VERSION as PAGE_LABEL_VERSION
+
 import json
+import membership_purchase as multi_purchase
 import html
 import ipaddress
 import os
@@ -13,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -25,6 +29,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import fitz
+import yaml
+from rapidfuzz import fuzz as rapidfuzz_fuzz
 from flask import (
     Flask,
     Response,
@@ -42,6 +48,7 @@ from flask import (
     stream_with_context,
     url_for,
 )
+from itsdangerous import BadData
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -72,6 +79,8 @@ from ai import (
     ZHIPU_DEFAULT_MODEL,
     ZHIPU_DEFAULT_BASE_URL,
     ZHIPU_SEARCH_ENGINES,
+    RESEARCH_REVIEW_MIN_CJK_CHARS,
+    AIAnswer,
     AIServiceError,
     ZAIClient,
     load_ai_config,
@@ -81,8 +90,22 @@ from ai import (
     reset_ai_overrides,
     save_ai_overrides,
 )
+
+
 from build_index import normalize
+from ai_evidence import clean_evidence, exact_quote
+import ai_citations
+import ai_citation_runtime
+import ai_research_evidence
+
+
 from build_index import DB_PATH as CORPUS_INDEX_DB_PATH
+from ocr_geometry import (
+    database_revision as _ocr_geometry_database_revision,
+    default_geometry_path as _default_ocr_geometry_path,
+    geometry_cache_token as _ocr_geometry_cache_token,
+    locate_geometry_rects as _locate_ocr_geometry_rects,
+)
 import citation_assistant as citation_tasks
 import citation_agent_shadow
 import citation_agent_test_web
@@ -303,7 +326,8 @@ from journal_fulltext import (
     storage_usage as journal_fulltext_storage_usage,
 )
 from journal_taxonomy import DISCIPLINES as JOURNAL_DISCIPLINES
-from journal_storage import JOURNAL_TMP_DIR
+from journal_storage import JOURNAL_ARTICLES_DIR, JOURNAL_TMP_DIR
+from journal_quality import document_asset_manifest, file_sha256, safe_asset_path, validate_batch_documents
 from broadcast_email import (
     BROADCAST_SCOPES,
     count_recipients as count_broadcast_recipients,
@@ -317,11 +341,11 @@ from broadcast_email import (
     send_campaign as send_broadcast_campaign,
 )
 from runtime_env import (
-    APP_NAME,
     APP_TOKEN_HEADER,
     APP_VERSION,
     APPDATA_DIR,
     RUNTIME_ROOT,
+    WEB_APP_NAME,
     collect_runtime_status,
     compute_sha256,
     configure_logging,
@@ -329,8 +353,11 @@ from runtime_env import (
     load_activation_status,
     load_deployment_settings,
 )
-from book_config import BookConfig, load_book_configs
-from volume_presentation import TRUSTED_TOC_DATE_BOOKS, volume_presentation
+
+APP_NAME = WEB_APP_NAME
+
+from book_config import BOOKS_CONFIG_PATH, BookConfig, load_book_configs
+from volume_presentation import TRUSTED_TOC_DATE_BOOKS, reader_title, volume_presentation
 from static_library_web import (
     register_static_library,
     static_library_has_content,
@@ -366,7 +393,7 @@ GROUPS_PER_PAGE = 20
 SHORT_QUERY_CHAPTER_MAX_LEN = 4
 ASSOC_RERANK_TOP = 12  # 联想检索仅对权重最高的前若干候选做 AI 标注/解释（候选多时控成本）
 ASSOC_RERANK_TOP_RESEARCH = 20  # 研究意图用更大的重排池：覆盖论题不同侧面并给出分组理由
-RESEARCH_REVIEW_SOURCES = 24     # 研究综述喂给 AI 的真实原文源条数：支撑 20-24 条引用；相关度由 _select_research_review_hits 的 floor 守门，命中不足则少给、绝不堆砌弱相关
+RESEARCH_REVIEW_SOURCES = 30     # 研究综述候选证据上限；正文按论证需要选用，不设最低引用数、不凑满
 REQUEST_TOKEN = secrets.token_urlsafe(24)
 LOGGER = configure_logging()
 DEPLOYMENT = load_deployment_settings()
@@ -445,6 +472,7 @@ def create_app() -> Flask:
     )
     flask_app.config.update(
         SECRET_KEY=load_session_secret(),
+        APP_NAME=WEB_APP_NAME,
         APP_MODE=DEPLOYMENT.app_mode,
         BIND_HOST=DEPLOYMENT.bind_host,
         PORT=DEPLOYMENT.port,
@@ -483,6 +511,7 @@ PAYMENT_CONFIG = load_zpay_config(DEPLOYMENT.public_base_url)
 PAYMENT_CLIENT = ZPayClient(PAYMENT_CONFIG)
 ALLOWED_SOURCE_FILES = load_allowed_source_files()
 PAGE_IMAGE_CACHE_DIR = APPDATA_DIR / "page_images"
+OCR_GEOMETRY_DB_PATH = _default_ocr_geometry_path(CORPUS_INDEX_DB_PATH)
 # 期刊文献 PDF 的按需镜像缓存（点击下载时首次拉取并落盘，之后本地直发）。
 JOURNAL_PDF_CACHE_DIR = JOURNAL_TMP_DIR / "legacy-pdf-cache"
 corpus = Corpus.load_default() if BASE_RUNTIME.can_search else None
@@ -499,7 +528,7 @@ try:
     )
 except (TypeError, ValueError):
     CITATION_AGENT_SHADOW_TIMEOUT_SECONDS = 45.0
-if corpus is not None:
+if corpus is not None and os.environ.get("MARX_SKIP_SEARCH_WARM", "0") != "1":
     # 后台预热篇章分段缓存：避免首个短词海量检索因一次性构建分段而出现卡顿。
     def _warm_search_caches() -> None:
         try:
@@ -616,6 +645,19 @@ READER_ENDPOINTS = {
     "api_library_toc_suggest",
     "api_library_volume_toc",
 }
+# Keep the pre-existing IP ceilings for newly audited endpoints. Adding an
+# endpoint to the audit must never accidentally exempt it from global limiting.
+_LEGACY_READER_RATE_ENDPOINTS = frozenset(READER_ENDPOINTS)
+READER_ENDPOINTS.update({
+    "api_pdf_page_context", "api_reader_find",
+    "wenku_home", "wenku_reader", "wenku_raw",
+    "liushi_home", "liushi_reader", "liushi_raw",
+    "api_mylib_page_text", "api_mylib_page_image", "api_mylib_book_search",
+    "journal_alerts_article", "journal_alerts_pdf",
+    "api_search_export_download", "citation_assistant_download",
+})
+# Cross-endpoint observations use the existing asynchronous audit. No new
+# combined quota is enforced during this compatibility-first rollout.
 CSRF_EXEMPT_ENDPOINTS = {
     "zpay_notify",
     "zpay_return",
@@ -834,6 +876,122 @@ def _book_sort_order(book: str) -> int:
     return _book_config(book).sort_order
 
 
+def _parse_public_timestamp(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+_PUBLIC_WINDOW_CACHE_LOCK = threading.Lock()
+_PUBLIC_WINDOW_CACHE_MTIME_NS: int | None = None
+_PUBLIC_WINDOW_CACHE: dict[str, tuple[str, str]] = {}
+
+
+def _runtime_public_window(cfg: BookConfig) -> tuple[str, str]:
+    """Reload the tiny timed-window projection when books.yaml is atomically replaced.
+
+    This lets the publisher assign the exact activation instant after isolated
+    preflight succeeds and immediately before Caddy receives the cutover.
+    Ordinary books never take this path.
+    """
+    if getattr(cfg, "collection", "") != "user_recommended":
+        return str(cfg.public_from or ""), str(cfg.public_until or "")
+    global _PUBLIC_WINDOW_CACHE_MTIME_NS, _PUBLIC_WINDOW_CACHE
+    try:
+        mtime_ns = BOOKS_CONFIG_PATH.stat().st_mtime_ns
+        if _PUBLIC_WINDOW_CACHE_MTIME_NS != mtime_ns:
+            with _PUBLIC_WINDOW_CACHE_LOCK:
+                if _PUBLIC_WINDOW_CACHE_MTIME_NS != mtime_ns:
+                    payload = yaml.safe_load(BOOKS_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+                    projection = {
+                        str(row.get("key") or ""): (
+                            str(row.get("public_from") or "").strip(),
+                            str(row.get("public_until") or "").strip(),
+                        )
+                        for row in payload.get("books") or []
+                        if isinstance(row, dict) and str(row.get("key") or "").strip()
+                    }
+                    _PUBLIC_WINDOW_CACHE = projection
+                    _PUBLIC_WINDOW_CACHE_MTIME_NS = mtime_ns
+        return _PUBLIC_WINDOW_CACHE.get(
+            cfg.key, (str(cfg.public_from or ""), str(cfg.public_until or ""))
+        )
+    except (OSError, ValueError, TypeError, yaml.YAMLError):
+        return "invalid", "invalid"
+
+
+def _book_is_public(book: str | BookConfig, *, now: datetime | None = None) -> bool:
+    """Return whether a configured corpus book is in its public window.
+
+    Legacy books have no timestamps and retain their existing behaviour.  A
+    partially configured or malformed timed window fails closed so an operator
+    mistake cannot accidentally make a limited release permanent.
+    """
+    cfg = book if isinstance(book, BookConfig) else BOOK_CONFIG_BY_KEY.get(str(book or ""))
+    if cfg is None or not bool(getattr(cfg, "available", True)):
+        return False
+    raw_from, raw_until = _runtime_public_window(cfg)
+    if not raw_from and not raw_until:
+        return True
+    start = _parse_public_timestamp(raw_from)
+    end = _parse_public_timestamp(raw_until)
+    if start is None or end is None or end <= start:
+        return False
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return start <= moment < end
+
+
+def _public_book_keys(*, now: datetime | None = None) -> set[str]:
+    return {
+        cfg.key for cfg in BOOK_CONFIGS
+        if cfg.key in (corpus.books if corpus is not None else {}) and _book_is_public(cfg, now=now)
+    }
+
+
+def _intersect_public_scope(scope: object) -> object:
+    active = _public_book_keys()
+    if scope is None:
+        return active
+    if isinstance(scope, dict):
+        return {str(key): value for key, value in scope.items() if str(key) in active}
+    return {str(key) for key in scope if str(key) in active}
+
+
+def _source_book_config(source_file: str) -> BookConfig | None:
+    volume = corpus.get_volume_by_source_file(_normalize_source_file(source_file)) if corpus else None
+    return BOOK_CONFIG_BY_KEY.get(volume.book) if volume is not None else None
+
+
+def _require_source_public(source_file: str) -> BookConfig:
+    cfg = _source_book_config(source_file)
+    if cfg is None:
+        abort(404, description="未找到对应的卷册信息。")
+    admin = bool(
+        has_request_context()
+        and (_admin_content_access_enabled() or _desktop_content_access_enabled())
+    )
+    if not admin and not _book_is_public(cfg):
+        abort(404, description="请求的资料未开放或公开期已结束。")
+    return cfg
+
+
+def _source_public_cache_seconds(source_file: str, default: int) -> int:
+    cfg = _source_book_config(source_file)
+    _start, raw_end = _runtime_public_window(cfg) if cfg else ("", "")
+    end = _parse_public_timestamp(raw_end)
+    if end is None:
+        return max(0, int(default))
+    remaining = int((end - datetime.now(timezone.utc)).total_seconds())
+    return max(0, min(int(default), remaining))
+
+
 _COLLECTION_LABELS = {
     "classical_marxism": "马克思主义经典著作",
     "marxism_china": "马克思主义中国化时代化经典著作",
@@ -842,6 +1000,7 @@ _COLLECTION_LABELS = {
     # 年谱是编年体生平记录，与「著作」体裁不同，故单列一组而非塞进领袖著作组。
     "leader_chronicles": "领袖年谱",
     "western_marxism": "西马文库",
+    "user_recommended": "用户荐书",
     "kant_works": "康德著作集",
     "hegel_works": "黑格尔著作集",
     "feuerbach_works": "费尔巴哈著作集",
@@ -850,6 +1009,7 @@ _COLLECTION_LABELS = {
 # 仅控制「阅读」页专题栏目的陈列次序，不改变书目、检索结果或引文的全局 sort_order。
 # 黑格尔是马克思主义经典著作的直接哲学背景，故在阅读栏目中紧排其上。
 _COLLECTION_LIBRARY_SORT_ORDERS = {
+    "user_recommended": 3,
     "kant_works": 4,
     "hegel_works": 5,
     "feuerbach_works": 6,
@@ -862,6 +1022,7 @@ _COLLECTION_DESCRIPTIONS = {
     "party_state_documents": "历次党代会报告、全会公报、重要文献选编与五年规划纲要 · 各部文献独立编目，可按目录阅读、检索原文并生成规范引文",
     "leader_chronicles": "马克思主义者的编年体生平记录 · 可按年份查考某日言行并检索原文",
     "western_marxism": "西方马克思主义经典著作 · 48 个书目、50 个卷册独立编目，可按目录阅读、检索原文并生成规范引文",
+    "user_recommended": "读者推荐并获授权公开的著作 · 可按目录阅读、检索原文并使用 AI 导读",
     "kant_works": "康德《著作全集》现有七部八册（原第 1—5、7—9 卷） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
     "hegel_works": "黑格尔八部主要著作（16 册） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
     "feuerbach_works": "商务印书馆《费尔巴哈文集》十一部著作 · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
@@ -879,6 +1040,10 @@ def _book_payload(book: str) -> dict:
         "collection": cfg.collection,
         "collection_label": _COLLECTION_LABELS.get(cfg.collection, cfg.collection),
         "single_volume": cfg.single_volume,
+        "recommendation_id": cfg.recommendation_id,
+        "recommender_name": cfg.recommender_name,
+        "recommender_email_masked": cfg.recommender_email_masked,
+        "quality_note": cfg.quality_note,
     }
 
 
@@ -1636,7 +1801,7 @@ def _render_checkout_page(order: dict, plan: dict, *, mode: str, pay_url: str = 
     return render_template(
         "payment_checkout.html",
         title="扫码支付",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         state=current_view_state(),
         order=order,
         plan=plan,
@@ -1669,15 +1834,17 @@ def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict):
     if _is_monitoring_request():
         try:
             clear_pending_orders(user_id=int(user["id"]))
-            order = create_pending_order(user_id=int(user["id"]), plan_code=plan_code)
+            order = create_pending_order(user_id=int(user["id"]), plan_code=plan_code,
+                                         purchase_months=int(order.get("purchase_months") or 1))
         except Exception:
             pass
     # 兜底防过时：订单金额/币种若与当前套餐价不一致（管理员改过价，或这是之前失败时按旧价创建的订单），
     # 作废旧单、按新价重建，确保收银页与二维码都用新金额。覆盖「在线支付」与「继续支付」两个入口。
     try:
-        if int(order.get("amount_cents") or 0) != int(plan.get("price_cents") or 0) or str(
-            order.get("currency") or ""
-        ).upper() != str(plan.get("currency") or "CNY").upper():
+        if (not multi_purchase.is_monthly_order(order) and order.get("purchase_action") != "upgrade"
+            and (int(order.get("amount_cents") or 0) != int(plan.get("price_cents") or 0) or str(
+                order.get("currency") or ""
+            ).upper() != str(plan.get("currency") or "CNY").upper())):
             order = create_pending_order(user_id=int(user["id"]), plan_code=plan_code)
     except Exception:
         pass
@@ -2339,14 +2506,14 @@ def _chapter_scope_books() -> list[dict]:
     out: list[dict] = []
     added_collections: set[str] = set()
     for cfg in sorted(BOOK_CONFIGS, key=lambda c: c.sort_order):
-        if not getattr(cfg, "available", True):
+        if not _book_is_public(cfg):
             continue
         if corpus is not None and not corpus.get_volumes(cfg.key):
             continue
         if cfg.collection and cfg.collection not in added_collections:
             collection_books = [
                 c.key for c in BOOK_CONFIGS
-                if c.collection == cfg.collection and getattr(c, "available", True)
+                if c.collection == cfg.collection and _book_is_public(c)
                 and (corpus is None or corpus.get_volumes(c.key))
             ]
             if collection_books:
@@ -2785,6 +2952,21 @@ def _pdf_render_available(source_file: str) -> bool:
     return pdf_path.suffix.lower() == ".pdf" and pdf_path.exists()
 
 
+PAGE_IMAGE_HIGHLIGHT_MAX_CHARS = 160
+PAGE_IMAGE_FUZZY_HIGHLIGHT_MIN_CHARS = 6
+PAGE_IMAGE_FUZZY_HIGHLIGHT_SCORE_CUTOFF = 82.0
+PAGE_IMAGE_FUZZY_HIGHLIGHT_MIN_SPAN_RATIO = 0.70
+PAGE_IMAGE_FUZZY_HIGHLIGHT_MAX_SPAN_RATIO = 1.30
+
+
+def _bounded_highlight_text(value: object) -> str:
+    """统一阅读器深链、文字面板与页图渲染使用的高亮上限。
+
+    限制长度只是为了约束页图缓存键和异常长查询的对齐成本；不改变检索本身。
+    """
+    return " ".join(str(value or "").split())[:PAGE_IMAGE_HIGHLIGHT_MAX_CHARS]
+
+
 def _highlight_terms(query_text: str) -> list[str]:
     query_text = " ".join(query_text.split())
     if not query_text:
@@ -2881,6 +3063,66 @@ def _per_char_term_rects(page, terms: list[str]) -> list:
     return rects[:12]
 
 
+def _layout_highlight_rects(page, source_file, page_number, reference):
+    """Map a versioned canonical occurrence to equal PDF character blocks only.
+
+    No approximate/short-word fallback: a stale or unmappable reference yields
+    no highlight, rather than marking other occurrences of the same words.
+    """
+    from rapidfuzz.distance import Levenshtein
+    index = getattr(corpus, 'layout_index', None)
+    spans = index.resolve(source_file, reference) if index else None
+    volume = corpus.get_volume_by_source_file(source_file) if corpus else None
+    if not spans or volume is None:
+        return []
+    pi = next((i for i, p in enumerate(volume.pages) if p.pdf_page == page_number), None)
+    if pi is None:
+        return []
+    base = volume.page_offsets[pi]
+    canonical = volume.pages[pi].norm_text
+    selected = [(max(a, base) - base, min(b, base + len(canonical)) - base)
+                for a, b in spans if a < base + len(canonical) and b > base]
+    if not selected or len(canonical) > 20000:
+        return []
+    chars, boxes = [], []
+    for block in page.get_text('rawdict', flags=fitz.TEXTFLAGS_RAWDICT & ~fitz.TEXT_PRESERVE_IMAGES).get('blocks', []):
+        for line in block.get('lines', []):
+            for span in line.get('spans', []):
+                for char in span.get('chars', []):
+                    n = normalize(char.get('c', ''))
+                    chars.extend(n)
+                    boxes.extend([char.get('bbox')] * len(n))
+    actual = ''.join(chars)
+    if len(actual) > 20000:
+        return []
+    if Levenshtein.distance(canonical, actual, score_cutoff=max(4, len(canonical) // 50)) > max(4, len(canonical) // 50):
+        return []
+    equal = [block for block in Levenshtein.opcodes(canonical, actual) if block.tag == 'equal']
+    indices = []
+    for a, b in selected:
+        mapped = []
+        for block in equal:
+            lo, hi = max(a, block.src_start), min(b, block.src_end)
+            if lo < hi:
+                mapped.extend(range(block.dest_start + lo - block.src_start, block.dest_start + hi - block.src_start))
+        if len(mapped) != b - a:
+            return []
+        indices.extend(mapped)
+    rects = []
+    previous = None
+    for i in indices:
+        if boxes[i] is None:
+            return []
+        rect = fitz.Rect(boxes[i])
+        if rects and previous == i - 1 and abs(rect.y0 - rects[-1].y0) < max(rect.height, 1) * .4:
+            rects[-1] |= rect
+        else:
+            rects.append(rect)
+        previous = i
+    return rects
+
+
+
 def _anchored_highlight_rects(page, query_text: str, *, max_rects: int = 80, max_occurrences: int = 8) -> list:
     """在页面「字符级文本框」上用归一化逐字锚定来定位高亮区域，按行合并为矩形。
 
@@ -2889,8 +3131,10 @@ def _anchored_highlight_rects(page, query_text: str, *, max_rects: int = 80, max
     标点、换行差异影响。这正是修复点：page.search_for 把整句（尤其含空格的长句）当一个
     连续子串去找，跨行/有空格时常匹配失败，于是退化为只高亮某个短片段、甚至完全不高亮。
 
-    返回的矩形按「同一行的连续命中字符」合并。整串若不连续（如同段多词共现），再退化为
-    逐词分别锚定，使每个关键词各自标亮。
+    返回的矩形按「同一行的连续命中字符」合并。整串若无法精确命中，先在同一页
+    PDF 文本层中做一次高置信模糊对齐，吸收「们→何、并→井」类扫描 OCR 错字；仍失败时
+    才退化为逐词精确锚定，保留同段多词的既有行为。模糊对齐复用已抽取的字符与坐标，
+    不会启动二次 OCR；纯图像页仍安全返回空结果。
     """
     target = " ".join((query_text or "").split())
     if not target:
@@ -2945,7 +3189,38 @@ def _anchored_highlight_rects(page, query_text: str, *, max_rects: int = 80, max
             i = flat_str.find(needle, i + len(needle))
         return out
 
-    rects = _locate_all(normalize(target))
+    def _locate_fuzzy(needle: str) -> list:
+        """在已知命中页内定位少量 OCR 错字。
+
+        短词不做模糊定位，避免把常见词误标到相似位置；候选区间过度收缩或膨胀时
+        同样拒绝。RapidFuzz 的对齐实现在 C++ 中，此分支又只会在带高亮的冷渲染且
+        整句精确匹配失败时进入。
+        """
+        if len(needle) < PAGE_IMAGE_FUZZY_HIGHLIGHT_MIN_CHARS:
+            return []
+        try:
+            match = rapidfuzz_fuzz.partial_ratio_alignment(
+                needle,
+                flat_str,
+                score_cutoff=PAGE_IMAGE_FUZZY_HIGHLIGHT_SCORE_CUTOFF,
+            )
+        except Exception:
+            return []
+        if match is None:
+            return []
+        start = int(match.dest_start)
+        end = int(match.dest_end)
+        span_len = end - start
+        min_span = max(1, int(len(needle) * PAGE_IMAGE_FUZZY_HIGHLIGHT_MIN_SPAN_RATIO + 0.999))
+        max_span = max(min_span, int(len(needle) * PAGE_IMAGE_FUZZY_HIGHLIGHT_MAX_SPAN_RATIO + 0.999))
+        if start < 0 or end > len(flat_str) or not (min_span <= span_len <= max_span):
+            return []
+        return _line_rects(start, end)
+
+    normalized_target = normalize(target)
+    rects = _locate_all(normalized_target)
+    if not rects:
+        rects = _locate_fuzzy(normalized_target)
     if not rects and " " in target:
         seen: set[str] = set()
         for word in target.split():
@@ -3358,11 +3633,33 @@ def _visitor_session_key() -> str:
 
 
 def _request_presented_session_cookie() -> bool:
-    """请求是否携带了既有的会话 cookie。用于区分「保留 cookie 的真实回访浏览器」与
-    「每个请求都换一个新 cookie 的脚本（或访客落地页的首个请求）」。读的是客户端实际发来的
-    原始 cookie，不受本请求内对 session 的写入影响。"""
+    """Recognise a signed, unexpired incoming visitor identity, never cookie presence.
+
+    Decode the original cookie rather than the mutable session: earlier request
+    hooks may already have created a new visitor key for an invalid cookie.
+    """
+    cached = getattr(g, "_verified_incoming_visitor", None)
+    if cached is not None:
+        return bool(cached)
     name = app.config.get("SESSION_COOKIE_NAME") or "session"
-    return bool((request.cookies.get(name) or "").strip())
+    raw = (request.cookies.get(name) or "").strip()
+    valid = False
+    if raw:
+        serializer = app.session_interface.get_signing_serializer(app)
+        if serializer is not None:
+            try:
+                payload = serializer.loads(
+                    raw, max_age=int(app.permanent_session_lifetime.total_seconds())
+                )
+                valid = bool(
+                    isinstance(payload, dict)
+                    and isinstance(payload.get("_visitor_key"), str)
+                    and payload["_visitor_key"].strip()
+                )
+            except (BadData, TypeError, ValueError):
+                valid = False
+    g._verified_incoming_visitor = valid
+    return valid
 
 
 def _online_presence_dedup_key(session_key: str) -> str:
@@ -3379,6 +3676,10 @@ def _online_presence_dedup_key(session_key: str) -> str:
 
 def _record_community_trend(kind: str, text: str) -> None:
     """异步记录公开周榜样本；身份只以不可逆摘要落库。"""
+    from community_trend_policy import omit_community_sample
+
+    if omit_community_sample(request.headers):
+        return
     value = " ".join(str(text or "").split())
     if not value or _is_monitoring_request() or _is_blocked_bot_request():
         return
@@ -3455,7 +3756,9 @@ def _reader_audit_payload(*, is_rate_limited: bool = False) -> dict:
         "user_agent": str(request.headers.get("User-Agent") or ""),
         "endpoint": str(request.endpoint or ""),
         "method": str(request.method or ""),
-        "path": request.full_path[:500] if request.query_string else request.path,
+        "path": (request.path + ("?" + urllib.parse.urlencode({
+            key: request.args[key][:300] for key in ("file", "page", "mode") if key in request.args
+        }) if any(key in request.args for key in ("file", "page", "mode")) else ""))[:500],
         "reader_mode": (request.args.get("mode") or "").strip(),
         "source_file": (request.args.get("file") or "").strip(),
         "page": max(0, request.args.get("page", type=int) or 0),
@@ -3689,7 +3992,10 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
         config = _reader_auto_ban_config()
         if not config["enabled"]:
             return
-        anomalies = list_reader_anomaly_visitors(day=china_day_text(), limit=50)
+        anomalies = list_reader_anomaly_visitors(
+            day=china_day_text(), limit=50, endpoints=_LEGACY_READER_RATE_ENDPOINTS,
+            since=os.environ.get("MARX_READER_AUTO_BAN_SINCE", ""),
+        )
         if not anomalies:
             anomalies = []
         exempt_ips = set(_monitoring_exemptions().get("ips") or [])
@@ -3737,7 +4043,8 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
                 ),
             )
         pool_candidates = list_reader_ip_pool_burst_candidates(
-            day=china_day_text(),
+            day=china_day_text(), endpoints=_LEGACY_READER_RATE_ENDPOINTS,
+            since=os.environ.get("MARX_READER_AUTO_BAN_SINCE", ""),
             ip_min=int(config["pool_ip_min"]),
             request_min=int(config["pool_request_min"]),
             path_min=int(config["pool_path_min"]),
@@ -3809,48 +4116,34 @@ def _env_csv(name: str) -> list[str]:
 
 # 站点自带监控程序的默认豁免信号（无需后台/环境配置即生效）：
 # - 两个专用监控账号（会员/非会员腿，登录态身份不可伪造，最稳）；
-# - 监控浏览器自报的 UA 密钥子串（访客腿；监控 Playwright 上下文统一带 MazhuMonitor/x）。
+# - 访客监控使用明确配置的来源 IP；浏览器标识不授予任何豁免。
 # 仍可通过后台 monitoring_exemptions 设置或 MONITORING_* 环境变量追加更多信号。
 _DEFAULT_MONITORING_EMAILS = ("1010851067@qq.com", "18954389936@163.com")
-_DEFAULT_MONITORING_UA_TOKENS = ("mazhumonitor",)
+_DEFAULT_MONITORING_UA_TOKENS = ()  # User-Agent is not an authentication factor.
 
 
 def _monitoring_exemptions() -> dict:
-    """巡检/监控程序豁免名单。
+    """Monitoring exemptions require an authenticated account or configured IP.
 
-    命中者发起的请求**完全不计入**站点活动(site_activity → 阅读器访问/在线)与
-    阅读器审计(reader_access_events → 异常),避免合成监控污染后台总览,也不会把
-    监控误判为异常访客而封禁。
-
-    四类信号(任一命中即豁免)：
-    - `emails` / `user_ids`：登录态的监控账号身份。**最稳且不可伪造**(无凭证无法冒充),
-      用于监控的「会员号 / 非会员号」两条腿。
-    - `user_agents`：User-Agent 子串(大小写不敏感)。用于「访客」腿;可被伪造,**当密钥用**。
-    - `ips`：精确来源 IP。适用于固定出口 IP 的监控(访客腿兜底)。
-
-    配置来源合并：后台设置 `monitoring_exemptions`(可热更新,键 emails/user_ids/
-    user_agents/ips)+ 环境变量 `MONITORING_EMAILS` / `MONITORING_USER_AGENTS` /
-    `MONITORING_IPS`(逗号分隔，便于服务器 env 引导)。
+    Legacy user_agents settings are intentionally ignored. Keep an empty field
+    for callers that inspect this configuration; never trust a self-reported UA.
     """
-    ua_tokens: list[str] = list(_DEFAULT_MONITORING_UA_TOKENS)
     ips: list[str] = []
     emails: list[str] = list(_DEFAULT_MONITORING_EMAILS)
     user_ids: list[str] = []
     payload = get_setting("monitoring_exemptions", {})
     if isinstance(payload, dict):
-        ua_tokens.extend(str(x).strip() for x in (payload.get("user_agents") or []) if str(x).strip())
         ips.extend(str(x).strip() for x in (payload.get("ips") or []) if str(x).strip())
         emails.extend(str(x).strip() for x in (payload.get("emails") or []) if str(x).strip())
         user_ids.extend(str(x).strip() for x in (payload.get("user_ids") or []) if str(x).strip())
-    ua_tokens.extend(_env_csv("MONITORING_USER_AGENTS"))
     ips.extend(_env_csv("MONITORING_IPS"))
     emails.extend(_env_csv("MONITORING_EMAILS"))
     user_ids.extend(_env_csv("MONITORING_USER_IDS"))
     return {
-        "user_agents": [t.lower() for t in ua_tokens],
+        "user_agents": [],
         "ips": set(ips),
         "emails": {e.lower() for e in emails},
-        "user_ids": {u for u in user_ids},
+        "user_ids": set(user_ids),
     }
 
 
@@ -3869,10 +4162,7 @@ def _compute_is_monitoring_request() -> bool:
             return True
         if str(user.get("id")) in config["user_ids"]:
             return True
-    # 访客腿：UA 子串(当密钥) 或 固定来源 IP。
-    ua = str(request.headers.get("User-Agent") or "").lower()
-    if ua and any(token in ua for token in config["user_agents"]):
-        return True
+    # Only a configured trusted source IP can exempt an unauthenticated request.
     if config["ips"] and _client_ip() in config["ips"]:
         return True
     return False
@@ -4346,7 +4636,7 @@ def _rate_limit_or_abort(key: str, *, limit: int, window_seconds: int, message: 
             response.status_code = 429
             response.headers["Retry-After"] = str(retry_after)
             abort(response)
-        abort(429, description=message)
+        abort(429, description=message, retry_after=retry_after)
 
 
 def _rate_limit_ai_or_abort() -> None:
@@ -4738,7 +5028,7 @@ def _send_page_error_admin_notice(report: dict) -> tuple[bool, str]:
 def _resolve_viewer_pdf_page(volume, page_label: str) -> int | None:
     """把扫描页阅读器里显示的页标签反解回 PDF 页序号（1-based），与 viewer.html 的 getPageLabel 互逆：
     - 「PDF 45」这类无印本页码的标签 → 45；
-    - 印本页码 → 该卷 printed_to_pdf 映射（取首个匹配的 PDF 页）；
+    - 印本页码 → 该卷 printed_to_pdf 映射（仅接受唯一匹配）；
     - 前置页在阅读器里剥「pre-」前缀显示，故存的标签需补回 pre- 再查。
     解析不到返回 None。"""
     label = " ".join(str(page_label or "").split())
@@ -4750,8 +5040,9 @@ def _resolve_viewer_pdf_page(volume, page_label: str) -> int | None:
     mapping = getattr(volume, "printed_to_pdf", None) or {}
     if label in mapping:
         return int(mapping[label])
-    if ("pre-" + label) in mapping:
-        return int(mapping["pre-" + label])
+    roman_key = "pre-" + label.removeprefix("pre-").lower()
+    if roman_key in mapping:
+        return int(mapping[roman_key])
     return None
 
 
@@ -4955,7 +5246,7 @@ def _control_context() -> dict:
     state = current_view_state()
     return {
         "title": "本地控制台",
-        "app_name": APP_NAME,
+        "app_name": WEB_APP_NAME,
         "app_version": APP_VERSION,
         "state": state,
         "ai_settings": AI_CONFIG.to_edit_dict(),
@@ -5473,7 +5764,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
             LOGGER.warning("Could not render pending journal email preview: %s", exc)
     return {
         "title": title,
-        "app_name": APP_NAME,
+        "app_name": WEB_APP_NAME,
         "app_version": APP_VERSION,
         "console_intro": console_intro,
         "remote_admin": remote_admin,
@@ -7109,6 +7400,7 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     previous_text = volume.pages[page_index - 1].raw_text if page_index > 0 else ""
     next_text = volume.pages[page_index + 1].raw_text if page_index < len(volume.pages) - 1 else ""
     section_title = corpus.get_section_for_page(source_file, page_number) if corpus else None
+    section_title = (getattr(page_obj, "page_label_info", None) or {}).get("segment_title") or section_title
     citations = (
         corpus._make_citations(volume.book, volume.volume, [page_obj], source_file=source_file)
         if corpus else {}
@@ -7116,7 +7408,7 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     citation = citations.get("mkszyj", "")
     if not citation and corpus:
         citation = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file)
-    page_label = page_obj.printed_page or f"PDF-{page_number}"
+    page_label = page_reference(page_obj)["display_label"] if page_obj.printed_page else f"PDF-{page_number}"
     # 公文类书库（党代会报告/全会公报）的权威原文来源链接（供阅读器「原文来源」展示）
     source_url = ""
     try:
@@ -7134,10 +7426,13 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         "page": page_number,
         "page_id": page_obj.id,
         "page_label": page_label,
+        "page_refs": [page_reference(page_obj)],
+        "page_location": citation_pages([page_obj])["page"],
         "section_title": section_title or "",
         "citation": citation,
         "citations": citations,
         "source_url": source_url,
+        "viewer_url": url_for("pdf_viewer", file=source_file, page=page_number),
         "current_text": _clean_text(page_obj.raw_text),
         "previous_excerpt": _clean_text(previous_text, limit=240),
         "next_excerpt": _clean_text(next_text, limit=240),
@@ -7145,19 +7440,26 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
 
 
 def _page_image_cache_path(source_file: str, page_number: int, query_text: str, fmt: str = "jpg") -> Path:
+    query_text = _bounded_highlight_text(query_text)
     pdf_path = _resolve_pdf_path(source_file, require_full_mode=False)
     try:
         st = pdf_path.stat()  # 一次 stat 取两值（原先调了两次）
         stamp = f"{st.st_mtime_ns}:{st.st_size}"
     except OSError:
         stamp = "missing"
-    # 缓存版本号 v6：v6 把高亮改为「归一化逐字锚定」（修复长句在页图上不标亮/只标亮片段）。
-    # v5 曾把普通库改为不锐化、毛选锐化减弱。渲染/高亮结果变了必须改版本号，否则旧缓存继续命中、
-    # 新逻辑不生效。profile tag：毛选用独立 tag（+mao4）以便日后单独调参；其余库 tag 为空。
-    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|v6{_render_profile(source_file)['tag']}"
+    # 无高亮页继续使用 v6，保留全站普通阅读的现有热缓存。带高亮页的缓存键额外绑定
+    # 独立 OCR 坐标页版本：坐标稍后生成或语料修订使其失效时，只击穿这一页的高亮缓存。
+    geometry_token = (
+        _ocr_geometry_cache_token(
+            OCR_GEOMETRY_DB_PATH, CORPUS_INDEX_DB_PATH, source_file, page_number
+        )
+        if query_text else ""
+    )
+    cache_version = f"v8g:{geometry_token}" if query_text else "v6"
+    raw = f"{source_file}|{page_number}|{query_text}|{stamp}|{cache_version}{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
-    # WebP 与 JPEG 同 digest、仅扩展名不同（同一页两变体各占一条缓存、互不覆盖）。渲染/高亮结果未变，
-    # 版本号仍 v6：现有 .jpg 缓存全部保留、继续命中；.webp 变体随 Accept 协商按需懒生成。
+    # WebP 与 JPEG 同 digest、仅扩展名不同（同一页两变体各占一条缓存、互不覆盖）。
+    # 无高亮的 v6 现有缓存全部保留；高亮的 v7h 变体随 Accept 协商按需懒生成。
     ext = "webp" if fmt == "webp" else "jpg"
     return PAGE_IMAGE_CACHE_DIR / digest[:2] / f"{digest}.{ext}"
 
@@ -7438,9 +7740,10 @@ threading.Thread(target=_webp_bg_worker, name="webp-bg-render", daemon=True).sta
 
 
 def _render_page_image_to_cache(source_file: str, page_number: int, query_text: str, *, want_webp: bool = False, matrix_scale: float = PAGE_IMAGE_MIN_SCALE) -> Path:
-    # 高亮串只取前 120 字：超长高亮对页图锚定无意义，更要紧的是限住缓存键的爆炸面——否则 bot 轮换
+    # 高亮串与深链/文字面板共用统一上限：超长高亮对页图锚定无意义，更要紧的是限住缓存键
+    # 的爆炸面——否则 bot 轮换
     # ?q=/?h= 每次都生成新 digest → 永不命中、每次冷渲染并写一张新图，撑爆 8GiB 缓存 + 抢渲染名额。
-    query_text = (query_text or "")[:120]
+    query_text = _bounded_highlight_text(query_text)
     if want_webp:
         webp_path = _page_image_cache_path(source_file, page_number, query_text, fmt="webp")
         if webp_path.exists() and webp_path.stat().st_size > 0:
@@ -7476,9 +7779,16 @@ def _render_page_image_uncached(source_file: str, page_number: int, query_text: 
             abort(404, description="请求页码超出 PDF 范围。")
         page = doc[page_number - 1]
 
-        highlight_done = False
+        layout_reference = query_text[len("@layout:"):] if query_text.startswith("@layout:") else ""
+        highlight_done = bool(layout_reference)
+        if layout_reference:
+            for rect in _layout_highlight_rects(page, source_file, page_number, layout_reference):
+                annot = page.add_highlight_annot(rect)
+                annot.set_colors(stroke=(1.0, 0.86, 0.2))
+                annot.set_opacity(0.45)
+                annot.update()
         # 主路径：归一化逐字锚定，跨行整句高亮（修复长句 search_for 整串匹配失败的问题）。
-        if query_text:
+        if query_text and not layout_reference:
             anchored_rects = _anchored_highlight_rects(page, query_text)
             if anchored_rects:
                 for rect in anchored_rects:
@@ -7502,7 +7812,31 @@ def _render_page_image_uncached(source_file: str, page_number: int, query_text: 
                 break
         if not highlight_done and query_text:
             # 逐字文本层兜底（search_for 在单字 span 布局上找不到多字词项）
-            for rect in _per_char_term_rects(page, _highlight_terms(query_text)):
+            per_char_rects = _per_char_term_rects(page, _highlight_terms(query_text))
+            for rect in per_char_rects:
+                annot = page.add_highlight_annot(rect)
+                annot.set_colors(stroke=(1.0, 0.86, 0.2))
+                annot.set_opacity(0.45)
+                annot.update()
+            highlight_done = bool(per_char_rects)
+
+        if not highlight_done and query_text:
+            # 纯扫描页最终兜底：只读取服务器离线生成的行坐标，不在请求线程做 OCR。
+            # 坐标页绑定当前 corpus.raw_text 哈希；语料修复后哈希不一致会直接返回空，绝不误标。
+            geometry_rects = _locate_ocr_geometry_rects(
+                OCR_GEOMETRY_DB_PATH,
+                CORPUS_INDEX_DB_PATH,
+                source_file,
+                page_number,
+                query_text,
+            )
+            for x0, y0, x1, y1 in geometry_rects:
+                rect = fitz.Rect(
+                    page.rect.x0 + x0 * page.rect.width,
+                    page.rect.y0 + y0 * page.rect.height,
+                    page.rect.x0 + x1 * page.rect.width,
+                    page.rect.y0 + y1 * page.rect.height,
+                )
                 annot = page.add_highlight_annot(rect)
                 annot.set_colors(stroke=(1.0, 0.86, 0.2))
                 annot.set_opacity(0.45)
@@ -7856,7 +8190,7 @@ def _global_ip_rate_limit():
     # 专门限速(READER_ENDPOINTS)，静态资源、管理员、监控、内网/回环均豁免。
     if request.method == "OPTIONS":
         return
-    if (request.endpoint or "") in _GLOBAL_RATE_EXEMPT_ENDPOINTS or _is_reader_audit_endpoint():
+    if (request.endpoint or "") in _GLOBAL_RATE_EXEMPT_ENDPOINTS or (request.endpoint or "") in _LEGACY_READER_RATE_ENDPOINTS:
         return
     if _is_monitoring_request() or _is_admin_user(getattr(g, "current_user", None)):
         return
@@ -8074,6 +8408,7 @@ def inject_auth_context():
         "membership": _membership_to_dict(membership),
         "account_center_label": account_center_label,
         "format_price": _display_price,
+        "purchase_discount_label": multi_purchase.discount_label,
         "format_datetime": _display_datetime,
         "format_order_status": _display_order_status,
         "format_membership_status": _display_membership_status,
@@ -8129,17 +8464,18 @@ def handle_ai_quota_exceeded(error):
 @app.errorhandler(503)
 def handle_known_errors(error):
     message = getattr(error, "description", "发生错误。")
+    status = getattr(error, "code", 500)
     if request.path.startswith("/api/"):
-        return jsonify({"ok": False, "error": message}), getattr(error, "code", 500)
-    return (
-        render_template(
-            "error.html",
-            title="无法完成请求",
-            message=message,
-            state=current_view_state(),
-        ),
-        getattr(error, "code", 500),
-    )
+        body = jsonify({"ok": False, "error": message})
+    else:
+        body = render_template(
+            "error.html", title="无法完成请求", message=message, state=current_view_state(),
+        )
+    response = app.make_response((body, status))
+    retry_after = getattr(error, "retry_after", None)
+    if retry_after is not None:
+        response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 @app.errorhandler(500)
@@ -8523,14 +8859,18 @@ def delete_account():
 def pricing():
     state = current_view_state()
     plans = list_active_plans()
+    purchase_enabled = multi_purchase.enabled()
+    purchase_options = multi_purchase.purchase_options(
+        int(g.current_user["id"]) if g.current_user else None, plans) if purchase_enabled else {}
     next_url = _safe_next_url(request.args.get("next"))
     return render_template(
         "pricing.html",
         title="会员套餐",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=state,
         plans=plans,
+        purchase_options=purchase_options,
         journal_catalog=journal_source_catalog(),
         next_url=next_url,
         payment_ready=False,
@@ -8544,7 +8884,8 @@ def create_checkout(plan_code: str):
     if not plan or not plan.get("is_active"):
         abort(404, description="未找到可购买的套餐。")
     try:
-        order = create_pending_order(user_id=int(g.current_user["id"]), plan_code=plan_code)
+        order = create_pending_order(user_id=int(g.current_user["id"]), plan_code=plan_code,
+                                     purchase_months=request.form.get("purchase_months", "1"))
     except ValueError as exc:
         flash(str(exc), "warning")
         return redirect(url_for("pricing"))
@@ -8719,7 +9060,7 @@ def account_journal_alerts():
     return render_template(
         "journal_alerts.html",
         title="国外文献精选周刊",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         state=current_view_state(),
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
         smtp_enabled=smtp_enabled,
@@ -8787,6 +9128,35 @@ def journal_alerts_unsubscribe_token(token: str):
     return redirect(url_for("index"))
 
 
+@app.route("/journal-alerts/assets/<int:article_id>/<path:asset_name>")
+def journal_alerts_asset(article_id: int, asset_name: str):
+    """Serve a hash-pinned layout asset under the article membership gate."""
+    _rate_limit_reader_ip_or_abort("journalasset")
+    article = get_public_journal_article(article_id)
+    if not article:
+        abort(404, description="未找到该文献资源。")
+    digest = get_batch(int(article.get("batch_id") or 0))
+    if not _feature_effective_for_user("journal_alerts") and not (
+        digest and digest.get("status") == "sample"
+    ):
+        return redirect(url_for("journal_alerts_latest", member_required="1"))
+    document = load_journal_document(article_id) or {}
+    asset = document_asset_manifest(document).get(str(asset_name or ""))
+    if not asset:
+        abort(404, description="图表资源不存在。")
+    try:
+        target = safe_asset_path(JOURNAL_ARTICLES_DIR / str(article_id), asset_name)
+    except ValueError:
+        abort(404, description="图表资源路径无效。")
+    expected = str(asset.get("sha256") or "").lower()
+    if not target.is_file() or not expected or file_sha256(target) != expected:
+        abort(404, description="图表资源完整性校验失败。")
+    response = send_file(target, mimetype=str(asset.get("mime") or "image/png"), conditional=True)
+    response.headers["Cache-Control"] = "private, max-age=86400, immutable"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @app.route("/journal-alerts/latest")
 def journal_alerts_latest():
     # Published bilingual e-journal. Draft and incomplete metadata-only rows
@@ -8845,7 +9215,7 @@ def journal_alerts_latest():
     return render_template(
         "journal_latest.html",
         title=("历史期 · 国外文献精选周刊" if is_historical else "国外文献精选周刊"),
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         state=current_view_state(),
         batch=batch,
         articles=articles,
@@ -8881,7 +9251,7 @@ def journal_alerts_article(article_id: int):
     return render_template(
         "journal_reader.html",
         title=article.get("title_zh") or article.get("title") or "期刊文章",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         state=current_view_state(),
         article=article,
         document=document,
@@ -9982,6 +10352,13 @@ def admin_journal_digest_review(digest_id: int):
         if not complete_articles:
             flash("本期尚无通过公开 PDF 与完整双语处理门槛的文章，不能批准。", "warning")
             return _management_redirect(True, "journal-alerts")
+        quality = validate_batch_documents(
+            (int(article["id"]) for article in complete_articles), JOURNAL_ARTICLES_DIR
+        )
+        if quality.get("status") != "passed":
+            failed = "、".join(str(value) for value in quality.get("failed_article_ids") or [])
+            flash(f"新版版面、摘要或译文质量门槛未通过（文章 {failed or '未知'}），不能批准或发送。", "warning")
+            return _management_redirect(True, "journal-alerts")
         schedule = action == "approve_schedule"
         if schedule:
             smtp_config = load_smtp_config()
@@ -10054,6 +10431,13 @@ def admin_journal_digest_send(digest_id: int):
     complete_articles = public_batch_articles(int(digest_id))
     if not complete_articles:
         flash("本期尚无通过公开 PDF 与完整双语处理门槛的文章，不能发送。", "warning")
+        return _management_redirect(True, "journal-alerts")
+    quality = validate_batch_documents(
+        (int(article["id"]) for article in complete_articles), JOURNAL_ARTICLES_DIR
+    )
+    if quality.get("status") != "passed":
+        failed = "、".join(str(value) for value in quality.get("failed_article_ids") or [])
+        flash(f"新版版面、摘要或译文质量门槛未通过（文章 {failed or '未知'}），发送已阻止。", "warning")
         return _management_redirect(True, "journal-alerts")
     # 收件人解析是快查询，同步做以便即时校验（无人可发/参数错当场提示）；真正逐封阻塞 SMTP 的发送
     # 改为后台单飞，避免向「全部注册用户」逐封发信把请求线程钉死数分钟 / 触 CF 100s 超时。
@@ -10695,7 +11079,7 @@ def _render_index_page(layout_page: str | None = None):
     _bj_today = _beijing_now()
     return render_template(
         "index.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         notice_date_cn=f"{_bj_today.year}年{_bj_today.month}月{_bj_today.day}日",
         request_token=REQUEST_TOKEN if state["management_api_enabled"] else None,
@@ -10783,7 +11167,7 @@ def _render_ai_page(layout_v2: bool = False):
     与右侧抽屉共用同一条 localStorage 会话线程（marx-ai-thread-v1），跨页/跨标签连贯。"""
     return render_template(
         "ai.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
         search_scopes=_scope_options_payload(),  # 「检索范围」chips：自动/全部 + 各著作群
@@ -10823,7 +11207,7 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
         # 此前只有「篇章直达」和「检索范围」两处做了过滤，导致正在建库、目录/正文还不齐的
         # 书库提前露在书目页上（2026-07-30 站长发现《周恩来年谱》未上线却已显示）。
         # 语料仍照常建、检索仍可调试，只是不对读者陈列，翻 available: true 即公开。
-        if not book_cfg.available:
+        if not _book_is_public(book_cfg):
             continue
         book = book_cfg.key
         for volume in (corpus.get_volumes(book) if corpus else []):
@@ -10872,6 +11256,9 @@ def _library_volumes(*, basic_reader_mode: bool = False) -> list[dict]:
     return volumes
 
 
+_library_catalog_volumes_cache: tuple[tuple, tuple[dict, ...]] | None = None
+
+
 def _library_catalog_volumes() -> list[dict]:
     """阅读栏目书目：以公开配置和 manifest 为准，并标出尚未进入语料库的卷册。
 
@@ -10879,6 +11266,21 @@ def _library_catalog_volumes() -> list[dict]:
     检索和旧书目页使用。这里只为四页面布局的「阅读」栏目补齐已经登记上线、
     但因 corpus.sqlite 回滚而暂时缺行的卷册，防止书目和卷数随数据库版本倒退。
     """
+    global _library_catalog_volumes_cache
+    # The published corpus and book availability are immutable for the life of
+    # a web process. Building this list walks every volume and materializes its
+    # TOC count; after adding 76 volumes that repeated work pushed /v2/read over
+    # the release latency budget. Key the cache to the corpus object plus the
+    # availability flags so tests/runtime swaps cannot reuse stale catalog data.
+    cache_key = (
+        id(corpus),
+        tuple((book.key, _book_is_public(book)) for book in BOOK_CONFIGS),
+    )
+    if _library_catalog_volumes_cache is not None:
+        cached_key, cached_volumes = _library_catalog_volumes_cache
+        if cached_key == cache_key:
+            return [dict(volume) for volume in cached_volumes]
+
     indexed = _library_volumes()
     indexed_sources: set[str] = set()
     for volume in indexed:
@@ -10886,7 +11288,8 @@ def _library_catalog_volumes() -> list[dict]:
         indexed_sources.add(str(volume.get("source_file") or ""))
 
     if corpus is None:
-        return indexed
+        _library_catalog_volumes_cache = (cache_key, tuple(dict(volume) for volume in indexed))
+        return [dict(volume) for volume in indexed]
 
     # Corpus 启动时已从 config/manifest.yaml 规范化并加载此映射；复用同一份
     # 内存数据，避免阅读页再读一次配置文件，也确保白名单与目录使用同一来源。
@@ -10897,7 +11300,7 @@ def _library_catalog_volumes() -> list[dict]:
             continue
         book = str((meta or {}).get("book") or "")
         book_cfg = BOOK_CONFIG_BY_KEY.get(book)
-        if not book_cfg or not book_cfg.available:
+        if not book_cfg or not _book_is_public(book_cfg):
             continue
         try:
             volume_number = int((meta or {}).get("volume"))
@@ -10933,7 +11336,8 @@ def _library_catalog_volumes() -> list[dict]:
         )
 
     indexed.sort(key=lambda item: (item["book_sort_order"], item["volume"], item["source_file"]))
-    return indexed
+    _library_catalog_volumes_cache = (cache_key, tuple(dict(volume) for volume in indexed))
+    return [dict(volume) for volume in indexed]
 
 
 def _library_volume_groups(volumes: list[dict]) -> list[dict]:
@@ -10961,7 +11365,15 @@ def _library_volume_groups(volumes: list[dict]) -> list[dict]:
         group["sort_order"] = min(group["sort_order"], library_sort_order)
         book = group["books"].setdefault(
             volume["book"],
-            {"key": volume["book"], "title": volume["book_title"], "sort_order": volume["book_sort_order"], "volumes": []},
+            {
+                "key": volume["book"],
+                "title": volume["book_title"],
+                "sort_order": volume["book_sort_order"],
+                "recommender_name": volume.get("recommender_name") or "",
+                "recommender_email_masked": volume.get("recommender_email_masked") or "",
+                "quality_note": volume.get("quality_note") or "",
+                "volumes": [],
+            },
         )
         book["volumes"].append(volume)
 
@@ -11041,7 +11453,7 @@ def reader():
     volume_groups, library_sections = _library_display_sections(volumes)
     return render_template(
         "library.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
         volumes=volumes,
@@ -11063,7 +11475,7 @@ def library():
     volume_groups, library_sections = _library_display_sections(volumes)
     return render_template(
         "library.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
         volumes=volumes,
@@ -11082,7 +11494,7 @@ def dictionary():
     stats = dictionary_stats()
     return render_template(
         "dictionary.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
         groups=dictionary_groups(),
@@ -11098,7 +11510,7 @@ def dictionary_entry_page(slug: str):
         abort(404, description="未找到对应的大辞典词条。")
     return render_template(
         "dictionary_entry.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
         entry=entry,
@@ -11145,10 +11557,10 @@ def _hit_highlight_text(hit: dict, fallback: str) -> str:
     context = str(hit.get("context") or "")
     match = _HIT_HIGHLIGHT_RE.search(context)
     if match:
-        text = " ".join(match.group(1).split())
+        text = _bounded_highlight_text(match.group(1))
         if text:
-            return text[:160]
-    return fallback
+            return text
+    return _bounded_highlight_text(fallback)
 
 
 def _toc_match_rank(item: dict, qn: str) -> tuple[int, int, int]:
@@ -11171,7 +11583,7 @@ def _build_toc_suggest_index() -> list[dict]:
         return index
     # 仅收录「对用户开放」的书库（books.yaml 中 available: true）。
     # 尚未上线的书库（如列宁《全集》）即使语料里已有目录，也不在「篇章直达」露出。
-    for book in (cfg.key for cfg in BOOK_CONFIGS if getattr(cfg, "available", True)):
+    for book in (cfg.key for cfg in BOOK_CONFIGS if _book_is_public(cfg)):
         for volume in corpus.get_volumes(book):
             for entry in corpus.get_toc_entries(volume.source_file):
                 title = str(getattr(entry, "title", "") or "").strip()
@@ -11268,7 +11680,7 @@ def _build_book_alias_index() -> list[dict]:
     if corpus is None:
         return index
     for cfg in BOOK_CONFIGS:
-        if not getattr(cfg, "available", True):
+        if not _book_is_public(cfg):
             continue
         vols: list[dict] = []
         for v in corpus.get_volumes(cfg.key):
@@ -11425,7 +11837,7 @@ def api_library_toc_suggest():
     elif scope in known_books:
         scope_book_set = {scope}
     else:
-        scope_book_set = {cfg.key for cfg in BOOK_CONFIGS if cfg.collection == scope and getattr(cfg, "available", True)}
+        scope_book_set = {cfg.key for cfg in BOOK_CONFIGS if cfg.collection == scope and _book_is_public(cfg)}
     if scope and not scope_book_set:
         scope = ""
         scope_book_set = set()
@@ -11437,6 +11849,8 @@ def api_library_toc_suggest():
     book_results = []
     for proto in _interpret_book_query(qn, scope if scope in known_books else None):
         b, v, single = proto["b"], proto["v"], proto["single"]
+        if not _book_is_public(str(b.get("book") or "")):
+            continue
         if scope_book_set and b["book"] not in scope_book_set:
             continue
         book_results.append(
@@ -11464,6 +11878,8 @@ def api_library_toc_suggest():
     # 2) 篇章标题补全（原逻辑）；scope 命中时只在该书库内匹配。
     ranked_matches: list[tuple] = []
     for item in _get_toc_suggest_index():
+        if not _book_is_public(str(item.get("book") or "")):
+            continue
         if scope_book_set and item["book"] not in scope_book_set:
             continue
         pos = item["norm"].find(qn)
@@ -11547,6 +11963,7 @@ def api_library_volume_toc():
     _require_content_feature("library")
     _require_search()
     source_file = (request.args.get("file") or "").strip()
+    _require_source_public(source_file)
     mode = "reader" if (request.args.get("mode") or "").strip() == "reader" else "ai"
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     if volume is None:
@@ -11573,7 +11990,7 @@ def api_library_volume_toc():
             }
         )
     resp = jsonify({"ok": True, "results": results})
-    resp.headers["Cache-Control"] = "private, max-age=600"
+    resp.headers["Cache-Control"] = f"private, max-age={_source_public_cache_seconds(source_file, 600)}"
     return resp
 
 
@@ -11585,21 +12002,35 @@ def pdf_viewer():
     source_file = _normalize_source_file((request.args.get("file") or "").strip())
     page = max(1, request.args.get("page", type=int) or 1)
     query_text = " ".join((request.args.get("q") or "").split())
-    highlight_text = " ".join((request.args.get("h") or "").split()) or query_text
+    highlight_text = _bounded_highlight_text(request.args.get("h")) or _bounded_highlight_text(query_text)
     requested_section = (request.args.get("section") or "").strip() or None
     requested_printed = (request.args.get("printed") or "").strip() or None
     _require_full_mode()
     _rate_limit_reader_ip_or_abort("view")
+    _require_source_public(source_file)
     if not source_file or source_file not in ALLOWED_SOURCE_FILES:
         abort(404, description="请求的资料不在白名单中。")
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     if volume is None:
         abort(404, description="未找到对应的卷册信息。")
+    layout_reference = str(request.args.get("lr") or "")[:160]
+    layout_warning = ''
+    layout_page_matches = []
+    if layout_reference:
+        index = getattr(corpus, 'layout_index', None)
+        spans = index.resolve(source_file, layout_reference, normalize(query_text)) if index else None
+        if spans:
+            ref_match = {'start': spans[0][0], 'end': spans[-1][1], 'spans': spans,
+                         'ref': layout_reference, 'types': []}
+            layout_page_matches = corpus._make_layout_hit(volume, ref_match, query_text).page_matches
+        else:
+            layout_warning = '原文定位版本已变化，请重新检索；本页暂不显示旧定位高亮。'
+            highlight_text = ''
     _record_community_trend("book", _community_volume_title(volume))
     # 《全集》等仅保留 OCR 文本、未随包下发 PDF 的卷册回退到「纯文字」渲染，
     # 仍可逐页阅读并使用 AI 导读；《文集》等带 PDF 的卷册维持原有「书页图像」渲染。
     render_mode = "image" if _pdf_render_available(source_file) else "text"
-    pdf_display_name = Path(source_file).name
+    reader_heading = reader_title(_book_config(volume.book), volume.volume, volume.display_title)
     toc_entries = [entry.to_dict() for entry in corpus.get_toc_entries(source_file)] if corpus else []
     current_section = requested_section or (
         corpus.get_section_for_page(source_file, page) if corpus else None
@@ -11609,7 +12040,9 @@ def pdf_viewer():
     if volume:
         for page_obj in volume.pages:
             page_labels[page_obj.pdf_page] = page_obj.printed_page or f"PDF-{page_obj.pdf_page}"
-    current_page_label = requested_printed or page_labels.get(page, f"PDF-{page}")
+    page_segments = {p.pdf_page: (getattr(p, "page_label_info", None) or {}).get("segment_title", "") for p in volume.pages if (getattr(p, "page_label_info", None) or {}).get("segment_title")} if volume else {}
+    current_section = page_segments.get(page) or current_section
+    current_page_label = page_labels.get(page, f"PDF-{page}")
     # 这里曾对每次 image 模式 /viewer 加载 spawn 一个 daemon 线程预渲染当前页；但浏览器随即发出的
     # /page-image 请求会用相同缓存键、经渲染信号量把同一页渲染好，预渲染纯属重复劳动，且 scrape 洪峰下
     # 会绕过 waitress 计数堆出大量裸线程。故移除：当前页交给紧随的 /page-image 渲染即可。
@@ -11641,7 +12074,7 @@ def pdf_viewer():
     return render_template(
         "viewer.html",
         search_back_url=search_back_url,
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         request_token=REQUEST_TOKEN if state["management_api_enabled"] else None,
         state=state,
@@ -11650,8 +12083,9 @@ def pdf_viewer():
         page_count=page_count,
         current_page_label=current_page_label,
         page_labels=page_labels,
+        page_segments=page_segments,
         source_file=source_file,
-        pdf_name=pdf_display_name,
+        reader_heading=reader_heading,
         pdf_url=url_for("serve_pdf", file=source_file),
         render_mode=render_mode,
         viewer_mode=viewer_mode,
@@ -11663,6 +12097,12 @@ def pdf_viewer():
         volume=volume,
         query_text=query_text,
         highlight_text=highlight_text,
+        layout_warning=layout_warning,
+        layout_page_matches=layout_page_matches,
+        ocr_geometry_revision=(
+            _ocr_geometry_database_revision(OCR_GEOMETRY_DB_PATH)
+            if highlight_text else ""
+        ),
         ai_upsell=_ai_reader_upsell(url_for("pdf_viewer", **ai_viewer_args)),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
         ai_web_access_enabled=_ai_web_access_enabled(),
@@ -11679,6 +12119,8 @@ def pdf_viewer():
 @app.route("/pdf")
 def serve_pdf():
     _require_reader_asset_access()
+    source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    _require_source_public(source_file)
     # 安全加固（P1）：公网服务器模式下不再下发整本 PDF 原文件，避免核心资料被整本抓取/转载。
     # 阅读器本身依赖 /page-image 渲染显示，并不需要原始 PDF；此处仅保留桌面端与管理员访问，
     # 普通登录用户与匿名访问统一返回 404。保留路由注册以兼容 url_for('serve_pdf') 引用。
@@ -11686,7 +12128,7 @@ def serve_pdf():
         _admin_content_access_enabled() or _desktop_content_access_enabled()
     ):
         abort(404, description="PDF 原文件暂不提供下载。")
-    pdf_path = _resolve_pdf_path((request.args.get("file") or "").strip())
+    pdf_path = _resolve_pdf_path(source_file)
     return send_file(pdf_path, mimetype="application/pdf", conditional=True)
 
 
@@ -11696,9 +12138,16 @@ def page_image():
     _rate_limit_page_image_or_abort()
     _rate_limit_reader_ip_or_abort("pageimg")
     source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    cfg = _require_source_public(source_file)
     page_number = max(1, request.args.get("page", type=int) or 1)
     query_text = " ".join((request.args.get("q") or "").split())
-    highlight_text = " ".join((request.args.get("h") or "").split()) or query_text
+    highlight_text = _bounded_highlight_text(request.args.get("h")) or _bounded_highlight_text(query_text)
+    layout_reference = str(request.args.get("lr") or "")[:160]
+    if layout_reference:
+        index = getattr(corpus, "layout_index", None)
+        if index is None or index.resolve(source_file, layout_reference, normalize(query_text)) is None:
+            abort(409, description="原文定位版本已变化，请重新检索。")
+        highlight_text = "@layout:" + layout_reference
     # WebP 内容协商：客户端 Accept 含 image/webp 且服务端 Pillow 可用时产/取 .webp 变体（体积 −30~52%，
     # 对跨境慢链路直接提速）；否则一律走现行 JPEG。同一 URL 按 Accept 分变体（下方 Vary: Accept）。
     want_webp = _pillow_or_none() is not None and "image/webp" in (request.headers.get("Accept") or "")
@@ -11712,7 +12161,8 @@ def page_image():
         _prewarm_page_images(source_file, page_number, highlight_text, page_count)
     _prune_page_image_cache_if_due()
     is_webp = cache_path.suffix.lower() == ".webp"  # 实际产出格式（webp 编码失败已回退 .jpg）
-    resp = send_file(cache_path, mimetype=("image/webp" if is_webp else "image/jpeg"), conditional=True, max_age=86400)
+    cache_seconds = _source_public_cache_seconds(source_file, 604800)
+    resp = send_file(cache_path, mimetype=("image/webp" if is_webp else "image/jpeg"), conditional=True, max_age=cache_seconds)
     # 书页图像缓存策略（在「读得快」与「内容可纠正」之间取稳妥平衡）：
     #   · private —— 只进本人浏览器缓存，绝不进 Cloudflare/反代等共享缓存，杜绝「未授权访客从共享
     #     缓存命中受保护书页图」的越权（本站书页内容受版权保护、有专门反爬）。
@@ -11720,7 +12170,10 @@ def page_image():
     #   · stale-while-revalidate=1 天 —— 过期后先用旧图秒显、后台再校验，不阻塞翻页。
     #   · 仍带 conditional ETag、且**不**加 immutable —— 万一某卷 PDF 被替换（URL 不变），既能靠
     #     ETag 在再校验时自动取到新图，用户手动刷新也能立刻拿到新内容，不会被永久钉死在旧图上。
-    resp.headers["Cache-Control"] = "private, max-age=604800, stale-while-revalidate=86400"
+    if _runtime_public_window(cfg)[1]:
+        resp.headers["Cache-Control"] = f"private, max-age={cache_seconds}"
+    else:
+        resp.headers["Cache-Control"] = "private, max-age=604800, stale-while-revalidate=86400"
     # 同一 URL 按 Accept 分 webp/jpg 两变体：Vary 确保浏览器缓存不会把 webp 应答错喂给只收 jpg 的客户端
     # （或反之）。page-image 本就 private、不进共享缓存，Vary 仅作用于浏览器私有缓存的正确性。
     resp.headers["Vary"] = "Accept"
@@ -11738,6 +12191,7 @@ def reader_cover():
     _require_reader_asset_access()
     _rate_limit_reader_ip_or_abort("cover")
     source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    _require_source_public(source_file)
     if not source_file or source_file not in ALLOWED_SOURCE_FILES:
         abort(404, description="请求的资料不在白名单中。")
     _READER_COVER_DIR.mkdir(parents=True, exist_ok=True)
@@ -11757,8 +12211,9 @@ def reader_cover():
         tmp = cache_path.with_suffix(".png.tmp")
         tmp.write_bytes(data)
         tmp.replace(cache_path)
-    resp = send_file(str(cache_path), mimetype="image/png", conditional=True, max_age=604800)
-    resp.headers["Cache-Control"] = "private, max-age=604800"
+    cache_seconds = _source_public_cache_seconds(source_file, 604800)
+    resp = send_file(str(cache_path), mimetype="image/png", conditional=True, max_age=cache_seconds)
+    resp.headers["Cache-Control"] = f"private, max-age={cache_seconds}"
     return resp
 
 
@@ -11793,6 +12248,7 @@ def api_ping():
 @app.route("/api/runtime")
 def api_runtime():
     state = current_view_state()
+    layout_index = getattr(corpus, 'layout_index', None)
     return jsonify(
         {
             "ok": True,
@@ -11803,6 +12259,8 @@ def api_runtime():
             "data_version": state["data_version"],
             "issues": state["issues"],
             "management_api_enabled": state["management_api_enabled"],
+            "layout_exact_ready": bool(layout_index and layout_index.enabled and
+                                       not layout_index.error and layout_index.projections),
         }
     )
 
@@ -12510,9 +12968,12 @@ def api_ai_assistant_config():
 def api_pdf_page_context():
     _require_reader_asset_access()
     source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    _require_source_public(source_file)
     page = max(1, request.args.get("page", type=int) or 1)
     context = _get_page_context_payload(source_file, page)
-    return jsonify({"ok": True, "context": context})
+    response = jsonify({"ok": True, "context": context})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 def _reader_find_snippet(raw_text: str, query: str, width: int = 36) -> str:
@@ -12720,7 +13181,7 @@ def knowledge_base_page():
     _require_content_feature("notes")
     return render_template(
         "knowledge_base.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
     )
 
@@ -13448,7 +13909,6 @@ def api_citation_delete_job(job_id: str):
         abort(404, description="任务不存在。")
     return jsonify({"ok": True, "deleted": True})
 
-
 citation_agent_test_web.register_routes(app, globals())
 
 
@@ -13781,7 +14241,7 @@ def _mylib_payload(row: dict) -> dict:
 def mylib_home():
     """「我的个人文库」：本人上传的书一览，可阅读/删除/再上传。二级页，不套 v2 外壳。"""
     _require_personal_library_access()
-    return render_template("mylib_home.html", app_name=APP_NAME, app_version=APP_VERSION)
+    return render_template("mylib_home.html", app_name=WEB_APP_NAME, app_version=APP_VERSION)
 
 
 @app.route("/mylib/upload")
@@ -13789,7 +14249,7 @@ def mylib_upload_page():
     _require_personal_library_access()
     return render_template(
         "mylib_upload.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         max_mb=mylib.MAX_PDF_BYTES // 1048576,
         max_books=mylib.max_books_per_user(),
@@ -13807,7 +14267,7 @@ def mylib_reader(submission_id: int):
     ai_access = bool(_feature_is_available("ai") and _feature_effective_for_user("ai"))
     return render_template(
         "mylib_reader.html",
-        app_name=APP_NAME,
+        app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         book=_mylib_payload(row),
         notes_access_enabled=_notes_access_enabled(),
@@ -14155,6 +14615,32 @@ def _start_book_recommendation_ingest(recommendation_id: int) -> None:
     ).start()
 
 
+def _book_recommendation_notify_admin(recommendation_id: int) -> None:
+    """Notify only after the PDF is safely stored; mail failure never fails upload."""
+    try:
+        row = mylib.get_book_recommendation(int(recommendation_id))
+        if not row or row.get("status") != "pending":
+            return
+        body = (
+            "管理员您好：\n\n"
+            "有用户通过「用户荐书」上传了一本书籍，PDF 已转存成功，等待审核。\n\n"
+            f"荐书编号：{row['id']}\n"
+            f"书名：{row.get('title')}\n"
+            f"作者：{row.get('author') or '（未填写）'}\n"
+            f"上传者：{row.get('user_email') or row.get('user_id')}\n"
+            f"文件：{row.get('original_filename')}"
+            f"（{round((row.get('byte_size') or 0) / 1048576, 1)}MB，"
+            f"{row.get('page_count')} 页）\n"
+            f"荐书说明：{row.get('note') or '（未填写）'}\n"
+            f"提交时间（UTC）：{row.get('created_at')}\n\n"
+            "请登录管理后台查看并下载原书：\n"
+            f"{_feedback_public_base_url().rstrip('/')}/admin/content#book-recommendations\n"
+        )
+        _send_account_email(FEEDBACK_ADMIN_EMAIL, "用户荐书·新书待审核", body)
+    except Exception as exc:  # noqa: BLE001 — 邮件故障不改变荐书状态
+        LOGGER.warning("book recommendation admin notice failed rid=%s: %s", recommendation_id, exc)
+
+
 def _book_recommendation_ingest_worker(recommendation_id: int) -> None:
     rid = int(recommendation_id)
     row = mylib.get_book_recommendation(rid)
@@ -14189,11 +14675,14 @@ def _book_recommendation_ingest_worker(recommendation_id: int) -> None:
     finally:
         data = None
 
-    mylib.set_book_recommendation_status(rid, "pending", fail_reason="")
+    if not mylib.mark_book_recommendation_stored(rid):
+        return
     try:
         staged.unlink(missing_ok=True)
     except OSError:
         pass
+
+    _book_recommendation_notify_admin(rid)
 
 
 def _resume_book_recommendation_storing() -> None:
@@ -14855,6 +15344,7 @@ def api_reader_find():
     # 每请求都全卷扫描（O(全卷字符数)），单卷可达千页：按阅读 IP 限流，防 bot 用廉价请求把 worker 钉死。
     _rate_limit_reader_ip_or_abort("view")
     source_file = _normalize_source_file((request.args.get("file") or "").strip())
+    _require_source_public(source_file)
     query = (request.args.get("q") or "").strip()[:80]  # 上限 80 字：超长查询无意义，顺带封住极端输入
     if not source_file or source_file not in ALLOWED_SOURCE_FILES:
         abort(404, description="请求的资料不在白名单中。")
@@ -14868,23 +15358,25 @@ def api_reader_find():
     MAX_MATCHES = 500
     matches: list[dict] = []
     total = 0
-    for p in volume.pages:
-        cnt = p.norm_text.count(nq) if p.norm_text else 0
-        if not cnt:
-            continue
-        total += cnt
-        if len(matches) < MAX_MATCHES:
-            matches.append({
-                "pdf_page": p.pdf_page,
-                "page_label": p.printed_page or f"PDF-{p.pdf_page}",
-                "count": cnt,
-                "snippet": _reader_find_snippet(p.raw_text, query),
-            })
+    supplements, complete, warning = corpus._layout_scan(nq, volumes=[volume])
+    extras = {m['start']: m for m in supplements.get(source_file, [])}
+    positions = list(corpus._canonical_exact_positions(volume, nq))
+    positions = sorted(set(positions) | set(extras))
+    total = len(positions)
+    for pos in positions[:MAX_MATCHES]:
+        hit = (corpus._make_layout_hit(volume, extras[pos], query) if pos in extras else
+               corpus._make_hit(volume, pos, pos + len(nq), 'exact', 100, query))
+        matches.append({'pdf_page': hit.pages[0].pdf_page,
+                        'page_label': '—'.join(p.printed_page or str(p.pdf_page) for p in hit.pages),
+                        'count': 1, 'snippet': hit.context.replace('[[H]]','').replace('[[/H]]',''),
+                        'layout_hit_ref': hit.layout_hit_ref, 'page_matches': hit.page_matches,
+                        'pdf_pages': [p.pdf_page for p in hit.pages]})
     return jsonify({
         "ok": True,
+        "exact_search_complete": complete,
         "matches": matches,
         "total": total,
-        "pages": len(matches),
+        "pages": len({p for m in matches for p in m["pdf_pages"]}),
         "truncated": len(matches) >= MAX_MATCHES,
     })
 
@@ -14898,10 +15390,12 @@ def _attach_viewer_payload(
     hit.update(_book_payload(str(hit.get("book") or "")))
     # 同段多词：context 里有多处 [[H]]，_hit_highlight_text 只会取第一处而漏掉其它关键词；
     # 此时直接用空格分隔的关键词串，阅读器 _highlight_terms 会逐词在页图上高亮。
-    highlight_text = highlight_override if highlight_override else _hit_highlight_text(hit, q_for_viewer)
+    highlight_text = _bounded_highlight_text(highlight_override)
+    if not highlight_text:
+        highlight_text = _hit_highlight_text(hit, q_for_viewer)
     hit["highlight_text"] = highlight_text
     printed_pages = [
-        page for page in hit.get("printed_pages", []) if page and not str(page).startswith("pre-")
+        page for page in hit.get("printed_pages", []) if page
     ]
     printed_label = printed_pages[0] if printed_pages else ""
     pdf_pages = hit.get("pdf_pages") or [1]
@@ -14912,6 +15406,7 @@ def _attach_viewer_payload(
             page=pdf_pages[0],
             q=q_for_viewer,
             h=highlight_text,
+            lr=hit.get("layout_hit_ref") or None,
             section=hit.get("section_title") or "",
             printed=printed_label,
         )
@@ -14981,6 +15476,34 @@ def _trim_hit_context_to_sentences(context: str) -> str:
 _CHAT_SENTENCE_RE = re.compile(r'[^。！？!?]*[。！？!?]+[”’」』）》】）)]*')
 
 
+
+def _strip_research_page_furniture(text: object, hit_payload: object = None) -> str:
+    """Compatibility entry point; both AI modes share physical-page cleanup."""
+    return clean_evidence(text, hit_payload if isinstance(hit_payload, dict) else {}, furniture_only=True).text
+
+
+def _clean_ai_evidence_text(text: object) -> str:
+    return clean_evidence(text).text
+
+
+def _clean_ai_source_window(text: str, payload: dict, focus: tuple[int, int] = (0, 0), *, preserve_lines: bool = False):
+    if ai_citations.enabled():
+        text = ai_citation_runtime.correct_source_window(sys.modules[__name__], text, payload)
+    cleaned = clean_evidence(text, payload, preserve_lines=preserve_lines)
+    # Private request-local provenance, never serialized to the browser. The
+    # selected passage must match both its displayed text and one safe segment.
+    payload["_ai_quote_segments"] = list(cleaned.quote_segments)
+    return cleaned.text, cleaned.map_focus(focus)
+
+
+def _ai_evidence_text_is_usable(text: object) -> bool:
+    """Fail closed on a passage left with too little readable corpus text."""
+    cleaned = str(text or "").strip()
+    if len(normalize(cleaned)) < 12:
+        return False
+    return sum(1 for char in cleaned if "\u3400" <= char <= "\u9fff") >= 8
+
+
 def _chat_complete_sentence_spans(text: str) -> list[tuple[int, int, str]]:
     """返回真正以句末标点收尾的句子及其位置；页尾无标点残片不会进入结果。"""
     source = _squeeze_cjk_line_joins(" ".join(str(text or "").split()))
@@ -15017,6 +15540,22 @@ def _chat_grounding_source_text(hit_obj, hit_payload: dict) -> tuple[str, tuple[
     pdf_pages = [int(p) for p in (hit_payload.get("pdf_pages") or []) if str(p).isdigit()]
     raw_pages: list[tuple[int, str]] = []
 
+    # New AI evidence carries a deterministic document id.  Use a window clipped
+    # to that work so completing a sentence can never drift into the neighbouring
+    # article.  Legacy/fake hits retain the old page-based fallback below.
+    if corpus and str(getattr(hit_obj, "document_id", "") or ""):
+        try:
+            bounded_source, bounded_focus = corpus.document_text_window(hit_obj, adjacent_pages=1)
+        except Exception:
+            bounded_source, bounded_focus = "", (0, 0)
+        if bounded_source.strip():
+            return _clean_ai_source_window(bounded_source, hit_payload, bounded_focus)
+        # A hit carrying a document id must never fall back to whole-page text:
+        # the same PDF page can contain the end of one work and the beginning of
+        # another.  Dropping this evidence is safer than silently crossing the
+        # verified work boundary.
+        return "", (0, 0)
+
     if corpus and source_file and pdf_pages:
         try:
             volume = corpus.get_volume_by_source_file(source_file)
@@ -15047,7 +15586,7 @@ def _chat_grounding_source_text(hit_obj, hit_payload: dict) -> tuple[str, tuple[
     target_page = pdf_pages[0] if pdf_pages else (raw_pages[0][0] if raw_pages else 0)
     cursor = 0
     for page_no, raw in raw_pages:
-        piece = _squeeze_cjk_line_joins(" ".join(raw.split()))
+        piece = raw
         if not piece:
             continue
         if pieces:
@@ -15057,23 +15596,26 @@ def _chat_grounding_source_text(hit_obj, hit_payload: dict) -> tuple[str, tuple[
         cursor += len(piece)
         if page_no == target_page:
             focus = (start, cursor)
-    source = _squeeze_cjk_line_joins(" ".join(pieces))
+    source = "\n".join(pieces)
     if focus == (0, 0):
         focus = (0, len(source))
     # squeeze 可能移除页缝空格，最多带来 1-2 字偏差；仅用于“是否靠近命中页”的排序，不用于切片。
-    return source, focus
+    return _clean_ai_source_window(source, hit_payload, focus)
 
 
 def _chat_grounding_passage_and_key(hit_obj, hit_payload: dict, topic: str) -> tuple[str, str]:
     """返回快速回答的完整句窗口及实际中心句去重键；绝不按相邻的同词句误去重。"""
     anchor = _hit_highlight_text(hit_payload, "")
     source, focus = _chat_grounding_source_text(hit_obj, hit_payload)
+    if str(getattr(hit_obj, "document_id", "") or "") and not source.strip():
+        return "", ""
     sentence_spans = _chat_complete_sentence_spans(source)
     sentences = [sentence for _start, _stop, sentence in sentence_spans]
 
     if not sentences:
-        fallback = _squeeze_cjk_line_joins(
-            _plain_hit_context({"context": _trim_hit_context_to_sentences(str(hit_payload.get("context") or ""))})
+        fallback, _ = _clean_ai_source_window(
+            _plain_hit_context({"context": _trim_hit_context_to_sentences(str(hit_payload.get("context") or ""))}),
+            hit_payload,
         )
         sentences = _chat_complete_sentences(fallback)
         source = fallback
@@ -15083,7 +15625,8 @@ def _chat_grounding_passage_and_key(hit_obj, hit_payload: dict, topic: str) -> t
     if not sentences:
         # 极少数 OCR 页完全没有句末标点。保留原材料而不是让该条引用消失；最终正文校验只会修正
         # 能与原文精确匹配的引文，不会臆造标点或内容。
-        return source or _plain_hit_context(hit_payload), ""
+        fallback = _clean_ai_evidence_text(source or _plain_hit_context(hit_payload))
+        return (fallback, "") if _ai_evidence_text_is_usable(fallback) else ("", "")
 
     needle = normalize(anchor)
     matching = [
@@ -15129,8 +15672,10 @@ def _chat_grounding_passage_and_key(hit_obj, hit_payload: dict, topic: str) -> t
             break
 
     # 单个原文长句即使超过软上限也必须完整保留；宁可多几十字，也不能再次制造半句。
-    passage = "".join(selected).strip()
-    center_key = normalize(sentences[center])
+    passage = _clean_ai_evidence_text("".join(selected).strip())
+    if not _ai_evidence_text_is_usable(passage):
+        return "", ""
+    center_key = normalize(_clean_ai_evidence_text(sentences[center]))
     return passage, center_key if len(center_key) >= 12 else ""
 
 
@@ -15201,21 +15746,35 @@ def _window_review_units(units: list[str], center_idx: int) -> str:
     return _trim_review_passage_to_sentence(" ".join(selected))
 
 
-def _research_review_passage_text(hit_obj, hit_payload: dict, topic: str) -> str:
+def _research_review_passage_text(hit_obj, hit_payload: dict, topic: str, *, required_quotes=()) -> str:
     """Extract a complete sentence/paragraph window for review writing, not the short UI highlight context."""
     context_plain = _plain_hit_context(hit_payload)
     highlighted = _hit_highlight_text(hit_payload, "")
     anchors = [highlighted, context_plain[:120], topic]
 
     raw_pages: list[str] = []
-    for page in getattr(hit_obj, "pages", []) or []:
-        raw = str(getattr(page, "raw_text", "") or "")
-        if raw.strip():
-            raw_pages.append(raw)
+    document_bounded = False
+    if corpus and str(getattr(hit_obj, "document_id", "") or ""):
+        try:
+            bounded_source, _bounded_focus = corpus.document_text_window(hit_obj, adjacent_pages=1)
+        except Exception:
+            bounded_source = ""
+        if bounded_source.strip():
+            raw_pages.append(bounded_source)
+            document_bounded = True
+        else:
+            # Fail closed for structured provenance; page-level fallbacks may
+            # include text belonging to a neighbouring work on the same page.
+            return ""
+    if not document_bounded:
+        for page in getattr(hit_obj, "pages", []) or []:
+            raw = str(getattr(page, "raw_text", "") or "")
+            if raw.strip():
+                raw_pages.append(raw)
 
     source_file = str(hit_payload.get("source_file") or "")
     pdf_pages = [int(p) for p in (hit_payload.get("pdf_pages") or []) if str(p).isdigit()]
-    if corpus and source_file and pdf_pages:
+    if not document_bounded and corpus and source_file and pdf_pages:
         try:
             volume = corpus.get_volume_by_source_file(source_file)
         except Exception:
@@ -15231,7 +15790,14 @@ def _research_review_passage_text(hit_obj, hit_payload: dict, topic: str) -> str
                     if raw.strip() and raw not in raw_pages:
                         raw_pages.append(raw)
 
-    raw_text = "\n\n".join(raw_pages)
+    # Do this while physical lines still exist. Once ``part.split()`` below
+    # collapses them, page headers become indistinguishable from quoted prose.
+    raw_text, _ = _clean_ai_source_window("\n\n".join(raw_pages), hit_payload, preserve_lines=True)
+    if raw_pages and not raw_text.strip():
+        return ""
+    anchored = ai_research_evidence.anchor_window(raw_text, required_quotes, RESEARCH_REVIEW_PASSAGE_MAX_CHARS)
+    if anchored:
+        return _clean_ai_evidence_text(anchored)
     paragraphs = [
         " ".join(part.split())
         for part in re.split(r"\n\s*\n+", raw_text)
@@ -15244,13 +15810,18 @@ def _research_review_passage_text(hit_obj, hit_payload: dict, topic: str) -> str
         if len(chosen) > RESEARCH_REVIEW_PASSAGE_MAX_CHARS:
             sentences = _sentence_chunks(chosen)
             if sentences:
-                return _window_review_units(sentences, _best_review_unit_index(sentences, anchors))
-        return _window_review_units(paragraphs, idx)
+                return _clean_ai_evidence_text(
+                    _window_review_units(sentences, _best_review_unit_index(sentences, anchors))
+                )
+        return _clean_ai_evidence_text(_window_review_units(paragraphs, idx))
 
-    fallback_sentences = _sentence_chunks(context_plain)
+    fallback_text = raw_text or _clean_ai_source_window(context_plain, hit_payload)[0]
+    fallback_sentences = _sentence_chunks(fallback_text)
     if fallback_sentences:
-        return _window_review_units(fallback_sentences, _best_review_unit_index(fallback_sentences, anchors))
-    return _trim_review_passage_to_sentence(context_plain or highlighted)
+        return _clean_ai_evidence_text(
+            _window_review_units(fallback_sentences, _best_review_unit_index(fallback_sentences, anchors))
+        )
+    return _clean_ai_evidence_text(_trim_review_passage_to_sentence(fallback_text or highlighted))
 
 
 # 综述正文里「逐字引用」的片段：抓各种引号内的内容（中文「」『』""，英文 ""）。
@@ -15569,6 +16140,8 @@ def _volume_page_evidence(volume, page_idx: int, span: str, source_text: str, *,
         "source_file": source_file,
         "pdf_page": pdf_page,
         "printed_page": str(getattr(page, "printed_page", "") or ""),
+        "page_refs": [page_reference(page)],
+        "page_location": citation_pages([page])["page"],
         "citation": citation,
         "citations": citations,
         "section_title": chapter.title if chapter else "",
@@ -15619,28 +16192,82 @@ def _text_match_in_book(book_key: str, text: str, *, kind: str, quote: str = "")
 
 
 def _prefer_wenji_evidence_for_hit(hit_obj, text: str, *, kind: str, quote: str = "") -> dict | None:
-    volume = _hit_volume(hit_obj)
-    # 仅限马恩《全集》与马恩《文集》这组同源经典文本；其它文库（列宁、毛选、党代会等）
-    # 属于不同文献体系，必须回到自身来源页核验，不能跨库改指《文集》。
-    if not volume or getattr(volume, "book", "") != "全集":
+    # Attribution must stay on the edition and work actually injected as [N].
+    # Kept as a compatibility symbol for callers/tests; cross-edition retargeting
+    # is intentionally disabled.
+    return None
+
+
+def _cleaned_quote_page_evidence(volume, hit_idx: int, quote: str, metadata: dict,
+                                 norm_bounds: tuple[int, int] | None = None) -> dict | None:
+    """Recover cleaned excerpts locally, mapping their start back to the raw page.
+
+    Search only the original evidence window. Structured work bounds are applied
+    before cleaning, including when two articles share the same physical page.
+    """
+    pages = getattr(volume, "pages", []) or []
+    pieces, page_ranges = [], []
+    cursor = 0
+    for page_idx in range(max(0, hit_idx - 1), min(len(pages), hit_idx + 2)):
+        page = pages[page_idx]
+        raw = str(getattr(page, "raw_text", "") or "")
+        if norm_bounds:
+            offsets = getattr(volume, "page_offsets", None)
+            if not offsets or not corpus:
+                return None
+            local_start = max(0, norm_bounds[0] - offsets[page_idx])
+            local_end = min(offsets[page_idx + 1] - offsets[page_idx], norm_bounds[1] - offsets[page_idx])
+            if local_end <= local_start:
+                continue
+            mapping = corpus._export_page_raw_map(page, OrderedDict())
+            if mapping is None:
+                return None
+            raw = raw[mapping[0][local_start]:mapping[1][local_end - 1]]
+        if pieces:
+            cursor += 1
+        page_ranges.append((cursor, cursor + len(raw), page_idx))
+        pieces.append(raw)
+        cursor += len(raw)
+    source = "\n".join(pieces)
+    cleaned = clean_evidence(source, {"book": getattr(volume, "book", ""), **metadata})
+    span = exact_quote(quote, cleaned.text)
+    if not span or not any(exact_quote(quote, part) for part in cleaned.quote_segments):
         return None
-    return _text_match_in_book("文集", text, kind=kind, quote=quote)
+    start = cleaned.text.find(span)
+    raw_start = cleaned.source_positions[start]
+    page_idx = next((idx for a, b, idx in page_ranges if a <= raw_start < b), None)
+    if page_idx is None:
+        return None
+    item = _volume_page_evidence(volume, page_idx, span, source, kind="quote", quote=quote)
+    if item is None:
+        return None
+    # Give the viewer a contiguous phrase on the actual starting page, excluding
+    # removed furniture. Card highlighting can still display the complete quote.
+    page_end = next(b for a, b, idx in page_ranges if idx == page_idx)
+    stop = start + 1
+    while stop < start + len(span):
+        current, previous = cleaned.source_positions[stop], cleaned.source_positions[stop - 1]
+        if current >= page_end or source[previous + 1:current].strip():
+            break
+        stop += 1
+    item["viewer_span"] = cleaned.text[start:stop].strip()
+    return item
 
 
 def _quote_match_in_hit_volume(hit_obj, quote: str) -> dict | None:
-    """Find one direct quote in the hit's full volume and return page-level evidence."""
-    preferred = _prefer_wenji_evidence_for_hit(hit_obj, quote, kind="quote", quote=quote)
-    if preferred:
-        return preferred
+    """Find a direct quote in the hit's verified work, never another article/version."""
     volume = _hit_volume(hit_obj)
     nq = normalize(quote)
     if not volume or len(nq) < 6:
         return None
     hit_idx = _hit_first_page_index(hit_obj, volume)
     best: tuple[int, int, int] | None = None
-    start = 0
+    document = corpus.document_scope_for_hit(hit_obj) if corpus else None
+    range_start = document.norm_start if document else 0
+    range_end = document.norm_end if document else len(volume.norm_full)
+    start = range_start
     while True:
-        pos = volume.norm_full.find(nq, start)
+        pos = volume.norm_full.find(nq, start, range_end)
         if pos < 0:
             break
         page_idx = volume.page_index_at(pos)
@@ -15649,7 +16276,7 @@ def _quote_match_in_hit_volume(hit_obj, quote: str) -> dict | None:
             best = candidate
         start = pos + len(nq)
     if best is None:
-        return None
+        return _cleaned_quote_page_evidence(volume, hit_idx, quote, {}, (range_start, range_end) if document else None)
     page_idx = best[1]
     page = volume.pages[page_idx]
     source_text = _page_raw_text(page)
@@ -15665,12 +16292,12 @@ def _quote_match_in_hit_volume(hit_obj, quote: str) -> dict | None:
 
 
 _CHAT_QUOTE_MATCH_CACHE_MAX = 4096
-_CHAT_QUOTE_MATCH_CACHE: OrderedDict[tuple[int, str, int, str], tuple[int, str] | None] = OrderedDict()
+_CHAT_QUOTE_MATCH_CACHE: OrderedDict[tuple[int, str, int, str, str], tuple[int, str] | None] = OrderedDict()
 _CHAT_QUOTE_MATCH_CACHE_LOCK = threading.Lock()
 _CHAT_QUOTE_MATCH_CACHE_MISS = object()
 
 
-def _chat_quote_match_cache_get(key: tuple[int, str, int, str]):
+def _chat_quote_match_cache_get(key: tuple[int, str, int, str, str]):
     with _CHAT_QUOTE_MATCH_CACHE_LOCK:
         if key not in _CHAT_QUOTE_MATCH_CACHE:
             return _CHAT_QUOTE_MATCH_CACHE_MISS
@@ -15680,7 +16307,7 @@ def _chat_quote_match_cache_get(key: tuple[int, str, int, str]):
 
 
 def _chat_quote_match_cache_put(
-    key: tuple[int, str, int, str], value: tuple[int, str] | None,
+    key: tuple[int, str, int, str, str], value: tuple[int, str] | None,
 ) -> None:
     with _CHAT_QUOTE_MATCH_CACHE_LOCK:
         _CHAT_QUOTE_MATCH_CACHE[key] = value
@@ -15690,7 +16317,7 @@ def _chat_quote_match_cache_put(
 
 
 def _indexed_quote_page_match(volume, pages: list, quote: str, normalized_quote: str,
-                              hit_idx: int) -> tuple[bool, tuple[int, str] | None]:
+                              hit_idx: int, norm_bounds: tuple[int, int] | None = None) -> tuple[bool, tuple[int, str] | None]:
     """Use ``Volume.norm_full`` to shortlist exact-quote pages without rescanning a volume.
 
     The corpus builds ``norm_full`` and ``page_offsets`` once at startup from the same
@@ -15715,9 +16342,10 @@ def _indexed_quote_page_match(volume, pages: list, quote: str, normalized_quote:
         return False, None
 
     candidate_pages: set[int] = set()
-    start = 0
+    range_start, range_end = norm_bounds or (0, len(norm_full))
+    start = range_start
     while True:
-        pos = norm_full.find(normalized_quote, start)
+        pos = norm_full.find(normalized_quote, start, range_end)
         if pos < 0:
             break
         try:
@@ -15780,19 +16408,19 @@ def _quote_match_in_citation_payload(payload: dict, quote: str) -> dict | None:
 
 
 def _span_match_in_hit_volume(hit_obj, span_text: str) -> dict | None:
-    """Locate a paraphrased-citation source sentence in the hit's full volume."""
-    preferred = _prefer_wenji_evidence_for_hit(hit_obj, span_text, kind="paraphrase")
-    if preferred:
-        return preferred
+    """Locate a cited source sentence inside the hit's verified work."""
     volume = _hit_volume(hit_obj)
     ns = normalize(span_text)
     if not volume or len(ns) < 8:
         return None
     hit_idx = _hit_first_page_index(hit_obj, volume)
     best: tuple[int, int, int] | None = None
-    start = 0
+    document = corpus.document_scope_for_hit(hit_obj) if corpus else None
+    range_start = document.norm_start if document else 0
+    range_end = document.norm_end if document else len(volume.norm_full)
+    start = range_start
     while True:
-        pos = volume.norm_full.find(ns, start)
+        pos = volume.norm_full.find(ns, start, range_end)
         if pos < 0:
             break
         page_idx = volume.page_index_at(pos)
@@ -15832,11 +16460,11 @@ def _expand_to_sentence_bounds(text: str, start: int, stop: int, cap: int = 160)
     return s, e, lead_cut, trail_cut
 
 
-def _review_evidence_context(source_text: str, spans: list[str], window: int = 360) -> str:
-    text = " ".join(str(source_text or "").split())
+def _review_evidence_context(source_text: str, spans: list[str], window: int = 360, metadata: dict | None = None) -> str:
+    text = clean_evidence(source_text, metadata).text
     clean_spans = []
     for span in spans:
-        s = " ".join(str(span or "").split())
+        s = clean_evidence(span, metadata).text
         if s and s not in clean_spans:
             clean_spans.append(s)
     if not text or not clean_spans:
@@ -15930,9 +16558,12 @@ def _make_review_evidence_items(
                 "section_title": item.get("section_title") or base.get("section_title") or "",
                 "pdf_page": item.get("pdf_page"),
                 "printed_page": item.get("printed_page") or "",
+                "page_refs": item.get("page_refs") or [],
+                "page_location": item.get("page_location") or "",
                 "source_text": item.get("source_text") or "",
                 "spans": [],
                 "quotes": [],
+                "viewer_spans": [],
             },
         )
         if item.get("source_text") and len(item["source_text"]) > len(group.get("source_text") or ""):
@@ -15941,6 +16572,8 @@ def _make_review_evidence_items(
             group["spans"].append(item["span"])
         if item.get("quote"):
             group["quotes"].append(item["quote"])
+        if item.get("viewer_span"):
+            group["viewer_spans"].append(item["viewer_span"])
 
     out: list[dict] = []
     retarget_base = dict(base)
@@ -15951,7 +16584,7 @@ def _make_review_evidence_items(
         page = group.get("pdf_page")
         if first_page is None and page:
             first_page = int(page)
-            first_highlight = " ".join(spans[:3])
+            first_highlight = " ".join((group.get("viewer_spans") or spans)[:3])
             retarget_base = dict(base)
             retarget_base.update({
                 "book": group.get("book") or base.get("book"),
@@ -15962,6 +16595,8 @@ def _make_review_evidence_items(
                 "section_title": group.get("section_title") or base.get("section_title"),
                 "pdf_pages": [int(page)],
                 "printed_pages": [group.get("printed_page") or ""],
+                "page_refs": group.get("page_refs") or [],
+                "page_location": group.get("page_location") or "",
             })
         viewer_url = ""
         source_file = group.get("source_file") or base.get("source_file")
@@ -15971,7 +16606,7 @@ def _make_review_evidence_items(
                 file=source_file,
                 page=page,
                 q=q_for_viewer,
-                h=" ".join(spans[:3]),
+                h=" ".join((group.get("viewer_spans") or spans)[:3]),
                 section=group.get("section_title") or "",
                 printed=group.get("printed_page") or "",
             )
@@ -15984,7 +16619,9 @@ def _make_review_evidence_items(
             "section_title": group.get("section_title") or "",
             "pdf_page": page,
             "printed_page": group.get("printed_page") or "",
-            "context": _review_evidence_context(group.get("source_text") or "", spans),
+            "page_refs": group.get("page_refs") or [],
+            "page_location": group.get("page_location") or "",
+            "context": _review_evidence_context(group.get("source_text") or "", spans, metadata=group),
             "viewer_url": viewer_url,
             "quote_count": len(group.get("quotes") or []),
         })
@@ -16007,14 +16644,17 @@ def _review_used_span_in_hit_volume(hit_obj, quotes: list[str]) -> tuple[str, st
         return "", "", None
 
     hit_idx = _hit_first_page_index(hit_obj, volume)
+    document = corpus.document_scope_for_hit(hit_obj) if corpus else None
+    range_start = document.norm_start if document else 0
+    range_end = document.norm_end if document else len(volume.norm_full)
     best: tuple[int, int, str, str, int] | None = None
     for quote in quotes:
         nq = normalize(quote)
         if len(nq) < 6:
             continue
-        start = 0
+        start = range_start
         while True:
-            pos = volume.norm_full.find(nq, start)
+            pos = volume.norm_full.find(nq, start, range_end)
             if pos < 0:
                 break
             page_idx = volume.page_index_at(pos)
@@ -16058,6 +16698,9 @@ def _retarget_review_hit_payload(base: dict, pdf_page: int | None) -> dict:
     out = dict(base)
     out["pdf_pages"] = [int(pdf_page)]
     out["printed_pages"] = [getattr(page_obj, "printed_page", "") or ""]
+    out["page_refs"] = [page_reference(page_obj)]
+    out["page_location"] = citation_pages([page_obj])["page"]
+    out["citations"] = corpus._make_citations(volume.book, volume.volume, [page_obj], source_file=source_file)
     try:
         out["citation"] = corpus._make_citation(volume.book, volume.volume, [page_obj], source_file=source_file)
     except Exception:
@@ -16088,55 +16731,66 @@ def _review_citation_context(passage_text: str, span: str, window: int = 320) ->
     )
 
 
-def _build_research_review_fallback(topic: str, passages: list[dict]) -> str:
-    """Build a grounded review when the model call fails, using only real retrieved passages."""
-    cleaned_topic = " ".join(str(topic or "").split()) or "本次研究论题"
+def _build_verified_evidence_fallback(topic: str, passages: list[dict]) -> str:
+    """Return evidence-only output when a safe synthesis cannot be retained."""
+
+    del topic  # The fallback contains source text only; it makes no new claim.
     usable: list[dict] = []
     for item in passages:
-        text = " ".join(str((item or {}).get("text") or "").split())
+        cleaned = clean_evidence((item or {}).get("text") or "", item)
+        text = cleaned.text
         if not text:
             continue
-        usable.append(
-            {
-                "index": (item or {}).get("index"),
-                "citation": " ".join(str((item or {}).get("citation") or "").split()),
-                "text": text,
-            }
-        )
+        # A fallback is still a direct quotation. Never join across an unsafe
+        # deletion merely because synthesis failed. Emit separate verified units.
+        segments = [text] if ZAIClient._grounded_quote_excerpt(text, item) else [
+            sentence for sentence in _chat_complete_sentences(text)
+            if ZAIClient._grounded_quote_excerpt(sentence, item)
+        ]
+        if not segments:
+            continue
+        usable.append({
+            "index": (item or {}).get("index"),
+            "text": text,
+            "segments": segments,
+            "work_title": " ".join(str((item or {}).get("work_title") or "").split()).strip("《》"),
+            "work_authors": [
+                " ".join(str(author or "").split())
+                for author in ((item or {}).get("work_authors") or [])
+                if " ".join(str(author or "").split())
+            ],
+            "provenance_verified": bool((item or {}).get("provenance_verified")),
+        })
     if not usable:
         return ""
 
-    lines = [
-        "## 研究综述",
-        "",
-        f"围绕“{cleaned_topic}”，本次检索已经在文献库中定位到一组可核对的原文材料。"
-        "由于模型长文生成暂时不可用，下面先依据这些真实命中整理一版可阅读的接地综述；"
-        "每处判断后面的方括号编号，对应下方可打开核对的引文条。",
-        "",
-    ]
-    for pos, item in enumerate(usable[:6], start=1):
+    lines = ["## 可核验原文", ""]
+    for pos, item in enumerate(usable[:8], start=1):
         idx = item["index"] if item["index"] is not None else pos
-        citation = item["citation"] or "出处见下方引文条"
-        text = item["text"]
-        lines.extend(
-            [
-                f"### 线索 {pos}",
-                "",
-                f"{citation} 的命中段落显示：{text} [{idx}]",
-                "",
-            ]
-        )
+        title = item["work_title"]
+        authors = item["work_authors"] if item["provenance_verified"] else []
+        if title and authors:
+            heading = f"### {'、'.join(authors)}：《{title}》"
+        elif title:
+            heading = f"### 《{title}》"
+        else:
+            heading = f"### 原文 {pos}"
+        lines.extend([heading, ""])
+        for segment in item["segments"]:
+            lines.extend([f"> {segment}[{idx}]", ""])
+    return "\n".join(lines).strip()
 
-    covered = "、".join(f"[{item['index'] if item['index'] is not None else i}]" for i, item in enumerate(usable[:6], start=1))
-    lines.extend(
-        [
-            "## 小结",
-            "",
-            f"就现有命中而言，以上材料（{covered}）已经提供了展开该论题的基本出处。"
-            "若要继续深化，可优先从这些出处进入原文页面，比较同一概念在不同篇章、卷次和历史语境中的表达差异。",
-        ]
-    )
-    return "\n".join(lines)
+
+def _repair_research_answer(markdown: str, passages: list[dict]) -> dict:
+    """Apply the length floor to the actual cleaned review before display."""
+    repair = AI_CLIENT.repair_grounded_answer(markdown, passages)
+    if AI_CLIENT._research_review_cjk_chars(repair.get("answer_markdown") or "") < RESEARCH_REVIEW_MIN_CJK_CHARS:
+        repair = {
+            **repair,
+            "status": "insufficient",
+            "issues": list(dict.fromkeys(list(repair.get("issues") or []) + ["review_too_short_after_cleanup"])),
+        }
+    return repair
 
 
 def _select_research_review_hits(candidates: list, limit: int = RESEARCH_REVIEW_SOURCES) -> list:
@@ -16187,10 +16841,12 @@ def _select_research_review_hits(candidates: list, limit: int = RESEARCH_REVIEW_
         if len(selected) >= limit:
             break
 
-    # 剩余名额回到全局相关度顺序补齐，保障窄题目或强相关材料不会被过度“平均化”。
+    # 剩余名额仍只在相关度门槛内回到全局顺序补齐；上限不是必须凑满的配额。
     for hit in candidates or []:
         if len(selected) >= limit:
             break
+        if int(getattr(hit, "score", 0) or 0) < relevance_floor:
+            continue
         key = _key(hit)
         if key in selected_keys:
             continue
@@ -16462,8 +17118,8 @@ def _standard_search_scope(payload: dict) -> object:
         return spec
     book = str(payload.get("book") or "").strip()
     if book in BOOK_CONFIG_BY_KEY:
-        return {book: None}
-    return None
+        return _intersect_public_scope({book: None})
+    return _public_book_keys()
 
 
 def _split_personal_scope(raw_scope: object) -> "tuple[list[int], object]":
@@ -16563,7 +17219,7 @@ def _validated_search_export_scope(payload: dict, user: dict) -> object:
         if token.lower() in {"all", "全部", "全部著作"} or token in _CORPUS_SCOPE_BY_ID:
             continue
         book, volume = _parse_book_token(token)
-        if not book or book not in corpus.books or not corpus.get_book_config(book).available:
+        if not book or book not in corpus.books or not _book_is_public(book):
             abort(400, description="所选著作或卷册已不可用，请重新选择。")
         if volume is not None and int(volume) not in {int(row.volume) for row in corpus.get_volumes(book)}:
             abort(400, description="所选卷册已不可用，请重新选择。")
@@ -16641,13 +17297,14 @@ def _search_export_viewer_url(job: dict, hit: dict, *, personal: bool = False) -
             if submission_id else ""
     printed = [
         str(value) for value in (hit.get("printed_pages") or [])
-        if value and not str(value).startswith("pre-")
+        if value
     ]
     params = urllib.parse.urlencode({
         "file": str(hit.get("source_file") or ""),
         "page": page,
         "q": query,
         "h": highlight,
+        "lr": str(hit.get("layout_hit_ref") or ""),
         "section": str(hit.get("section_title") or ""),
         "printed": printed[0] if printed else "",
     })
@@ -16700,6 +17357,16 @@ def _search_export_iter(job: dict, limit: int):
         yield _search_export_prepare_hit(job, hit)
 
 
+def _search_export_template_version() -> str:
+    """Keep old consumers from claiming exports requiring the new layout index."""
+    base = _citation_template_version()
+    index = getattr(corpus, 'layout_index', None)
+    if index and index.enabled and not index.error:
+        return sha256((base + '\0layout:' + index.revision).encode()).hexdigest()
+    return base
+
+
+
 def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
     worker = str(worker_id or f"local:{os.getpid()}")
     job = search_export_tasks.get_job(job_id)
@@ -16708,7 +17375,7 @@ def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
     try:
         if job.get("corpus_version") != _citation_corpus_sha256():
             raise search_export_tasks.SearchExportError("语料库版本已变更，请重新创建任务。")
-        if job.get("template_version") != _citation_template_version():
+        if job.get("template_version") != _search_export_template_version():
             raise search_export_tasks.SearchExportError("引用模板已变更，请重新创建任务。")
         # 私库 token 必须在每次重试时重新验证，不能只信创建任务时的状态。
         _public_spec, _public_enabled, personal_ids, _default_private = _search_export_scope_context(job)
@@ -16761,7 +17428,40 @@ def _search_export_job_for_request(job_id: str) -> tuple[dict, dict]:
         abort(404, description="导出任务不存在或已过期。")
     if int(job.get("user_id") or 0) != int(user["id"]) and not _is_admin_user(user):
         abort(404, description="导出任务不存在或已过期。")
+    if not _is_admin_user(user) and _search_export_crossed_public_boundary(job):
+        abort(404, description="导出任务不存在或已过期。")
     return user, job
+
+
+def _search_export_crossed_public_boundary(job: dict) -> bool:
+    """Reject a retained artifact once a timed book it could contain has closed."""
+    created = _parse_public_timestamp(job.get("created_at"))
+    if created is None:
+        return True
+    raw_scope = job.get("scope")
+    requested: set[str] = set()
+    includes_all = raw_scope is None and not str(job.get("book_filter") or "").strip()
+    if isinstance(raw_scope, (list, tuple, set)):
+        for item in raw_scope:
+            spec = str(item or "").strip()
+            if spec in {"", "all", "auto"}:
+                includes_all = True
+            elif spec in BOOK_CONFIG_BY_KEY:
+                requested.add(spec)
+            elif spec in _CORPUS_SCOPE_BY_ID:
+                requested.update(str(key) for key in _CORPUS_SCOPE_BY_ID[spec].get("books") or ())
+    book_filter = str(job.get("book_filter") or "").strip()
+    if book_filter:
+        requested.add(book_filter)
+    now = datetime.now(timezone.utc)
+    for cfg in BOOK_CONFIGS:
+        if cfg.collection != "user_recommended" or (not includes_all and cfg.key not in requested):
+            continue
+        _start, raw_end = _runtime_public_window(cfg)
+        end = _parse_public_timestamp(raw_end)
+        if end is not None and created < end <= now:
+            return True
+    return False
 
 
 def _search_export_payload(job: dict) -> dict:
@@ -16834,7 +17534,7 @@ def api_search_export_create():
             citation_style=citation_style,
             output_format=output_format,
             corpus_version=_citation_corpus_sha256(),
-            template_version=_citation_template_version(),
+            template_version=_search_export_template_version(),
             base_url=_search_export_base_url(),
             active_member=active_member,
         )
@@ -16884,14 +17584,16 @@ def _chaptered_search_payload(q, scope_spec, requested_group_page, viewer_allowe
     短词与“长词但单库命中超 EXACT_HITS_PER_BOOK 会被分组路径截断”的情形共用此通道，
     从而彻底消除 200 条/库 的截断。命中不足阈值则返回 None，交由常规分组/直出路径处理。"""
     try:
-        agg = corpus.search_chaptered(q)
+        # D3: counts describe every currently public book; the requested scope
+        # is applied to returned rows below. Expired timed books enter neither.
+        agg = corpus.search_chaptered(q, book_scope=_public_book_keys())
     except Exception as exc:
         LOGGER.warning(
             "Chaptered aggregation failed for query=%r user=%s: %s",
             q[:80], user.get("id") if user else "guest", exc,
         )
         return None
-    if not agg or agg["total_hits"] <= DIRECT_RESULTS_THRESHOLD:
+    if not agg or (agg["total_hits"] <= DIRECT_RESULTS_THRESHOLD and agg.get("exact_search_complete") is not False):
         return None
     book_counts = _bulk_book_counts(agg["book_hit_counts"])
     volumes = agg["volumes"]
@@ -16907,7 +17609,7 @@ def _chaptered_search_payload(q, scope_spec, requested_group_page, viewer_allowe
             "group_count": summary["group_count"], "group_page": summary["group_page"],
             "group_pages": summary["group_pages"], "groups_per_page": GROUPS_PER_PAGE,
             "truncated": False, "display_mode": "summary", "access_level": "summary",
-            "results": summary["results"], "pdf_enabled": False,
+            "results": summary["results"], "pdf_enabled": False, "exact_search_complete": agg.get("exact_search_complete", True),
             "book_counts": book_counts, "book_filter": book_filter,
         }
     bulk = _bulk_volume_results(volumes, requested_group_page)
@@ -16916,7 +17618,7 @@ def _chaptered_search_payload(q, scope_spec, requested_group_page, viewer_allowe
         "group_count": bulk["group_count"], "group_page": bulk["group_page"],
         "group_pages": bulk["group_pages"], "groups_per_page": GROUPS_PER_PAGE,
         "truncated": False, "display_mode": "volume_chaptered", "access_level": "full",
-        "results": bulk["results"], "pdf_enabled": viewer_allowed,
+        "results": bulk["results"], "pdf_enabled": viewer_allowed, "exact_search_complete": agg.get("exact_search_complete", True),
         "book_counts": book_counts, "book_filter": book_filter,
     }
 
@@ -17007,10 +17709,15 @@ def api_search():
             return jsonify(payload_chaptered)
 
     try:
+        public_search_scope = _public_book_keys()
         if cooc:
-            grouped = corpus.search_cooccurrence_grouped(cooc_keywords, group_limit=1000000)
+            grouped = corpus.search_cooccurrence_grouped(
+                cooc_keywords, group_limit=1000000, book_scope=public_search_scope
+            )
         else:
-            grouped = corpus.search_grouped(q, group_limit=1000000, max_hits=None)
+            grouped = corpus.search_grouped(
+                q, group_limit=1000000, max_hits=None, book_scope=public_search_scope
+            )
     except Exception as exc:
         LOGGER.warning("Search failed for query=%r user=%s: %s", q[:80], user.get("id") if user else "guest", exc)
         return jsonify({"ok": False, "error": "查询解析失败，请调整关键词后重试。"}), 400
@@ -17057,6 +17764,7 @@ def api_search():
                 "group_pages": summary["group_pages"],
                 "groups_per_page": GROUPS_PER_PAGE,
                 "truncated": grouped["truncated"],
+                "exact_search_complete": grouped.get("exact_search_complete", True),
                 "display_mode": summary["display_mode"],
                 "access_level": "summary",
                 "results": summary["results"],
@@ -17112,6 +17820,7 @@ def api_search():
             "group_pages": total_group_pages,
             "groups_per_page": GROUPS_PER_PAGE,
             "truncated": grouped["truncated"],
+                "exact_search_complete": grouped.get("exact_search_complete", True),
             "display_mode": display_mode,
             "access_level": "full",
             "results": results,
@@ -17145,6 +17854,7 @@ def api_search_chapter_hits():
     payload = request.get_json(silent=True) or {}
     q = (payload.get("q") or "").strip()
     source_file = (payload.get("source_file") or "").strip()
+    _require_source_public(source_file)
     q_norm = normalize(q)
     if not q or len(q_norm) < 2:
         return jsonify({"ok": False, "error": "请至少输入两个有效字符再检索。"}), 400
@@ -17386,6 +18096,9 @@ CORPUS_SCOPES: tuple[dict, ...] = (
      "hints": ("费尔巴哈", "路德维希费尔巴哈", "基督教的本质", "宗教的本质", "宗教本质讲演录",
                "未来哲学原理", "幸福论", "唯灵主义", "人本学", "不死问题", "感性的人",
                "神学的秘密", "人创造上帝", "青年黑格尔派", "德国古典哲学终结")},
+    {"id": "user_recommended", "label": "用户荐书",
+     "books": tuple(book.key for book in BOOK_CONFIGS if book.collection == "user_recommended"),
+     "hints": ("用户荐书", "读者荐书", "推荐书目", "荐书")},
     # 李大钊、陈独秀：中国早期马克思主义传播者。排在毛之前，与其著作 sort_order（36/38）
     # 的编年位置一致；问「李大钊的唯物史观」此前只能被马恩列强命中霸榜。
     {"id": "lidazhao", "label": "李大钊",
@@ -17407,6 +18120,10 @@ CORPUS_SCOPES: tuple[dict, ...] = (
      "books": ("周恩来选集", "周恩来年谱"),
      "hints": ("周恩来", "周总理", "恩来", "周恩来年谱", "求同存异", "和平共处五项原则",
                "万隆会议", "政府工作报告", "统一战线工作", "知识分子问题", "西花厅")},
+    {"id": "liu", "label": "刘少奇",
+     "books": ("刘少奇选集", "刘少奇年谱"),
+     "hints": ("刘少奇", "少奇同志", "刘少奇选集", "刘少奇年谱", "论共产党员的修养",
+               "民主集中制", "群众路线", "白区工作", "工人运动", "新民主主义经济建设")},
     {"id": "chenyun", "label": "陈云",
      "books": ("陈云文集", "陈云年谱"),
      "hints": ("陈云", "陈云文集", "陈云年谱", "综合平衡", "计划与市场", "一要吃饭二要建设",
@@ -17458,11 +18175,12 @@ CORPUS_SCOPES: tuple[dict, ...] = (
      # 新增文献选编必须同时登记在这里：「指定著作」多选控件与著作群限定都只认 CORPUS_SCOPES，
      # 光在 books.yaml 建库、语料建好，前端也选不到（未登记＝不可限定检索）。
      "books": ("历次党代会报告", "历届全会公报", "建党以来重要文献选编", "建国以来重要文献选编",
+               "中共中央文件选集（1921—1949）", "中共中央文件选集（1949—1966）",
                "十八大以来重要文献选编", "十九大以来重要文献选编", "二十大以来重要文献选编",
                "五年规划"),
      "hints": ("党的全国代表大会", "党代会", "三中全会", "四中全会", "中央全会", "全会公报",
                "五年规划", "五年计划", "国民经济和社会发展", "中央委员会",
-               "重要文献选编", "文献选编", "建党以来", "建国以来", "二十大以来", "十九大以来",
+               "重要文献选编", "文献选编", "中共中央文件选集", "中央文件", "建党以来", "建国以来", "二十大以来", "十九大以来",
                "十八大以来")},
 )
 _CORPUS_SCOPE_BY_ID: dict[str, dict] = {s["id"]: s for s in CORPUS_SCOPES}
@@ -17495,7 +18213,7 @@ def _scope_books(scope_id: str) -> set[str]:
     scope = _CORPUS_SCOPE_BY_ID.get(scope_id)
     if not scope:
         return set()
-    return {b for b in scope["books"] if b in corpus.books}
+    return {b for b in scope["books"] if b in corpus.books and _book_is_public(b)}
 
 
 def _book_display_title(key: str) -> str:
@@ -17544,7 +18262,7 @@ def _book_scope_tree() -> list[dict]:
     for s in CORPUS_SCOPES:
         books: list[dict] = []
         for key in s["books"]:
-            if key not in corpus.books or not corpus.get_book_config(key).available:
+            if key not in corpus.books or not _book_is_public(key):
                 continue
             vols = corpus.get_volumes(key)
             if not vols:
@@ -17613,7 +18331,7 @@ def _scope_options_payload() -> list[dict]:
         {"id": "all", "label": "全部著作"},
     ]
     for s in CORPUS_SCOPES:
-        if any(b in corpus.books and corpus.get_book_config(b).available for b in s["books"]):
+        if any(b in corpus.books and _book_is_public(b) for b in s["books"]):
             opts.append({"id": s["id"], "label": s["label"]})
     return opts
 
@@ -17681,6 +18399,32 @@ def _detect_scope(gist: str, plan: object) -> str | None:
     return detected[0] if detected else None
 
 
+def _explicit_book_scope_from_query(gist: str) -> dict[str, set[int] | None]:
+    """Resolve a collection/edition explicitly named in the user's text.
+
+    This runs independently of model-produced corpus hints.  It is intentionally
+    conservative: only configured full/short titles written as titles are
+    binding, so a generic mention of an author does not become a hard scope.
+    """
+
+    text = " ".join(str(gist or "").split())
+    if not text:
+        return {}
+    result: dict[str, set[int] | None] = {}
+    for config in corpus.book_configs:
+        if not _book_is_public(config):
+            continue
+        aliases = {
+            str(config.title or "").strip(),
+            str(config.short_title or "").strip(),
+            f"《{str(config.citation_title or '').strip('《》')}》",
+        }
+        aliases.discard("")
+        if any(alias and alias in text for alias in aliases):
+            result[config.key] = None
+    return result
+
+
 def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[set[str] | dict[str, set[int] | None] | None, str, bool]":
     """把请求里的 scope 参数 + 语义信号解析为 (书库范围集合 或 None=全部, 结果范围id, 是否手动)。
 
@@ -17695,9 +18439,10 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
     else:
         s = str(raw_scope or "").strip()
         tokens = [s] if s else []
-    # 显式「全部」优先（与任何著作群同时出现时，以不限定为准，避免歧义）。
-    if any(t.lower() in {"all", "全部", "全部著作"} for t in tokens):
-        return (None, "all", False)
+    query_book_spec = _explicit_book_scope_from_query(gist)
+    # 文本中明确点名某一版本时，该版本比“全部”更具体；否则保持既有“全部”语义。
+    if any(t.lower() in {"all", "全部", "全部著作"} for t in tokens) and not query_book_spec:
+        return (_public_book_keys(), "all", False)
     # D2「指定优先」：出现任一单本/单卷 token（book:/vol:/裸书库键）→ 以具体书/卷的并集为准（手动硬限定），
     # 忽略同时传来的著作群。范围表示为 {书库键: 允许卷号集合 或 None(整套)}，供 corpus 逐卷过滤。
     book_spec: dict[str, set[int] | None] = {}
@@ -17722,7 +18467,10 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
             if keep:
                 valid[key] = keep
         if valid:
-            return (valid, _scope_id_for_books(valid), True)
+            public_valid = _intersect_public_scope(valid)
+            return (public_valid, _scope_id_for_books(valid), True)
+    if query_book_spec:
+        return (_intersect_public_scope(query_book_spec), _scope_id_for_books(query_book_spec), True)
     ids = [t for t in tokens if t in _CORPUS_SCOPE_BY_ID]
     if ids:
         # 保持 CORPUS_SCOPES 定义顺序，去重；并集非空才算数（否则退回全部）。
@@ -17733,7 +18481,9 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
             books |= _scope_books(i)
         if books:
             return (books, ",".join(ordered), True)
-        return (None, "all", False)
+        # A known but currently closed collection must remain an empty manual
+        # scope; silently widening it to the whole corpus would defeat expiry.
+        return (set(), ",".join(ordered), True)
     detected = _detect_scopes(gist, plan)  # auto / 空 / 无法识别
     if detected:
         books: set[str] = set()
@@ -17741,7 +18491,28 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
             books |= _scope_books(sid)
         if books:
             return (books, ",".join(detected), False)
-    return (None, "auto", False)
+    return (_public_book_keys(), "auto", False)
+
+
+def _explicit_document_scope_message(resolution: dict) -> str:
+    status = str((resolution or {}).get("status") or "")
+    title = str(
+        (resolution or {}).get("missing_title")
+        or (resolution or {}).get("ambiguous_title")
+        or "指定篇目"
+    )
+    if status == "not_found":
+        return f"在当前检索范围内没有找到《{title}》，因此没有扩大到其他篇目或书库代为回答。请核对篇名或调整检索范围。"
+    if status == "ambiguous":
+        candidates = (resolution or {}).get("candidates") or []
+        labels = []
+        for item in candidates[:8]:
+            labels.append(
+                f"{item.get('work_title') or title}（{item.get('book') or '未知书库'}，第{item.get('volume') or '?'}卷/册）"
+            )
+        suffix = "；候选为：" + "；".join(labels) if labels else ""
+        return f"《{title}》在当前范围内对应多个不同篇目，无法安全自动归并{suffix}。请补充书名或卷次后重试。"
+    return ""
 
 
 def _hit_page_key(h) -> tuple:
@@ -17915,16 +18686,126 @@ def _has_citation_exclusions(exclusions: dict[str, set] | None) -> bool:
 
 
 # 联想检索（定位意图）自动路由回填下限：范围内命中不足此数才无范围补足。定位求聚焦、一页足矣；
-# 研究意图另用 RESEARCH_REVIEW_SOURCES（要喂满 20-24 源）。
+# 研究意图另用 RESEARCH_REVIEW_SOURCES（上限 30，实际不足则按相关材料数量生成）。
 ASSOC_PAGE_BACKFILL_FLOOR = 12
 
 
 # 首页「随心问」引文库接地（RAG）：把用户问题经联想检索设施落到真实语料，取权重最高的
 # 若干条真实命中作为「原文+准确出处」注入 AI 提示词。引文不可伪造——全部来自
 # corpus.locate_associative 的真实 Hit；模型只负责据此作答并准确标注出处。
-CHAT_GROUNDING_TOP = 10             # 注入提示词的原文条数（取到 10 条更充分支撑作答；前端引文清单同步呈现 10 条）
+CHAT_GROUNDING_TOP = 12             # 快速问答候选证据上限；正文按需要选用，不设最低引用数、不凑满
 CHAT_GROUNDING_CONTEXT_CHARS = 900  # 每条注入原文的字数上限（按完整句窗口取，实际通常 ~300 字；超出才按句末标点截断）
 CHAT_GROUNDING_PER_BOOK = 3         # 单一「著作群」在接地结果里至多占的条数（马恩三版合一个名额；防霸榜、让其它作者铺开。条数升到 10 后同步从 2 上调到 3，让最贴题的著作能多贡献一条又不至霸榜）
+
+
+def _rank_explicit_document_candidates(
+    candidates: object, question: str, keywords: object, requested_titles: object = None,
+) -> list:
+    """让指定篇目内真正命中主题词的正文排在目录、序言等弱相关文本之前。
+
+    只有至少两条候选确实命中主题词时才剔除零命中项；证据稀少或主题词无法可靠抽出时保留原候选，
+    因而不会把“提高准确性”变成对冷门问题的一刀切零结果。该步骤只做内存字符串匹配，不增加模型调用。
+    """
+    original = list(candidates or [])
+    if len(original) < 2:
+        return original
+    topic_terms = _explicit_document_topic_terms(question, keywords, requested_titles)
+    if not topic_terms:
+        return original
+
+    supporting_terms: list[str] = []
+    for raw in keywords or []:
+        term = normalize(str(raw or ""))
+        if 2 <= len(term) <= 12 and term not in topic_terms and term not in supporting_terms:
+            supporting_terms.append(term)
+
+    ranked: list[tuple[int, int, int, object]] = []
+    for position, hit in enumerate(original):
+        context_norm = normalize(str(getattr(hit, "context", "") or ""))
+        topic_matches = sum(1 for term in topic_terms if term in context_norm)
+        support_matches = sum(1 for term in supporting_terms if term in context_norm)
+        ranked.append((topic_matches, support_matches, position, hit))
+
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    matched_count = sum(1 for topic_matches, _support, _position, _hit in ranked if topic_matches)
+    if matched_count >= 2:
+        ranked = [item for item in ranked if item[0]]
+    return [item[3] for item in ranked]
+
+
+_EXPLICIT_DOCUMENT_QUERY_STOPWORDS = frozenset({
+    "根据", "依据", "结合", "围绕", "关于", "内容", "文中", "文内", "文章", "篇目", "著作",
+    "分析", "理解", "说明", "论述", "阐释", "解释", "指出", "认为", "谈谈", "试论", "试述",
+    "如何", "什么", "为何", "为什么", "怎样", "关系", "问题", "思想", "理论", "观点", "意义",
+})
+
+
+def _explicit_document_topic_terms(
+    question: str, keywords: object, requested_titles: object = None,
+) -> list[str]:
+    """提取“指定篇目问题”里的主题词，供篇内候选作确定性相关性排序。
+
+    篇名只是范围约束，不应成为正文相关性得分；“根据、如何理解、关系”等问法模板同样不计分。
+    优先采用模型已经抽出的关键词，但只保留确实出现在用户问题正文里的词，避免模型扩展词反客为主。
+    """
+    topical_question = re.sub(r"《[^》\r\n]{1,100}》", " ", str(question or ""))
+    for title in requested_titles or []:
+        title = str(title or "").strip()
+        if title:
+            topical_question = topical_question.replace(title, " ")
+    topical_norm = normalize(topical_question)
+    if not topical_norm:
+        return []
+
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw in keywords or []:
+        term = normalize(str(raw or ""))
+        if not (2 <= len(term) <= 12):
+            continue
+        if term not in topical_norm or term in _EXPLICIT_DOCUMENT_QUERY_STOPWORDS or term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+
+    # 同义嵌套时优先保留更具体的长词，如已有“所有制”便不再以“所有”重复计分。
+    specific: list[str] = []
+    for term in sorted(terms, key=len, reverse=True):
+        if any(term in existing for existing in specific):
+            continue
+        specific.append(term)
+    return specific[:8]
+
+
+def _grounded_answer_underuses_evidence(
+    question: str, answer_markdown: str, passages: object, repair: object,
+) -> bool:
+    """Check explicit comparison coverage, never impose a citation-count floor."""
+    question = str(question or "")
+    if not any(word in question for word in ("比较", "对比", "异同", "区别")):
+        return False
+    repair = repair if isinstance(repair, dict) else {}
+    used = set(repair.get("used_indices") or _review_ref_indices(answer_markdown))
+    requested_titles = re.findall(r"《([^》]+)》", question)
+    groups: dict[str, set[int]] = {}
+    for item in passages or []:
+        try:
+            index = int(item.get("index"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        # Catalogue titles can include a subtitle or composition date. Only
+        # explicit structural separators delimit the primary title here.
+        title = re.split(r"[。：（(]|[—–]{1,2}", str(item.get("work_title") or ""), maxsplit=1)[0]
+        for requested in requested_titles:
+            if normalize(requested) == normalize(title):
+                groups.setdefault("title:" + normalize(requested), set()).add(index)
+        if item.get("provenance_verified"):
+            for author in item.get("work_authors") or []:
+                if str(author) in question:
+                    groups.setdefault("author:" + str(author), set()).add(index)
+    # Multiple co-authors may be supported by a single shared source. A single
+    # work may also adequately support a long argument; neither triggers retry.
+    return len(groups) >= 2 and any(not (indices & used) for indices in groups.values())
 
 
 def _personal_grounding_candidates(question, quotes, fragments, keywords,
@@ -18009,13 +18890,55 @@ def _build_chat_grounding(
         scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
                       "manual": scope_manual, "applied": book_scope is not None}
 
+    document_scopes = []
+    if not personal_only:
+        document_resolution = corpus.resolve_document_scopes(
+            question, book_scope=book_scope if scope_manual else None,
+        )
+        document_status = str(document_resolution.get("status") or "none")
+        if document_status in {"not_found", "ambiguous"}:
+            scope_meta.update({
+                "applied": True,
+                "manual": True,
+                "document_status": document_status,
+                "requested_titles": document_resolution.get("requested_titles") or [],
+                "candidates": document_resolution.get("candidates") or [],
+            })
+            return [], [], [_explicit_document_scope_message(document_resolution)], scope_meta
+        if document_status == "resolved":
+            document_scopes = list(document_resolution.get("scopes") or [])
+            labels = [f"《{scope.title}》" for scope in document_scopes]
+            scope_meta.update({
+                "id": "document:" + ",".join(scope.document_id for scope in document_scopes),
+                "label": "、".join(labels),
+                "manual": True,
+                "applied": True,
+                "document_status": "resolved",
+                "requested_titles": document_resolution.get("requested_titles") or [],
+            })
+
     # 接地仅取前 CHAT_GROUNDING_TOP 条注入提示词；分数并列时排序兜底键 book_sort_order 升序会让
     # sort_order 最小（10）的《文集》霸榜，把《列宁全集》《毛泽东文集》等更贴题的原著挤出首屏。
     # 故按「著作群」多样性铺开（diversify_by_author：马恩《文集》/《全集》/《全集·二版》三套版本
     # 合并为一个名额，至多 CHAT_GROUNDING_PER_BOOK 条），避免同一文本两套版本各占名额、把其它作者
     # 整体挤出。注意 _diversify_by_book 只是把超额命中「后置」而非丢弃，故著作群不足 5 个时，前
-    # CHAT_GROUNDING_TOP 条仍会用 overflow 回填补足 10 条。
+    # CHAT_GROUNDING_TOP 条仍会用 overflow 回填到候选上限。
     def _locate(scope):
+        if document_scopes:
+            cands = corpus.locate_associative_in_documents(
+                document_scopes,
+                quotes=quotes,
+                keywords=keywords,
+                fragments=fragments,
+            )
+            if not cands and (raw_terms or question):
+                cands = corpus.locate_associative_in_documents(
+                    document_scopes,
+                    quotes=[question] if question else [],
+                    keywords=raw_terms,
+                    fragments=raw_terms,
+                )
+            return cands
         cands = []
         if quotes or fragments or keywords or chapter_keywords:
             cands = corpus.locate_associative(
@@ -18031,6 +18954,13 @@ def _build_chat_grounding(
         return cands
 
     candidates = [] if personal_only else _fresh_hits(_locate(book_scope), exclusions)
+    if document_scopes:
+        candidates = _rank_explicit_document_candidates(
+            candidates,
+            question,
+            keywords,
+            scope_meta.get("requested_titles") or [],
+        )
     # 个人文库接地：用户在范围里勾了自己的书时，把私有书的命中并入候选，与全局命中统一走
     # 下面的构造/去重流程。引文只对本人显示——个人 Corpus 是按 user_id 独立实例化的。
     personal_candidates = _personal_grounding_candidates(
@@ -18040,18 +18970,28 @@ def _build_chat_grounding(
         candidates = _fresh_hits(personal_candidates, exclusions) + candidates
     # 自动路由「限定+兜底回填」：范围内不足 CHAT_GROUNDING_TOP 条 → 再无范围补足（范围内命中排前、
     # 更贴题），保证注入条数不因限定而下降。手动指定范围则尊重用户选择、不回填。
-    if book_scope is not None and not scope_manual and len(candidates) < CHAT_GROUNDING_TOP:
+    if not document_scopes and book_scope is not None and not scope_manual and len(candidates) < CHAT_GROUNDING_TOP:
         seen = {_hit_page_key(c) for c in candidates}
-        for c in _fresh_hits(_locate(None), exclusions):
+        for c in _fresh_hits(_locate(_public_book_keys()), exclusions):
             k = _hit_page_key(c)
             if k not in seen:
                 seen.add(k)
                 candidates.append(c)
 
+    if ai_citations.enabled():
+        candidates = [h for h in candidates if ai_citations.admissible(h.to_dict(), "", question)]
+    if not candidates and not personal_only and ai_citations.enabled() and ai_citations.augmentation_target(question, CHAT_GROUNDING_TOP):
+        with ai_call_context(user_id=user_id, feature="associative_internal", charge_user=False,
+                             provider_call_ids=provider_call_ids if provider_call_ids is not None else []):
+            candidates = ai_citation_runtime.recover_empty_candidates(sys.modules[__name__], question,
+                CHAT_GROUNDING_TOP, book_scope if book_scope is not None else _public_book_keys(), document_scopes)
     if not candidates:
         note = (
             "未找到尚未在本会话中使用、且与问题直接相关的新原文；你可以补充更具体的侧面或扩大检索范围。"
             if _has_citation_exclusions(exclusions)
+            else
+            f"「{scope_meta['label']}」篇目范围内未检索到与该问题直接相关的原文；本次没有扩大到其他篇目代为回答。"
+            if document_scopes
             else
             "当前个人书籍中未检索到与该问题直接相关的原文；为保护范围准确性，本次未使用公共语料补答。"
             if personal_only
@@ -18065,12 +19005,17 @@ def _build_chat_grounding(
     passages: list[dict] = []
     citations: list[dict] = []
     seen_anchor_sentences: set[str] = set()
+    ai_pool = ai_citations.EvidencePool(question)
     seen_passages: set[str] = set()
-    # 不先截 candidates[:TOP]：前十条里可能含《文集》/《全集》不同版本的同一句。逐条构造后按
+    # 不先截 candidates[:TOP]：靠前候选里可能含《文集》/《全集》不同版本的同一句。逐条构造后按
     # “实际命中所在的完整句”去重，再继续向后补足，既避免模型收到重复引文，也不减少可用材料面。
-    for hit in candidates:
+    for hit in (candidates[:CHAT_GROUNDING_TOP * 3] if ai_citations.enabled() else candidates):
         if len(passages) >= CHAT_GROUNDING_TOP:
             break
+        try:
+            hit = corpus.enrich_hit_document(hit)
+        except Exception:
+            pass
         d = hit.to_dict()
         citation = str(d.get("citation") or "").strip()
         cd = _attach_viewer_payload(d, question, viewer_allowed)
@@ -18091,10 +19036,16 @@ def _build_chat_grounding(
             plain = ""
             anchor_key = ""
             display_ctx = ""
-        # 兜底：取不到整页原文时仍用语料短窗口；只向内保留可确认的完整句，绝不臆补原文。
+        # 兜底只服务于没有结构化篇目边界的旧命中；已有 document_id 时若边界文本提取失败，
+        # 必须舍弃该条，不能退回可能横跨同页相邻篇目的短窗口。
         trimmed_ctx = _trim_hit_context_to_sentences(str(d.get("context") or ""))
-        plain = plain or _squeeze_cjk_line_joins(_plain_hit_context({"context": trimmed_ctx}))
+        if not plain and not str(d.get("document_id") or ""):
+            plain, _ = _clean_ai_source_window(_plain_hit_context({"context": trimmed_ctx}), d)
         if not plain:
+            continue
+        if ai_citations.enabled() and (
+            not ai_citations.admissible(d, plain, question) or not ai_pool.add(plain, d)
+        ):
             continue
         if _passage_matches_exclusions(plain, exclusions):
             continue
@@ -18102,6 +19053,10 @@ def _build_chat_grounding(
         # 同一逐字句在不同版本、不同页或不同检索线索下只注入一次。去重键只看“命中所在句”，
         # 不以整段相似度删材料，故相邻但论点不同的原文仍会全部保留。
         passage_key = normalize(plain)
+        if ai_citations.enabled() and ai_pool.compare_versions:
+            edition_key = str(d.get("source_file") or "")
+            passage_key = edition_key + "|" + passage_key
+            anchor_key = edition_key + "|" + anchor_key if anchor_key else ""
         if (anchor_key and anchor_key in seen_anchor_sentences) or passage_key in seen_passages:
             continue
         if anchor_key:
@@ -18109,8 +19064,19 @@ def _build_chat_grounding(
         seen_passages.add(passage_key)
 
         idx = len(passages) + 1
-        passages.append({"index": idx, "citation": citation, "text": plain})
-        cd["context"] = display_ctx or _squeeze_cjk_line_joins(trimmed_ctx)
+        passages.append({
+            "index": idx,
+            "citation": citation,
+            "text": plain,
+            "quote_segments": d.get("_ai_quote_segments", [plain]),
+            "document_id": d.get("document_id") or "",
+            "work_title": d.get("work_title") or "",
+            "work_authors": d.get("work_authors") or [],
+            "provenance_verified": bool(d.get("provenance_verified")),
+        })
+        if ai_citations.enabled():
+            passages[-1].update(ai_citation_runtime.passage(sys.modules[__name__], hit, d, plain, idx))
+        cd["context"] = display_ctx or _review_citation_context(plain, "")
         cd["grounding_index"] = idx
         citations.append(cd)
     warnings = []
@@ -18177,7 +19143,14 @@ def api_ai_search_chat():
         return jsonify({"ok": False, "error": "问题不能为空。"}), 400
     # 普通新问题仍原样检索；只在用户明确说“换一批/再搜索”或使用上文指代时，
     # 才用最近的用户论题还原本轮检索语义。已用材料仅在“换资料”追问中按具体页/段排除。
+    citation_started = time.monotonic()
+    citation_target = ai_citations.augmentation_target(question, CHAT_GROUNDING_TOP) if ai_citations.enabled() else None
     retrieval_question, source_refresh = _conversation_retrieval_query(question, messages)
+    if citation_target and ai_citations.MORE.search(question):
+        previous_topic = next((str(m.get("content") or "") for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user" and not ai_citations.MORE.search(str(m.get("content") or ""))), "")
+        if previous_topic and len(question) < 100:
+            retrieval_question = previous_topic[:450] + "；" + question
+        source_refresh = False
     prior_citation_exclusions = (
         _history_citation_exclusions(messages) if source_refresh else None
     )
@@ -18187,6 +19160,7 @@ def api_ai_search_chat():
     # scope=前端「检索范围」（auto/all/著作群 id），仅接地时有意义：把召回定向到对应著作群，从根上
     # 解决「问总书记却检索起马恩」。
     grounding_on = _coerce_bool(payload.get("grounding", False))
+    grounding_public_keys_at_start = _public_book_keys()
     grounding_scope_req = payload.get("scope")
     grounding_passages: list[dict] = []
     grounding_citations: list[dict] = []
@@ -18215,7 +19189,11 @@ def api_ai_search_chat():
 
     # 个人阅读器的“检索本书原文作答”是严格接地模式。私有书没有命中时直接如实返回，
     # 不再调用模型凭自身知识补答，避免用户误把生成内容当成本书原文，也不消耗一次 AI 额度。
-    if grounding_on and grounding_scope_meta.get("personal_only") and not grounding_passages:
+    strict_grounding_scope = bool(
+        grounding_scope_meta.get("personal_only")
+        or grounding_scope_meta.get("document_status") in {"resolved", "not_found", "ambiguous"}
+    )
+    if grounding_on and strict_grounding_scope and not grounding_passages:
         message = (
             grounding_warnings[0] if grounding_warnings
             else "当前个人书籍中未检索到与该问题直接相关的原文。"
@@ -18233,12 +19211,31 @@ def api_ai_search_chat():
         })
 
     # 慢活——尤其是「接地长答」（接地时会注入多段原文、答案更长）——丢进 SSE 心跳保活后台线程。
+    # SSE 只承载进度/保活与最终完整结果，绝不逐 token 传输或在前端流式展示回答正文。
     # 接地检索（含一次线索抽取 AI 调用）已在上面同步跑完，其耗时计入「首字节」（与研究综述同构，
-    # 抽取是短小调用，通常远低于 Cloudflare ~100s 边缘超时）；真正耗时的答案生成则边吐心跳边写。
+    # 抽取是短小调用，通常远低于 Cloudflare ~100s 边缘超时）；真正耗时的答案生成期间只发心跳，完成后才整包返回正文。
     # 如此即便「接地 + 长答」整链路逼近/超过 100s，也只会从容写完，绝不被砍成 524 HTML
     # （即前端 resp.json() 撞 '<'、"Unexpected token '<'" 的根因）。生成只吃纯数据
     # （messages/question/grounding），线程安全；记账、扣次、配额刷新等需请求上下文的收尾放回
     # finalize（stream_with_context 保住 g/request）。
+    answer_verification: dict = {"status": "not_applicable"}
+    citation_bases = {int(c["grounding_index"]): c for c in grounding_citations}
+    citation_books, _, _ = _resolve_search_scope(grounding_scope_req, retrieval_question, {}) if citation_target else (None, "", False)
+    if citation_target and citation_books is None:
+        citation_books = grounding_public_keys_at_start
+    citation_documents = list(corpus.resolve_document_scopes(retrieval_question, book_scope=citation_books).get("scopes") or []) if citation_target and grounding_on and not grounding_scope_meta.get("personal_only") else []
+    if grounding_scope_meta.get("personal_only"):
+        citation_books = set()
+    previous_citation_answer = ai_citation_runtime.restore_history(sys.modules[__name__], messages, question, CHAT_GROUNDING_TOP, citation_books, citation_documents) if citation_target and grounding_on and citation_books else None
+    if previous_citation_answer:
+        _previous_text, _previous_passages, _previous_bases = previous_citation_answer
+        citation_target = ai_citations.augmentation_target(question, CHAT_GROUNDING_TOP, len(ai_citations.ledger(_previous_text, _previous_passages)["used_indices"]))
+        grounding_passages[:] = _previous_passages
+        citation_bases.clear()
+        citation_bases.update(_previous_bases)
+        history_issues = _previous_passages[0].get("_history_verification_issues", [])
+        answer_verification.update(status="repaired" if history_issues else "verified", issues=history_issues)
+
     def _slow_answer(cancel_event):
         # 接地长答是单次调用，取消位无处插入（一次 chat_complete），故接收但不使用 cancel_event。
         with ai_call_context(
@@ -18247,12 +19244,91 @@ def api_ai_search_chat():
             charge_user=ai_charge_user,
             provider_call_ids=search_call_ids,
         ):
-            return AI_CLIENT.answer_search_chat(
+            answer = AIAnswer(answer_markdown=previous_citation_answer[0], sources=[], used_web=False, warnings=[]) if previous_citation_answer else AI_CLIENT.answer_search_chat(
                 messages, question, provider=ai_provider or None,
                 grounding=grounding_passages or None, model=ai_model,
                 prefer_new_sources=bool(source_refresh and grounding_passages),
                 reasoning_effort=ai_reasoning_effort,
             )
+            if grounding_passages and _env_flag("AI_CITATION_GUARD_ENABLED", True) and not previous_citation_answer:
+                repair = AI_CLIENT.repair_grounded_answer(answer.answer_markdown, grounding_passages)
+                evidence_underused = _grounded_answer_underuses_evidence(
+                    question, repair.get("answer_markdown") or answer.answer_markdown,
+                    grounding_passages, repair,
+                )
+                if evidence_underused:
+                    repair = {
+                        **repair,
+                        "issues": list(dict.fromkeys(list(repair.get("issues") or []) + ["evidence_underused"])),
+                    }
+                if repair["status"] == "insufficient" or evidence_underused:
+                    LOGGER.warning(
+                        "Grounded search-chat needs same-source retry query=%s issues=%s",
+                        _private_log_fingerprint(question), ",".join(repair["issues"][:8]),
+                    )
+                    retry = AI_CLIENT.answer_search_chat(
+                        messages, question, provider=ai_provider or None,
+                        grounding=grounding_passages, model=ai_model,
+                        prefer_new_sources=bool(source_refresh), citation_retry=True,
+                        reasoning_effort=ai_reasoning_effort,
+                    )
+                    retry_repair = AI_CLIENT.repair_grounded_answer(
+                        retry.answer_markdown, grounding_passages
+                    )
+                    retry_underused = _grounded_answer_underuses_evidence(
+                        question, retry_repair.get("answer_markdown") or retry.answer_markdown,
+                        grounding_passages, retry_repair,
+                    )
+                    if retry_underused:
+                        retry_repair = {
+                            **retry_repair,
+                            "issues": list(dict.fromkeys(
+                                list(retry_repair.get("issues") or []) + ["evidence_underused"]
+                            )),
+                        }
+                    if retry_repair["status"] != "insufficient" and not retry_underused:
+                        repair = retry_repair
+                        answer = retry
+                    else:
+                        evidence_only = _build_verified_evidence_fallback(question, grounding_passages)
+                        used_indices = sorted(_review_ref_indices(evidence_only))
+                        answer_verification.update({
+                            "status": "evidence_only",
+                            "issues": list(dict.fromkeys(repair["issues"] + retry_repair["issues"]))[:8],
+                            "used_indices": used_indices,
+                        })
+                        return AIAnswer(
+                            answer_markdown=evidence_only,
+                            sources=[],
+                            used_web=False,
+                            warnings=["综合表述未能安全保留，已改为展示可逐字核验的原文。"],
+                        )
+                answer = AIAnswer(
+                    answer_markdown=repair["answer_markdown"],
+                    sources=answer.sources,
+                    used_web=answer.used_web,
+                    warnings=answer.warnings,
+                )
+                answer_verification.update({
+                    "status": repair["status"],
+                    "issues": repair["issues"][:8],
+                    "used_indices": repair["used_indices"],
+                })
+            if citation_target and grounding_passages:
+                try:
+                    augmented = ai_citation_runtime.run_augmentation(
+                        sys.modules[__name__], answer.answer_markdown, grounding_passages, citation_bases,
+                        question=retrieval_question, target=citation_target, deadline=ai_citations.augmentation_deadline(citation_started),
+                        allowed_books=citation_books, document_scopes=citation_documents,
+                        provider=ai_provider or None, model=ai_model, reasoning=ai_reasoning_effort, cancelled=cancel_event.is_set)
+                    answer = AIAnswer(answer_markdown=augmented["answer_markdown"], sources=answer.sources,
+                                      used_web=answer.used_web, warnings=answer.warnings)
+                    augmented["issues"] = list(dict.fromkeys(list(answer_verification.get("issues") or []) + augmented.get("issues", [])))
+                    answer_verification.update(augmented)
+                    answer_verification.pop("answer_markdown", None)
+                except Exception:
+                    LOGGER.exception("Citation augmentation unavailable; keeping completed answer")
+            return answer
 
     def _finalize_search_chat(answer, error):
         if error is not None or answer is None:
@@ -18276,6 +19352,8 @@ def api_ai_search_chat():
                 provider_call_ids=search_call_ids,
             )
             return {"ok": False, "error": err_msg}
+        if grounding_on and _public_book_keys() != grounding_public_keys_at_start:
+            return {"ok": False, "error": "公开书目状态已变化，请重新提问。"}
         _record_ai_usage(
             quota,
             feature="search-chat",
@@ -18295,15 +19373,52 @@ def api_ai_search_chat():
         result["ai_entitlements"] = _ai_entitlements_payload(getattr(g, "current_user", None))
         if grounding_warnings:
             result["warnings"] = list(result.get("warnings") or []) + grounding_warnings
-        if grounding_citations:
+        if grounding_citations and not ai_citations.enabled():
             state = current_view_state()
+            used_indices = {
+                int(value) for value in (
+                    answer_verification.get("used_indices")
+                    or _review_ref_indices(answer.answer_markdown)
+                )
+            }
+            used_citations = [
+                item for item in grounding_citations
+                if int(item.get("grounding_index") or 0) in used_indices
+            ]
             result["citations"] = _retarget_verified_chat_citations(
                 answer.answer_markdown,
-                grounding_citations,
+                used_citations,
                 viewer_allowed=bool(state["pdf_enabled"] and _content_access_enabled("viewer")),
                 q_for_viewer=retrieval_question,
             )
-        result["grounded"] = bool(grounding_passages)
+        result["grounded"] = bool(grounding_passages and _review_ref_indices(answer.answer_markdown))
+        if ai_citations.enabled() and grounding_passages:
+            try:
+                details = ai_citations.ledger(answer.answer_markdown, grounding_passages)
+                state = current_view_state()
+                result["answer_markdown"] = details["answer_markdown"]
+                result["citations"] = []
+                for p in grounding_passages:
+                    idx = p["index"]
+                    if idx not in details["used_indices"]:
+                        continue
+                    base = dict(citation_bases.get(idx) or {})
+                    base["grounding_index"] = idx
+                    result["citations"].append(ai_citation_runtime.card(sys.modules[__name__], base, p,
+                        [r for r in details["citation_records"] if r["index"] == idx],
+                        bool(state["pdf_enabled"] and _content_access_enabled("viewer")), retrieval_question))
+                result["citation_stats"] = ai_citation_runtime.final_stats(details, result["citations"], answer_verification.get("augmentation"))
+                answer_verification["used_indices"] = details["used_indices"]
+                result["augmentation"] = answer_verification.get("augmentation")
+                if result["augmentation"] and result["augmentation"]["effective"] < citation_target:
+                    result.setdefault("warnings", []).append(f"已定向增补{result['augmentation']['added']}条有效证据，目前共{result['augmentation']['effective']}条，尚未达到请求的{citation_target}条；已保留完整论述。")
+            except Exception:
+                LOGGER.exception("Citation display unavailable; keeping completed answer")
+        result["verification"] = dict(answer_verification)
+        if ai_citations.enabled() and result.get("citations"):
+            result["answer_markdown"], result["citations"], numbering = ai_citations.number_final_citations(result["answer_markdown"], result["citations"])
+            result["verification"] = ai_citations.numbered_verification(
+                result["verification"], result["answer_markdown"], grounding_passages, numbering)
         if source_refresh:
             result["source_refresh"] = {
                 "requested": True,
@@ -18761,6 +19876,7 @@ def api_search_associative():
     before any slow AI call.
     """
     payload = request.get_json(silent=True) or {}
+    public_keys_at_start = _public_book_keys()
     requested_mode = str(payload.get("mode") or "auto").strip().lower()
     if requested_mode != "research":
         return _api_search_associative_impl()
@@ -18787,7 +19903,10 @@ def api_search_associative():
                 raise AIServiceError("研究任务排队时间较长，请稍后重试。")
             try:
                 with research_ai_http_context():
-                    return _api_search_associative_impl(cancel_event=cancel_event)
+                    result = _api_search_associative_impl(cancel_event=cancel_event)
+                    if _public_book_keys() != public_keys_at_start:
+                        raise AIServiceError("公开书目状态已变化，请重新发起研究任务。")
+                    return result
             finally:
                 _RESEARCH_PIPELINE_SEMAPHORE.release()
         finally:
@@ -18833,6 +19952,229 @@ def api_search_associative():
     )
 
 
+def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
+                                 rerank, quota, exclusions=None):
+    """Explicit homepage strategies; legacy callers keep their original pipeline."""
+    raw_terms = _split_gist_terms(retrieval_gist)
+    book_scope, scope_id, manual = _resolve_search_scope(scope_req, retrieval_gist, {})
+    scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
+                  "manual": manual, "applied": book_scope is not None}
+    viewer_allowed = bool(current_view_state()["pdf_enabled"] and _content_access_enabled("viewer"))
+    warnings = []
+    call_ids = []
+    user_id = int(g.current_user["id"]) if getattr(g, "current_user", None) else None
+    expansion_ok = False
+    ranking_ok = False
+    ai_attempted = False
+    actual_strategy = strategy
+    metadata = {}
+    preferred = set()
+    textual_meta = {"textual_reliable_count": 0, "textual_search_complete": False,
+                    "auto_semantic": {"eligible": False, "reason": "scope_unresolved"}} if strategy == "textual" else {}
+
+    def response(hits, message=""):
+        results = []
+        for hit in hits:
+            item = _attach_viewer_payload(hit.to_dict(), retrieval_gist, viewer_allowed)
+            chapter_only = bool(getattr(hit, "chapter_only", False))
+            meta = metadata.get(id(hit), {})
+            item.update({
+                "associative_weight": int(hit.score),
+                "associative_stage": actual_strategy,
+                "associative_group": ("chapter" if chapter_only else
+                                      "preferred" if id(hit) in preferred else
+                                      "textual" if actual_strategy == "textual" else "candidate"),
+                "associative_reason": meta.get("reason", ""),
+                "associative_confidence": meta.get("confidence"),
+            })
+            evidence = getattr(hit, "textual_evidence", None)
+            if evidence is not None:
+                item.update(evidence)
+                item["associative_group"] = "textual" if evidence["textual_reliable"] else "textual_clue"
+            results.append(item)
+        return jsonify({
+            "ok": True, "query": gist, "count": len(results),
+            "display_mode": "associative", "intent": "locate", "mode": "locate",
+            "retrieval_strategy": strategy, "effective_strategy": actual_strategy,
+            "requested_scope": scope_req, "semantic_ranked": ranking_ok,
+            "scope": scope_meta, "warnings": warnings, "message": message,
+            "results": results, "pdf_enabled": viewer_allowed,
+            "access_level": "full" if viewer_allowed else "summary",
+            **textual_meta,
+            "retrieval_breakdown": {
+                stage: sum(item["associative_stage"] == stage for item in results)
+                for stage in ("textual", "semantic")
+            },
+        })
+
+    tokens = scope_req if isinstance(scope_req, list) else [scope_req]
+    if "all" not in tokens:
+        for token in tokens:
+            if not isinstance(token, str) or not token.startswith(("book:", "vol:")):
+                continue
+            key, volume = _parse_book_token(token)
+            if (key not in corpus.books or
+                    (volume is not None and not any(vol.volume == volume for vol in corpus.books[key]))):
+                scope_meta.update({"manual": True, "applied": True})
+                return response([], "指定的书或卷当前不可用，请调整检索范围后重试。")
+
+    if strategy == "textual" and not (book_scope if manual else _public_book_keys()):
+        return response([], "当前指定范围不可用，请调整范围后重试。")
+
+    # Resolve explicit works before expansion. An inferred author must never hide
+    # an explicitly named work, while a user-selected book/volume remains binding.
+    resolution = corpus.resolve_document_scopes(
+        retrieval_gist, book_scope=book_scope if manual else (_public_book_keys() if strategy == "textual" else None), allow_title_subject=True,
+    )
+    documents = list(resolution.get("scopes") or [])
+    document_status = str(resolution.get("status") or "none")
+    if document_status in {"not_found", "ambiguous"}:
+        scope_meta.update({"applied": True, "manual": True, "document_status": document_status,
+                           "requested_titles": resolution.get("requested_titles") or [],
+                           "candidates": resolution.get("candidates") or []})
+        return response([], _explicit_document_scope_message(resolution))
+    raw_gist = retrieval_gist
+    if documents:
+        scope_meta.update({
+            "id": "document:" + ",".join(doc.document_id for doc in documents),
+            "label": "、".join(f"《{doc.title}》" for doc in documents),
+            "manual": True, "applied": True, "document_status": "resolved",
+            "requested_titles": resolution.get("requested_titles") or [],
+        })
+        for title in resolution.get("requested_titles") or []:
+            raw_gist = raw_gist.replace(f"《{title}》", " ").replace(title, " ")
+        raw_terms = _split_gist_terms(raw_gist)
+
+    if strategy == "textual":
+        from textual_search import retrieve_textual, semantic_admission
+        if not manual and not documents:
+            scope_meta.update(id="all", label="全部著作", applied=False)
+        try:
+            local = retrieve_textual(corpus, raw_gist, book_scope=book_scope if manual else _public_book_keys(),
+                                     documents=documents)
+            hits = _fresh_hits(local.hits, exclusions)
+            reliable_count = sum(h.textual_evidence["textual_reliable"] for h in hits)
+            textual_meta.update(textual_reliable_count=reliable_count, textual_search_complete=local.complete,
+                                textual_windows=local.windows,
+                                auto_semantic=semantic_admission(corpus, gist,
+                                    titles=resolution.get("requested_titles") or [],
+                                    complete=local.complete, reliable_count=reliable_count))
+            if not local.complete:
+                warnings.append("近似检索尚未完成（服务繁忙或达到计算预算），本次不会自动转入大意联想，可稍后重试。")
+            return response(hits)
+        except Exception:
+            LOGGER.exception("Textual recovery failed query=%s", _private_log_fingerprint(gist))
+            textual_meta["auto_semantic"] = {"eligible": False, "reason": "search_failed"}
+            return response([], "近似检索暂时失败，请稍后重试；本次未自动调用大意联想。")
+
+    def locate(scope, plan=None):
+        quotes, fragments, keywords, chapters = _parse_assoc_plan(plan or {})
+        if plan is not None:
+            # Keep original wording alongside the expanded clues, within existing caps.
+            quotes = list(dict.fromkeys([*quotes[:2], raw_gist]))
+            fragments = list(dict.fromkeys([*fragments, *raw_terms]))
+            keywords = list(dict.fromkeys([*keywords, *raw_terms]))
+        else:
+            quotes, fragments, keywords, chapters = [raw_gist], raw_terms, raw_terms, raw_terms
+        if documents:
+            hits = corpus.locate_associative_in_documents(
+                documents, quotes=quotes, fragments=fragments, keywords=keywords, clip_context=True,
+            )
+        else:
+            hits = corpus.locate_associative(
+                quotes=quotes, fragments=fragments, keywords=keywords, chapter_keywords=chapters,
+                intent="locate", book_scope=scope, expand_synonyms=plan is not None,
+                pseudo_feedback=False,
+            )
+        return _fresh_hits(hits, exclusions)
+
+    def retrieve(plan=None):
+        hits = locate(book_scope, plan)
+        if not documents and book_scope is not None and not manual and len(hits) < ASSOC_PAGE_BACKFILL_FLOOR:
+            hits.extend(locate(None, plan))
+        # Neither the number nor the position of raw matches suppresses semantics.
+        hits.sort(key=lambda hit: (-hit.score, corpus.book_sort_order(hit.book), hit.volume))
+        return _merge_assoc_candidate_tiers(hits, [])[0]
+
+    try:
+        plan = None
+        if strategy == "semantic":
+            try:
+                _require_ai()
+                ai_attempted = True
+                with ai_call_context(user_id=user_id, feature="associative_internal",
+                                     charge_user=False, provider_call_ids=call_ids):
+                    plan = AI_CLIENT.expand_associative_query(retrieval_gist)
+                expansion_ok = any(_parse_assoc_plan(plan))
+                if not expansion_ok:
+                    raise AIServiceError("未返回可用的联想线索")
+                if not documents:
+                    book_scope, scope_id, manual = _resolve_search_scope(scope_req, retrieval_gist, plan)
+                    scope_meta.update({"id": scope_id, "label": _scope_label(scope_id),
+                                       "manual": manual, "applied": book_scope is not None})
+            except Exception as exc:
+                LOGGER.warning("Semantic expansion unavailable query=%s: %s", _private_log_fingerprint(gist), exc)
+                if ai_attempted:
+                    _record_ai_usage(
+                        quota, feature="associative_internal", prompt_parts=(gist,),
+                        success=False, error=str(exc), provider="deepseek",
+                        model="deepseek-v4-flash", provider_call_ids=call_ids,
+                    )
+                return jsonify({
+                    "ok": False,
+                    "error": "联想检索未生成可用的大意线索，本次未执行近似检索，请换一种说法重试。",
+                    "retrieval_strategy": "semantic",
+                    "effective_strategy": "semantic",
+                }), 503
+        candidates = retrieve(plan)
+        if expansion_ok and not any(not getattr(hit, "chapter_only", False) for hit in candidates):
+            fallback = retrieve()
+            if any(not getattr(hit, "chapter_only", False) for hit in fallback):
+                candidates = fallback
+                warnings.append("联想线索未定位到相关正文，已用原始词句补充候选供核对。")
+        if strategy == "semantic" and expansion_ok and rerank:
+            head = [hit for hit in candidates if not getattr(hit, "chapter_only", False)][:20]
+            if head:
+                try:
+                    with ai_call_context(user_id=user_id, feature="associative_internal",
+                                         charge_user=False, provider_call_ids=call_ids):
+                        ranking = AI_CLIENT.rank_associative_candidates(
+                            retrieval_gist, [hit.to_dict() for hit in head], intent="locate", detailed=True,
+                        )
+                    if not isinstance(ranking, list):
+                        raise AIServiceError("语义排序返回格式无效")
+                    # The new strategy requires integer candidate identifiers; floats
+                    # and booleans are not valid model references.
+                    valid = [entry for entry in ranking if isinstance(entry, dict)
+                             and type(entry.get("index")) is int]
+                    ordered, rationales = _apply_assoc_ranking(head, valid)
+                    preferred = {id(hit) for hit in ordered}
+                    metadata = {id(hit): meta for hit, meta in zip(ordered, rationales)}
+                    candidates = ordered + [hit for hit in candidates if id(hit) not in preferred]
+                    ranking_ok = True
+                    if not ordered:
+                        warnings.append("未判定出强语义匹配，以下候选可作为继续查找的线索。")
+                except Exception as exc:
+                    LOGGER.warning("Semantic ranking unavailable query=%s: %s", _private_log_fingerprint(gist), exc)
+                    warnings.append("语义排序暂不可用，已保留召回顺序；候选尚待核对。")
+        if ai_attempted:
+            _record_ai_usage(
+                quota, feature="associative_internal", prompt_parts=(gist,),
+                completion_text="\n".join(meta.get("reason", "") for meta in metadata.values()),
+                success=expansion_ok, provider="deepseek", model="deepseek-v4-flash",
+                provider_call_ids=call_ids,
+            )
+        return response(candidates)
+    except Exception as exc:
+        LOGGER.warning("Explicit associative strategy failed query=%s strategy=%s: %s",
+                       _private_log_fingerprint(gist), strategy, exc)
+        if ai_attempted:
+            _record_ai_usage(quota, feature="associative_internal", prompt_parts=(gist,),
+                             success=False, error=str(exc), provider="deepseek",
+                             model="deepseek-v4-flash", provider_call_ids=call_ids)
+        return jsonify({"ok": False, "error": "检索暂时失败，请稍后重试。"}), 400
+
+
 def _api_search_associative_impl(*, cancel_event=None):
     """联想检索：AI 提取线索 → 在真实语料中接地定位 → AI 重排并解释。
 
@@ -18870,6 +20212,9 @@ def _api_search_associative_impl(*, cancel_event=None):
     mode = str(payload.get("mode") or "auto").strip().lower()
     if mode not in {"auto", "locate", "research"}:
         mode = "auto"
+    strategy = payload.get("retrieval_strategy") if mode != "research" else None
+    if strategy is not None and strategy not in ("textual", "semantic"):
+        return jsonify({"ok": False, "error": "请选择近似原文或大意／篇章联想。"}), 400
     # 检索范围（著作群路由）：auto=据语义自动路由；all=全部；著作群 id=手动硬限定。见 _resolve_search_scope。
     scope_req = payload.get("scope")
     if not gist:
@@ -18877,10 +20222,23 @@ def _api_search_associative_impl(*, cancel_event=None):
     if len(gist) > 600:
         gist = gist[:600]
     retrieval_gist, source_refresh = _conversation_retrieval_query(gist, messages)
+    citation_started = time.monotonic()
+    citation_target = ai_citations.augmentation_target(gist, RESEARCH_REVIEW_SOURCES) if ai_citations.enabled() and mode == "research" else None
+    if citation_target and ai_citations.MORE.search(gist):
+        previous_topic = next((str(m.get("content") or "") for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "user" and not ai_citations.MORE.search(str(m.get("content") or ""))), "")
+        if previous_topic and len(gist) < 100:
+            retrieval_gist = previous_topic[:450] + "；" + gist
+        source_refresh = False
     prior_citation_exclusions = (
         _history_citation_exclusions(messages) if source_refresh else None
     )
     _record_community_trend("search", gist)
+
+    if strategy is not None:
+        return _search_associative_strategy(
+            gist=gist, retrieval_gist=retrieval_gist, strategy=strategy,
+            scope_req=scope_req, rerank=rerank, quota=quota, exclusions=prior_citation_exclusions,
+        )
 
     # 模糊定位的执行顺序必须与展示语义一致：先完成零 AI 的用户原文近似检索，
     # 只在不足一页时才向 AI 请求语义线索。这些预检索结果会在后文复用，不重复扫描语料。
@@ -18921,7 +20279,7 @@ def _api_search_associative_impl(*, cancel_event=None):
                 and len(preliminary_textual_primary) < ASSOC_PAGE_BACKFILL_FLOOR
             ):
                 preliminary_backfill_attempted = True
-                preliminary_textual_backfill = _raw_textual_locate(None)
+                preliminary_textual_backfill = _raw_textual_locate(_public_book_keys())
             preliminary_textual_candidates, _ = _merge_assoc_candidate_tiers(
                 [*preliminary_textual_primary, *preliminary_textual_backfill], []
             )
@@ -19032,7 +20390,42 @@ def _api_search_associative_impl(*, cancel_event=None):
     book_scope, scope_id, scope_manual = _resolve_search_scope(scope_req, retrieval_gist, plan)
     scope_meta = {"id": scope_id, "label": _scope_label(scope_id),
                   "manual": scope_manual, "applied": book_scope is not None}
-    # 限定+兜底回填的下限：研究要喂满源条数（20-24），定位一页即可。范围内够量则不触发回填。
+    document_resolution = corpus.resolve_document_scopes(
+        retrieval_gist, book_scope=book_scope if scope_manual else None,
+    )
+    document_scopes = list(document_resolution.get("scopes") or [])
+    document_status = str(document_resolution.get("status") or "none")
+    if document_status in {"not_found", "ambiguous"}:
+        message = _explicit_document_scope_message(document_resolution)
+        scope_meta.update({
+            "applied": True,
+            "manual": True,
+            "document_status": document_status,
+            "requested_titles": document_resolution.get("requested_titles") or [],
+            "candidates": document_resolution.get("candidates") or [],
+        })
+        empty_mode = "research_review" if intent == "research" else "associative"
+        response = {
+            "ok": True, "query": gist, "count": 0, "display_mode": empty_mode,
+            "access_level": "full" if viewer_allowed else "summary", "results": [],
+            "pdf_enabled": viewer_allowed, "warnings": [message],
+            "intent": intent, "mode": mode, "scope": scope_meta,
+            "retrieval_breakdown": {"textual": 0, "semantic": 0}, "message": message,
+        }
+        if intent == "research":
+            response.update({"review_markdown": message, "review_citations": []})
+        return response
+    if document_scopes:
+        scope_meta.update({
+            "id": "document:" + ",".join(scope.document_id for scope in document_scopes),
+            "label": "、".join(f"《{scope.title}》" for scope in document_scopes),
+            "manual": True,
+            "applied": True,
+            "document_status": "resolved",
+            "requested_titles": document_resolution.get("requested_titles") or [],
+        })
+    # 限定+兜底回填的下限：研究综述最多取 16 个高相关来源，定位一页即可。
+    # 用户手动指定书库或篇目时始终是硬边界，不会为凑数跨界回填。
     scope_floor = RESEARCH_REVIEW_SOURCES if intent == "research" else ASSOC_PAGE_BACKFILL_FLOOR
     if ai_expansion_succeeded and not (quotes or fragments or keywords or chapter_keywords):
         # 线上「搜不到」首要排查点：AI 抽词为空（模型超时/截断/格式异常）→ 仅靠原词兜底。
@@ -19041,6 +20434,23 @@ def _api_search_associative_impl(*, cancel_event=None):
             _private_log_fingerprint(gist), mode, intent,
         )
     def _assoc_locate(scope):
+        if document_scopes:
+            primary_quotes = list(dict.fromkeys([
+                *ai_research_evidence.requested_quotes(retrieval_gist),
+                *(quotes or ([retrieval_gist] if retrieval_gist else [])),
+            ]))
+            primary_keywords = keywords or raw_terms
+            primary_fragments = fragments or raw_terms
+            return [], _fresh_hits(
+                corpus.locate_associative_in_documents(
+                    document_scopes,
+                    quotes=primary_quotes,
+                    keywords=primary_keywords,
+                    fragments=primary_fragments,
+                    facets=facets if intent == "research" else None,
+                ),
+                prior_citation_exclusions,
+            )
         if intent == "locate":
             # 主层：直接用用户输入做整句/短片段/关键词共现检索。关闭同义词扩展，
             # 只衡量词面和文本结构上的近似，用来承接精确检索的错字/漏字/断句差异。
@@ -19086,8 +20496,8 @@ def _api_search_associative_impl(*, cancel_event=None):
         candidates, _ = _merge_assoc_candidate_tiers(textual_candidates, semantic_candidates)
         # 自动路由「限定+兜底回填」：范围内命中不足下限 → 再无范围补足（范围内更贴题、排在前面），
         # 确保引用条数/综述源不因限定而缩水。手动指定范围则硬限定、不回填，尊重用户选择。
-        if book_scope is not None and not scope_manual and len(candidates) < scope_floor:
-            more_textual, more_semantic = _assoc_locate(None)
+        if not document_scopes and book_scope is not None and not scope_manual and len(candidates) < scope_floor:
+            more_textual, more_semantic = _assoc_locate(_public_book_keys())
             textual_candidates.extend(more_textual)
             semantic_candidates.extend(more_semantic)
         # 全局最后再合并一次：确保“范围外回填的文本近似”也位于任何语义联想之前。
@@ -19105,7 +20515,7 @@ def _api_search_associative_impl(*, cancel_event=None):
 
     # 研究意图叠加「名目索引」主题层（P2a）：编辑手工建的权威「概念→页码」，置候选最前、按页去重。
     # 名目索引仅《文集》，故限定到非马恩著作群时自然为空——与词面召回的定向保持一致。
-    if intent == "research":
+    if intent == "research" and not document_scopes:
         try:
             si_terms = list(dict.fromkeys([*keywords, *(w for fac in facets for w in fac), *raw_terms]))
             subject_hits = _fresh_hits(
@@ -19119,6 +20529,13 @@ def _api_search_associative_impl(*, cancel_event=None):
             si_keys = {_hit_page_key(h) for h in subject_hits}
             candidates = list(subject_hits) + [c for c in candidates if _hit_page_key(c) not in si_keys]
 
+    if citation_target:
+        candidates = [h for h in candidates if ai_citations.admissible(h.to_dict(), "", retrieval_gist)]
+        if not candidates:
+            with ai_call_context(user_id=associative_user_id, feature="associative_internal", charge_user=False,
+                                 provider_call_ids=associative_call_ids):
+                candidates = ai_citation_runtime.recover_empty_candidates(sys.modules[__name__], retrieval_gist,
+                    RESEARCH_REVIEW_SOURCES, book_scope if book_scope is not None else _public_book_keys(), document_scopes)
     if not candidates:
         LOGGER.info(
             "Associative no candidates query=%s mode=%s intent=%s clues(q/f/k/ck)=%d/%d/%d/%d raw_terms=%d",
@@ -19171,21 +20588,69 @@ def _api_search_associative_impl(*, cancel_event=None):
         # 先备好喂给 AI 的完整原文段（含主题相关窗口），并留住每条 hit 以便综述生成后重建高亮。
         review_passages: list[dict] = []
         review_sources: list[tuple] = []
-        # 先适度超取候选，再按实际喂给模型的段落内容做第二道去重；
-        # 可排除同页旧段落，但不会把同一著作的其它页面一并排除。
-        review_hits = _select_research_review_hits(
-            candidates, min(len(candidates), RESEARCH_REVIEW_SOURCES * 3)
-        )
-        for hit in review_hits:
-            base = hit.to_dict()
-            plain = _research_review_passage_text(hit, base, retrieval_gist)
-            if _passage_matches_exclusions(plain, prior_citation_exclusions):
-                continue
-            i = len(review_passages) + 1
-            review_passages.append({"index": i, "citation": base.get("citation") or "", "text": plain})
-            review_sources.append((i, hit, plain))
-            if len(review_passages) >= RESEARCH_REVIEW_SOURCES:
-                break
+        review_ai_pool = ai_citations.EvidencePool(retrieval_gist)
+        review_bases: dict[int, dict] = {}
+        required_quotes = ai_research_evidence.requested_quotes(retrieval_gist)
+        requested_titles = document_resolution.get("requested_titles") or []
+        def ranked_review_hits(items):
+            if document_scopes:
+                items = ai_research_evidence.rank(sys.modules[__name__], items, retrieval_gist,
+                    keywords, facets, requested_titles, required_quotes)
+            return _select_research_review_hits(items, min(len(items), RESEARCH_REVIEW_SOURCES * 3))
+        def append_review_hits(review_hits):
+            for hit in review_hits:
+                try:
+                    hit = corpus.enrich_hit_document(hit)
+                except Exception:
+                    pass
+                base = hit.to_dict()
+                plain = _research_review_passage_text(hit, base, retrieval_gist, required_quotes=required_quotes)
+                if not plain.strip():
+                    continue
+                if ai_citations.enabled() and (not ai_citations.admissible(base, plain, retrieval_gist) or not review_ai_pool.add(plain, base)):
+                    continue
+                if _passage_matches_exclusions(plain, prior_citation_exclusions):
+                    continue
+                i = len(review_passages) + 1
+                review_passages.append({
+                    "index": i,
+                    "citation": base.get("citation") or "",
+                    "text": plain,
+                    "quote_segments": base.get("_ai_quote_segments", [plain]),
+                    "document_id": base.get("document_id") or "",
+                    "work_title": base.get("work_title") or "",
+                    "work_authors": base.get("work_authors") or [],
+                    "provenance_verified": bool(base.get("provenance_verified")),
+                })
+                review_sources.append((i, hit, plain))
+                review_bases[i] = base
+                if ai_citations.enabled():
+                    review_passages[-1].update(ai_citation_runtime.passage(sys.modules[__name__], hit, base, plain, i))
+                if len(review_passages) >= RESEARCH_REVIEW_SOURCES:
+                    break
+        append_review_hits(ranked_review_hits(candidates))
+        evidence_coverage = None
+        if document_scopes:
+            evidence_coverage = ai_research_evidence.coverage(sys.modules[__name__], candidates,
+                review_passages, retrieval_gist, keywords, facets, requested_titles)
+            if evidence_coverage["status"] == "limited":
+                supplemental, timed_out = ai_research_evidence.supplement(sys.modules[__name__],
+                    document_scopes, evidence_coverage, retrieval_gist, keywords, facets)
+                supplemental = _fresh_hits(supplemental, prior_citation_exclusions)
+                merged = list(candidates)
+                seen = {_hit_page_key(h) for h in merged}
+                for hit in supplemental:
+                    if _hit_page_key(hit) not in seen:
+                        merged.append(hit)
+                        seen.add(_hit_page_key(hit))
+                # Re-select once so a newly recovered exact anchor can displace
+                # a weaker source even when the original pool reached its cap.
+                review_passages.clear(); review_sources.clear(); review_bases.clear()
+                review_ai_pool = ai_citations.EvidencePool(retrieval_gist)
+                append_review_hits(ranked_review_hits(merged))
+                evidence_coverage = ai_research_evidence.coverage(sys.modules[__name__], merged,
+                    review_passages, retrieval_gist, keywords, facets, requested_titles)
+                evidence_coverage.update(supplement_attempted=True, supplement_timed_out=timed_out)
         if not review_passages:
             no_fresh_msg = (
                 "未找到尚未在本会话中使用、且与当前论题直接相关的新原文；"
@@ -19198,7 +20663,8 @@ def _api_search_associative_impl(*, cancel_event=None):
                 "pdf_enabled": viewer_allowed, "review_markdown": no_fresh_msg,
                 "review_citations": [], "count": 0, "warnings": [],
             }
-        # 综述生成是非流式慢活(可达 100s+)：丢到后台线程，外层用 SSE 心跳保活喂住 Cloudflare ~100s
+        # 综述生成是非流式慢活(可达 100s+)：丢到后台线程，外层用 SSE 心跳保活喂住 Cloudflare ~100s。
+        # 心跳不包含回答 token；前端只在收到最终 result 事件后一次性显示完整综述。
         # 「首字节」计时器，故能从容写完整全长综述、绝不被砍成 524 HTML。生成只吃纯数据(gist+passages)、
         # 线程安全；接地引文匹配/记账等需要请求上下文的收尾，放回生成器里做(stream_with_context 保住 g/request)。
         # 最终综述严格按会员钱包的默认/显式选模生成；旧会员与基础会员缺省为 Flash 非思考。
@@ -19225,6 +20691,29 @@ def _api_search_associative_impl(*, cancel_event=None):
                         {"role": "assistant" if _m.get("role") == "assistant" else "user", "content": _c}
                     )
 
+        citation_books = book_scope if book_scope is not None else _public_book_keys()
+        previous_citation_answer = ai_citation_runtime.restore_history(sys.modules[__name__], messages, gist, RESEARCH_REVIEW_SOURCES, citation_books, document_scopes) if citation_target else None
+        if previous_citation_answer:
+            citation_target = ai_citations.augmentation_target(gist, RESEARCH_REVIEW_SOURCES, len(ai_citations.ledger(previous_citation_answer[0], previous_citation_answer[1])["used_indices"]))
+            review_passages[:] = previous_citation_answer[1]
+            review_bases.clear()
+            review_bases.update(previous_citation_answer[2])
+
+        review_timings = {"retrieval_seconds": round(time.monotonic() - citation_started, 3),
+                          "generation_seconds": 0.0, "verification_seconds": 0.0}
+        def timed_generate(*args, **kwargs):
+            started = time.monotonic()
+            try:
+                return AI_CLIENT.generate_research_review(*args, **kwargs)
+            finally:
+                review_timings["generation_seconds"] += time.monotonic() - started
+        def timed_repair(*args, **kwargs):
+            started = time.monotonic()
+            try:
+                return _repair_research_answer(*args, **kwargs)
+            finally:
+                review_timings["verification_seconds"] += time.monotonic() - started
+
         def _slow_generate_review(review_cancel_event):
             # cancel_event 由 SSE 层在客户端断开时置位；透传给生成器，使其在调用边界提前收尾、释放名额。
             with ai_call_context(
@@ -19232,28 +20721,139 @@ def _api_search_associative_impl(*, cancel_event=None):
                 charge_user=review_charge_user,
                 provider_call_ids=review_call_ids,
             ):
-                return AI_CLIENT.generate_research_review(
-                    retrieval_gist, review_passages, should_cancel=review_cancel_event.is_set, model=review_model,
-                    context_messages=review_context or None, provider=(review_provider or None),
-                    reasoning_effort=review_reasoning_effort,
-                )
+                try:
+                    review_md = previous_citation_answer[0] if previous_citation_answer else timed_generate(
+                        retrieval_gist, review_passages, should_cancel=review_cancel_event.is_set, model=review_model,
+                        context_messages=review_context or None, provider=(review_provider or None),
+                        reasoning_effort=review_reasoning_effort,
+                    )
+                except AIServiceError as exc:
+                    LOGGER.warning("Research review generation failed before verification: %s", exc)
+                    evidence_only = _build_verified_evidence_fallback(retrieval_gist, review_passages)
+                    return {
+                        "markdown": evidence_only,
+                        "verification_status": "evidence_only",
+                        "warnings": ["长文综合暂时不可用，已保留可逐字核验的原文。"],
+                        "issues": [f"generation_failed:{type(exc).__name__}"],
+                        "used_indices": sorted(_review_ref_indices(evidence_only)),
+                    }
 
-        def _finalize_research_review(review_md, error):
+                repair = {
+                    "answer_markdown": review_md,
+                    "status": "verified",
+                    "issues": [],
+                    "used_indices": sorted(_review_ref_indices(review_md)),
+                }
+                if previous_citation_answer:
+                    history_issues = review_passages[0].get("_history_verification_issues", [])
+                    repair.update(status="repaired" if history_issues else "verified", issues=history_issues)
+                if review_md and _env_flag("AI_CITATION_GUARD_ENABLED", True) and not previous_citation_answer:
+                    repair = timed_repair(review_md, review_passages)
+                    evidence_underused = _grounded_answer_underuses_evidence(
+                        retrieval_gist, repair.get("answer_markdown") or review_md,
+                        review_passages, repair,
+                    )
+                    if evidence_underused:
+                        repair = {
+                            **repair,
+                            "issues": list(dict.fromkeys(
+                                list(repair.get("issues") or []) + ["evidence_underused"]
+                            )),
+                        }
+                    if repair["status"] == "insufficient" or evidence_underused:
+                        LOGGER.warning(
+                            "Research review needs same-source retry query=%s issues=%s",
+                            _private_log_fingerprint(retrieval_gist), ",".join(repair["issues"][:8]),
+                        )
+                        if review_cancel_event.is_set():
+                            raise AIServiceError("请求已取消。")
+                        retry_md = timed_generate(
+                            retrieval_gist, review_passages, should_cancel=review_cancel_event.is_set,
+                            model=review_model, context_messages=review_context or None,
+                            provider=(review_provider or None), reasoning_effort=review_reasoning_effort,
+                            integrity_retry=True,
+                        )
+                        retry_repair = timed_repair(retry_md, review_passages)
+                        retry_underused = _grounded_answer_underuses_evidence(
+                            retrieval_gist, retry_repair.get("answer_markdown") or retry_md,
+                            review_passages, retry_repair,
+                        )
+                        if retry_underused:
+                            retry_repair = {
+                                **retry_repair,
+                                "issues": list(dict.fromkeys(
+                                    list(retry_repair.get("issues") or []) + ["evidence_underused"]
+                                )),
+                            }
+                        if retry_repair["status"] != "insufficient" and not retry_underused:
+                            repair = retry_repair
+                        else:
+                            evidence_only = _build_verified_evidence_fallback(retrieval_gist, review_passages)
+                            return {
+                                "markdown": evidence_only,
+                                "verification_status": "evidence_only",
+                                "warnings": ["综合表述未能安全保留，已改为展示可逐字核验的原文。"],
+                                "issues": list(dict.fromkeys(repair["issues"] + retry_repair["issues"]))[:8],
+                                "used_indices": sorted(_review_ref_indices(evidence_only)),
+                            }
+                if citation_target:
+                    try:
+                        augmented = ai_citation_runtime.run_augmentation(
+                            sys.modules[__name__], repair["answer_markdown"], review_passages, review_bases,
+                            question=retrieval_gist, target=citation_target, deadline=ai_citations.augmentation_deadline(citation_started),
+                            allowed_books=citation_books, document_scopes=document_scopes,
+                            provider=review_provider or None, model=review_model, reasoning=review_reasoning_effort,
+                            cancelled=review_cancel_event.is_set)
+                        augmented["issues"] = list(dict.fromkeys(list(repair.get("issues") or []) + augmented.get("issues", [])))
+                        repair.update(augmented)
+                    except Exception:
+                        LOGGER.exception("Research citation augmentation unavailable; keeping completed review")
+                return {
+                    "augmentation": repair.get("augmentation"),
+                    "markdown": repair["answer_markdown"],
+                    "verification_status": repair["status"],
+                    "warnings": [],
+                    "issues": repair["issues"][:8],
+                    "used_indices": repair["used_indices"],
+                }
+
+        def _finalize_research_review(review_result, error):
             review_warnings: list[str] = []
+            if evidence_coverage:
+                coverage_warning = ai_research_evidence.warning(evidence_coverage)
+                if coverage_warning:
+                    review_warnings.append(coverage_warning)
+            verification_status = "verified"
+            verification_issues: list[str] = []
+            used_indices: set[int] = set()
+            if isinstance(review_result, dict):
+                review_md = str(review_result.get("markdown") or "")
+                verification_status = str(review_result.get("verification_status") or "verified")
+                review_warnings.extend(review_result.get("warnings") or [])
+                verification_issues.extend(review_result.get("issues") or [])
+                used_indices = {int(value) for value in (review_result.get("used_indices") or [])}
+            else:
+                review_md = str(review_result or "")
             if error is not None or not review_md:
                 if error is not None and not isinstance(error, AIServiceError):
                     LOGGER.error("Research review crashed query=%s", _private_log_fingerprint(gist), exc_info=error)
                 else:
                     LOGGER.warning("Research review failed query=%s: %s", _private_log_fingerprint(gist), error)
-                review_md = _build_research_review_fallback(retrieval_gist, review_passages)
-                review_warnings.append("AI 长文综述生成暂时不可用，已依据真实命中生成兜底综述。")
+                review_md = _build_verified_evidence_fallback(retrieval_gist, review_passages)
+                verification_status = "evidence_only"
+                used_indices = set(_review_ref_indices(review_md))
+                review_warnings.append("长文综合暂时不可用，已保留可逐字核验的原文。")
+            if not used_indices:
+                used_indices = set(_review_ref_indices(review_md))
             # 引文方框的「亮标」改为标在综述正文真正用到的句子上（而非检索词），便于读者据此检索原文；
             # 该句也作为「打开原文」深链的高亮词。先按 [N] 找同句逐字引文；若综述是转述，则用
             # [N] 所在综述句与对应原文段做近似匹配。仍无把握时给纯文本窗口、不强标到别处。
-            review_quotes_by_index = _review_quotes_by_index(review_md)
+            review_quotes_by_index = _grounded_direct_quotes_by_index(review_md)
             review_units_by_index = _review_cited_units(review_md)
             review_citations: list[dict] = []
-            for i, hit, plain in review_sources:
+            for i, hit, plain in (review_sources if not ai_citations.enabled() else []):
+                if i not in used_indices:
+                    continue
                 quote_spans = review_quotes_by_index.get(i, [])
                 base0 = hit.to_dict()
                 evidence, base, first_highlight = _make_review_evidence_items(
@@ -19275,19 +20875,43 @@ def _api_search_associative_impl(*, cancel_event=None):
                 d["review_quoted"] = bool(evidence)
                 d["review_quote_unmatched"] = bool(quote_spans and not evidence)
                 review_citations.append(d)
+            if ai_citations.enabled():
+                try:
+                    details = ai_citations.ledger(review_md, review_passages)
+                    review_md = details["answer_markdown"]
+                    new_cards = []
+                    for p in review_passages:
+                        idx = p["index"]
+                        if idx not in details["used_indices"]:
+                            continue
+                        base = dict(review_bases.get(idx) or {})
+                        base["review_index"] = idx
+                        new_cards.append(ai_citation_runtime.card(sys.modules[__name__], base, p,
+                            [r for r in details["citation_records"] if r["index"] == idx], viewer_allowed, retrieval_gist))
+                    review_citations = new_cards
+                    if isinstance(review_result, dict):
+                        review_result["citation_stats"] = ai_citation_runtime.final_stats(details, new_cards, review_result.get("augmentation"))
+                        progress = review_result.get("augmentation")
+                        if progress and progress["effective"] < progress["target"]:
+                            review_warnings.append(f"已定向增补{progress['added']}条有效证据，目前共{progress['effective']}条，尚未达到请求的{progress['target']}条；已保留完整论述。")
+                except Exception:
+                    LOGGER.exception("Research citation display unavailable; keeping completed review")
+            if ai_citations.enabled() and review_citations:
+                review_md, review_citations, numbering = ai_citations.number_final_citations(review_md, review_citations)
             # 研究综述按「完整 token」计入每日额度：输入含注入的真实原文段（成本大头，约 24 段），
             # 不能只算检索词；prompt_excerpt 仍只留检索词，不把原文塞进审计摘要。
             _research_input_text = "\n".join(str(p.get("text") or "") for p in review_passages)
             _record_ai_usage(
                 quota, feature=RESEARCH_QUOTA_FEATURE, prompt_parts=(gist,),
-                completion_text=review_md, success=True,
+                completion_text=review_md, success=(verification_status in {"verified", "repaired"}),
+                error="" if verification_status in {"verified", "repaired"} else verification_status,
                 prompt_tokens=_estimate_tokens_from_text(gist, _research_input_text),
                 completion_tokens=_estimate_tokens_from_text(review_md),
                 provider=review_provider,
                 model=str(review_model or ""),
                 provider_call_ids=review_call_ids,
             )
-            if paid_research_use:
+            if paid_research_use and verification_status in {"verified", "repaired"}:
                 _user = getattr(g, "current_user", None)
                 if _user:
                     consume_ai_credit(int(_user["id"]), "research", reason="consume:research_review")
@@ -19298,8 +20922,13 @@ def _api_search_associative_impl(*, cancel_event=None):
                 "pdf_enabled": viewer_allowed,
                 "review_markdown": review_md,
                 "review_citations": review_citations,
+                "evidence_coverage": ai_research_evidence.final_coverage(evidence_coverage, review_citations) if evidence_coverage else None,
+                "timings": {key: round(value, 3) for key, value in review_timings.items()},
+                "citation_stats": review_result.get("citation_stats") if isinstance(review_result, dict) else None,
+                "augmentation": review_result.get("augmentation") if isinstance(review_result, dict) else None,
                 "count": len(review_citations),
                 "warnings": review_warnings,
+                "verification": {"status": verification_status, "issues": verification_issues[:8]},
                 # 记账后重新计算，回传更新后的本周剩余额度 + 今日 token 额度。
                 "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
                 "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
@@ -19449,6 +21078,8 @@ def api_ai_pdf_chat():
         if personal_submission_id
         else _normalize_source_file(str(payload.get("source_file") or "").strip())
     )
+    if not personal_submission_id and not DEPLOYMENT.is_desktop:
+        _require_source_public(source_file)
     page = max(1, int(payload.get("page") or 1))
     question = " ".join(str(payload.get("question") or "").split())
     selected_text = str(payload.get("selected_text") or "").strip()
@@ -19499,6 +21130,8 @@ def api_ai_pdf_chat():
             provider_call_ids=pdf_call_ids,
         )
         return jsonify({"ok": False, "error": str(exc)}), 502
+    if not personal_submission_id:
+        _require_source_public(source_file)
     _record_ai_usage(
         quota,
         feature="pdf-chat",
@@ -19657,6 +21290,8 @@ def api_ai_pdf_chat_stream():
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
+    if not personal_submission_id:
+        _require_source_public(source_file)
     _require_ai()
     ai_selection = _resolve_ai_selection_or_abort(payload, feature="pdf-chat-stream")
     ai_provider = str(ai_selection["provider"])
@@ -19712,6 +21347,8 @@ def api_ai_pdf_chat_stream():
                     )
 
             for text in _metered_model_stream():
+                if not personal_submission_id and not _book_is_public(_source_book_config(source_file)):
+                    raise AIServiceError("本书公开期已结束。")
                 if not text:
                     # 推理模型思考阶段的保活 tick（思维链本身不下发）：以 SSE 注释喂住连接与
                     # Cloudflare 空闲计时，前端解析时自动忽略，不进答案、不进会话历史、不计额度。
@@ -19743,7 +21380,12 @@ def api_ai_pdf_chat_stream():
                 done_citations.insert(0, {
                     "citation": local_citation,
                     "context": local_excerpt,
-                    "viewer_url": str(page_context.get("source_url") or ""),
+                    "viewer_url": str(page_context.get("viewer_url") or page_context.get("source_url") or ""),
+                    "source_file": source_file,
+                    "pdf_pages": [page],
+                    "page_refs": list(page_context.get("page_refs") or []),
+                    "page_location": str(page_context.get("page_location") or ""),
+                    "citations": dict(page_context.get("citations") or {}),
                     "source_kind": "personal_page" if personal_submission_id else "pdf_page",
                 })
             done_warnings = list(warnings)
@@ -19869,6 +21511,15 @@ def run_desktop() -> None:
 
 def run_waitress() -> None:
     from waitress import serve
+
+    # Build the independent local dictionary before accepting searches, so the
+    # first visitor's three-second scan budget is not spent on initialization.
+    if corpus is not None:
+        try:
+            from textual_search import tokenizer as _warm_textual_dictionary
+            _warm_textual_dictionary(corpus)
+        except Exception:
+            LOGGER.exception("Local textual dictionary warmup failed")
 
     if DEPLOYMENT.public_base_url:
         LOGGER.info("Public URL: %s", DEPLOYMENT.public_base_url)
@@ -20146,7 +21797,7 @@ register_stream_reading(
 )
 
 # 个人文库：进程重启会让 queued/parsing 的书悬空，启动时扫一遍续跑（后台线程，不阻塞启动）。
-if mylib_store.configured():
+if mylib_store.configured() and os.environ.get("MARX_SKIP_STARTUP_MAINTENANCE") != "1":
     threading.Thread(target=_mylib_resume_storing, name="mylib-ingest-resume", daemon=True).start()
     threading.Thread(
         target=_resume_book_recommendation_storing,
@@ -20179,9 +21830,10 @@ def _citation_maintenance_loop() -> None:
             LOGGER.warning("Citation assistant expiry cleanup failed", exc_info=True)
 
 
-threading.Thread(
-    target=_citation_maintenance_loop, name="citation-maintenance", daemon=True,
-).start()
+if os.environ.get("MARX_SKIP_STARTUP_MAINTENANCE") != "1":
+    threading.Thread(
+        target=_citation_maintenance_loop, name="citation-maintenance", daemon=True,
+    ).start()
 
 
 def main() -> None:

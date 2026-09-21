@@ -9,6 +9,8 @@ from dataclasses import dataclass
 TRUSTED_TOC_DATE_BOOKS = frozenset({
     "建党以来重要文献选编",
     "建国以来重要文献选编",
+    "中共中央文件选集（1921—1949）",
+    "中共中央文件选集（1949—1966）",
 })
 
 
@@ -16,6 +18,35 @@ TRUSTED_TOC_DATE_BOOKS = frozenset({
 class VolumePresentation:
     heading: str
     subtitle: str
+
+
+@dataclass(frozen=True)
+class ReaderTitle:
+    book_title: str
+    volume_label: str
+    title: str
+
+
+def reader_title(book_config, volume: int, display_title: str = "") -> ReaderTitle:
+    """Use bibliographic metadata for UI titles; filenames are never a title fallback.
+
+    Keep legacy display_title intact: a few curated series still use it to
+    distinguish physical parts or derive their established subtitles.
+    """
+    book = str(book_config.key).strip()
+    title = str(book_config.title or "").strip() or f"《{book}》"
+    if book_config.single_volume or volume in book_config.unnumbered_volumes:
+        label = ""
+    else:
+        label = dict(book_config.volume_labels).get(volume, "") or volume_presentation(
+            book, volume, display_title, unit=book_config.volume_unit,
+        ).heading
+        if book == "全集" and volume == 26:
+            part = re.search(r"第\s*([一二三123])\s*册", display_title)
+            if part:
+                number = {"一": "1", "二": "2", "三": "3"}.get(part[1], part[1])
+                label += f" 第 {number} 册"
+    return ReaderTitle(title, label, f"{title}{' ' + label if label else ''}")
 
 
 _WENJI_SUBTITLES = {

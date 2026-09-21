@@ -120,7 +120,7 @@ def apply_page_label_overrides(
     overrides: Mapping[tuple[str, int], PageLabelOverride],
 ) -> int:
     """Apply exact, reversible page corrections to in-memory Page objects only."""
-    if not overrides:
+    if not overrides or not str(source_file).replace("\\", "/").startswith("pdfs/"):
         return 0
     normalized = _normalize_source_file(source_file)
     changed = 0
@@ -130,6 +130,9 @@ def apply_page_label_overrides(
         if override is None:
             continue
         page_changed = False
+        page.page_label_info = {**(getattr(page, "page_label_info", None) or {}),
+                                "status": "manual" if override.printed_page else "source_error" if override.suppress_text else "unnumbered",
+                                "printed_page": override.printed_page, "basis": override.reason}
         if page.printed_page != override.printed_page:
             page.printed_page = override.printed_page
             page_changed = True

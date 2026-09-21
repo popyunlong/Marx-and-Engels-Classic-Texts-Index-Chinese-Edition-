@@ -1968,7 +1968,7 @@
           <h2>国外文献精选周刊自动化</h2>
           {% set freqmap = {"daily":"每天","weekly":"每周","biweekly":"每两周","monthly":"每月"} %}
           {% set wdnames = ["周一","周二","周三","周四","周五","周六","周日"] %}
-          <p class="section-note">运行流程：每周在出刊日前一天 19:00 由服务器从 45 本英文期刊发现新文 → 本机全文中继补抓出版社公开 PDF → 服务器验证全文，以免费 GLM-4 识别结构、PaddleOCR 抽样复核/失败兜底，并用 MiMo V2.5 逐段翻译 → 自动更新网站目录与待发送邮件 → 您只需最终核对并选择“批准定时发送”或“重新推进”。中文来源与不完整文章均不公开。</p>
+          <p class="section-note">运行流程：每周在出刊日前两天 19:00（当前周一出刊即周六 19:00）由服务器从 45 本英文期刊发现新文 → 本机全文中继补抓出版社公开 PDF → 服务器验证全文，以免费 GLM-4 识别结构、PaddleOCR 抽样复核/失败兜底，并用 MiMo V2.5 逐段翻译 → 自动更新网站目录与待发送邮件 → 您只需最终核对并选择“批准定时发送”或“重新推进”。中文来源与不完整文章均不公开。</p>
           <style>
             .journal-flow-card { margin:14px 0 18px; padding:16px; border:1px solid #decfbd; border-radius:12px; background:#fffdf8; }
             .journal-flow-steps { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; margin:12px 0; }
@@ -2064,7 +2064,7 @@
                 </div>
               </div>
             </div>
-            <p class="section-note">系统在出刊日前一天 19:00 自动采集此前 7 天的英文题录，全文处理器随后每小时获取公开 PDF、校验完整性、用免费 GLM-4 识别正文、以 PaddleOCR 独立复核/兜底，再用 MiMo 逐段翻译；完整文章会自动进入网站目录和邮件预览。只有您点击“批准定时发送”后，定时任务才有权发信。</p>
+            <p class="section-note">系统在出刊日前两天 19:00 自动采集此前 7 天的英文题录（当前周一出刊即周六 19:00），全文处理器随后每小时获取公开 PDF、校验完整性、用免费 GLM-4 识别正文、以 PaddleOCR 独立复核/兜底，再用 MiMo 逐段翻译；完整文章会自动进入网站目录和邮件预览。只有您点击“批准定时发送”后，定时任务才有权发信。</p>
             <div class="form-grid" style="margin-top:12px">
               <label class="field-wide">邮件标题前缀
                 <input type="text" name="subject_prefix" value="{{ journal_alert_settings.subject_prefix }}" required>
@@ -2216,7 +2216,7 @@
             <button class="btn" type="submit">执行“源 PDF 仅留 12 期”清理</button>
           </form>
           {% else %}
-          <p class="section-note">当前没有批次。点击上方「① 立即采集本期」开始，或等待发送日前一天 19:00 自动采集。</p>
+          <p class="section-note">当前没有批次。点击上方「① 立即采集本期」开始，或等待发送日前两天 19:00 自动采集。</p>
           {% endif %}
 
           <h4 style="margin-top:14px">全文识别、复核与翻译队列（{{ journal_processing_states|length }} 项）</h4>

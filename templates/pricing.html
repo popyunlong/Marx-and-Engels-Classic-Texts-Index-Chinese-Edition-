@@ -96,7 +96,7 @@
       background: var(--warn-bg);
       border-color: rgba(138, 91, 0, 0.16);
     }
-    /* 套餐改为横条排版：一行一条，自上而下；资源包置顶。 */
+    /* 套餐采用横条排版：一行一条，自上而下。 */
     .plan-list {
       display: flex;
       flex-direction: column;
@@ -189,6 +189,13 @@
     form {
       margin: 0;
     }
+    .purchase-choice { display: grid; gap: 7px; width: 100%; max-width: 260px; font-size: .88rem; }
+    .purchase-choice select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--text); font: inherit; }
+    .purchase-choice label { font-weight: 700; }
+    .purchase-total { color: var(--accent); font-weight: 700; }
+    .purchase-offer { margin: 0; line-height: 1.6; color: var(--accent); font-size: .8rem; }
+    .purchase-help { margin: 0; line-height: 1.6; font-size: .8rem; color: var(--muted); max-width: 260px; }
+    @media (max-width: 760px) { .purchase-choice { max-width: none; flex: 1 0 100%; } .purchase-help { max-width: none; flex-basis: 100%; } }
     .primary {
       color: white;
       background: var(--accent);
@@ -293,13 +300,17 @@
       {{ site_text("pricing.payment_disabled") }}
       {% endif %}
       <br><strong>购买规则：</strong>已生效的旧套餐与一个新套餐可以并行；基础 / Plus / Pro / Max 四档之间互斥。
-      同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。资源包可独立叠加，且不解锁会员内容。
+      同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。
       月套餐 AI 研学额度购买时开放 50%，第 15 天开放余下 50%，第 30 天失效。
       页面中的典型 token 容量按缓存未命中、80% 输入与 20% 输出估算；实际可用量会随模型、思考深度、峰谷时段和缓存命中情况变化。
     </div>
 
+    {% with flashes = get_flashed_messages(with_categories=true) %}
+    {% for category, message in flashes %}<div class="notice" role="status">{{ message }}</div>{% endfor %}
+    {% endwith %}
     <section class="plan-list">
-      {% for plan in plans %}
+      {# 仅隐藏资源包购买展示；套餐状态、购买接口及历史权益保持原规则。 #}
+      {% for plan in plans if (plan.kind | default('membership', true)) != 'credit_pack' %}
       {% set plan_badge = (plan.badge | default('', true)) | trim %}
       {% set feature_lines = (plan.features | default('', true)).split('\n') | map('trim') | select | list %}
       {% set is_pack = (plan.kind | default('membership', true)) == 'credit_pack' %}
@@ -335,8 +346,26 @@
           </ul>
         </div>
         <div class="actions">
+          {% set purchase = (purchase_options | default({})).get(plan.code) %}
+          {% if purchase and not purchase.upgrade and not purchase.downgrade %}
+          <div class="purchase-choice" data-purchase-plan="{{ plan.code }}">
+            <label for="months-{{ plan.code }}">购买月数</label>
+            <select id="months-{{ plan.code }}" name="purchase_months" form="purchase-{{ plan.code }}" aria-describedby="offer-{{ plan.code }}">
+              {% for q in purchase.quotes %}
+              <option value="{{ q.purchase_months }}" data-total="{{ format_price(q.amount_cents, q.currency) }}">{{ q.purchase_months }} 个月 · {{ format_price(q.amount_cents, q.currency) }}{% if q.discount_percent < 100 %}（{{ "%g" | format(q.discount_percent / 10) }} 折）{% endif %}</option>
+              {% endfor %}
+            </select>
+            <div class="purchase-total" aria-live="polite">应付 {{ format_price(purchase.quotes[0].amount_cents, plan.currency) }}</div>
+            <p class="purchase-offer" id="offer-{{ plan.code }}">{{ purchase.offer }}</p>
+            <p class="purchase-help">每月 30 天，按月生效；优惠不减少每月 AI 额度。</p>
+          </div>
+          {% elif purchase and purchase.upgrade %}
+          <p class="purchase-help">请先补差升档，完成后可购买该档 1–6 个月续费。{{ purchase.offer }}。</p>
+          {% elif purchase and purchase.downgrade %}
+          <p class="purchase-help">当前周期不能降档，请在本周期结束后购买。</p>
+          {% endif %}
           {% if current_user and alipay_runtime.enabled %}
-          <form method="post" action="{{ url_for('create_checkout', plan_code=plan.code) }}">
+          <form id="purchase-{{ plan.code }}" method="post" action="{{ url_for('create_checkout', plan_code=plan.code) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn primary" type="submit">{{ "购买资源包" if is_pack else "在线支付开通" }}</button>
           </form>
@@ -378,6 +407,20 @@
       </div>
     </section>
   </div>
+  <script>
+    document.querySelectorAll('[data-purchase-plan]').forEach(function (box) {
+      var select = box.querySelector('select');
+      var total = box.querySelector('.purchase-total');
+      var key = 'membership-months:' + box.getAttribute('data-purchase-plan');
+      try { var saved = sessionStorage.getItem(key); if (/^[1-6]$/.test(saved || '')) select.value = saved; } catch (e) {}
+      function refresh() {
+        total.textContent = '应付 ' + select.options[select.selectedIndex].getAttribute('data-total');
+        try { sessionStorage.setItem(key, select.value); } catch (e) {}
+      }
+      select.addEventListener('change', refresh);
+      refresh();
+    });
+  </script>
   {# 「AI 随心问」抽屉已移除：AI 功能统一到独立「AI 研究对话」页（/ai）。 #}
   {% include "_marx_mascot.html" %}
 </body>

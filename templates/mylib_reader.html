@@ -1,8 +1,9 @@
+{% set reading_title = book.bibliographic.title or book.title %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>{{ book.title }} · 个人文库 - {{ app_name }}</title>
+  <title>{{ reading_title }} · 个人文库 - {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/mylib/mylib.css?v=13">
@@ -13,11 +14,11 @@
     <main class="viewer-panel" data-mylib-reader
           data-sid="{{ book.id }}"
           data-pages="{{ book.pages }}"
-          data-title="{{ book.title }}"
+          data-title="{{ reading_title }}"
           data-searchable="{{ '1' if book.searchable else '0' }}">
       <header class="reader-head">
         <div class="reader-title-row">
-          <h1 class="reader-title">{{ book.title }}</h1>
+          <h1 class="reader-title">{{ reading_title }}</h1>
           <div class="reader-actions">
             <details class="toc-popover" id="mxTocPanel">
               <summary class="tool-btn secondary">目录</summary>
@@ -33,7 +34,7 @@
               <div class="toc-sheet book-info-sheet">
                 <div class="toc-title">本书信息</div>
                 <div class="book-info-lines">
-                  <b>{{ book.bibliographic.title or book.title }}</b>
+                  <b>{{ reading_title }}</b>
                   {% if book.bibliographic.authors %}<span>作者：{{ book.bibliographic.authors | join('、') }}</span>
                   {% elif book.author %}<span>作者：{{ book.author }}</span>{% endif %}
                   {% if book.bibliographic.translators %}<span>译者：{{ book.bibliographic.translators | join('、') }}</span>{% endif %}
@@ -88,7 +89,7 @@
       <div class="viewer-body" id="mxViewerBody">
         <div class="page-frame">
           <section class="page-image-wrap" id="mxPageWrap">
-            <img class="page-image" id="mxPage" alt="{{ book.title }} PDF 页面" decoding="async">
+            <img class="page-image" id="mxPage" alt="{{ reading_title }} PDF 页面" decoding="async">
             <div class="image-error" id="mxImageError"></div>
           </section>
 
@@ -131,7 +132,7 @@
 
     <aside class="ai-panel mx-ai-panel" data-mylib-ai
            data-sid="{{ book.id }}"
-           data-title="{{ book.title }}"
+           data-title="{{ reading_title }}"
            data-searchable="{{ '1' if book.searchable else '0' }}"
            data-ai-access="{{ '1' if ai_access_enabled else '0' }}"
            data-search-access="{{ '1' if search_chat_access_enabled else '0' }}"
@@ -176,7 +177,7 @@
         <label class="mx-ai-ground-row">
           <input type="checkbox" id="mxAiGroundBook" checked>
           <span>检索本书原文作答</span>
-          <small>仅检索《{{ book.title }}》，不会进入公共语料或他人的文库。</small>
+          <small>仅检索《{{ reading_title }}》，不会进入公共语料或他人的文库。</small>
         </label>
         {% endif %}
         <div class="mx-ai-footer">

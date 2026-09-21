@@ -41,6 +41,7 @@
     <section class="card">
       <h1 style="margin-top:0">扫码支付</h1>
       <div class="muted">{{ plan.name }}</div>
+      <div class="muted">{% include "_order_purchase_summary.html" %}</div>
       <div class="amount">{{ format_price(order.amount_cents, order.currency) }}</div>
       <div class="muted">订单号：{{ order.order_no }}</div>
 

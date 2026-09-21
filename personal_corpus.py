@@ -2704,18 +2704,9 @@ class PersonalCorpus(Corpus):
 
     @staticmethod
     def _personal_page_label(pages: list[Page], *, gb: bool = False) -> str:
-        printed = [str(page.printed_page) for page in pages if page.printed_page]
-        if printed:
-            def display(value: str) -> str:
-                return value[4:].upper() if value.startswith("pre-") else value
-
-            first, last = display(printed[0]), display(printed[-1])
-            value = first if first == last else f"{first}-{last}"
-            return value if gb else f"第{value}页"
-        pdf = [int(page.pdf_page) for page in pages]
-        first, last = pdf[0], pdf[-1]
-        value = str(first) if first == last else f"{first}-{last}"
-        return f"PDF第{value}页"
+        from page_labels import citation_pages
+        location = citation_pages(pages)
+        return location["page_range"] + location["page_note"] if gb else location["page"]
 
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
         """个人上传书缺出版地/出版社/年份时，只用已知元数据，绝不套公共书库默认值。"""

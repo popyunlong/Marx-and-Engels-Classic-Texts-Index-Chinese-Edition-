@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from runtime_env import APPDATA_DIR
+from page_labels import VERSION as PAGE_LABEL_VERSION
 
 
 DB_PATH = APPDATA_DIR / "search_exports.sqlite3"
@@ -42,7 +43,7 @@ MAX_QUERY_CHARS = 500
 # Bump whenever the semantic content of a result changes.  It is part of the
 # reuse fingerprint, so pre-change snippet exports cannot be served for a new
 # request after complete-sentence rendering is deployed.
-EXPORT_CONTENT_VERSION = "complete-sentence-v2"
+EXPORT_CONTENT_VERSION = "complete-sentence-v2:" + PAGE_LABEL_VERSION
 WORKER_HEARTBEAT_MAX_AGE_SECONDS = 30
 VALID_FORMATS = {"docx", "html"}
 VALID_MODES = {"exact", "cooccurrence"}
@@ -430,11 +431,21 @@ def update_job(job_id: str, **changes: object) -> dict | None:
     return _decode_job(row)
 
 
-def claim_next_job(worker_id: str, lease_seconds: int = MAX_RUNTIME_SECONDS + 60) -> dict | None:
+def claim_next_job(worker_id: str, lease_seconds: int = MAX_RUNTIME_SECONDS + 60, *,
+                   corpus_version: str | None = None,
+                   template_version: str | None = None) -> dict | None:
     init_db()
     now = utc_now()
     now_text = utc_text(now)
     lease_text = utc_text(now + timedelta(seconds=max(60, int(lease_seconds))))
+    version_clause = ""
+    version_values: list[str] = []
+    if corpus_version is not None:
+        version_clause += " AND corpus_version=?"
+        version_values.append(str(corpus_version))
+    if template_version is not None:
+        version_clause += " AND template_version=?"
+        version_values.append(str(template_version))
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         # A killed worker may be replaced.  The first expired lease is returned
@@ -454,10 +465,10 @@ def claim_next_job(worker_id: str, lease_seconds: int = MAX_RUNTIME_SECONDS + 60
             (now_text, now_text, MAX_ATTEMPTS),
         )
         row = conn.execute(
-            """SELECT id FROM search_export_jobs
-               WHERE status='queued' AND expires_at>? AND attempts<?
-               ORDER BY created_at LIMIT 1""",
-            (now_text, MAX_ATTEMPTS),
+            "SELECT id FROM search_export_jobs "
+            "WHERE status='queued' AND expires_at>? AND attempts<? "
+            + version_clause + " ORDER BY created_at LIMIT 1",
+            (now_text, MAX_ATTEMPTS, *version_values),
         ).fetchone()
         if row is None:
             conn.commit()

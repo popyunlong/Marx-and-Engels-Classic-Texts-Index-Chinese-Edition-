@@ -49,11 +49,27 @@
     h4.heading { font-size:19px; font-style:italic; }
     .heading-zh { display:block; margin-top:6px; color:var(--zh); font:600 .78em/1.5 "Noto Serif CJK SC","Songti SC",serif; }
     .pair { margin:0 0 26px; }
-    .original { margin:0; font-size:18px; line-height:1.85; text-align:justify; hyphens:auto; }
-    .translation { position:relative; margin:9px 0 0; padding:14px 17px 14px 22px; color:var(--zh); background:#faf5ed; border-left:3px solid #bca489; font:16px/1.9 "Noto Serif CJK SC","Songti SC",serif; text-align:justify; }
+    .original { margin:0; font-size:18px; line-height:1.85; text-align:justify; hyphens:auto; overflow-wrap:anywhere; }
+    .translation { position:relative; margin:9px 0 0; padding:14px 17px 14px 22px; color:var(--zh); background:#faf5ed; border-left:3px solid #bca489; font:16px/1.9 "Noto Serif CJK SC","Songti SC",serif; text-align:justify; overflow-wrap:anywhere; }
     .translation::before { content:"译"; position:absolute; left:-10px; top:13px; width:18px; height:18px; border-radius:50%; color:#fff; background:var(--red); text-align:center; font:10px/18px "Microsoft YaHei",sans-serif; }
     .reference { margin:0 0 10px; padding-left:22px; text-indent:-22px; color:#4f4740; font-size:14px; line-height:1.65; }
     .footnote .original,.caption .original { font-size:14px; color:#5c534b; }
+    .visual { margin:34px 0; padding:18px; border:1px solid var(--rule); background:#fffdf9; }
+    .visual img { display:block; width:100%; height:auto; margin:0 auto; background:#fff; }
+    .visual figcaption { margin-top:13px; line-height:1.7; }
+    .visual .caption-en { display:block; font-size:14px; }
+    .visual .caption-zh { display:block; margin-top:4px; color:var(--zh); font:14px/1.75 "Noto Serif CJK SC","Songti SC",serif; }
+    .table-wrap { overflow-x:auto; margin-top:14px; }
+    .data-table { width:100%; border-collapse:collapse; font-size:14px; line-height:1.45; }
+    .data-table th,.data-table td { padding:8px 9px; border:1px solid var(--rule); text-align:right; white-space:nowrap; }
+    .data-table th:first-child,.data-table td:first-child { text-align:left; }
+    .data-table thead th { color:#fff; background:#6f1b1b; }
+    .row-zh { display:block; color:var(--muted); font:12px/1.35 "Microsoft YaHei",sans-serif; }
+    .table-source { margin:10px 0 0; color:var(--muted); font-size:12px; line-height:1.6; }
+    .source-fallback { margin-top:13px; font:12px/1.6 "Microsoft YaHei",sans-serif; }
+    .source-fallback summary { color:var(--red); cursor:pointer; }
+    .source-fallback img { margin-top:10px; }
+    .formula .translation { margin-top:14px; }
     .pager { display:flex; justify-content:space-between; gap:14px; padding:22px clamp(18px,6vw,70px); border-top:4px double var(--ink); font:14px/1.5 "Microsoft YaHei",sans-serif; }
     .pager a { max-width:46%; text-decoration:none; }
     @media (max-width:680px) { .meta-grid{grid-template-columns:1fr}header{padding-top:35px}.original{font-size:17px}.translation{font-size:15px}.topbar{position:static}.pager{align-items:flex-start} }
@@ -97,6 +113,31 @@
           {% if level == 1 %}<h2 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h2>
           {% elif level == 2 %}<h3 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h3>
           {% else %}<h4 class="heading block" id="section-{{ loop.index }}"><span lang="en">{{ block.text }}</span>{% if block.zh %}<span class="heading-zh">{{ block.zh }}</span>{% endif %}</h4>{% endif %}
+        {% elif block.kind == 'table' %}
+          <figure class="visual table-visual block" id="visual-{{ loop.index }}">
+            <figcaption><strong class="caption-en" lang="en">{{ block.text }}</strong>{% if block.zh %}<span class="caption-zh">{{ block.zh }}</span>{% endif %}</figcaption>
+            {% if block.rows and block.headers %}
+            <div class="table-wrap"><table class="data-table">
+              <thead><tr>{% for header in block.headers %}<th><span lang="en">{{ header }}</span>{% if block.headers_zh and block.headers_zh[loop.index0] != header %}<span class="row-zh">{{ block.headers_zh[loop.index0] }}</span>{% endif %}</th>{% endfor %}</tr></thead>
+              <tbody>{% for row in block.rows %}<tr><td><span lang="en">{{ row.label }}</span>{% if row.label_zh %}<span class="row-zh">{{ row.label_zh }}</span>{% endif %}</td>{% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+            </table></div>
+            {% if block.source %}<p class="table-source"><span lang="en">{{ block.source }}</span>{% if block.source_zh %}<br>{{ block.source_zh }}{% endif %}</p>{% endif %}
+            <details class="source-fallback"><summary>核对原刊表格图像</summary><img src="{{ url_for('journal_alerts_asset', article_id=article.id, asset_name=block.asset.name) }}" alt="{{ block.zh or block.text }}" loading="lazy"></details>
+            {% else %}
+            <img src="{{ url_for('journal_alerts_asset', article_id=article.id, asset_name=block.asset.name) }}" alt="{{ block.alt or block.zh or block.text }}" loading="lazy">
+            {% endif %}
+          </figure>
+        {% elif block.kind == 'figure' %}
+          <figure class="visual figure block" id="visual-{{ loop.index }}">
+            <img src="{{ url_for('journal_alerts_asset', article_id=article.id, asset_name=block.asset.name) }}" alt="{{ block.alt or block.zh or block.text }}" loading="lazy">
+            <figcaption><strong class="caption-en" lang="en">{{ block.text }}</strong>{% if block.zh %}<span class="caption-zh">{{ block.zh }}</span>{% endif %}</figcaption>
+          </figure>
+        {% elif block.kind == 'formula' %}
+          <figure class="visual formula block" id="visual-{{ loop.index }}">
+            <img src="{{ url_for('journal_alerts_asset', article_id=article.id, asset_name=block.asset.name) }}" alt="{{ block.alt or block.zh or block.text }}" loading="lazy">
+            <figcaption><strong class="caption-en" lang="en">{{ block.text }}</strong></figcaption>
+            {% if block.zh %}<p class="translation" lang="zh-CN">{{ block.zh }}</p>{% endif %}
+          </figure>
         {% elif block.kind == 'reference' %}
           <p class="reference" lang="en">{{ block.text }}</p>
         {% else %}

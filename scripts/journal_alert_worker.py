@@ -41,7 +41,7 @@ def _send_time_reached(settings: dict) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Journal alerts worker: collect a batch (T-1 19:00) and send the digest on the send day."
+        description="Journal alerts worker: collect a batch (T-2 19:00) and send the digest on the send day."
     )
     parser.add_argument("--once", action="store_true", help="Legacy: collect then send if due (one cycle).")
     parser.add_argument(
@@ -71,7 +71,7 @@ def main() -> None:
     if args.stage == "collect":
         if not args.force and not is_collect_due(settings):
             print(
-                "journal-alerts stage=collect skipped: not the weekly collection day before sending "
+                "journal-alerts stage=collect skipped: not the weekly collection day two days before sending "
                 f"(freq={settings.get('send_frequency')}, weekday={settings.get('send_weekday')})."
             )
             return

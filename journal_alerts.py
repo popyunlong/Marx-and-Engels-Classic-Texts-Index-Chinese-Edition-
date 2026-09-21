@@ -24,7 +24,8 @@ from admin_store import get_setting as get_legacy_setting, init_admin_store_db
 from feature_access import feature_allowed_by_policy, load_access_policy
 from membership import init_membership_db, normalize_email
 from runtime_env import APPDATA_DIR, DeploymentSettings, secure_db_file
-from journal_storage import JOURNAL_DB_PATH, JOURNAL_TMP_DIR, ensure_journal_storage
+from journal_storage import JOURNAL_ARTICLES_DIR, JOURNAL_DB_PATH, JOURNAL_TMP_DIR, ensure_journal_storage
+from journal_quality import strip_abstract_label, validate_batch_documents
 
 
 LOGGER = logging.getLogger("marx_search.journal_alerts")
@@ -1538,6 +1539,9 @@ def _article_row(row: sqlite3.Row) -> dict:
     data["authors"] = _json_loads(str(data.get("authors_json") or "[]"), [])
     data["authors_zh"] = _json_loads(str(data.get("authors_zh_json") or "[]"), [])
     data["metadata"] = _json_loads(str(data.get("metadata_json") or "{}"), {})
+    # Legacy rows may already contain a label which the page/email supplies.
+    data["abstract"] = strip_abstract_label(data.get("abstract"))
+    data["abstract_zh"] = strip_abstract_label(data.get("abstract_zh"))
     return data
 
 
@@ -4398,6 +4402,26 @@ def send_batch(
     complete_articles = public_batch_articles(batch_id)
     if not complete_articles:
         return {"sent": 0, "batch_id": batch_id, "reason": "no_complete_articles"}
+    quality = validate_batch_documents(
+        (int(article["id"]) for article in complete_articles), JOURNAL_ARTICLES_DIR
+    )
+    if quality.get("status") != "passed":
+        return {
+            "sent": 0,
+            "batch_id": batch_id,
+            "reason": "issue_quality_not_ready",
+            "failed_article_ids": quality.get("failed_article_ids") or [],
+        }
+    from journal_fulltext import load_issue_snapshot
+
+    snapshot = load_issue_snapshot(batch, verify=True)
+    if not snapshot:
+        return {"sent": 0, "batch_id": batch_id, "reason": "issue_snapshot_missing_or_changed"}
+    frozen_articles = list(snapshot.get("articles") or [])
+    if {int(article["id"]) for article in frozen_articles} != {
+        int(article["id"]) for article in complete_articles
+    }:
+        return {"sent": 0, "batch_id": batch_id, "reason": "issue_snapshot_catalog_mismatch"}
     if recipients is None:
         recipients, enforce_permission = resolve_recipients(
             str(settings.get("send_audience") or "subscribers"),
@@ -4427,7 +4451,9 @@ def send_batch(
                                        f"{JOURNAL_WEEKLY_TITLE}仅供有效会员使用；会员已过期或账号已停用。",
                                        subscription_id=sub_id, user_id=user_id)
                 continue
-        text_body, html_body = render_review_email(batch, recipient, base_url, settings)
+        text_body, html_body = render_review_email(
+            batch, recipient, base_url, settings, articles=frozen_articles
+        )
         try:
             send_email(smtp_config, email, subject, text_body, html_body)
         except Exception as exc:
@@ -4539,6 +4565,8 @@ def render_review_email(
     subscription: dict,
     base_url: str,
     settings: dict | None = None,
+    *,
+    articles: list[dict] | None = None,
 ) -> tuple[str, str]:
     """Render the weekly short introduction and metadata cards (no AI review)."""
     from journal_taxonomy import DISCIPLINES
@@ -4547,7 +4575,7 @@ def render_review_email(
     token = str(subscription.get("unsubscribe_token") or "")
     unsubscribe_url = f"{base_url}/journal-alerts/unsubscribe/{token}" if (base_url and token) else ""
     issue_key = str(digest.get("issue_key") or f"第{digest.get('id')}期")
-    articles = public_batch_articles(int(digest["id"]))
+    articles = list(articles) if articles is not None else public_batch_articles(int(digest["id"]))
     groups: dict[str, list[dict]] = {name: [] for name in DISCIPLINES}
     for article in articles:
         groups.setdefault(str(article.get("ai_discipline") or ""), []).append(article)

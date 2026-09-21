@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 import urllib.error
@@ -11,8 +12,11 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-UPSTREAM = "http://127.0.0.1:8000/api/ai/search-chat"
-LISTEN = ("127.0.0.1", 8010)
+UPSTREAM = os.environ.get(
+    "MARX_AI_SYNC_UPSTREAM",
+    "http://127.0.0.1:8000/api/ai/search-chat",
+)
+LISTEN = ("127.0.0.1", int(os.environ.get("MARX_AI_SYNC_PORT", "8010")))
 HOP_HEADERS = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",

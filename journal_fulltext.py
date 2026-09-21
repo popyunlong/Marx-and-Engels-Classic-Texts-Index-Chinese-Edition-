@@ -39,6 +39,15 @@ from typing import Any, Callable, Iterable
 
 from runtime_env import secure_db_file
 from journal_storage import JOURNAL_ARTICLES_DIR, JOURNAL_ISSUES_DIR, ensure_journal_storage
+from journal_quality import (
+    abstract_rejection_reason,
+    build_quality_report,
+    DOCUMENT_SCHEMA_VERSION,
+    document_asset_manifest,
+    file_sha256,
+    safe_asset_path,
+    strip_abstract_label,
+)
 
 LOGGER = logging.getLogger("marx_search.journal_fulltext")
 
@@ -463,23 +472,44 @@ def write_issue_snapshot(digest: dict, articles: list[dict]) -> Path:
     issue_key = str(digest.get("issue_key") or f"issue-{int(digest['id'])}")
     target_dir = JOURNAL_ISSUES_DIR / issue_key
     target_dir.mkdir(parents=True, exist_ok=True)
+    frozen_articles: list[dict] = []
+    for article in articles:
+        article_id = int(article["id"])
+        document_path = _doc_path(article_id)
+        document = load_document(article_id) or {}
+        assets = []
+        for name, asset in document_asset_manifest(document).items():
+            target = safe_asset_path(FULLTEXT_DIR / str(article_id), name)
+            assets.append(
+                {
+                    "name": name,
+                    "sha256": file_sha256(target) if target.is_file() else "",
+                    "mime": asset.get("mime") or "image/png",
+                }
+            )
+        frozen_articles.append(
+            {
+                key: article.get(key)
+                for key in (
+                    "id", "batch_id", "ai_discipline", "title", "title_zh",
+                    "journal_name", "journal_name_zh", "authors", "authors_zh",
+                    "abstract", "abstract_zh", "citation_gb2015", "citation_mks_en",
+                    "pdf_url", "url", "published_at", "metadata",
+                )
+            }
+            | {
+                "document_sha256": file_sha256(document_path) if document_path.exists() else "",
+                "quality": document.get("quality") or {},
+                "assets": assets,
+            }
+        )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "issue": {
             key: digest.get(key)
             for key in ("id", "issue_key", "period_start", "period_end", "status", "sent_at")
         },
-        "articles": [
-            {
-                "id": int(article["id"]),
-                "discipline": article.get("ai_discipline") or "",
-                "title_en": article.get("title") or "",
-                "title_zh": article.get("title_zh") or "",
-                "document_sha256": _sha256_file(_doc_path(int(article["id"])))
-                if _doc_path(int(article["id"])).exists() else "",
-            }
-            for article in articles
-        ],
+        "articles": frozen_articles,
         "generated_at": _now_text(),
     }
     target = target_dir / "issue.json"
@@ -487,6 +517,39 @@ def write_issue_snapshot(digest: dict, articles: list[dict]) -> Path:
     tmp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     os.replace(tmp, target)
     return target
+
+
+def load_issue_snapshot(digest: dict, *, verify: bool = True) -> dict | None:
+    """Load the accepted issue and optionally verify every document/resource hash."""
+    issue_key = str(digest.get("issue_key") or f"issue-{int(digest['id'])}")
+    path = JOURNAL_ISSUES_DIR / issue_key / "issue.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if int(payload.get("schema_version") or 0) < 2:
+        return None
+    issue = payload.get("issue") or {}
+    if int(issue.get("id") or 0) != int(digest.get("id") or 0):
+        return None
+    articles = payload.get("articles")
+    if not isinstance(articles, list) or not articles:
+        return None
+    if not verify:
+        return payload
+    for article in articles:
+        article_id = int(article.get("id") or 0)
+        document_path = _doc_path(article_id)
+        if not document_path.is_file() or file_sha256(document_path) != str(article.get("document_sha256") or ""):
+            return None
+        for asset in article.get("assets") or []:
+            try:
+                target = safe_asset_path(FULLTEXT_DIR / str(article_id), asset.get("name"))
+            except ValueError:
+                return None
+            if not target.is_file() or file_sha256(target) != str(asset.get("sha256") or ""):
+                return None
+    return payload
 
 
 # ---------------------------------------------------------------- HTTP 工具
@@ -1436,11 +1499,19 @@ def extract_paragraphs(pdf_path: Path) -> dict:
                 if key in running or _PAGE_NUMBER_RE.match(text) or _RUNNING_PUBLICATION_RE.match(text):
                     continue
                 size = _block_font_size(block)
+                source_bbox = [round(float(value), 2) for value in block.get("bbox") or (0, 0, 0, 0)]
                 layout = {
-                    "bbox": [round(float(value), 2) for value in block.get("bbox") or (0, 0, 0, 0)],
+                    "bbox": source_bbox,
                     "column": (0 if float(block["bbox"][0]) < width / 2 else 1) if two_columns else 0,
                     "page_width": round(float(width), 2),
                     "bold": _block_is_bold(block),
+                    "source_spans": [
+                        {
+                            "page": index + 1,
+                            "bbox": source_bbox,
+                            "column": (0 if float(block["bbox"][0]) < width / 2 else 1) if two_columns else 0,
+                        }
+                    ],
                 }
                 if _REFERENCE_HEADINGS.match(text):
                     in_references = True
@@ -1523,6 +1594,7 @@ def extract_paragraphs(pdf_path: Path) -> dict:
                 merged[-1]["last_bbox"] = list(box)
                 merged[-1]["column"] = int(para.get("column") or 0)
                 merged[-1]["page_end"] = int(para.get("page") or merged[-1].get("page") or 0)
+                merged[-1].setdefault("source_spans", []).extend(para.get("source_spans") or [])
                 continue
             merged.append(para)
         body_sorted = sorted(body_sizes)
@@ -2464,7 +2536,8 @@ _PUBLISHER_FOOTER_RE = re.compile(
 )
 _ACKNOWLEDGMENT_NOTE_RE = re.compile(
     r"(?:^earlier\s+drafts?\s+(?:benefited|were)|\bi\s+am\s+grateful\b|"
-    r"\bwe\s+(?:are\s+)?grateful\b|\bthanks\s+(?:also\s+)?to\b)",
+    r"\bwe\s+(?:are\s+)?grateful\b|\bthanks\s+(?:also\s+)?to\b|"
+    r"\bthis\s+research\s+is\s+indebted\b)",
     re.I,
 )
 
@@ -2476,19 +2549,25 @@ def _is_frontmatter_noise(para: dict) -> bool:
     page = int(para.get("page") or 1)
     if _PUBLISHER_FOOTER_RE.search(text):
         return True
-    if page <= 3 and (
-        _ACKNOWLEDGMENT_NOTE_RE.search(text)
-        or re.search(r"creative commons|open access article|all rights reserved|©|\bcopyright\b", text, re.I)
+    if page <= 3 and re.search(
+        r"creative commons|open access article|all rights reserved|©|\bcopyright\b", text, re.I
     ):
         return True
     if str(para.get("kind") or "") in {"footnote", "reference"}:
         return False
-    return bool(
+    if _RUNNING_AUTHOR_RE.match(text) or _RUNNING_PUBLICATION_RE.match(text):
+        return True
+    if len(text) <= 800 and _AUTHOR_BIO_RE.match(text):
+        return True
+    # E-mail addresses, DOI strings and acknowledgement wording can occur in a
+    # legitimate multi-page body block.  Treat them as front matter only near
+    # the beginning and only when the block itself begins like front matter.
+    if page <= 3 and (
         _FRONTMATTER_NOISE_RE.search(text)
-        or _RUNNING_AUTHOR_RE.match(text)
-        or _RUNNING_PUBLICATION_RE.match(text)
-        or (len(text) <= 800 and _AUTHOR_BIO_RE.match(text))
-    )
+        or _ACKNOWLEDGMENT_NOTE_RE.match(text)
+    ):
+        return True
+    return False
 
 
 def _is_abstract_frontmatter(para: dict) -> bool:
@@ -2542,7 +2621,23 @@ def normalize_reflow_content(paragraphs: list[dict], *, article: dict | None = N
     supplementary information after that point are deliberately retained.
     """
     article = article or {}
-    items = [dict(para) for para in paragraphs if str(para.get("text") or "").strip()]
+    items: list[dict] = []
+    for para in paragraphs:
+        current = dict(para)
+        text = str(current.get("text") or "").strip()
+        if not text:
+            continue
+        # Two-column title pages can append a left-column acknowledgement to
+        # the right-column opening paragraph.  Keep the substantial article
+        # text before the acknowledgement instead of discarding the mixed
+        # block as front matter.
+        if int(current.get("page") or 1) <= 3 and current.get("kind") == "body":
+            embedded_note = _ACKNOWLEDGMENT_NOTE_RE.search(text)
+            if embedded_note and embedded_note.start() >= 300:
+                text = text[: embedded_note.start()].rstrip()
+                current["text"] = text
+        if text:
+            items.append(current)
     keywords = _stored_keywords(article)
     front_end = 0
     metadata_labels = [str(article.get("title") or "").strip(), *(str(name).strip() for name in article.get("authors") or [])]
@@ -2919,7 +3014,14 @@ def build_article_fulltext(article: dict, *, translate: bool = True, allow_ocr: 
     provenance["recognition"] = recognition_info
     _save_provenance(article_id, provenance)
 
-    abstract_en = str(article.get("abstract") or "").strip() or _abstract_from_paragraphs(paragraphs)
+    stored_abstract = strip_abstract_label(article.get("abstract"))
+    extracted_abstract = strip_abstract_label(_abstract_from_paragraphs(paragraphs))
+    if stored_abstract and not abstract_rejection_reason(stored_abstract):
+        abstract_en = stored_abstract
+    elif extracted_abstract and not abstract_rejection_reason(extracted_abstract):
+        abstract_en = extracted_abstract
+    else:
+        abstract_en = ""
     abstract_source = "original"
     normalized = normalize_reflow_content(paragraphs, article=article)
     paragraphs = normalized["paragraphs"]
@@ -2971,6 +3073,7 @@ def build_article_fulltext(article: dict, *, translate: bool = True, allow_ocr: 
         if required == 0 or completed != required:
             raise ValueError(f"translation-incomplete:{completed}/{required}")
         metadata_zh = _translate_article_metadata(article, abstract_en, keywords_en)
+        metadata_zh["abstract_zh"] = strip_abstract_label(metadata_zh.get("abstract_zh"))
         from journal_alerts import update_article_bilingual_metadata
 
         refreshed = update_article_bilingual_metadata(
@@ -3006,7 +3109,7 @@ def build_article_fulltext(article: dict, *, translate: bool = True, allow_ocr: 
         return get_fulltext_state(article_id) or {}
 
     doc = {
-        "schema_version": 4,
+        "schema_version": DOCUMENT_SCHEMA_VERSION,
         "article_id": article_id,
         "issue_id": batch_id,
         "metadata": {
@@ -3041,6 +3144,7 @@ def build_article_fulltext(article: dict, *, translate: bool = True, allow_ocr: 
         "generated_at": _now_text(),
         "paragraphs": paragraphs,
     }
+    doc["quality"] = build_quality_report(doc)
     _save_document(article_id, doc)
     _upsert_state(
         article_id,

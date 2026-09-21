@@ -330,6 +330,9 @@
 #aip-root .msg-body h4 { font-size: 1rem; }
 #aip-root .msg-body h5 { color: var(--aip-muted); font-size: .95rem; }
 #aip-root .msg-body blockquote { padding: 10px 13px; border-left: 4px solid rgba(143, 29, 29, 0.5); border-radius: 10px; background: rgba(255, 253, 248, 0.85); color: #40342a; }
+#aip-root .msg-body .aip-direct-quote { font-family: "KaiTi", "STKaiti", "楷体", "Kaiti SC", serif; font-style: normal; }
+#aip-root .msg.research .msg-body blockquote,
+body.v2 #aip-root .msg.research .msg-body blockquote { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; }
 #aip-root .msg-body pre { margin: 0; max-width: 100%; overflow: auto; padding: 12px 14px; border-radius: 12px; background: #2e2620; color: #f6efe2; line-height: 1.65; font-family: "Consolas", "Microsoft YaHei", monospace; font-size: .92rem; }
 #aip-root .msg-body pre code { padding: 0; background: transparent; color: inherit; }
 #aip-root .code-lang { display: block; margin-bottom: 8px; color: rgba(246, 239, 226, 0.72); font-size: .82rem; font-family: "Microsoft YaHei", sans-serif; }
@@ -394,6 +397,8 @@
 #aip-root .ai-citation-item { border-radius: 12px; background: rgba(143, 29, 29, 0.05); padding: 10px 13px; border: 1px solid rgba(143, 29, 29, 0.14); }
 #aip-root .msg.research .ai-citation-item { background: rgba(201, 162, 39, 0.07); border-color: rgba(201, 162, 39, 0.32); }
 #aip-root .ai-citation-cite { font-size: .88rem; font-weight: 700; color: var(--aip-accent); line-height: 1.6; }
+#aip-root .aip-cite-provenance { margin-top: 3px; color: var(--aip-muted); font-size: .78rem; line-height: 1.55; }
+#aip-root .aip-cite-verified { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 999px; color: #14401f; background: #cfe9d5; font-weight: 700; }
 #aip-root .msg.research .ai-citation-cite { color: #7a5c12; }
 #aip-root .ai-citation-ctx { font-size: .88rem; color: #3a302a; margin-top: 5px; line-height: 1.7; }
 #aip-root .ai-citation-ctx mark { background: rgba(214, 158, 46, 0.36); border-radius: 3px; padding: 0 1px; }

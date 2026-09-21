@@ -1344,3 +1344,708 @@
 资本的限度:
 - file: pdfs/西马文库/资本的限度_14289781.pdf
   volume: 1
+
+# Restored 2026-09 published catalog entries after configuration rollback.
+刘少奇选集:
+- file: pdfs/刘少奇/刘少奇选集（上卷）.pdf
+  source: pdfs/刘少奇/刘少奇选集 上 (刘少奇著) (z-library.sk, 1lib.sk, z-lib.sk).pdf
+  volume: 1
+  page_count: 474
+  sha256: 839b141d7f5792316f75b44ed384b1b6f6a14b044946ee44842d8c01c0fac4e3
+- file: pdfs/刘少奇/刘少奇选集（下卷）.pdf
+  source: pdfs/刘少奇/刘少奇选集 下 (刘少奇著) (z-library.sk, 1lib.sk, z-lib.sk).pdf
+  volume: 2
+  page_count: 517
+  sha256: 6263ab531494492aab23bbb7364ede44d390446c4b7a235368fb578134fd6f94
+刘少奇年谱:
+- file: pdfs/刘少奇/刘少奇年谱（增订本）第1卷.pdf
+  source: pdfs/刘少奇/刘少奇年谱 增订本 第1卷 (中共中央党史和文献研究院编；闫建琪主编；王双梅副主编；陈晋主审) (z-library.sk, 1lib.sk, z-lib.sk).pdf
+  volume: 1
+  page_count: 460
+  sha256: bd54195f23e7d2ff251ecdb0434257e4b85ba0312686a2e21c4915d9193d419b
+- file: pdfs/刘少奇/刘少奇年谱（增订本）第2卷.pdf
+  source: pdfs/刘少奇/刘少奇年谱 增订本 第2卷 (中共中央党史和文献研究院编；闫建琪主编；王双梅副主编；陈晋主审) (z-library.sk, 1lib.sk, z-lib.sk).pdf
+  volume: 2
+  page_count: 468
+  sha256: f2478da8ae2548e6ba84dfd2af0c512f36a0bcac88c854878eb6b24181b1d4c6
+中共中央文件选集（1921—1949）:
+- file: pdfs/中共中央文件选集（1921—1949）/第01册.pdf
+  source: pdfs/文件选集1921-1949/10272631.pdf
+  volume: 1
+  page_count: 695
+  date_span: 1921—1925
+  sha256: 5311748379e46c378484b6a64d96884e8eb2f54fae39c757c21b3690022535c1
+- file: pdfs/中共中央文件选集（1921—1949）/第02册.pdf
+  source: pdfs/文件选集1921-1949/10272632.pdf
+  volume: 2
+  page_count: 707
+  date_span: '1926'
+  sha256: 78b586c4eac6196ade8e043bb27fafe8bfefa579117b46a1c2ad0de22685105c
+- file: pdfs/中共中央文件选集（1921—1949）/第03册.pdf
+  source: pdfs/文件选集1921-1949/10272633_中共中央文件选集.第三册一九二七.pdf
+  volume: 3
+  page_count: 657
+  date_span: '1927'
+  sha256: 3cccd461d4c4dac3b746e088118a8b142bb953e54e1ba2962112c66f600889bf
+- file: pdfs/中共中央文件选集（1921—1949）/第04册.pdf
+  source: pdfs/文件选集1921-1949/10272634_中共中央文件选集.第四册一九二八.pdf
+  volume: 4
+  page_count: 777
+  date_span: '1928'
+  sha256: 412a46fe088e8382a752a717a02188c21c00fa4c76044db9a69cb655fd13c915
+- file: pdfs/中共中央文件选集（1921—1949）/第05册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第五册（一九二九年）_10272635(1).pdf
+  volume: 5
+  page_count: 848
+  date_span: '1929'
+  sha256: 44b67af18e30e8b1fd9d1d27ead2d0aefd6b055951a70a1b4fae1d0db6620b46
+- file: pdfs/中共中央文件选集（1921—1949）/第06册.pdf
+  source: pdfs/文件选集1921-1949/10272636.pdf
+  volume: 6
+  page_count: 675
+  date_span: '1930'
+  sha256: f9f807dd5fa941a95ef386de9e08870e0e3c11becd95c894dde2d1fa55313de8
+- file: pdfs/中共中央文件选集（1921—1949）/第07册.pdf
+  source: pdfs/文件选集1921-1949/10272637.pdf
+  volume: 7
+  page_count: 842
+  date_span: '1931'
+  sha256: 5f45370a5fd2c4bca2add18052420aafa885de024b79d0fc48704ceede6ab67f
+- file: pdfs/中共中央文件选集（1921—1949）/第08册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第8册  1932_10272638.pdf
+  volume: 8
+  page_count: 665
+  date_span: '1932'
+  sha256: 98f87598005cb6408c184adc6e0fd78380f5e942a9bc765ceba91c01f1a54b67
+- file: pdfs/中共中央文件选集（1921—1949）/第09册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第9册  1933_10272639.pdf
+  volume: 9
+  page_count: 678
+  date_span: '1933'
+  sha256: a995542fc68510c62cbe5b4066d8da651af736c75b92cdd9feb8eb6d21ad58c4
+- file: pdfs/中共中央文件选集（1921—1949）/第10册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第10册  1934-1935_10272640.pdf
+  volume: 10
+  page_count: 826
+  date_span: 1934—1935
+  sha256: 38bea23ad84562f273c28d03094de9dd4ea770da6bd329f8d4746eca32ebae72
+- file: pdfs/中共中央文件选集（1921—1949）/第11册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第11册  1936-1938_10272641.pdf
+  volume: 11
+  page_count: 923
+  date_span: 1936—1938
+  sha256: 2d0279bf9a2b0078ce48e45f682195e44e1da48c6be0fb13df147f21aba7b7fa
+- file: pdfs/中共中央文件选集（1921—1949）/第12册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第12册  1939-1940_10272642.pdf
+  volume: 12
+  page_count: 714
+  date_span: 1939—1940
+  sha256: 5d8a8bc867168f614b11732348ff2ec09309efabda8eac05f89e4b2b1fac6a16
+- file: pdfs/中共中央文件选集（1921—1949）/第13册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第13册  1941-1942_10272643.pdf
+  volume: 13
+  page_count: 582
+  date_span: 1941—1942
+  sha256: 0521bee4fea423b787b01d85922ae8ee0079ee64bb879a3db3b587526c336462
+- file: pdfs/中共中央文件选集（1921—1949）/第14册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第14册  1943-1944_10272644.pdf
+  volume: 14
+  page_count: 674
+  date_span: 1943—1944
+  sha256: 226896f87019af73f5307d211562c544ff18f5978f64a7f30dd9d60d09c363ad
+- file: pdfs/中共中央文件选集（1921—1949）/第15册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第15册  1945_10272645.pdf
+  volume: 15
+  page_count: 646
+  date_span: '1945'
+  sha256: e20e34d67aa5dec15f03ae32c8ec22c66283817b7403991904e7c5f1896c8234
+- file: pdfs/中共中央文件选集（1921—1949）/第16册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第16册  1946-1947_10272646.pdf
+  volume: 16
+  page_count: 841
+  date_span: 1946—1947
+  sha256: 9499eb139002f0effa5f3e372b8d6fbd94e1b9de7aeacfe4d98efec56c0e3e36
+- file: pdfs/中共中央文件选集（1921—1949）/第17册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第17册  1948_10272647.pdf
+  volume: 17
+  page_count: 768
+  date_span: '1948'
+  sha256: 7dce53e6a289749412cb8f3de982bc87d5aac5289152119f5b79f7c181851c6c
+- file: pdfs/中共中央文件选集（1921—1949）/第18册.pdf
+  source: pdfs/文件选集1921-1949/中共中央文件选集  第18册  1949年1月至9月_10272648.pdf
+  volume: 18
+  page_count: 903
+  date_span: 1949年1—9月
+  sha256: 14322b4e0d1d68033b1648d7e22771a3e883a8d425bbc0ce6abbd3c3a227daf4
+中共中央文件选集（1949—1966）:
+- file: pdfs/中共中央文件选集（1949—1966）/第01册.pdf
+  source: pdfs/中共中央文件选集/13320113_中共中央文件选集1949年10月-1966年5月.第一册,1949年10月-12月.pdf
+  volume: 1
+  page_count: 367
+  date_span: 1949年10—12月
+  sha256: 64fac6fabe3842da230a8588ee850196e522852345f1624d7b1201147c32d780
+- file: pdfs/中共中央文件选集（1949—1966）/第02册.pdf
+  source: pdfs/中共中央文件选集/13320103_中共中央文件选集1949年10月-1966年5月.第二册,1950年1月-4月.pdf
+  volume: 2
+  page_count: 383
+  date_span: 1950年1—4月
+  sha256: 55e7fd5decf0298440ede8f3953a59f524d4436ce99d390e92ec736ed2844c08
+- file: pdfs/中共中央文件选集（1949—1966）/第03册.pdf
+  source: pdfs/中共中央文件选集/13320112_中共中央文件选集1949年10月-1966年5月.第三册,1950年5月-8月.pdf
+  volume: 3
+  page_count: 361
+  date_span: 1950年5—8月
+  sha256: 9d2cca7d619218be10c2a2b1617536bcad0c02ea64fd9adca4939e3bcf288740
+- file: pdfs/中共中央文件选集（1949—1966）/第04册.pdf
+  source: pdfs/中共中央文件选集/13320098_中共中央文件选集1949年10月-1966年5月.第四册,1950年9月-12月.pdf
+  volume: 4
+  page_count: 483
+  date_span: 1950年9—12月
+  sha256: 7d2d53eecfd273630fabe47ada4f5e0a018cb85a0dc796ce98d0fca726ec0f61
+- file: pdfs/中共中央文件选集（1949—1966）/第05册.pdf
+  source: pdfs/中共中央文件选集/13320104_中共中央文件选集1949年10月-1966年5月.第五册,1951年1月-4月.pdf
+  volume: 5
+  page_count: 479
+  date_span: 1951年1—4月
+  sha256: 0ef383c60b36a82045823f23b73bb34a4032c66f93ebaf044bb60fac9950a562
+- file: pdfs/中共中央文件选集（1949—1966）/第06册.pdf
+  source: pdfs/中共中央文件选集/13320129_中共中央文件选集1949年10月-1966年5月.第六册,1951年5月-8月.pdf
+  volume: 6
+  page_count: 517
+  date_span: 1951年5—8月
+  sha256: e3ef1519b05c914a39ff7b5d31d9ee42d2ade105c52b9c3f2d27d2cc2e3976f6
+- file: pdfs/中共中央文件选集（1949—1966）/第07册.pdf
+  source: pdfs/中共中央文件选集/13320126_中共中央文件选集1949年10月-1966年5月.第七册,1951年9月-12月.pdf
+  volume: 7
+  page_count: 517
+  date_span: 1951年9—12月
+  sha256: bd0d536c4875dbbb509c78092c3e2dc4a9a26f77cc776625888b6aed6d0a793a
+- file: pdfs/中共中央文件选集（1949—1966）/第08册.pdf
+  source: pdfs/中共中央文件选集/13320102_中共中央文件选集1949年10月-1966年5月.第八册,1952年1月-5月.pdf
+  volume: 8
+  page_count: 407
+  date_span: 1952年1—5月
+  sha256: eac5ccf306b5155f38a1131684327b91fdbfeb544af9a94d4c0babdf8000f0b9
+- file: pdfs/中共中央文件选集（1949—1966）/第09册.pdf
+  source: pdfs/中共中央文件选集/13320128_中共中央文件选集1949年10月-1966年5月.第九册,1952年6月-9月.pdf
+  volume: 9
+  page_count: 497
+  date_span: 1952年6—9月
+  sha256: 9edd35d4d674aa6df02475571def321a71fc9499dc5005e70210ffb65e9435b7
+- file: pdfs/中共中央文件选集（1949—1966）/第10册.pdf
+  source: pdfs/中共中央文件选集/13320094_中共中央文件选集1949年10月-1966年5月.第十册,1952年10月-12月.pdf
+  volume: 10
+  page_count: 497
+  date_span: 1952年10—12月
+  sha256: 57aca10b4ebed2589f484ae6348d868158ead7a632c053bff14ec509b239061f
+- file: pdfs/中共中央文件选集（1949—1966）/第11册.pdf
+  source: pdfs/中共中央文件选集/13320139_中共中央文件选集1949年10月-1966年5月.第十一册,1953年1月-3月.pdf
+  volume: 11
+  page_count: 446
+  date_span: 1953年1—3月
+  sha256: e339f7ae66f65e241eea782b9a3f7fdcbddfe4f799e77137e2c11ebb7fffd16d
+- file: pdfs/中共中央文件选集（1949—1966）/第12册.pdf
+  source: pdfs/中共中央文件选集/13320125_中共中央文件选集1949年10月-1966年5月.第十二册,1953年4月-6月.pdf
+  volume: 12
+  page_count: 438
+  date_span: 1953年4—6月
+  sha256: 2bc3f5f7a24e9ebec9eb4cfd78f80be6619edf320ed84ed1bb86793ab52d450e
+- file: pdfs/中共中央文件选集（1949—1966）/第13册.pdf
+  source: pdfs/中共中央文件选集/13320107_中共中央文件选集1949年10月-1966年5月.第十三册,1953年7月-9月.pdf
+  volume: 13
+  page_count: 416
+  date_span: 1953年7—9月
+  sha256: 714860e97635eeb44807ba7706d56bc95066871fe46d01181fe71d61875c3e46
+- file: pdfs/中共中央文件选集（1949—1966）/第14册.pdf
+  source: pdfs/中共中央文件选集/_13320085.pdf
+  volume: 14
+  page_count: 577
+  date_span: 1953年10—12月
+  sha256: f14bebada2843a6fc887b7c05fb1a9a8671b9cfcf833f19077e760b944bdfdb4
+- file: pdfs/中共中央文件选集（1949—1966）/第15册.pdf
+  source: pdfs/中共中央文件选集/13320084_中共中央文件选集1949年10月-1966年5月.第十五册,1954年1月-3月.pdf
+  volume: 15
+  page_count: 548
+  date_span: 1954年1—3月
+  sha256: 104fa99e9b6e91b6a216d59dcffe580f8b1a2a16c3c2c6b9ff1c0ef198e31495
+- file: pdfs/中共中央文件选集（1949—1966）/第16册.pdf
+  source: pdfs/中共中央文件选集/13320132_中共中央文件选集1949年10月-1966年5月.第十六册,1954年4月-7月.pdf
+  volume: 16
+  page_count: 430
+  date_span: 1954年4—7月
+  sha256: e7a91f7263642ae9ba0386351a7dccf8cde3fdd74487fb7648980f7addb4fd5a
+- file: pdfs/中共中央文件选集（1949—1966）/第17册.pdf
+  source: pdfs/中共中央文件选集/13320135_中共中央文件选集1949年10月-1966年5月.第十七册,1954年8月-12月.pdf
+  volume: 17
+  page_count: 487
+  date_span: 1954年8—12月
+  sha256: 829325297ad6685397589d83d4bfba54380cd7bd0855225483824d0640ba8cfc
+- file: pdfs/中共中央文件选集（1949—1966）/第18册.pdf
+  source: pdfs/中共中央文件选集/13320136_中共中央文件选集1949年10月-1966年5月.第十八册,1955年1月-3月.pdf
+  volume: 18
+  page_count: 365
+  date_span: 1955年1—3月
+  sha256: f3ff5ce50061ab23abf02fcf64eb24550bbabd4325606e2e7d59301424b7450c
+- file: pdfs/中共中央文件选集（1949—1966）/第19册.pdf
+  source: pdfs/中共中央文件选集/13320116_中共中央文件选集1949年10月-1966年5月.第十九册,1955年4月-7月.pdf
+  volume: 19
+  page_count: 494
+  date_span: 1955年4—7月
+  sha256: 7ca8c42128c77074713ea8e4b99ca630f2f40818cbfa2d03793679e3258d2f10
+- file: pdfs/中共中央文件选集（1949—1966）/第20册.pdf
+  source: pdfs/中共中央文件选集/13320122_中共中央文件选集1949年10月-1966年5月.第二十册,1955年8月-10月.pdf
+  volume: 20
+  page_count: 578
+  date_span: 1955年8—10月
+  sha256: 39c8376f73e1cff873135cecf4ad1c56b88b4ceb100a79a0403bcc567f83408d
+- file: pdfs/中共中央文件选集（1949—1966）/第21册.pdf
+  source: pdfs/中共中央文件选集/13320100_中共中央文件选集1949年10月-1966年5月.第二十一册,1955年11月-12月.pdf
+  volume: 21
+  page_count: 528
+  date_span: 1955年11—12月
+  sha256: e34192fed859dd9c0b41b777e2c78c32b356e9b797627b8c4b7b36495bfad811
+- file: pdfs/中共中央文件选集（1949—1966）/第22册.pdf
+  source: pdfs/中共中央文件选集/13320138.pdf
+  volume: 22
+  page_count: 416
+  date_span: 1956年1—3月
+  sha256: 5e9f59499629aaab3a112f4ce3d07bc4c29a26556dc1a6adcb2ae374a19dff04
+- file: pdfs/中共中央文件选集（1949—1966）/第23册.pdf
+  source: pdfs/中共中央文件选集/13320133_中共中央文件选集1949年10月-1966年5月.第二十三册,1956年4月-8月.pdf
+  volume: 23
+  page_count: 495
+  date_span: 1956年4—8月
+  sha256: 6bb51542a0f3479d8b8585c52dbfbc4617b4be6946a227991e6a9b85f815b4d1
+- file: pdfs/中共中央文件选集（1949—1966）/第24册.pdf
+  source: pdfs/中共中央文件选集/13320109_中共中央文件选集1949年10月-1966年5月.第二十四册,1956年9月-12月.pdf
+  volume: 24
+  page_count: 530
+  date_span: 1956年9—12月
+  sha256: 70f659cd0cf07b86cacc062d63e0ba5d3b826e6ecc4c58e53fb7b527bdaa820e
+- file: pdfs/中共中央文件选集（1949—1966）/第25册.pdf
+  source: pdfs/中共中央文件选集/13320095_中共中央文件选集1949年10月-1966年5月.第二十五册,1957年1月-6月.pdf
+  volume: 25
+  page_count: 436
+  date_span: 1957年1—6月
+  sha256: 8ae0ab4053069f80f94581ac9a12174f6c640f4d099a02a1d9646685374533ae
+- file: pdfs/中共中央文件选集（1949—1966）/第26册.pdf
+  source: pdfs/中共中央文件选集/13320096_中共中央文件选集1949年10月-1966年5月.第二十六册,1957年7月-12月.pdf
+  volume: 26
+  page_count: 495
+  date_span: 1957年7—12月
+  sha256: c781bd20f7136b3cc97b12c1540e8597711bf763adcfd8e7372f362ac0664480
+- file: pdfs/中共中央文件选集（1949—1966）/第27册.pdf
+  source: pdfs/中共中央文件选集/13320110_中共中央文件选集1949年10月-1966年5月.第二十七册,1958年1月-4月.pdf
+  volume: 27
+  page_count: 405
+  date_span: 1958年1—4月
+  sha256: e74fa6667b27374cc320b19d11ee2ce8f4f43e9e6c605a39d3d8187a994d0aab
+- file: pdfs/中共中央文件选集（1949—1966）/第28册.pdf
+  source: pdfs/中共中央文件选集/13320127_中共中央文件选集1949年10月-1966年5月.第二十八册,1958年5月-8月.pdf
+  volume: 28
+  page_count: 493
+  date_span: 1958年5—8月
+  sha256: 1c286ff4f659d9b5f64b54bf42c1efbd412d548914ddc674286fa6fb14216ff9
+- file: pdfs/中共中央文件选集（1949—1966）/第29册.pdf
+  source: pdfs/中共中央文件选集/13320097_中共中央文件选集一九四九年十月一九六六年五月第29册.pdf
+  volume: 29
+  page_count: 407
+  date_span: 1958年9—12月
+  sha256: f97a28156fd8e2b391fe6d0bace12562264cd676bc7c02afd9540fe499b967c0
+- file: pdfs/中共中央文件选集（1949—1966）/第30册.pdf
+  source: pdfs/中共中央文件选集/13320086_中共中央文件选集1949年10月-1966年5月.第三十册,1959年1月-4月.pdf
+  volume: 30
+  page_count: 581
+  date_span: 1959年1—4月
+  sha256: 47eb7ba606537f139988b9835471291e52997952148e33fcdb38cf8a514d6c12
+- file: pdfs/中共中央文件选集（1949—1966）/第31册.pdf
+  source: pdfs/中共中央文件选集/13320087_中共中央文件选集1949年10月-1966年5月.第三十一册,1959年5月-7月.pdf
+  volume: 31
+  page_count: 583
+  date_span: 1959年5—7月
+  sha256: dbda8d29b18580e14d431320aa80b1aac3144235ed6814e101cb3cd9e29fb6e2
+- file: pdfs/中共中央文件选集（1949—1966）/第32册.pdf
+  source: pdfs/中共中央文件选集/13320124_中共中央文件选集1949年10月-1966年5月.第三十二册,1959年8月-12月.pdf
+  volume: 32
+  page_count: 498
+  date_span: 1959年8—12月
+  sha256: 08e225c3c86a69b3d079d83a64047027693270f098240488243c1b1826204011
+- file: pdfs/中共中央文件选集（1949—1966）/第33册.pdf
+  source: pdfs/中共中央文件选集/13320082_中共中央文件选集1949年10月-1966年5月.第三十三册,1960年1月-4月.pdf
+  volume: 33
+  page_count: 619
+  date_span: 1960年1—4月
+  sha256: 81a72bac633b12eec0b664478455d14f11001523a517a5b761fe31ac2806ea83
+- file: pdfs/中共中央文件选集（1949—1966）/第34册.pdf
+  source: pdfs/中共中央文件选集/13320083_中共中央文件选集1949年10月-1966年5月.第三十四册,1960年5月-8月.pdf
+  volume: 34
+  page_count: 638
+  date_span: 1960年5—8月
+  sha256: 287871b7a28ac23555cbd6f563ab6eff2b17e61a3cdd17530486213528180ebd
+- file: pdfs/中共中央文件选集（1949—1966）/第35册.pdf
+  source: pdfs/中共中央文件选集/13320081_中共中央文件选集1949年10月-1966年5月.第三十五册,1960年9月-12月.pdf
+  volume: 35
+  page_count: 593
+  date_span: 1960年9—12月
+  sha256: 34beb62f1bc648db6e2a75ebd04d929615f34a82132689ab86732d3b3a56967c
+- file: pdfs/中共中央文件选集（1949—1966）/第36册.pdf
+  source: pdfs/中共中央文件选集/13320088_中共中央文件选集1949年10月-1966年5月.第三十六册,1961年1月-4月.pdf
+  volume: 36
+  page_count: 544
+  date_span: 1961年1—4月
+  sha256: f1568642d025a9e9873f700dd5fe4fefe8f694daf68723b6e7cee4a94d866243
+- file: pdfs/中共中央文件选集（1949—1966）/第37册.pdf
+  source: pdfs/中共中央文件选集/13320134_中共中央文件选集1949年10月-1966年5月.第三十七册,1961年5月-8月.pdf
+  volume: 37
+  page_count: 400
+  date_span: 1961年5—8月
+  sha256: 7929d3c6255055f14e67fe02912358010d9d7dc5db0c244ecfdc43ef9db4269b
+- file: pdfs/中共中央文件选集（1949—1966）/第38册.pdf
+  source: pdfs/中共中央文件选集/13320111_中共中央文件选集1949年10月-1966年5月.第三十八册,1961年9月-12月.pdf
+  volume: 38
+  page_count: 432
+  date_span: 1961年9—12月
+  sha256: 588b7c754ac295fb65934e77277a0cc95f9088a47af8060b49d3385f008839fc
+- file: pdfs/中共中央文件选集（1949—1966）/第39册.pdf
+  source: pdfs/中共中央文件选集/13320108_中共中央文件选集1949年10月-1966年5月.第三十九册,1962年1月-4月.pdf
+  volume: 39
+  page_count: 407
+  date_span: 1962年1—4月
+  sha256: 584ba566d0b2d68642ae4c5dff9169e380f6d613a8139f9e02ca5131a43b7c67
+- file: pdfs/中共中央文件选集（1949—1966）/第40册.pdf
+  source: pdfs/中共中央文件选集/13320106.pdf
+  volume: 40
+  page_count: 536
+  date_span: 1962年5—8月
+  sha256: a121eb4b295c608dee72ee1378b017caaa2ab3281cb41122f95e019b08f6fb8b
+- file: pdfs/中共中央文件选集（1949—1966）/第41册.pdf
+  source: pdfs/中共中央文件选集/13320117_中共中央文件选集1949年10月-1966年5月.第四十一册,1962年9月-12月.pdf
+  volume: 41
+  page_count: 539
+  date_span: 1962年9—12月
+  sha256: dadaa46e1259272e773d61f60e9022cb66df6fbbf33821fb60fe57ebb364dc00
+- file: pdfs/中共中央文件选集（1949—1966）/第42册.pdf
+  source: pdfs/中共中央文件选集/13320114_中共中央文件选集1949年10月-1966年5月.第四十二册,1963年1月-3月.pdf
+  volume: 42
+  page_count: 624
+  date_span: 1963年1—3月
+  sha256: 61212666180e889d1a3ea6dbd30c4819d5c6416af0c6a952a329d831d76cc193
+- file: pdfs/中共中央文件选集（1949—1966）/第43册.pdf
+  source: pdfs/中共中央文件选集/13320137_中共中央文件选集1949年10月-1966年5月.第四十三册,1963年4月-8月.pdf
+  volume: 43
+  page_count: 555
+  date_span: 1963年4—8月
+  sha256: deae0d174c32fd1fd6e9acf924243651d3ec4947e1c07b5e0537feb1952c6914
+- file: pdfs/中共中央文件选集（1949—1966）/第44册.pdf
+  source: pdfs/中共中央文件选集/1949年10月-1966年5月  第44册_13320080.pdf
+  volume: 44
+  page_count: 554
+  date_span: 1963年9—12月
+  sha256: 203d8d39f6f0ec3d09e80a593f85825e13b18e6e7776a15dc30d436b724e777a
+- file: pdfs/中共中央文件选集（1949—1966）/第45册.pdf
+  source: pdfs/中共中央文件选集/13320130_中共中央文件选集1949年10月-1966年5月.第四十五册,1964年1月-4月.pdf
+  volume: 45
+  page_count: 455
+  date_span: 1964年1—4月
+  sha256: fd8454960ea920b64c590c0e14d1500ee54eaced80c518ca330f246d494b3cce
+- file: pdfs/中共中央文件选集（1949—1966）/第46册.pdf
+  source: pdfs/中共中央文件选集/13320131_中共中央文件选集1949年10月-1966年5月.第四十六册,1964年5月-8月.pdf
+  volume: 46
+  page_count: 411
+  date_span: 1964年5—8月
+  sha256: 184334d412d31d9a0bb205d81242b49e71bdcc4c64dc947c853e7a6c10169bb9
+- file: pdfs/中共中央文件选集（1949—1966）/第47册.pdf
+  source: pdfs/中共中央文件选集/13320115_中共中央文件选集1949年10月-1966年5月.第四十七册,1964年9月-12月.pdf
+  volume: 47
+  page_count: 354
+  date_span: 1964年9—12月
+  sha256: 3827f0572ad90fbf0671d9eb71af3b73f2f997a10cb17bd508a1393833e2e75d
+- file: pdfs/中共中央文件选集（1949—1966）/第48册.pdf
+  source: pdfs/中共中央文件选集/13320123_中共中央文件选集1949年10月-1966年5月.第四十八册,1965年1月-6月.pdf
+  volume: 48
+  page_count: 443
+  date_span: 1965年1—6月
+  sha256: 538a5ddbf1b93704cd55ef3ebfe8e421df9c62c645b68da98d8c418ef08a7743
+- file: pdfs/中共中央文件选集（1949—1966）/第49册.pdf
+  source: pdfs/中共中央文件选集/13320105_中共中央文件选集一九四九年十月一九六六年五月第49册.pdf
+  volume: 49
+  page_count: 431
+  date_span: 1965年7—12月
+  sha256: 65000c87d7d323caf8b1e65dada0e1449fe0d529d962ae80df87a21707badbea
+- file: pdfs/中共中央文件选集（1949—1966）/第50册.pdf
+  source: pdfs/中共中央文件选集/13320101_中共中央文件选集一九四九年十月一九六六年五月第50册.pdf
+  volume: 50
+  page_count: 416
+  date_span: 1966年1—5月
+  sha256: 10a4b3cfa81b97c719e14e2646376be6fdf91c7a3856462e925278afddff7018
+习近平关于严明党的纪律和规矩论述摘编:
+- file: pdfs/自动入库/a91fe7af059d412e126407b716af119468031e7322b0c34f5596194fc820a751.pdf
+  volume: 1
+  sha256: a91fe7af059d412e126407b716af119468031e7322b0c34f5596194fc820a751
+  page_count: 134
+习近平关于城市工作论述摘编:
+- file: pdfs/自动入库/2b3d2904e74b076293a6ad2e7fc30747244f2ed4b962ea7a392a875f9dfb4e42.pdf
+  volume: 1
+  sha256: 2b3d2904e74b076293a6ad2e7fc30747244f2ed4b962ea7a392a875f9dfb4e42
+  page_count: 172
+习近平关于调查研究论述摘编:
+- file: pdfs/自动入库/6be186ce9da9b3793e18b6bd6a1d92fc083c0d72f40fd5587584f211877844c9.pdf
+  volume: 1
+  sha256: 6be186ce9da9b3793e18b6bd6a1d92fc083c0d72f40fd5587584f211877844c9
+  page_count: 125
+习近平关于社会主义政治建设论述摘编:
+- file: pdfs/自动入库/492becc988decbcca2f8c587b6e17b21a072e0dcba954cbca76e61fbd0c23622.pdf
+  volume: 1
+  sha256: 492becc988decbcca2f8c587b6e17b21a072e0dcba954cbca76e61fbd0c23622
+  page_count: 217
+习近平关于党风廉政建设和反腐败斗争论述摘编:
+- file: pdfs/自动入库/966d03bcdee6484ec7d87aadbfca225ca37a0dfa96c36aba5de959c9054c17d7.pdf
+  volume: 1
+  sha256: 966d03bcdee6484ec7d87aadbfca225ca37a0dfa96c36aba5de959c9054c17d7
+  page_count: 155
+习近平关于中国特色大国外交论述摘编:
+- file: pdfs/自动入库/921df066fbc292503d407972e9dcd4c3cb5dd835290d9e50f4b109ba1eae29f6.pdf
+  volume: 1
+  sha256: 921df066fbc292503d407972e9dcd4c3cb5dd835290d9e50f4b109ba1eae29f6
+  page_count: 288
+习近平关于实现中华民族伟大复兴的中国梦论述摘编:
+- file: pdfs/自动入库/9796eac7a92b52936690795fa1574e5f633e088ea109b0b19c2f14f486d1b91e.pdf
+  volume: 1
+  sha256: 9796eac7a92b52936690795fa1574e5f633e088ea109b0b19c2f14f486d1b91e
+  page_count: 81
+习近平关于“三农”工作论述摘编:
+- file: pdfs/自动入库/b3006f681dfcf50ca8f8724ccdb2c061c6d088b5cda431ab43b1fee07b4e3c12.pdf
+  volume: 1
+  sha256: b3006f681dfcf50ca8f8724ccdb2c061c6d088b5cda431ab43b1fee07b4e3c12
+  page_count: 200
+习近平关于青少年和共青团工作论述摘编:
+- file: pdfs/自动入库/f943778c8dbbaeb2ca3a43774ac5e4fd6825b04f166ae540c451cdb075b8018b.pdf
+  volume: 1
+  sha256: f943778c8dbbaeb2ca3a43774ac5e4fd6825b04f166ae540c451cdb075b8018b
+  page_count: 118
+习近平新时代中国特色社会主义思想专题摘编:
+- file: pdfs/自动入库/32189dbc6ced86aec5b2e5b49c9caad5e3b7013971680b9d66cacb12a4b95171.pdf
+  volume: 1
+  sha256: 32189dbc6ced86aec5b2e5b49c9caad5e3b7013971680b9d66cacb12a4b95171
+  page_count: 606
+习近平新时代中国特色社会主义思想的世界观和方法论专题摘编:
+- file: pdfs/自动入库/9b66633698d9e7f9c90a428b5e7b7e1211881f10e31aacd82dfc00b281c348db.pdf
+  volume: 1
+  sha256: 9b66633698d9e7f9c90a428b5e7b7e1211881f10e31aacd82dfc00b281c348db
+  page_count: 136
+smith_collected_2014:
+- file: pdfs/自动入库/9b1555824107738f542bc1c2c305464fe457e463b78d2452204f99a5cc3d27e6.pdf
+  volume: 1
+  display_title: 亚当·斯密全集 第1卷 道德情操论
+  sha256: 9b1555824107738f542bc1c2c305464fe457e463b78d2452204f99a5cc3d27e6
+  page_count: 490
+- file: pdfs/自动入库/a30f2269ed5936b38b366f20e595e2f1b4f2fa6bbf817c037b926d7a3841cbab.pdf
+  volume: 2
+  display_title: 亚当·斯密全集 第2卷 国民财富的性质和原因的研究（上卷）
+  sha256: a30f2269ed5936b38b366f20e595e2f1b4f2fa6bbf817c037b926d7a3841cbab
+  page_count: 419
+- file: pdfs/自动入库/11717468778e3b7b84e69327ee1496eabd154624a779ac9e366fafffdbe51f73.pdf
+  volume: 3
+  display_title: 亚当·斯密全集 第3卷 国民财富的性质和原因的研究（下卷）
+  sha256: 11717468778e3b7b84e69327ee1496eabd154624a779ac9e366fafffdbe51f73
+  page_count: 531
+- file: pdfs/自动入库/4ea101a2706ca1914e09091d960a409811db94b1ff9a2e108588820914dfc461.pdf
+  volume: 4
+  display_title: 亚当·斯密全集 第4卷 哲学文集
+  sha256: 4ea101a2706ca1914e09091d960a409811db94b1ff9a2e108588820914dfc461
+  page_count: 313
+- file: pdfs/自动入库/9dbf5cf6819535d2aeac43e1d0ab2637230c9b5da1145360a62625bb2fdfd980.pdf
+  volume: 5
+  display_title: 亚当·斯密全集 第5卷 修辞学和文学讲演录
+  sha256: 9dbf5cf6819535d2aeac43e1d0ab2637230c9b5da1145360a62625bb2fdfd980
+  page_count: 315
+- file: pdfs/自动入库/6e313026a99e98fd2155caec7ec91ed92f3cc6f91f5b89edecca3438f31bdfab.pdf
+  volume: 6
+  display_title: 亚当·斯密全集 第6卷 法律、警察、岁入及军备讲演录
+  sha256: 6e313026a99e98fd2155caec7ec91ed92f3cc6f91f5b89edecca3438f31bdfab
+  page_count: 307
+- file: pdfs/自动入库/cd23d770c590a4f007f10a11f31e199c9f6747db261bbfb5338b77fd78478413.pdf
+  volume: 7
+  display_title: 亚当·斯密全集 第7卷 通信集
+  sha256: cd23d770c590a4f007f10a11f31e199c9f6747db261bbfb5338b77fd78478413
+  page_count: 511
+ricardo_collected_2013:
+- file: pdfs/自动入库/c4f8b8a1b57c666144de5fe1b4a1f0f3b91148909855c122f5528fef1fd7f31d.pdf
+  volume: 1
+  display_title: 大卫·李嘉图全集 第1卷 政治经济学及赋税原理
+  sha256: c4f8b8a1b57c666144de5fe1b4a1f0f3b91148909855c122f5528fef1fd7f31d
+  page_count: 456
+- file: pdfs/自动入库/281c76266d1df9f781850184c1d669501472219a749da4b364afaf0c2e5a7145.pdf
+  volume: 2
+  display_title: 大卫·李嘉图全集 第2卷 马尔萨斯《政治经济学原理》评注
+  sha256: 281c76266d1df9f781850184c1d669501472219a749da4b364afaf0c2e5a7145
+  page_count: 449
+- file: pdfs/自动入库/3540008270c26abc86cf119da30dac6ded3e49279695b98d7113a6d79b9ccd8b.pdf
+  volume: 3
+  display_title: 大卫·李嘉图全集 第3卷 论文集（1809年—1811年）
+  sha256: 3540008270c26abc86cf119da30dac6ded3e49279695b98d7113a6d79b9ccd8b
+  page_count: 422
+- file: pdfs/自动入库/aa68f6f51c7e771f831b6bd6573b5a5e7f2523a3100c2aa76d8b05f628a0a142.pdf
+  volume: 4
+  display_title: 大卫·李嘉图全集 第4卷 论文集（1815年—1823年）
+  sha256: aa68f6f51c7e771f831b6bd6573b5a5e7f2523a3100c2aa76d8b05f628a0a142
+  page_count: 411
+- file: pdfs/自动入库/b2aec2929e9278f4a18ac083b717a1463614978b989700c39ab481377e41d75f.pdf
+  volume: 5
+  display_title: 大卫·李嘉图全集 第5卷 讲演集
+  sha256: b2aec2929e9278f4a18ac083b717a1463614978b989700c39ab481377e41d75f
+  page_count: 537
+- file: pdfs/自动入库/4f6be68121ce5ca3fc2499212477bf7c92aa066edc39e9f14867f8afbe36bee0.pdf
+  volume: 6
+  display_title: 大卫·李嘉图全集 第6卷 通信集（1810年—1815年）
+  sha256: 4f6be68121ce5ca3fc2499212477bf7c92aa066edc39e9f14867f8afbe36bee0
+  page_count: 400
+- file: pdfs/自动入库/c7572c8e434f20b75ce3cddcf9133b446c8e3354bc523af1631cba6e3d4d375b.pdf
+  volume: 7
+  display_title: 大卫·李嘉图全集 第7卷 通信集（1816年—1818年）
+  sha256: c7572c8e434f20b75ce3cddcf9133b446c8e3354bc523af1631cba6e3d4d375b
+  page_count: 407
+- file: pdfs/自动入库/c6c789825a2bd3698abbfbf83e7003fb13392f3785198aaec6addc1f6bc714d7.pdf
+  volume: 8
+  display_title: 大卫·李嘉图全集 第8卷 通信集（1819年—1821年6月）
+  sha256: c6c789825a2bd3698abbfbf83e7003fb13392f3785198aaec6addc1f6bc714d7
+  page_count: 402
+- file: pdfs/自动入库/92738465d298239ff766572b9327ebfe8a3b117db501b67b4db93348c144dfaa.pdf
+  volume: 9
+  display_title: 大卫·李嘉图全集 第9卷 通信集（1821年7月—1823年）
+  sha256: 92738465d298239ff766572b9327ebfe8a3b117db501b67b4db93348c144dfaa
+  page_count: 393
+- file: pdfs/自动入库/f06c0e3a37fc43406a393c43e488b4120aeac20f3e0cd53e3c389631addf664f.pdf
+  volume: 10
+  display_title: 大卫·李嘉图全集 第10卷 杂著
+  sha256: f06c0e3a37fc43406a393c43e488b4120aeac20f3e0cd53e3c389631addf664f
+  page_count: 362
+mill_principles_2009:
+- file: pdfs/自动入库/adfa70b51289e6cf732f8c469d5c68fa3e6e7bcfd370f53e79261ce384eab9bd.pdf
+  volume: 1
+  display_title: 政治经济学原理及其在社会哲学上的若干应用（上卷）
+  sha256: adfa70b51289e6cf732f8c469d5c68fa3e6e7bcfd370f53e79261ce384eab9bd
+  page_count: 568
+- file: pdfs/自动入库/0d750e3c29cfd43b449df0e5a67e258acb832e88ddf7fca868c02fef540c0d7c.pdf
+  volume: 2
+  display_title: 政治经济学原理及其在社会哲学上的若干应用（下卷）
+  sha256: 0d750e3c29cfd43b449df0e5a67e258acb832e88ddf7fca868c02fef540c0d7c
+  page_count: 594
+proudhon_poverty_2010:
+- file: pdfs/自动入库/5d35c878f8b23838ef2b8e7c664205df3fd1f16bc95133dab8c1e21ca86e3e28.pdf
+  volume: 1
+  display_title: 贫困的哲学（上卷）
+  sha256: 5d35c878f8b23838ef2b8e7c664205df3fd1f16bc95133dab8c1e21ca86e3e28
+  page_count: 451
+- file: pdfs/自动入库/11cc39ced40bb73eca79bccb43eeba4d77c3d1cf5750b8bf824c136c42ab4b7f.pdf
+  volume: 2
+  display_title: 贫困的哲学（下卷）
+  sha256: 11cc39ced40bb73eca79bccb43eeba4d77c3d1cf5750b8bf824c136c42ab4b7f
+  page_count: 496
+mill_14456886:
+- file: pdfs/自动入库/fa914a69e620f9dd3dde47ff2bcf5efec34bd19642385283f35a06ee083016c9.pdf
+  volume: 1
+  display_title: 功利主义
+  sha256: fa914a69e620f9dd3dde47ff2bcf5efec34bd19642385283f35a06ee083016c9
+  page_count: 117
+mill_14513946:
+- file: pdfs/自动入库/366ed455b23c5643b4f5e4af8efe7504a6998ee3a3a020c86debb2c16d4e64fe.pdf
+  volume: 1
+  display_title: 论政治经济学的若干未定问题
+  sha256: 366ed455b23c5643b4f5e4af8efe7504a6998ee3a3a020c86debb2c16d4e64fe
+  page_count: 130
+mill_14513954:
+- file: pdfs/自动入库/2a979bda9fa14f984c23d54e8e2ff458d1b93aab9b28213ffa391da1c8dc0904.pdf
+  volume: 1
+  display_title: 论自由
+  sha256: 2a979bda9fa14f984c23d54e8e2ff458d1b93aab9b28213ffa391da1c8dc0904
+  page_count: 146
+mill_15533683:
+- file: pdfs/自动入库/aaae84979d467efe53742e0ddf46628ef2b3af9c70a894ed93c856180c47c9e5.pdf
+  volume: 1
+  display_title: 道德科学的逻辑
+  sha256: aaae84979d467efe53742e0ddf46628ef2b3af9c70a894ed93c856180c47c9e5
+  page_count: 138
+mill_12553272:
+- file: pdfs/自动入库/4868724feeeaa9b4515e757640c59f1d6df49e00fe58eac04403d88f195773a3.pdf
+  volume: 1
+  display_title: 代议制政府
+  sha256: 4868724feeeaa9b4515e757640c59f1d6df49e00fe58eac04403d88f195773a3
+  page_count: 278
+proudhon_property_2017:
+- file: pdfs/自动入库/8c3d6da3b439b8b80099dce609b43b38de407731b0ca155d11511cb6d38f25d6.pdf
+  volume: 1
+  display_title: 什么是所有权：或对权利和政治的原理的研究
+  sha256: 8c3d6da3b439b8b80099dce609b43b38de407731b0ca155d11511cb6d38f25d6
+  page_count: 537
+women_rights_subjection_2017:
+- file: pdfs/自动入库/2a42807d07f30aa871c2e7a4ba612648840850f1f6055f1cf01a96db17646969.pdf
+  volume: 1
+  display_title: 女权辩护；妇女的屈从地位
+  sha256: 2a42807d07f30aa871c2e7a4ba612648840850f1f6055f1cf01a96db17646969
+  page_count: 407
+user_rec_zhijiang_xinyu_2007:
+- file: pdfs/自动入库/9003f2aeb31f1526b27356ad8b0e9a6ca5b46ef9a39a050891602deca3f583d7.pdf
+  volume: 1
+  display_title: 之江新语
+  sha256: 9003f2aeb31f1526b27356ad8b0e9a6ca5b46ef9a39a050891602deca3f583d7
+  page_count: 286
+user_rec_hegel_history_2006:
+- file: pdfs/自动入库/12ee4f3e74c5cd17e36bea3b99e179a68e8263c7c8781cc064aeb976fc1d238b.pdf
+  volume: 1
+  display_title: 历史哲学
+  sha256: 12ee4f3e74c5cd17e36bea3b99e179a68e8263c7c8781cc064aeb976fc1d238b
+  page_count: 559
+user_rec_gao_german_philosophy_2020:
+- file: pdfs/自动入库/58dc7af227bd7137909ae2331b61b958d93216ad3f39d6469c219e8cae04294d.pdf
+  volume: 1
+  display_title: 德国哲学的发展
+  sha256: 58dc7af227bd7137909ae2331b61b958d93216ad3f39d6469c219e8cae04294d
+  page_count: 1010
+user_rec_hiroi_postcapitalism_2021:
+- file: pdfs/自动入库/8ea51b999910d249d38d83a6741201001f82b3d8fd24685f29bc37388030405d.pdf
+  volume: 1
+  display_title: 后资本主义时代
+  sha256: 8ea51b999910d249d38d83a6741201001f82b3d8fd24685f29bc37388030405d
+  page_count: 167
+user_rec_varoufakis_technofeudalism_2024:
+- file: pdfs/自动入库/8d721e7250e9363acbd9d24885af4123f40b426e93b79ed7498b64202aa6f7b4.pdf
+  volume: 1
+  display_title: 技术封建主义
+  sha256: 8d721e7250e9363acbd9d24885af4123f40b426e93b79ed7498b64202aa6f7b4
+  page_count: 328
+user_rec_fraser_cannibal_capitalism_2023:
+- file: pdfs/自动入库/d4b600e2d63afd5212c3400f84cad619297fd139fcbf6c7439eba7dbf7406a07.pdf
+  volume: 1
+  display_title: 食人资本主义
+  sha256: d4b600e2d63afd5212c3400f84cad619297fd139fcbf6c7439eba7dbf7406a07
+  page_count: 152
+user_rec_rosa_alienation_2018:
+- file: pdfs/自动入库/caafd6b7c3f65a9ba1da151ca8e20515f8dffabe15f043cf6fd594daf80daab0.pdf
+  volume: 1
+  display_title: 新异化的诞生
+  sha256: caafd6b7c3f65a9ba1da151ca8e20515f8dffabe15f043cf6fd594daf80daab0
+  page_count: 146
+user_rec_xi_culture_selected_2026:
+- file: pdfs/自动入库/13efb1c0d7a2a03a10ac9f73726dbbf6c2dada6c1a462cbefa353a646d4ea935.pdf
+  volume: 1
+  display_title: 习近平文化文选 第1卷
+  sha256: 13efb1c0d7a2a03a10ac9f73726dbbf6c2dada6c1a462cbefa353a646d4ea935
+  page_count: 241
+- file: pdfs/自动入库/1fea8ab02c18b7d74c46b89e23e1cdcf32936e3117c7fbca20c038ff21745252.pdf
+  volume: 2
+  display_title: 习近平文化文选 第2卷
+  sha256: 1fea8ab02c18b7d74c46b89e23e1cdcf32936e3117c7fbca20c038ff21745252
+  page_count: 273
+user_rec_marx_biography_mclellan_2016:
+- file: pdfs/自动入库/3c28880efaae9025f056a553e175d93711938db91fe604804d76ed9478b1e516.pdf
+  volume: 1
+  display_title: 马克思传
+  sha256: 3c28880efaae9025f056a553e175d93711938db91fe604804d76ed9478b1e516
+  page_count: 253
+user_rec_china_marxist_party_theory_2021:
+- file: pdfs/自动入库/17dd14074005f913dda390ff08c7880b70830b0cfb6c3ff4fabd96711dfe5e99.pdf
+  volume: 1
+  display_title: 中国化的马克思主义党建理论体系概论
+  sha256: 17dd14074005f913dda390ff08c7880b70830b0cfb6c3ff4fabd96711dfe5e99
+  page_count: 605

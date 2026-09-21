@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Collection, Iterator
@@ -28,6 +29,7 @@ from rapidfuzz.distance import Levenshtein
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
 from page_label_overrides import apply_page_label_overrides, load_page_label_overrides
+from page_labels import citation_pages, page_reference, load_page_evidence, apply_page_evidence
 
 
 MIN_QUERY_LEN = 2         # 归一化后少于此长度不检索，避免海量误命中
@@ -93,6 +95,9 @@ ASSOC_CHAPTER_MAX = 16         # 篇章定向检索最多命中的篇章数（�
 # 也能被共现召回。**不参与逐字片段/整句定位**（那两路要求逐字，扩同义会破坏精度）。
 # 受控可编辑：每组务求「真同义 / 同一概念的不同译名或写法」，勿把「相关但不同」的概念并进来
 # （宁缺毋滥——过度归并会把跑题段落召进候选、拉低精度）。作为种子，域内专家可按需增补。
+ASSOC_DOCUMENT_PAGE_CAP = 90
+
+
 TERM_THESAURUS: tuple[tuple[str, ...], ...] = (
     ("异化", "外化", "自我异化"),
     ("无产阶级", "工人阶级"),
@@ -253,6 +258,7 @@ class Page:
     raw_text: str
     norm_text: str
     id: int | None = None
+    page_label_info: dict | None = None
 
 
 @dataclass
@@ -274,6 +280,47 @@ class TocEntry:
             "printed_page": self.printed_page,
             "kind": self.kind,
             "sort_order": self.sort_order,
+        }
+
+
+@dataclass(frozen=True)
+class DocumentScope:
+    """A single TOC work and its exact normalized-text range.
+
+    This is deliberately derived from the local corpus rather than from the
+    language model.  It is used by the AI research paths to turn an explicitly
+    named work into a hard retrieval boundary.
+    """
+
+    book: str
+    volume: int
+    source_file: str
+    title: str
+    chapter_pdf_page: int
+    norm_start: int
+    norm_end: int
+    authors: tuple[str, ...] = ()
+    provenance_verified: bool = False
+    # Generic retrieval cites the enclosing work rather than a nested TOC
+    # subsection.  Keep that wider scope on a distinct id so an explicitly
+    # requested subsection can still retain its original, exact hard boundary.
+    citation_root: bool = False
+
+    @property
+    def document_id(self) -> str:
+        suffix = "-work" if self.citation_root else ""
+        return f"{self.source_file}#toc-{self.chapter_pdf_page}-{self.norm_start}{suffix}"
+
+    def to_dict(self) -> dict:
+        return {
+            "document_id": self.document_id,
+            "book": self.book,
+            "volume": self.volume,
+            "source_file": self.source_file,
+            "work_title": self.title,
+            "work_authors": list(self.authors),
+            "provenance_verified": self.provenance_verified,
+            "chapter_pdf_page": self.chapter_pdf_page,
         }
 
 
@@ -300,11 +347,17 @@ class Volume:
         offsets = [0]
         parts: list[str] = []
         printed_to_pdf: dict[str, int] = {}
+        duplicate_labels: set[str] = set()
         for p in pages:
             parts.append(p.norm_text)
             offsets.append(offsets[-1] + len(p.norm_text))
-            if p.printed_page and p.printed_page not in printed_to_pdf:
-                printed_to_pdf[p.printed_page] = p.pdf_page
+            if p.printed_page:
+                if p.printed_page in printed_to_pdf:
+                    duplicate_labels.add(p.printed_page)
+                else:
+                    printed_to_pdf[p.printed_page] = p.pdf_page
+        for label in duplicate_labels:
+            printed_to_pdf.pop(label, None)
         return cls(
             book=book,
             volume=volume,
@@ -341,9 +394,17 @@ class Hit:
     fuzzy_errors: int | None = None  # 近似匹配时与查询的编辑距离（错字数）
     subject_label: str | None = None  # 命中来自名目索引时，记录索引词条（如「经济领域中的异化·劳动的异化」）
     citations: dict | None = None  # 多格式引文；缺省时回退为 citation 单一格式
-    # 仅供语料层在最终候选阶段扩展完整句使用；不进入 API/缓存序列化，避免暴露内部全卷坐标。
-    norm_start: int | None = None
-    norm_end: int | None = None
+    document_id: str = ""
+    work_title: str = ""
+    work_authors: tuple[str, ...] = ()
+    provenance_verified: bool = False
+    norm_start: int = 0
+    norm_end: int = 0
+    chapter_only: bool = False  # 篇章入口线索，没有匹配到请求的正文内容。
+    exact_basis: str = "canonical"
+    ignored_layout_types: list[str] = field(default_factory=list)
+    layout_hit_ref: str = ""
+    page_matches: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -359,6 +420,8 @@ class Hit:
             "page_ids": [p.id for p in self.pages],
             "page_id": self.pages[0].id if self.pages else None,
             "printed_pages": [p.printed_page for p in self.pages],
+            "page_refs": [page_reference(p) for p in self.pages],
+            "page_location": citation_pages(self.pages)["page"],
             "match_type": self.match_type,
             "score": self.score,
             "fuzzy_errors": self.fuzzy_errors,
@@ -370,6 +433,15 @@ class Hit:
             },
             "section_title": self.section_title,
             "subject_label": self.subject_label,
+            "document_id": self.document_id,
+            "work_title": self.work_title,
+            "work_authors": list(self.work_authors),
+            "provenance_verified": self.provenance_verified,
+            "chapter_only": self.chapter_only,
+            "exact_basis": self.exact_basis if self.match_type == "exact" else None,
+            "ignored_layout_types": self.ignored_layout_types,
+            "layout_hit_ref": self.layout_hit_ref,
+            "page_matches": self.page_matches,
         }
 
 
@@ -425,7 +497,7 @@ class HitGroup:
 #   {publisher}  出版者（如 人民出版社）
 #   {year}       出版年（如 2009；未知时为 xxxx）
 #   {page}       脚注式页码串（如 第781页 / 第781-784页；印刷页缺失时含「（此为PDF页码，非原书印刷页码）」）
-#   {page_range} 纯页码（如 781 / 781-784，不含「第…页」与脚注）
+#   {page_range} 紧凑页码（独立编号及混合缺失页含区段和 PDF 说明）
 #   {page_note}  页码脚注（印刷页缺失时为「（此为PDF页码，非原书印刷页码）」，否则空串）
 # 默认模板务必与 _make_citation / _make_citation_gb 的程序化输出逐字一致（后台「恢复默认」据此）。
 DEFAULT_CITATION_TEMPLATES: dict[str, str] = {
@@ -482,8 +554,11 @@ class Corpus:
         self._date_span_cache: dict[tuple[str, int], str] = {}
         self._chapter_level_cache: dict[str, int] = {}
         self._segment_cache: dict[str, list[dict]] = {}
+        self._document_scope_cache: dict[str, list[DocumentScope]] = {}
+        self._document_scope_by_id: dict[str, DocumentScope] = {}
+        self._document_citation_scope_by_id: dict[str, DocumentScope] = {}
         self._segment_lock = threading.Lock()
-        self._chaptered_cache: "OrderedDict[str, dict]" = OrderedDict()
+        self._chaptered_cache: "OrderedDict[tuple, dict]" = OrderedDict()
         self._chaptered_cache_lock = threading.Lock()
         # 读者页码反馈经 PDF 视觉核验后只进入独立内存覆盖层。底层 corpus.sqlite 保持只读；
         # 覆盖文件缺失/损坏或显式关闭时自动回退到底库，不阻断网站启动。
@@ -494,6 +569,8 @@ class Corpus:
         self._load(db_path)
         self._subject_entries: list[dict] = []
         self._load_subject_index(db_path.parent / "subject_index.sqlite")
+        from layout_exact import LayoutIndex
+        self.layout_index = LayoutIndex(self)
 
     @classmethod
     def load_default(cls) -> "Corpus":
@@ -533,7 +610,12 @@ class Corpus:
                     continue
                 target = manifest.setdefault(str(item["key"]), [])
                 candidate = {
-                    "file": item.get("file"),
+                    # Newly ingested books keep the user's original filename in
+                    # ``file`` as provenance and publish through ``stored_file``.
+                    # Registering both the original and stable names made one
+                    # physical volume appear twice; the provenance alias then
+                    # had no corpus rows, cover, TOC, or AI page context.
+                    "file": item.get("stored_file") or item.get("file"),
                     "volume": int(item.get("volume") or 1),
                     "display_title": item.get("display_title") or item.get("key"),
                 }
@@ -587,6 +669,7 @@ class Corpus:
                 for book, volume, pdf_page, printed_page, raw_text, norm_text, page_id in raw_rows
             ]
         self._toc_db_entries = self._load_toc_entries_from_db(conn)
+        page_evidence = load_page_evidence(conn)
         conn.close()
 
         for (book, vol, source_file), grp in groupby(rows, key=lambda r: (r[0], r[1], r[2])):
@@ -594,6 +677,7 @@ class Corpus:
                 Page(pdf_page=r[3], printed_page=r[4], raw_text=r[5], norm_text=r[6], id=r[7])
                 for r in grp
             ]
+            apply_page_evidence(source_file, pgs, page_evidence)
             apply_page_label_overrides(source_file, pgs, self.page_label_overrides)
             if book not in self.books:
                 continue
@@ -654,6 +738,17 @@ class Corpus:
             return list(self.books.keys())
         scope = {str(b) for b in book_scope}  # dict 迭代得键、集合/列表得元素——两者皆归到书库键集合
         return [b for b in self.books if b in scope]
+
+    @staticmethod
+    def _scope_cache_key(book_scope: "Collection[str] | None") -> tuple:
+        if book_scope is None:
+            return ("*",)
+        if isinstance(book_scope, dict):
+            rows = []
+            for book, volumes in book_scope.items():
+                rows.append((str(book), None if volumes is None else tuple(sorted(int(v) for v in volumes))))
+            return ("map", *sorted(rows))
+        return ("books", *sorted(str(book) for book in book_scope))
 
     def _scoped_volumes(self, book: str, book_scope: "Collection[str] | None" = None) -> list["Volume"]:
         """某书库在「检索范围」内的卷列表（供各扫描函数把逐卷循环限定到范围内的卷）。
@@ -950,6 +1045,770 @@ class Corpus:
                 segments.append(current)
         return segments
 
+    _WORK_AUTHOR_ALIASES: tuple[tuple[str, str], ...] = (
+        ("卡·马克思", "马克思"), ("卡尔·马克思", "马克思"), ("马克思", "马克思"),
+        ("弗·恩格斯", "恩格斯"), ("弗里德里希·恩格斯", "恩格斯"), ("恩格斯", "恩格斯"),
+        ("弗·伊·列宁", "列宁"), ("列宁", "列宁"), ("斯大林", "斯大林"),
+        ("毛泽东", "毛泽东"), ("刘少奇", "刘少奇"), ("周恩来", "周恩来"),
+        ("邓小平", "邓小平"), ("江泽民", "江泽民"), ("胡锦涛", "胡锦涛"),
+        ("习近平", "习近平"), ("陈独秀", "陈独秀"), ("李大钊", "李大钊"),
+    )
+
+    @classmethod
+    def _authors_from_toc_title(cls, title: str) -> tuple[str, ...]:
+        """Read only explicit responsibility statements at a TOC title's edges.
+
+        Names merely mentioned inside a title (for example ``在马克思墓前的讲话``)
+        are intentionally ignored; treating them as authors is the exact attribution
+        error this layer is meant to prevent.
+        """
+
+        compact = " ".join(str(title or "").split()).strip()
+        if not compact:
+            return ()
+        found: list[str] = []
+        for alias, canonical in cls._WORK_AUTHOR_ALIASES:
+            # Several legacy TOCs separate the responsibility statement from
+            # the work title with a full stop rather than a space.  Preface
+            # labels also commonly run the name straight into “第二版序言”.
+            leading = bool(re.match(
+                rf"^{re.escape(alias)}(?=$|[\s。:：]|(?:第[^\s]{{0,12}})?(?:序言|前言|导言|跋|说明))",
+                compact,
+            ))
+            trailing = re.search(
+                rf"(?:[)）\]】]|\s){re.escape(alias)}\s*$", compact
+            )
+            if (leading or trailing) and canonical not in found:
+                found.append(canonical)
+        return tuple(found)
+
+    def _verified_work_authors(self, book: str, volume: int, title: str) -> tuple[str, ...]:
+        meta = ((self.party_meta.get(book, {}) or {}).get(volume, {}) or {})
+        author = str(meta.get("author") or "").strip()
+        if author:
+            return tuple(part.strip() for part in re.split(r"[、，,和与]", author) if part.strip())
+        configured = tuple(self.get_book_config(book).authors or ())
+        if configured:
+            return configured
+        # These collections consist of the named author's writings.  Chronologies
+        # are deliberately excluded because their narrative is editorial prose.
+        fixed = {
+            "列宁全集": ("列宁",), "斯大林全集": ("斯大林",),
+            "李大钊全集": ("李大钊",), "陈独秀文集": ("陈独秀",),
+            "毛泽东选集": ("毛泽东",), "毛泽东文集": ("毛泽东",),
+            "刘少奇选集": ("刘少奇",), "周恩来选集": ("周恩来",),
+            "陈云文集": ("陈云",), "邓小平文选": ("邓小平",),
+            "江泽民文选": ("江泽民",), "胡锦涛文选": ("胡锦涛",),
+            "治国理政": ("习近平",), "习近平经济文选": ("习近平",),
+            "习近平著作选读": ("习近平",),
+        }.get(book)
+        return fixed or self._authors_from_toc_title(title)
+
+    @classmethod
+    def _clean_work_title(cls, title: str) -> str:
+        cleaned = " ".join(str(title or "").split()).strip().strip("《》")
+        for alias, _canonical in cls._WORK_AUTHOR_ALIASES:
+            cleaned = re.sub(
+                rf"^{re.escape(alias)}(?:\s*[、和与]\s*[^\s。:：]{{2,12}})?[\s。:：]+",
+                "",
+                cleaned,
+            )
+            cleaned = re.sub(
+                rf"(?P<close>[)）\]】]|\s){re.escape(alias)}\s*$",
+                lambda match: match.group("close") if not match.group("close").isspace() else "",
+                cleaned,
+            )
+        return cleaned.strip(" ，,、:：") or " ".join(str(title or "").split()).strip()
+
+    @staticmethod
+    def _entry_offset(vol: Volume, entry: TocEntry) -> int:
+        pages = vol.pages
+        if not pages:
+            return 0
+        pdf_pages = [page.pdf_page for page in pages]
+        page_index = bisect.bisect_left(pdf_pages, int(entry.pdf_page or 1))
+        page_index = max(0, min(page_index, len(pages) - 1))
+        page_start, page_end = vol.page_offsets[page_index], vol.page_offsets[page_index + 1]
+        title_norm = normalize(entry.title)
+        if len(title_norm) >= 4:
+            exact = vol.norm_full.find(title_norm, page_start, page_end)
+            if exact >= 0:
+                return exact
+            # Long TOC labels often include a date/author suffix absent from the
+            # printed heading.  A long leading fragment is still a safe boundary.
+            for size in (32, 24, 16, 12):
+                if len(title_norm) < size:
+                    continue
+                exact = vol.norm_full.find(title_norm[:size], page_start, page_end)
+                if exact >= 0:
+                    return exact
+        return page_start
+
+    def _document_scopes(self, vol: Volume) -> list[DocumentScope]:
+        cached = self._document_scope_cache.get(vol.source_file)
+        if cached is not None:
+            return cached
+        entries = [entry for entry in self.get_toc_entries(vol.source_file) if entry.kind in {"body", "letter"}]
+        entries.sort(key=lambda entry: (entry.pdf_page, entry.sort_order, entry.level))
+        scopes: list[DocumentScope] = []
+        indexed_scopes: list[tuple[int, DocumentScope]] = []
+        for index, entry in enumerate(entries):
+            scope = self._document_scope_from_entry(vol, entry, entries, index)
+            if scope is None:
+                continue
+            scopes.append(scope)
+            indexed_scopes.append((index, scope))
+            self._document_scope_by_id[scope.document_id] = scope
+
+        # A TOC often records both a complete work and its numbered internal
+        # sections.  The exact scopes above are needed for explicit title
+        # restriction, but generic AI evidence should attribute a quotation to
+        # the enclosing work (for example 《工资、价格和利润》), not to
+        # “13.争取提高工资……” as though that subsection were an independent
+        # publication.  Build a second, wider attribution map without changing
+        # the explicit-title scopes.
+        exact_by_index = {index: scope for index, scope in indexed_scopes}
+        root_by_index = self._citation_root_entry_indices(entries)
+
+        members_by_root: dict[int, list[DocumentScope]] = {}
+        for index, scope in indexed_scopes:
+            root_index = root_by_index.get(index, index)
+            members_by_root.setdefault(root_index, []).append(scope)
+
+        citation_roots: dict[int, DocumentScope] = {}
+        for root_index, members in members_by_root.items():
+            root_scope = exact_by_index.get(root_index)
+            if root_scope is None:
+                continue
+            citation_title = root_scope.title
+            if self._use_whole_book_title_for_citation(vol.book):
+                config = self.get_book_config(vol.book)
+                citation_title = str(config.citation_title or config.title or vol.book).strip("《》 ")
+            citation_scope = DocumentScope(
+                book=root_scope.book,
+                volume=root_scope.volume,
+                source_file=root_scope.source_file,
+                title=citation_title,
+                chapter_pdf_page=root_scope.chapter_pdf_page,
+                norm_start=root_scope.norm_start,
+                norm_end=max(member.norm_end for member in members),
+                authors=root_scope.authors,
+                provenance_verified=root_scope.provenance_verified,
+                citation_root=True,
+            )
+            citation_roots[root_index] = citation_scope
+            self._document_scope_by_id[citation_scope.document_id] = citation_scope
+
+        for index, scope in indexed_scopes:
+            citation_scope = citation_roots.get(root_by_index.get(index, index))
+            if citation_scope is not None:
+                self._document_citation_scope_by_id[scope.document_id] = citation_scope
+        self._document_scope_cache[vol.source_file] = scopes
+        return scopes
+
+    def _use_whole_book_title_for_citation(self, book: str) -> bool:
+        """Use a monograph's title instead of its chapter/preface TOC label."""
+        config = self.get_book_config(book)
+        if bool(config.single_volume) or book == "资本论":
+            return True
+        title = str(config.citation_title or "").strip()
+        collection_suffixes = (
+            "全集", "选集", "文集", "文选", "年谱", "选编", "公报", "报告", "著作选读",
+        )
+        return bool(config.authors) and not title.endswith(collection_suffixes)
+
+    @classmethod
+    def _looks_like_subordinate_toc_title(cls, title: str) -> bool:
+        """Whether a flat TOC label looks like an internal numbered heading."""
+        text = " ".join(str(title or "").split()).strip()
+        if not text:
+            return False
+        if re.match(r"^[\[【（(]?\s*\d{1,3}\s*[.．、:：)）\]-]?", text):
+            return True
+        if re.match(r"^[一二三四五六七八九十百]+(?:\s*[、.．:：)）]|\s+)", text):
+            return True
+        return bool(re.match(r"^(?:\[?引言\]?|几点说明|附录(?:一|二|三|四|五|六|七|八|九|十|\d+)?)$", text))
+
+    @staticmethod
+    def _looks_like_auxiliary_toc_title(title: str) -> bool:
+        """Illustration/facsimile labels embedded inside a work's flat TOC."""
+        text = " ".join(str(title or "").split()).strip()
+        return bool(re.search(
+            r"(?:手稿第\s*\d+\s*页|封面|部分译文|扉页|书影|照片|画像|插图)", text,
+        ))
+
+    def _citation_root_entry_indices(self, entries: list[TocEntry]) -> dict[int, int]:
+        """Choose enclosing works in one linear TOC pass (then cache per volume)."""
+        roots: dict[int, int] = {}
+        ancestors: list[int] = []
+        last_independent: int | None = None
+        for index, entry in enumerate(entries):
+            level = int(entry.level or 1)
+            while ancestors and int(entries[ancestors[-1]].level or 1) >= level:
+                ancestors.pop()
+
+            has_responsibility = bool(self._authors_from_toc_title(entry.title))
+            subordinate = self._looks_like_subordinate_toc_title(entry.title)
+            auxiliary = self._looks_like_auxiliary_toc_title(entry.title)
+            if has_responsibility:
+                root = index
+            else:
+                authored_ancestor = next(
+                    (
+                        ancestor for ancestor in reversed(ancestors)
+                        if self._authors_from_toc_title(entries[ancestor].title)
+                    ),
+                    None,
+                )
+                if authored_ancestor is not None:
+                    root = authored_ancestor
+                elif ancestors:
+                    parent = ancestors[-1]
+                    root = roots.get(parent, parent)
+                elif auxiliary and last_independent is not None:
+                    root = roots.get(last_independent, last_independent)
+                elif subordinate and last_independent is not None:
+                    # Flat legacy TOC: numbered subsection follows its work at
+                    # the same nominal level.
+                    root = roots.get(last_independent, last_independent)
+                else:
+                    root = index
+            roots[index] = root
+            ancestors.append(index)
+            if (not subordinate and not auxiliary) or has_responsibility:
+                last_independent = index
+        return roots
+
+    def _document_scope_from_entry(
+        self, vol: Volume, entry: TocEntry, entries: list[TocEntry], index: int,
+    ) -> DocumentScope | None:
+        start = self._entry_offset(vol, entry)
+        end = len(vol.norm_full)
+        for later in entries[index + 1:]:
+            # Numbered descendants can be mislabeled ``letter``. They remain
+            # inside their parent; independently indexed letters still form a
+            # boundary even in legacy outlines with inconsistent levels.
+            independent_letter = later.kind == "letter" and not self._looks_like_subordinate_toc_title(later.title)
+            if independent_letter or int(later.level or 1) <= int(entry.level or 1):
+                end = self._entry_offset(vol, later)
+                break
+        if end <= start:
+            return None
+        authors = self._verified_work_authors(vol.book, vol.volume, entry.title)
+        scope = DocumentScope(
+            book=vol.book,
+            volume=vol.volume,
+            source_file=vol.source_file,
+            title=self._clean_work_title(entry.title),
+            chapter_pdf_page=int(entry.pdf_page or 1),
+            norm_start=start,
+            norm_end=end,
+            authors=authors,
+            provenance_verified=bool(authors),
+        )
+        self._document_scope_by_id[scope.document_id] = scope
+        return scope
+
+    def document_scope_for_page(self, source_file: str, pdf_page: int) -> DocumentScope | None:
+        vol = self.get_volume_by_source_file(source_file)
+        if not vol or not vol.pages:
+            return None
+        page = next((p for p in vol.pages if int(p.pdf_page) == int(pdf_page)), None)
+        if page is None:
+            return None
+        page_index = vol.pages.index(page)
+        offset = vol.page_offsets[page_index]
+        containing = [scope for scope in self._document_scopes(vol) if scope.norm_start <= offset < scope.norm_end]
+        return max(containing, key=lambda scope: scope.norm_start) if containing else None
+
+    def document_scope_for_offset(self, source_file: str, norm_offset: int) -> DocumentScope | None:
+        vol = self.get_volume_by_source_file(source_file)
+        if not vol:
+            return None
+        containing = [
+            scope for scope in self._document_scopes(vol)
+            if scope.norm_start <= int(norm_offset) < scope.norm_end
+        ]
+        return max(containing, key=lambda scope: scope.norm_start) if containing else None
+
+    def citation_document_scope_for_offset(
+        self, source_file: str, norm_offset: int,
+    ) -> DocumentScope | None:
+        """Return the enclosing work name/range used for generic AI citations."""
+        exact = self.document_scope_for_offset(source_file, norm_offset)
+        if exact is None:
+            return None
+        return self._document_citation_scope_by_id.get(exact.document_id, exact)
+
+    def document_scope_for_hit(self, hit: Hit) -> DocumentScope | None:
+        document_id = str(getattr(hit, "document_id", "") or "")
+        if document_id:
+            cached = self._document_scope_by_id.get(document_id)
+            if cached is not None:
+                return cached
+        norm_start = getattr(hit, "norm_start", None)
+        if norm_start is not None:
+            return self.document_scope_for_offset(
+                str(getattr(hit, "source_file", "") or ""), int(norm_start),
+            )
+        pages = getattr(hit, "pages", None) or []
+        if not pages:
+            return None
+        return self.document_scope_for_page(
+            str(getattr(hit, "source_file", "") or ""), pages[0].pdf_page,
+        )
+
+    def _is_collection_title(self, title: str) -> bool:
+        target = normalize(title)
+        if not target:
+            return False
+        for config in self.book_configs:
+            aliases = (config.key, config.title, config.short_title, config.citation_title)
+            if any(target == normalize(alias) for alias in aliases if alias):
+                return True
+        return False
+
+    def _title_resolution_entries(self, vol: Volume, *, allow_pdf_fallback: bool = False) -> list[TocEntry]:
+        """Return already-indexed TOC data without opening hundreds of PDFs."""
+
+        source_file = self._normalize_source_file(vol.source_file)
+        entries = self._toc_db_entries.get(source_file) or self._toc_cache.get(source_file) or []
+        if entries or not allow_pdf_fallback:
+            return entries
+        # A manually selected book/volume is a small, explicit scope.  In that
+        # case it is acceptable to build the missing PDF outline lazily; a global
+        # title lookup must never parse every PDF on the request path.
+        return self.get_toc_entries(source_file)
+
+    @classmethod
+    def _work_title_aliases(cls, title: str) -> tuple[str, ...]:
+        """Return conservative aliases suitable for an explicit-title check."""
+
+        cleaned = cls._clean_work_title(title)
+        aliases = [cleaned]
+        # TOCs commonly append a date, ``节选`` note, or a subtitle that users do
+        # not type.  Keep only a substantial leading title; never derive aliases
+        # from arbitrary words inside the heading.
+        for separator in ("——", "—"):
+            if separator in cleaned:
+                aliases.append(cleaned.split(separator, 1)[0].strip())
+        without_note = re.sub(r"\s*[（(][^（）()]{2,40}[）)]\s*$", "", cleaned).strip()
+        if without_note != cleaned:
+            aliases.append(without_note)
+        result: list[str] = []
+        for alias in aliases:
+            value = " ".join(alias.split()).strip(" ，,、:：")
+            if len(normalize(value)) >= 4 and value not in result:
+                result.append(value)
+        return tuple(result)
+
+    @classmethod
+    def _is_excerpt_work_title(cls, title: str) -> bool:
+        """Whether a TOC title explicitly describes an excerpt, not a full work."""
+
+        value = normalize(cls._clean_work_title(title))
+        return any(marker in value for marker in ("节选", "选段", "摘选", "摘录", "片段", "片断"))
+
+
+    def _unbracketed_explicit_work_titles(
+        self, query: str, book_scope: "Collection[str] | None",
+    ) -> list[str]:
+        """Recognize titles written without 《》 only in explicit source syntax.
+
+        Merely mentioning words that happen to be a heading must not narrow the
+        search.  We therefore require a source-intent verb next to the complete
+        TOC-derived alias and, except for ``指定/限定``, a phrase such as ``一文``
+        or ``中`` immediately after it.
+        """
+
+        del book_scope  # Extraction is syntactic; corpus matching happens below.
+        text = " ".join(str(query or "").split())
+        if not text:
+            return []
+        patterns = (
+            # Examples: ``根据论新阶段一文`` / ``分析论新阶段中的统一战线``.
+            re.compile(
+                r"(?:依据|根据|结合|引用|摘引|分析|解读|研读|阅读|讨论)\s*"
+                r"(?P<title>[^，。！？；：、《》\n]{2,60}?)"
+                r"(?:一文|这篇文章|该文|文中|中|里|的(?:论述|观点|思想|内容))"
+            ),
+            # ``指定/限定`` already states the user's intent and may end at the title.
+            re.compile(
+                r"(?:指定|限定)\s*(?P<title>[^，。！？；：、《》\n]{2,60}?)"
+                r"(?=$|[，。！？；：])"
+            ),
+        )
+        result: list[str] = []
+        for pattern in patterns:
+            for match in pattern.finditer(text):
+                title = match.group("title").strip(" ，,、:：的")
+                if len(normalize(title)) >= 4 and title not in result and not self._is_collection_title(title):
+                    result.append(title)
+        return result[:4]
+
+    def resolve_document_scopes(
+        self, query: str, *, book_scope: "Collection[str] | None" = None,
+        allow_title_subject: bool = False,
+    ) -> dict:
+        """Resolve explicitly named work titles to deterministic corpus ranges.
+
+        Collection titles such as ``《马克思恩格斯文集》`` remain book-level
+        hints.  A work title that is explicitly named but absent from the selected
+        scope fails closed instead of silently widening to the whole corpus.
+        """
+
+        requested: list[str] = []
+        for raw in re.findall(r"《([^》\n]{2,100})》", str(query or "")):
+            title = " ".join(raw.split()).strip()
+            if title and not self._is_collection_title(title) and title not in requested:
+                requested.append(title)
+        if not requested:
+            requested.extend(self._unbracketed_explicit_work_titles(query, book_scope))
+        if not requested and allow_title_subject:
+            # A known work can itself be the subject: “共产党宣言中描述…”.
+            # Validate against real TOC titles so “现实生活中描述…” is not
+            # mistaken for a work. Legacy/research callers retain their syntax.
+            match = re.match(
+                r"^(?:请(?:找出|查找|检索)?\s*)?(?P<title>[^，。！？；：、《》\n]{4,60}?)"
+                r"(?:一文中|文中|中|里)(?:的|关于|描述|论述|提到|谈到|讲述|指出|有关|对)",
+                str(query or "").strip(),
+            )
+            if match:
+                title = match.group("title").strip()
+                if not self._is_collection_title(title):
+                    known = self.resolve_document_scopes(f"《{title}》", book_scope=book_scope)
+                    if known["status"] == "not_found" and book_scope is not None:
+                        known = self.resolve_document_scopes(f"《{title}》")
+                    known_titles = [scope.title for scope in known.get("scopes", [])]
+                    known_titles.extend(item.get("work_title", "") for item in known.get("candidates", []))
+                    if known["status"] in {"resolved", "ambiguous"} and any(
+                        normalize(value) == normalize(title) for value in known_titles
+                    ):
+                        requested.append(title)
+        if not requested:
+            return {"status": "none", "requested_titles": [], "scopes": [], "candidates": []}
+
+        resolved: list[DocumentScope] = []
+        display_candidates: list[dict] = []
+        for requested_title in requested[:4]:
+            lookup_title = self._clean_work_title(requested_title)
+            target = normalize(lookup_title)
+            raw_probe = re.sub(r"[\s，,。、:：()（）\[\]【】]", "", lookup_title)[:2]
+            matches: list[tuple[int, int, int, DocumentScope]] = []
+            for book in self._scoped_book_keys(book_scope):
+                for vol in self._scoped_volumes(book, book_scope):
+                    entries = [
+                        entry for entry in self._title_resolution_entries(
+                            vol, allow_pdf_fallback=book_scope is not None,
+                        )
+                        if entry.kind in {"body", "letter"}
+                    ]
+                    entries.sort(key=lambda entry: (entry.pdf_page, entry.sort_order, entry.level))
+                    for entry_index, entry in enumerate(entries):
+                        # The probe is the first two substantive title characters;
+                        # TOC punctuation almost never separates them.  This cheap
+                        # check avoids running full Unicode normalization over every
+                        # heading in the corpus on each question.
+                        if raw_probe and raw_probe not in str(entry.title or "") and raw_probe not in "".join(str(entry.title or "").split()):
+                            continue
+                        candidate_title = self._clean_work_title(entry.title)
+                        candidate = normalize(candidate_title)
+                        if not candidate or target not in candidate:
+                            continue
+                        strength = 4 if candidate == target else (3 if candidate.startswith(target) else 2)
+                        scope = self._document_scope_from_entry(vol, entry, entries, entry_index)
+                        if scope is None:
+                            continue
+                        matches.append((strength, -abs(len(candidate) - len(target)), -int(scope.chapter_pdf_page), scope))
+            if not matches:
+                return {
+                    "status": "not_found", "requested_titles": requested,
+                    "missing_title": requested_title, "scopes": [], "candidates": [],
+                }
+            best_strength = max(item[0] for item in matches)
+            strongest = [item for item in matches if item[0] == best_strength]
+            # A work may have both a parent TOC heading (including prefaces)
+            # and a nested body heading with the same title. They identify one
+            # work in this edition, regardless of the caller's title syntax.
+            unique = {}
+            for item in strongest:
+                scope = item[3]
+                unique.setdefault((scope.source_file, normalize(scope.title),
+                                   scope.norm_start, scope.norm_end), item)
+            strongest = [item for item in unique.values() if not any(
+                other[3].source_file == item[3].source_file
+                and normalize(other[3].title) == normalize(item[3].title)
+                and other[3].norm_start <= item[3].norm_start
+                and other[3].norm_end >= item[3].norm_end
+                and (other[3].norm_start, other[3].norm_end) != (item[3].norm_start, item[3].norm_end)
+                for other in unique.values()
+            )]
+            # Choose the configured authoritative edition first. Duplicated TOC
+            # entries in an unselected edition must not block that decision.
+            per_source: dict[str, tuple[int, int, int, DocumentScope]] = {}
+            for item in strongest:
+                scope = item[3]
+                previous = per_source.get(scope.source_file)
+                if previous is None or item[:3] > previous[:3]:
+                    per_source[scope.source_file] = item
+            # With no manually selected collection, prefer an explicitly complete
+            # edition over a TOC entry labelled as an excerpt.  Previously the
+            # configured collection order could select a nine-page ``节选`` even
+            # when the complete work was available in another authoritative
+            # collection, starving the subsequent grounded-answer pipeline.  A
+            # manual book/volume choice and an explicit request for an excerpt
+            # retain the old authoritative-edition ordering exactly.
+            prefer_complete = book_scope is None and not self._is_excerpt_work_title(requested_title)
+            chosen = min(
+                (item[3] for item in per_source.values()),
+                key=lambda scope: (
+                    int(prefer_complete and self._is_excerpt_work_title(scope.title)),
+                    self.book_sort_order(scope.book), scope.volume, scope.chapter_pdf_page,
+                ),
+            )
+            same_source_duplicates = [
+                item[3] for item in strongest
+                if item[3].source_file == chosen.source_file
+                and normalize(item[3].title) == normalize(chosen.title)
+            ]
+            # Disjoint identically named works within the selected edition are
+            # still ambiguous; never combine their ranges or widen user scope.
+            if len(same_source_duplicates) > 1:
+                candidates = sorted(
+                    {scope.document_id: scope.to_dict() for scope in same_source_duplicates}.values(),
+                    key=lambda item: (self.book_sort_order(item["book"]), item["volume"], item["chapter_pdf_page"]),
+                )
+                return {
+                    "status": "ambiguous", "requested_titles": requested,
+                    "ambiguous_title": requested_title, "scopes": [], "candidates": candidates,
+                }
+            resolved.append(chosen)
+            display_candidates.append(chosen.to_dict())
+        return {
+            "status": "resolved", "requested_titles": requested,
+            "scopes": resolved, "candidates": display_candidates,
+        }
+
+    def _apply_document_scope(self, hit: Hit, scope: DocumentScope) -> Hit:
+        hit.document_id = scope.document_id
+        hit.work_title = scope.title
+        hit.work_authors = scope.authors
+        hit.provenance_verified = scope.provenance_verified
+        return hit
+
+    def enrich_hit_document(self, hit: Hit) -> Hit:
+        """Attach work provenance only for AI evidence selected for presentation."""
+
+        if hit.document_id:
+            return hit
+        scope = self.citation_document_scope_for_offset(hit.source_file, hit.norm_start)
+        return self._apply_document_scope(hit, scope) if scope else hit
+
+    def locate_associative_in_documents(
+        self,
+        scopes: Collection[DocumentScope],
+        *,
+        quotes: list[str],
+        keywords: list[str],
+        fragments: list[str] | None = None,
+        facets: list[list[str]] | None = None,
+        candidate_cap: int = ASSOC_CANDIDATE_CAP,
+        clip_context: bool = False,
+        deadline: float | None = None,
+    ) -> list[Hit]:
+        """Associative retrieval constrained to explicit work ranges."""
+
+        best_by_page: dict[tuple[str, int], Hit] = {}
+
+        def add(scope: DocumentScope, vol: Volume, start: int, end: int, score: int, anchor: str) -> None:
+            if not (scope.norm_start <= start < end <= scope.norm_end):
+                return
+            hit = self._apply_document_scope(
+                self._make_hit(vol, start, end, "exact", min(100, score), anchor), scope
+            )
+            if clip_context:
+                clipped_pages = []
+                for page in hit.pages:
+                    page_index = vol.pages.index(page)
+                    page_start = vol.page_offsets[page_index]
+                    lo = max(0, scope.norm_start - page_start)
+                    hi = min(len(page.norm_text), scope.norm_end - page_start)
+                    mapping = self._export_page_raw_map(page, None)
+                    if mapping is None or hi <= lo:
+                        continue
+                    raw = page.raw_text[mapping[0][lo]:mapping[1][hi - 1]]
+                    clipped_pages.append(Page(page.pdf_page, page.printed_page, raw, normalize(raw), page.id, page.page_label_info))
+                hit.context = self._extract_context(clipped_pages, anchor) if clipped_pages else ""
+            page = hit.pages[0].pdf_page if hit.pages else scope.chapter_pdf_page
+            key = (scope.document_id, int(page))
+            previous = best_by_page.get(key)
+            if previous is None or hit.score > previous.score:
+                best_by_page[key] = hit
+
+        normalized_quotes = [(str(q or ""), normalize(str(q or ""))) for q in (quotes or [])[:ASSOC_MAX_QUOTES]]
+        fragment_pool = list(fragments or [])
+        for quote, _normalized in normalized_quotes:
+            fragment_pool.extend(self._shingle_fragments(quote))
+        normalized_fragments: list[str] = []
+        for fragment in fragment_pool:
+            value = normalize(str(fragment or ""))
+            if ASSOC_FRAG_MIN_LEN <= len(value) <= ASSOC_FRAG_MAX_LEN and value not in normalized_fragments:
+                normalized_fragments.append(value)
+            if len(normalized_fragments) >= ASSOC_FRAG_TOTAL_CAP:
+                break
+        normalized_keywords = list(dict.fromkeys(
+            normalize(str(keyword or "")) for keyword in (keywords or [])
+            if len(normalize(str(keyword or ""))) >= MIN_QUERY_LEN
+        ))[:ASSOC_MAX_KEYWORDS]
+        normalized_facets: list[list[str]] = []
+        for facet in facets or []:
+            values = list(dict.fromkeys(
+                normalize(str(word or "")) for word in facet
+                if len(normalize(str(word or ""))) >= MIN_QUERY_LEN
+            ))[:ASSOC_MAX_KEYWORDS]
+            if values:
+                normalized_facets.append(values)
+
+        # Page-level signals are used only inside the already-resolved hard
+        # document boundary.  Include exact fragments as a fallback when the
+        # expansion has few keywords, but cap the pool so scan cost stays small.
+        page_terms = list(dict.fromkeys(
+            [*normalized_keywords, *(word for facet in normalized_facets for word in facet),
+             *normalized_fragments]
+        ))[:ASSOC_FRAG_TOTAL_CAP]
+
+        for scope in scopes:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            vol = self.get_volume_by_source_file(scope.source_file)
+            if not vol:
+                continue
+            for raw, value in normalized_quotes:
+                if len(value) < MIN_QUERY_LEN:
+                    continue
+                start = scope.norm_start
+                occurrences = 0
+                while occurrences < 5:
+                    pos = vol.norm_full.find(value, start, scope.norm_end)
+                    if pos < 0:
+                        break
+                    add(scope, vol, pos, pos + len(value), 100, raw)
+                    start = pos + 1
+                    occurrences += 1
+            for fragment in normalized_fragments:
+                if deadline is not None and time.monotonic() >= deadline:
+                    break
+                start = scope.norm_start
+                occurrences = 0
+                while occurrences < ASSOC_FRAG_PER:
+                    pos = vol.norm_full.find(fragment, start, scope.norm_end)
+                    if pos < 0:
+                        break
+                    add(scope, vol, pos, pos + len(fragment), min(97, 56 + 6 * len(fragment)), fragment)
+                    start = pos + 1
+                    occurrences += 1
+            window = self._content_window_in_range(
+                vol, scope.norm_start, scope.norm_end, normalized_keywords,
+                window=ASSOC_RESEARCH_KEYWORD_WINDOW,
+            ) if normalized_keywords else None
+            if window:
+                start, end, distinct, anchor = window
+                add(scope, vol, start, end, 72 + 5 * distinct, anchor)
+            for values in normalized_facets:
+                window = self._content_window_in_range(
+                    vol, scope.norm_start, scope.norm_end, values,
+                    window=ASSOC_RESEARCH_KEYWORD_WINDOW,
+                ) if values else None
+                if window:
+                    start, end, distinct, anchor = window
+                    add(scope, vol, start, end, 68 + 5 * distinct, anchor)
+            # A long named work needs evidence from more than its single global
+            # best co-occurrence window.  Add the strongest window on each
+            # matching page, then keep a relevance-first, evenly distributed
+            # bounded subset.  This is deterministic, corpus-only, and cannot
+            # cross ``scope.norm_start/norm_end``.
+            if page_terms:
+                page_windows = self._content_windows_by_page_in_range(
+                    vol, scope.norm_start, scope.norm_end, page_terms,
+                    window=ASSOC_RESEARCH_KEYWORD_WINDOW,
+                    cap=min(candidate_cap, ASSOC_DOCUMENT_PAGE_CAP),
+                    deadline=deadline,
+                )
+                for start, end, distinct, anchor in page_windows:
+                    add(scope, vol, start, end, min(94, 82 + 4 * (distinct - 1)), anchor)
+            if not any(key[0] == scope.document_id for key in best_by_page):
+                end = min(scope.norm_end, scope.norm_start + 120)
+                if end > scope.norm_start:
+                    add(scope, vol, scope.norm_start, end, 60, scope.title)
+                    for key, hit in best_by_page.items():
+                        if key[0] == scope.document_id:
+                            hit.chapter_only = True
+
+        results = sorted(
+            best_by_page.values(),
+            key=lambda hit: (-hit.score, self.book_sort_order(hit.book), hit.volume,
+                             hit.pages[0].pdf_page if hit.pages else 0),
+        )
+        return results[:candidate_cap]
+
+    def document_text_window(self, hit: Hit, *, adjacent_pages: int = 1) -> tuple[str, tuple[int, int]]:
+        """Return a hit-centred raw window clipped to the same verified work."""
+
+        scope = self.document_scope_for_hit(hit)
+        vol = self.get_volume_by_source_file(hit.source_file)
+        if not scope or not vol or not hit.pages:
+            return "", (0, 0)
+        hit_page = int(hit.pages[0].pdf_page)
+        page_index = next((i for i, page in enumerate(vol.pages) if int(page.pdf_page) == hit_page), None)
+        if page_index is None:
+            return "", (0, 0)
+        first = max(0, page_index - max(0, int(adjacent_pages)))
+        last = min(len(vol.pages) - 1, page_index + max(0, int(adjacent_pages)))
+        start = max(scope.norm_start, vol.page_offsets[first])
+        end = min(scope.norm_end, vol.page_offsets[last + 1])
+        if end <= start:
+            return "", (0, 0)
+        start_page = vol.page_index_at(start)
+        end_page = vol.page_index_at(end - 1)
+        cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
+        pieces: list[str] = []
+        focus = (0, 0)
+        cursor = 0
+        for index in range(start_page, end_page + 1):
+            page = vol.pages[index]
+            local_start = max(0, start - vol.page_offsets[index])
+            local_end = min(len(page.norm_text), end - vol.page_offsets[index])
+            mapping = self._export_page_raw_map(page, cache)
+            if mapping is None or local_end <= local_start:
+                return "", (0, 0)
+            raw_start, raw_end = self.document_page_raw_bounds(page, mapping, local_start, local_end)
+            piece = page.raw_text[raw_start:raw_end]
+            if pieces:
+                cursor += 1
+            piece_start = cursor
+            pieces.append(piece)
+            cursor += len(piece)
+            if int(page.pdf_page) == hit_page:
+                focus = (piece_start, cursor)
+        return "\n".join(pieces), focus
+
+    @staticmethod
+    def document_page_raw_bounds(page, mapping, start, end):
+        """Map a work-bounded page slice without losing its terminal punctuation.
+
+        Normalized search offsets omit punctuation. Whole page edges retain
+        their raw margins; an internal work boundary admits only closing
+        punctuation, never the next work's opening quotation or letters.
+        """
+        left = 0 if start == 0 else mapping[0][start]
+        right = mapping[1][end - 1]
+        if end == len(page.norm_text):
+            right = len(page.raw_text)
+        else:
+            while right < len(page.raw_text) and page.raw_text[right] in '。！？；，、：,.!?;: ”’」』）)\t\r\n':
+                right += 1
+        return left, right
+
     def warm_chapter_segments(self) -> None:
         """预热所有卷的篇章分段缓存（建议在后台线程中调用，避免首个查询卡顿）。"""
         for volumes in self.books.values():
@@ -962,7 +1821,9 @@ class Corpus:
     # ------------------------------------------------------------------
     # 短词海量命中：完整聚合 + 按需物化
     # ------------------------------------------------------------------
-    def search_chaptered(self, q: str) -> dict:
+    def search_chaptered(
+        self, q: str, book_scope: "Collection[str] | None" = None,
+    ) -> dict:
         """按卷、篇章完整聚合精确命中数（不物化命中详情）。
 
         仅做 C 层级子串计数，常见短词的十万级命中也能在 0.1 秒级完成，
@@ -976,20 +1837,23 @@ class Corpus:
         # 结果缓存：聚合只取决于（静态语料 + 归一化查询词），可安全复用。
         # 命中缓存后无需重新逐卷计数，消除高并发下 0.1 秒计数被 GIL 串行的尾延迟。
         # 缓存值不会被调用方就地修改（app 层只读取字段并另建新结构），故可共享引用。
+        cache_key = (q_norm, self._scope_cache_key(book_scope))
         with self._chaptered_cache_lock:
-            cached = self._chaptered_cache.get(q_norm)
+            cached = self._chaptered_cache.get(cache_key)
             if cached is not None:
-                self._chaptered_cache.move_to_end(q_norm)
+                self._chaptered_cache.move_to_end(cache_key)
         if cached is not None:
             return {**cached, "query": q}
 
+        layout_matches, layout_complete, layout_error = self._layout_scan(q_norm, book_scope)
         volumes_out: list[dict] = []
         total = 0
         book_hit_counts: dict[str, int] = {}
-        for book in self.books:
-            for vol in self.books.get(book, []):
+        for book in self._scoped_book_keys(book_scope):
+            for vol in self._scoped_volumes(book, book_scope):
                 nf = vol.norm_full
-                if q_norm not in nf:
+                supplemental = layout_matches.get(vol.source_file, [])
+                if q_norm not in nf and not supplemental:
                     continue
                 # 按 chapter_pdf_page 归并：同一篇章若被物理切成多段（get_chapter_for_page
                 # 把不相邻的页段映射回同一篇章起始页），合并为一行，避免出现重复的篇章条目，
@@ -998,7 +1862,8 @@ class Corpus:
                 vol_count = 0
                 for seg in self._chapter_segments(vol):
                     # 用重叠计数（与 chapter_hits 的 find 步进 +1 一致），保证聚合数=钻取数。
-                    cnt = _count_overlapping(nf, q_norm, seg["norm_start"], seg["norm_end"])
+                    cnt = self._canonical_exact_count(vol, q_norm, seg["norm_start"], seg["norm_end"])
+                    cnt += sum(seg["norm_start"] <= m["start"] and m["end"] <= seg["norm_end"] for m in supplemental)
                     if not cnt:
                         continue
                     vol_count += cnt
@@ -1041,10 +1906,14 @@ class Corpus:
             "total_hits": total,
             "volumes": volumes_out,
             "book_hit_counts": book_hit_counts,
+            "exact_search_complete": layout_complete,
+            "layout_warning": layout_error,
         }
+        if not layout_complete:
+            return computed
         with self._chaptered_cache_lock:
-            self._chaptered_cache[q_norm] = computed
-            self._chaptered_cache.move_to_end(q_norm)
+            self._chaptered_cache[cache_key] = computed
+            self._chaptered_cache.move_to_end(cache_key)
             while len(self._chaptered_cache) > CHAPTERED_CACHE_MAX:
                 self._chaptered_cache.popitem(last=False)
         return {**computed, "query": q}
@@ -1081,16 +1950,13 @@ class Corpus:
             return out
         nf = vol.norm_full
         qlen = len(q_norm)
-        positions: list[int] = []
-        for seg in segments:
-            start = seg["norm_start"]
-            end = seg["norm_end"]
-            while True:
-                i = nf.find(q_norm, start, end)
-                if i < 0:
-                    break
-                positions.append(i)
-                start = i + 1
+        positions = [pos for seg in segments for pos in
+                     self._canonical_exact_positions(vol, q_norm, seg['norm_start'], seg['norm_end'])]
+        supplements, complete, warning = self._layout_scan(q_norm, volumes=[vol])
+        extras = {m["start"]: m for m in supplements.get(vol.source_file, [])
+                  if any(seg["norm_start"] <= m["start"] and m["end"] <= seg["norm_end"] for seg in segments)}
+        positions = list(set(positions) | set(extras))
+        out.update(exact_search_complete=complete, layout_warning=warning)
         count = len(positions)
         if not count:
             return out
@@ -1109,7 +1975,8 @@ class Corpus:
         lo = (page - 1) * page_size
         hi = lo + page_size
         hits = [
-            self._make_hit(vol, i, i + qlen, "exact", 100, q, occurrence_index=rank).to_dict()
+            (self._make_layout_hit(vol, extras[i], q) if i in extras else
+             self._make_hit(vol, i, i + qlen, "exact", 100, q, occurrence_index=rank)).to_dict()
             for i, rank in zip(positions[lo:hi], page_ranks[lo:hi])
         ]
         out.update({
@@ -1157,7 +2024,9 @@ class Corpus:
         caller's entitlement has certainly been exceeded there is no reason to
         keep scanning or allocate document state.
         """
-        aggregate = self.search_chaptered(q)
+        aggregate = self.search_chaptered(q, book_scope=book_scope)
+        if aggregate.get('exact_search_complete') is False:
+            raise RuntimeError('排版补充检索未完成，请稍后重试导出。')
         total = 0
         for row in aggregate.get("volumes") or []:
             if not self._export_scope_allows(
@@ -1180,6 +2049,11 @@ class Corpus:
         q_norm = normalize(q)
         if len(q_norm) < MIN_QUERY_LEN:
             return
+        volumes = [v for book in self.books for v in self.books.get(book, [])
+                   if self._export_scope_allows(book, int(v.volume), book_scope)]
+        supplements, complete, warning = self._layout_scan(q_norm, volumes=volumes)
+        if not complete:
+            raise RuntimeError("排版补充检索未完成，请稍后重试导出。")
         emitted = 0
         qlen = len(q_norm)
         for book in self.books:
@@ -1188,16 +2062,14 @@ class Corpus:
                     continue
                 page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
                 nf = vol.norm_full
-                start = 0
+                extras = {m["start"]: m for m in supplements.get(vol.source_file, [])}
+                import heapq
                 page_ranks: dict[int, int] = {}
-                while True:
-                    pos = nf.find(q_norm, start)
-                    if pos < 0:
-                        break
+                for pos in heapq.merge(self._canonical_exact_positions(vol, q_norm), sorted(extras)):
                     page_index = vol.page_index_at(pos)
                     rank = page_ranks.get(page_index, 0)
                     page_ranks[page_index] = rank + 1
-                    yield self._make_hit(
+                    yield (self._make_layout_hit(vol, extras[pos], q) if pos in extras else self._make_hit(
                         vol,
                         pos,
                         pos + qlen,
@@ -1207,7 +2079,7 @@ class Corpus:
                         occurrence_index=rank,
                         export_complete_sentence=True,
                         export_page_map_cache=page_map_cache,
-                    ).to_dict()
+                    )).to_dict()
                     emitted += 1
                     if limit is not None and emitted >= int(limit):
                         return
@@ -1377,6 +2249,7 @@ class Corpus:
         group_page: int = 1,
         max_hits: int | None = None,
         page_size: int = GROUP_PAGE_SIZE,
+        book_scope: "Collection[str] | None" = None,
     ) -> dict:
         q_norm = normalize(q)
         if len(q_norm) < MIN_QUERY_LEN:
@@ -1388,13 +2261,18 @@ class Corpus:
                 "groups": [],
             }
 
+        layout_matches, layout_complete, layout_error = self._layout_scan(q_norm, book_scope)
+        def finish(result):
+            result.update(exact_search_complete=layout_complete, layout_warning=layout_error)
+            return result
+
         hits: list[Hit] = []
         truncated = False
         books_with_exact: set[str] = set()
         exact_limit = max_hits if max_hits is not None else EXACT_HITS_PER_BOOK
-        for book in self.books:
+        for book in self._scoped_book_keys(book_scope):
             book_hits, book_truncated = self._exact_in_book(
-                book, q_norm, q, limit=exact_limit
+                book, q_norm, q, limit=exact_limit, book_scope=book_scope, layout_matches=layout_matches
             )
             if book_hits:
                 books_with_exact.add(book)
@@ -1405,19 +2283,22 @@ class Corpus:
             # 查询可能恰好与某书库的文本层逐字一致（连错字都一致），却与另一书库
             # 差一两个字。若因「全库有精确命中」就整体关掉近似，后者会被静默压掉。
             # 故仅对零命中的书库补扫；截断意味着海量命中（将走篇章聚合通道），不补。
-            if not truncated:
-                for book in self.books:
+            if layout_complete and not truncated and not any(h.exact_basis == 'layout' for h in hits):
+                for book in self._scoped_book_keys(book_scope):
                     if book in books_with_exact:
                         continue
-                    partial, _ = self._fuzzy_in_book(book, q_norm, q)
+                    partial, _ = self._fuzzy_in_book(book, q_norm, q, book_scope=book_scope)
                     hits.extend(partial)
-            return self._group_hits(
+            return finish(self._group_hits(
                 q,
                 self._dedupe_hits(hits),
                 group_limit,
                 page_size,
                 truncated,
-            )
+            ))
+
+        if not layout_complete:
+            return finish({"query": q, "total_hits": 0, "group_count": 0, "truncated": False, "groups": []})
 
         if len(q_norm) < MIN_FUZZY_QUERY_LEN:
             return {
@@ -1441,12 +2322,13 @@ class Corpus:
         try:
             fuzzy: list[Hit] = []
             fuzzy_limit = max_hits or (group_limit * page_size * 5)
-            for book in self.books:
+            for book in self._scoped_book_keys(book_scope):
                 partial, partial_truncated = self._fuzzy_in_book(
                     book,
                     q_norm,
                     q,
                     limit=max(0, fuzzy_limit - len(fuzzy)),
+                    book_scope=book_scope,
                 )
                 fuzzy.extend(partial)
                 truncated = truncated or partial_truncated or len(fuzzy) >= fuzzy_limit
@@ -1469,6 +2351,7 @@ class Corpus:
         group_limit: int = DEFAULT_GROUP_LIMIT,
         page_size: int = GROUP_PAGE_SIZE,
         window: int = ASSOC_KEYWORD_WINDOW,
+        book_scope: "Collection[str] | None" = None,
     ) -> dict:
         """同段多词检索：返回「全部关键词共现于邻近窗口」的真实命中，结构与 search_grouped 一致。
 
@@ -1498,8 +2381,8 @@ class Corpus:
 
         hits: list[Hit] = []
         truncated = False
-        for book in self.books:
-            for vol in self.books.get(book, []):
+        for book in self._scoped_book_keys(book_scope):
+            for vol in self._scoped_volumes(book, book_scope):
                 nf = vol.norm_full
                 if any(kn not in nf for kn in kws):
                     continue
@@ -1608,21 +2491,109 @@ class Corpus:
     # ------------------------------------------------------------------
     # 精确匹配
     # ------------------------------------------------------------------
+    def _layout_scan(self, q_norm, book_scope=None, volumes=None):
+        index = getattr(self, 'layout_index', None)
+        if index is None:
+            return {}, True, ''
+        if volumes is None:
+            volumes = [v for book in self._scoped_book_keys(book_scope)
+                       for v in self._scoped_volumes(book, book_scope)]
+        return index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE)
+
+    def _canonical_exact_positions(self, vol, q_norm, norm_start=0, norm_end=None):
+        start = norm_start
+        search_end = len(vol.norm_full) if norm_end is None else norm_end
+        while True:
+            pos = vol.norm_full.find(q_norm, start, search_end)
+            if pos < 0:
+                return
+            start = pos + 1
+            end = pos + len(q_norm)
+            first, last = vol.page_index_at(pos), vol.page_index_at(end - 1)
+            if first != last:
+                if any(vol.pages[i + 1].pdf_page != vol.pages[i].pdf_page + 1 for i in range(first, last)):
+                    continue
+                if not any(seg['norm_start'] <= pos and end <= seg['norm_end']
+                           for seg in self._chapter_segments(vol)):
+                    continue
+            yield pos
+
+    def _canonical_exact_count(self, vol, q_norm, start, end):
+        count = _count_overlapping(vol.norm_full, q_norm, start, end)
+        gaps = getattr(vol, '_layout_physical_gaps', None)
+        if gaps is None:
+            gaps = tuple(vol.page_offsets[i] for i in range(1, len(vol.pages))
+                         if vol.pages[i].pdf_page != vol.pages[i - 1].pdf_page + 1)
+            vol._layout_physical_gaps = gaps
+        invalid = set()
+        for gap in gaps:
+            if not start < gap < end:
+                continue
+            lo, hi = max(start, gap - len(q_norm) + 1), min(end, gap + len(q_norm) - 1)
+            while True:
+                pos = vol.norm_full.find(q_norm, lo, hi)
+                if pos < 0 or pos >= gap:
+                    break
+                invalid.add(pos)
+                lo = pos + 1
+        return count - len(invalid)
+
+    def _make_layout_hit(self, vol, match, q_raw):
+        hit = self._make_hit(vol, match['start'], match['end'], 'exact', 100, q_raw)
+        pieces = []
+        page_matches = []
+        for a, b in match['spans']:
+            for pi in range(vol.page_index_at(a), vol.page_index_at(b - 1) + 1):
+                page = vol.pages[pi]
+                lo, hi = max(a, vol.page_offsets[pi]), min(b, vol.page_offsets[pi + 1])
+                mapping = self._export_page_raw_map(page, None)
+                if mapping is None:
+                    raise ValueError('layout raw mapping invalid')
+                starts, ends = mapping
+                raw_start = starts[lo - vol.page_offsets[pi]]
+                raw_end = ends[hi - vol.page_offsets[pi] - 1]
+                # Preserve source punctuation adjacent to an ignored note anchor.
+                # Never synthesize punctuation from the user's query.
+                if page_matches and page_matches[-1]['pdf_page'] == page.pdf_page:
+                    floor = page_matches[-1]['raw_end']
+                    while raw_start > floor and not normalize(page.raw_text[raw_start - 1]):
+                        raw_start -= 1
+                while raw_end < len(page.raw_text) and page.raw_text[raw_end] in '，。；：！？,.!?;:':
+                    raw_end += 1
+                text = page.raw_text[raw_start:raw_end]
+                pieces.append(text)
+                page_matches.append({'pdf_page': page.pdf_page, 'raw_start': raw_start,
+                                     'raw_end': raw_end, 'text': text})
+        hit.context = '[[H]]' + ''.join(pieces) + '[[/H]]'
+        hit.exact_basis = 'layout'
+        hit.ignored_layout_types = match['types']
+        hit.layout_hit_ref = match['ref']
+        hit.page_matches = page_matches
+        return hit
+
     def _exact_in_book(self, book: str, q_norm: str, q_raw: str, limit: int | None = 20,
-                       book_scope: "Collection[str] | None" = None) -> tuple[list[Hit], bool]:
+                       book_scope: "Collection[str] | None" = None, layout_matches=None) -> tuple[list[Hit], bool]:
         hits: list[Hit] = []
         truncated = False
+        if layout_matches is None:
+            layout_matches, _, _ = self._layout_scan(q_norm, book_scope,
+                                                   list(self._scoped_volumes(book, book_scope)))
         for vol in self._scoped_volumes(book, book_scope):
             start = 0
-            while True:
-                i = vol.norm_full.find(q_norm, start)
-                if i < 0:
-                    break
-                hits.append(self._make_hit(vol, i, i + len(q_norm), "exact", 100, q_raw))
+            volume_hits = []
+            for i in self._canonical_exact_positions(vol, q_norm):
+                volume_hits.append(self._make_hit(vol, i, i + len(q_norm), "exact", 100, q_raw))
                 start = i + 1
-                if limit is not None and len(hits) >= limit:
+                if limit is not None and len(hits) + len(volume_hits) >= limit:
                     truncated = True
                     break
+            volume_hits.extend(self._make_layout_hit(vol, m, q_raw)
+                               for m in layout_matches.get(vol.source_file, [])[:limit])
+            volume_hits.sort(key=lambda h: (h.norm_start, h.norm_end))
+            hits.extend(volume_hits)
+            if limit is not None and len(hits) >= limit:
+                truncated = True
+                hits = hits[:limit]
             if truncated:
                 break
         return hits, truncated
@@ -2017,6 +2988,71 @@ class Corpus:
         anchor = max((present[kid] for kid in in_window), key=len, default=present[0])
         return ws, we, win_distinct, anchor
 
+    def _content_windows_by_page_in_range(
+        self,
+        vol: Volume,
+        range_start: int,
+        range_end: int,
+        kws_norm: list[str],
+        *,
+        window: int = ASSOC_RESEARCH_KEYWORD_WINDOW,
+        cap: int = ASSOC_DOCUMENT_PAGE_CAP,
+        deadline: float | None = None,
+    ) -> list[tuple[int, int, int, str]]:
+        """Return bounded, page-distributed lexical windows inside one work.
+
+        The global co-occurrence helper deliberately returns one best window;
+        that is appropriate for broad search but under-recalls long explicitly
+        named works.  Here we scan only the pages intersecting the verified work
+        and retain at most one window per page.  Ties at the cap boundary are
+        sampled evenly across the work instead of silently favouring its opening
+        pages.
+        """
+
+        if range_end <= range_start or not kws_norm or cap <= 0 or not vol.pages:
+            return []
+        first_page = vol.page_index_at(range_start)
+        last_page = vol.page_index_at(range_end - 1)
+        ranked: list[tuple[int, int, int, int, str]] = []
+        for page_index in range(first_page, last_page + 1):
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            page_start = max(range_start, vol.page_offsets[page_index])
+            page_end = min(range_end, vol.page_offsets[page_index + 1])
+            if page_end <= page_start:
+                continue
+            match = self._content_window_in_range(
+                vol, page_start, page_end, kws_norm,
+                window=window, occ_cap=8,
+            )
+            if not match:
+                continue
+            start, end, distinct, anchor = match
+            ranked.append((distinct, start, end, page_index, anchor))
+
+        if len(ranked) <= cap:
+            selected = ranked
+        else:
+            # Relevance remains primary.  Only the tied group crossing the cap
+            # is thinned, and it is thinned evenly by page position.
+            ranked.sort(key=lambda item: (-item[0], item[3], item[1]))
+            boundary_strength = ranked[cap - 1][0]
+            selected = [item for item in ranked if item[0] > boundary_strength]
+            tied = [item for item in ranked if item[0] == boundary_strength]
+            slots = cap - len(selected)
+            if slots == 1:
+                selected.append(tied[len(tied) // 2])
+            elif slots > 1:
+                indices = {
+                    round(index * (len(tied) - 1) / (slots - 1))
+                    for index in range(slots)
+                }
+                selected.extend(tied[index] for index in sorted(indices))
+
+        selected.sort(key=lambda item: (-item[0], item[3], item[1]))
+        return [(start, end, distinct, anchor) for distinct, start, end, _page, anchor in selected[:cap]]
+
+
     @staticmethod
     def _title_subseq_match(clue: str, title_norm: str) -> bool:
         """篇名容错：clue 的字符按序、紧凑地出现在标题中即算命中（子序列且跨度受限）。
@@ -2105,7 +3141,9 @@ class Corpus:
                         # 标题命中但篇内无内容关键词：以篇章开头作为定位（中等偏高权重）
                         ws = seg["norm_start"]
                         we = min(range_end, ws + 120)
-                        results.append((self._make_hit(vol, ws, we, "exact", 86, hit_ck), hit_ck))
+                        chapter_hit = self._make_hit(vol, ws, we, "exact", 86, hit_ck)
+                        chapter_hit.chapter_only = True
+                        results.append((chapter_hit, hit_ck))
                     matched += 1
                     if matched >= max_chapters:
                         return results
@@ -2328,8 +3366,7 @@ class Corpus:
             )
         elif intent == "research":
             results = self._diversify_by_book(results)
-        # 联想检索的卡片用于阅读原文而不只是定位命中字词：最终候选尽量从真实句界开始、在真实句界
-        # 结束，并允许查看相邻一页以补齐跨页句。普通精确检索、Agent 核验与召回排序均保持原行为。
+        # Expand only final associative cards; recall and ranking remain unchanged.
         page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
         for hit in results:
             self._complete_associative_hit_context(hit, page_map_cache)
@@ -2830,6 +3867,27 @@ class Corpus:
     _XUANBIAN_BOOKS = {"十八大以来重要文献选编", "十九大以来重要文献选编", "二十大以来重要文献选编"}
     _XUANBIAN_VOL_CN = {1: "上", 2: "中", 3: "下"}
 
+    def _citation_year(self, book: str, volume: int, source_file: str | None = None):
+        """Resolve a cited volume year without mutating the protected metadata.
+
+        A non-numeric printed volume label proves that the requested volume is
+        another part of the same edition.  If volumes.yaml has exactly one
+        reviewed year for that edition, reuse it for the missing part rather
+        than emitting the placeholder ``xxxx``.
+        """
+        file_years = self.volumes_cfg.get("file_years") or {}
+        if source_file and file_years.get(source_file):
+            return file_years[source_file]
+        years = self.volumes_cfg.get(book, {}) or {}
+        year = years.get(volume, "")
+        if year:
+            return year
+        book_cfg = self.get_book_config(book)
+        if not dict(book_cfg.volume_labels).get(volume):
+            return ""
+        reviewed = {value for key, value in years.items() if str(key).lstrip("-").isdigit() and value}
+        return next(iter(reviewed)) if len(reviewed) == 1 else ""
+
     def _make_citation(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
         # 显式权威引文覆盖：party_docs_meta 内某卷给定完整 cite 串则直接采用
         # （用于五年规划等——每部给规范单行本/出处引文）。
@@ -2858,34 +3916,28 @@ class Corpus:
         # 分册年份优先：同一卷分多册、各册年份不同的（如马恩《全集》第 26 卷三册），按 source_file
         # 在 file_years 里单独取年份；未命中再回退到「卷→年」映射。
         file_years = self.volumes_cfg.get("file_years") or {}
-        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
+        year = self._citation_year(book, volume, source_file)
         book_cfg = self.get_book_config(book)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
 
-        printed_nums = [
-            p.printed_page
-            for p in pages
-            if p.printed_page and not p.printed_page.startswith("pre-")
-        ]
-        if printed_nums:
-            first, last = printed_nums[0], printed_nums[-1]
-            page_str = f"第{first}页" if first == last else f"第{first}-{last}页"
-        else:
-            # 没识别出印刷页码：用 PDF 物理页号做降级，标明
-            pdf_nums = [p.pdf_page for p in pages]
-            first, last = pdf_nums[0], pdf_nums[-1]
-            if first == last:
-                page_str = f"第{first}页（此为PDF页码，非原书印刷页码）"
-            else:
-                page_str = f"第{first}-{last}页（此为PDF页码，非原书印刷页码）"
+        page_str = citation_pages(pages)["page"]
 
         responsibility = ""
         if book_cfg.authors:
             responsibility = "、".join(book_cfg.authors) + "："
-        translated = ""
+        elif book_cfg.editors:
+            responsibility = "、".join(book_cfg.editors) + "编："
+        elif book_cfg.organizers:
+            responsibility = "、".join(book_cfg.organizers) + "整理："
+        responsibility_tail: list[str] = []
         if book_cfg.translators:
-            translated = "，" + "、".join(book_cfg.translators) + "译"
+            responsibility_tail.append("、".join(book_cfg.translators) + "译")
+        if book_cfg.authors and book_cfg.editors:
+            responsibility_tail.append("、".join(book_cfg.editors) + "编")
+        if (book_cfg.authors or book_cfg.editors) and book_cfg.organizers:
+            responsibility_tail.append("、".join(book_cfg.organizers) + "整理")
+        translated = ("，" + "，".join(responsibility_tail)) if responsibility_tail else ""
         volume_label = dict(book_cfg.volume_labels).get(volume, "")
 
         if book in self._XUANBIAN_BOOKS:
@@ -2901,7 +3953,9 @@ class Corpus:
         else:
             title = f"{responsibility}《{book_cfg.citation_title}》第{volume}{book_cfg.volume_unit}{translated}"
         year_str = f"{year}年" if year else "xxxx年"
-        return f"{title}，{place}：{publisher}，{year_str}，{page_str}。"
+        edition_bits = [x for x in (book_cfg.edition_note, book_cfg.source_edition) if x]
+        edition_suffix = f"（{'；'.join(edition_bits)}）" if edition_bits else ""
+        return f"{title}，{place}：{publisher}，{year_str}{edition_suffix}，{page_str}。"
 
     # 引文格式标识：与前端「引用格式」下拉一致。
     #   gb2025 = 国标 GB/T 7714—2025（独立可配置模板）
@@ -2932,27 +3986,20 @@ class Corpus:
     def _citation_parts(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
         """标准「卷·页」型著作的引文字段，供自定义模板替换（公文/选编等特殊体例不经此处）。"""
         file_years = self.volumes_cfg.get("file_years") or {}
-        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
+        year = self._citation_year(book, volume, source_file)
         book_cfg = self.get_book_config(book)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
-        printed_nums = [
-            p.printed_page for p in pages
-            if p.printed_page and not p.printed_page.startswith("pre-")
-        ]
-        if printed_nums:
-            first, last = printed_nums[0], printed_nums[-1]
-            page_note = ""
-        else:
-            pdf_nums = [p.pdf_page for p in pages]
-            first, last = pdf_nums[0], pdf_nums[-1]
-            page_note = "（此为PDF页码，非原书印刷页码）"
-        page_range = f"{first}" if first == last else f"{first}-{last}"
-        page = (f"第{first}页" if first == last else f"第{first}-{last}页") + page_note
+        pagination = citation_pages(pages)
+        page, page_range, page_note = (pagination[k] for k in ("page", "page_range", "page_note"))
         return {
             "title": book_cfg.citation_title,
             "authors": "、".join(book_cfg.authors),
             "translators": "、".join(book_cfg.translators),
+            "editors": "、".join(book_cfg.editors),
+            "organizers": "、".join(book_cfg.organizers),
+            "edition_note": book_cfg.edition_note,
+            "source_edition": book_cfg.source_edition,
             "volume": dict(book_cfg.volume_labels).get(volume, str(volume)),
             "place": place,
             "publisher": publisher,
@@ -2979,7 +4026,8 @@ class Corpus:
         # 「第{volume}卷」，套上会把「第17册」错标成「第17卷」。
         special = (book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS
                    or has_override or _bc.single_volume or volume in _bc.unnumbered_volumes
-                   or _bc.volume_unit != "卷" or bool(dict(_bc.volume_labels).get(volume)))
+                   or _bc.volume_unit != "卷" or bool(dict(_bc.volume_labels).get(volume))
+                   or bool(_bc.editors or _bc.organizers or _bc.edition_note or _bc.source_edition))
         if special or not tpls:
             return {"gb2025": gb, "gb2015": gb, "zgshkx": journal, "mkszyj": journal}
         parts = self._citation_parts(book, volume, pages, source_file=source_file)
@@ -2989,7 +4037,10 @@ class Corpus:
             if not tpl:
                 return default
             try:
-                return tpl.format_map(_CiteSafeDict(parts))
+                rendered = tpl.format_map(_CiteSafeDict(parts))
+                if parts['page_note'] and parts['page_note'] not in rendered:
+                    rendered += parts['page_note']
+                return rendered
             except Exception:
                 return default
 
@@ -3014,25 +4065,12 @@ class Corpus:
         if book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS:
             return self._make_citation(book, volume, pages, source_file=source_file)
         file_years = self.volumes_cfg.get("file_years") or {}
-        year = (file_years.get(source_file) if source_file else None) or self.volumes_cfg.get(book, {}).get(volume, "")
+        year = self._citation_year(book, volume, source_file)
         book_cfg = self.get_book_config(book)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
-        printed_nums = [
-            p.printed_page
-            for p in pages
-            if p.printed_page and not p.printed_page.startswith("pre-")
-        ]
-        if printed_nums:
-            first, last = printed_nums[0], printed_nums[-1]
-            page_str = f"{first}" if first == last else f"{first}-{last}"
-            page_note = ""
-        else:
-            # 没识别出印刷页码：用 PDF 物理页号降级并标明（与脚注体例口径一致）
-            pdf_nums = [p.pdf_page for p in pages]
-            first, last = pdf_nums[0], pdf_nums[-1]
-            page_str = f"{first}" if first == last else f"{first}-{last}"
-            page_note = "（此为PDF页码，非原书印刷页码）"
+        pagination = citation_pages(pages)
+        page_str, page_note = pagination["page_range"], pagination["page_note"]
         year_str = f"{year}" if year else "xxxx"
         volume_label = dict(book_cfg.volume_labels).get(volume, "")
         if book_cfg.single_volume or volume in book_cfg.unnumbered_volumes:
@@ -3041,14 +4079,26 @@ class Corpus:
             vol_seg = f":{volume_label}"
         else:
             vol_seg = f":第{volume}{book_cfg.volume_unit}"
-        author_seg = ",".join(book_cfg.authors)
+        if book_cfg.authors:
+            author_seg = ",".join(book_cfg.authors)
+        elif book_cfg.editors:
+            author_seg = ",".join(book_cfg.editors) + ",编"
+        else:
+            author_seg = ",".join(book_cfg.organizers) + (",整理" if book_cfg.organizers else "")
         author_prefix = f"{author_seg}." if author_seg else ""
-        translator_seg = ""
+        tail_parts: list[str] = []
         if book_cfg.translators:
-            translator_seg = f".{','.join(book_cfg.translators)},译"
+            tail_parts.append(f"{','.join(book_cfg.translators)},译")
+        if book_cfg.authors and book_cfg.editors:
+            tail_parts.append(f"{','.join(book_cfg.editors)},编")
+        if (book_cfg.authors or book_cfg.editors) and book_cfg.organizers:
+            tail_parts.append(f"{','.join(book_cfg.organizers)},整理")
+        translator_seg = ("." + ".".join(tail_parts)) if tail_parts else ""
+        edition_bits = [x for x in (book_cfg.edition_note, book_cfg.source_edition) if x]
+        edition_suffix = f"（{'；'.join(edition_bits)}）" if edition_bits else ""
         return (
             f"{author_prefix}{book_cfg.citation_title}{vol_seg}[M]{translator_seg}."
-            f"{place}:{publisher},{year_str}:{page_str}{page_note}."
+            f"{place}:{publisher},{year_str}{edition_suffix}:{page_str}{page_note}."
         )
 
     # ------------------------------------------------------------------
@@ -3098,10 +4148,20 @@ class Corpus:
 
     def _build_numeric_page_map(self, entries: list[TocEntry], volume: Volume) -> dict[str, int]:
         page_map = dict(volume.printed_to_pdf)
+        positions: dict[str, set[int]] = {}
+        for page in volume.pages:
+            token = _parse_page_token(page.printed_page or "")
+            if token:
+                positions.setdefault(token, set()).add(page.pdf_page)
         for entry in entries:
             token = _parse_page_token(entry.title)
             if token:
-                page_map.setdefault(token, entry.pdf_page)
+                positions.setdefault(token, set()).add(entry.pdf_page)
+        for token, candidates in positions.items():
+            if len(candidates) == 1:
+                page_map.setdefault(token, next(iter(candidates)))
+            else:
+                page_map.pop(token, None)
         return page_map
 
     def _bookmarks_are_good_enough(

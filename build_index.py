@@ -5,7 +5,7 @@
 1. 不再只看 raw_text 的前2行/后2行，而是优先查看页面边缘区域的 words。
 2. 放宽页码格式识别：支持 86 / [86] / (86) / —86— / 86.
 3. 对同一 PDF 内的漏识别页做顺序补全：如果前后页页码连续且中间差值唯一，则自动填补。
-4. 新增“空白页感知补全”：若缺失段中包含明显空白页，则允许只给非空白页补页码，空白页保持 None。
+4. 缺失区间含空白页、已有标签或页距冲突时保留缺失，不跨页外推。
 5. 运行时优先读取 exe 同级目录下的 data/corpus.sqlite；若不存在，则回退到打包进 exe 的 data/corpus.sqlite。
    这样既支持“单 exe 发布”，也支持“exe + 外置 data 目录发布”。
 """
@@ -455,7 +455,9 @@ def _parse_page_token(text: str) -> str | None:
 
     m = _ROMAN_TOKEN_RE.match(s)
     if m:
-        return f"pre-{m.group(1).lower()}"
+        from page_labels import parse_label
+        parsed = parse_label(m.group(1))
+        return parsed[0] if parsed else None
 
     return None
 
@@ -689,10 +691,8 @@ def fill_missing_printed_pages(rows: list[tuple[str, int, str, int, str | None, 
     """
     对同一 PDF 内的 printed_page 缺失项做顺序补全。
 
-    两层策略：
-    1) 严格连续补全：前后页码差值与页距完全一致时，全部补上。
-    2) 空白页感知补全：若缺失段内含空白页，则允许“只补非空白页”，
-       只要前后页码差值与“非空白缺失页数量 + 1”一致。
+    仅在短区间前后页码差值与真实 PDF 页距完全一致时补全。
+    不覆盖已有标签，不跨过空白、插页或缺失的 PDF 位置。
     返回补全数量。
     """
     filled = 0
@@ -720,6 +720,15 @@ def fill_missing_printed_pages(rows: list[tuple[str, int, str, int, str | None, 
         right = values[end]
         gap = end - start
 
+        # Do not overwrite existing roman labels or infer across inserts,
+        # sparse physical pages, blank scans, or a long unreviewed interval.
+        if gap > 8 or rows_mut[end][3] - rows_mut[start][3] != gap:
+            i = j
+            continue
+        if any(rows_mut[k][4] or is_probably_blank_page(rows_mut[k][5], rows_mut[k][6])
+               for k in range(start + 1, end)):
+            i = j
+            continue
         # 方案1：完全连续，全部补
         if right - left == gap:
             for k in range(start + 1, end):
@@ -730,28 +739,6 @@ def fill_missing_printed_pages(rows: list[tuple[str, int, str, int, str | None, 
                 filled += 1
             i = j
             continue
-
-        # 方案2：空白页感知补全，只给非空白页补
-        segment_indexes = list(range(start + 1, end))
-        nonblank_indexes = [
-            k for k in segment_indexes
-            if not is_probably_blank_page(rows_mut[k][5], rows_mut[k][6])
-        ]
-
-        # 需要填入的非空白页数量 + 两端起点，应该正好对应页码跨度
-        # 例如：85 [正文缺失] [空白页] 87
-        # 则 right-left = 2, 非空白缺失页数 = 1，可只补正文缺失页为 86。
-        if nonblank_indexes and right - left == len(nonblank_indexes) + 1:
-            next_num = left + 1
-            for k in segment_indexes:
-                book, vol, source_file, pdf_page, _printed, raw, norm = rows_mut[k]
-                if is_probably_blank_page(raw, norm):
-                    continue
-                inferred = str(next_num)
-                rows_mut[k] = (book, vol, source_file, pdf_page, inferred, raw, norm)
-                values[k] = next_num
-                next_num += 1
-                filled += 1
 
         i = j
 
@@ -781,6 +768,7 @@ def guess_volume_from_filename(name: str) -> int | None:
 
 def scan_and_write_manifest() -> None:
     """扫描 pdfs/ 目录生成 manifest.yaml 草稿，保留已有条目。"""
+    guard_legacy_rebuild(BUILD_DB_PATH)
     if not PDF_ROOT.exists():
         print(f"未找到目录 {PDF_ROOT}", file=sys.stderr)
         return
@@ -838,7 +826,20 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 
+def guard_legacy_rebuild(path: Path) -> None:
+    """A legacy full rebuild must never discard reviewed pagination or run live."""
+    if Path('/opt/marx-search').exists():
+        raise RuntimeError('禁止在现网主机执行全量索引重建或清单扫描；请使用离线候选流程。')
+    if not path.exists():
+        return
+    with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as existing:
+        table = existing.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='page_label_evidence'").fetchone()
+        if table and existing.execute('SELECT 1 FROM page_label_evidence LIMIT 1').fetchone():
+            raise RuntimeError('索引包含已核验页码，拒绝旧式重建覆盖。请从独立候选中合并修订并重新验收。')
+
+
 def build() -> None:
+    guard_legacy_rebuild(BUILD_DB_PATH)
     if not MANIFEST.exists():
         print(f"未找到 {MANIFEST}。请先运行 `python build_index.py --scan`。", file=sys.stderr)
         sys.exit(1)

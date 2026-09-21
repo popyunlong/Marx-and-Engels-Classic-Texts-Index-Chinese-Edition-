@@ -251,7 +251,11 @@ def register_static_library(
         if not target.is_file():
             abort(404)
         # 纯文本/图片直发，无渲染、无缓存目录膨胀。
-        return send_file(str(target))
+        response = send_file(str(target))
+        # Preserve ETag/conditional loading while forbidding shared caches from
+        # reusing reader content across permissions or sessions.
+        response.headers["Cache-Control"] = "private, no-cache"
+        return response
 
     app.add_url_rule(f"/{prefix}", endpoint=home_ep, view_func=home)
     app.add_url_rule(f"/{prefix}/<book_key>", endpoint=reader_ep, view_func=reader)

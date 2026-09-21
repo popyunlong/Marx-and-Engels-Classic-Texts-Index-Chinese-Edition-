@@ -1,0 +1,4 @@
+{% if (order.purchase_months | default(1)) > 1 %}
+{% set discount = purchase_discount_label(order) %}
+<div>购买时长：{{ order.purchase_months }} 个月（{{ order.purchase_months * 30 }} 天）{% if discount %} · {{ discount }}{% endif %}</div>
+{% endif %}

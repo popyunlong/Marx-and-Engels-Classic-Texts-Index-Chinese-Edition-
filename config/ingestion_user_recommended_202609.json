@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "batch": "user-recommended-20260913",
+  "title": "用户荐书七册",
+  "files": [
+    {
+      "key": "user_rec_zhijiang_xinyu_2007",
+      "source": "pdfs/用户荐书/之江新语.pdf",
+      "json": "pdfs/用户荐书/之江新语.pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "9003f2aeb31f1526b27356ad8b0e9a6ca5b46ef9a39a050891602deca3f583d7",
+      "json_sha256": "2039fa82d8c137724b001d158cd9ab391b3bed32dcc7e67b0d5435dd7e55dae4",
+      "bytes": 24014409,
+      "pages": 286,
+      "recommendation_id": 1
+    },
+    {
+      "key": "user_rec_hegel_history_2006",
+      "source": "pdfs/用户荐书/历史哲学 ([德]黑格尔； 王造时译) .pdf",
+      "json": "pdfs/用户荐书/历史哲学 ([德]黑格尔； 王造时译) .pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "12ee4f3e74c5cd17e36bea3b99e179a68e8263c7c8781cc064aeb976fc1d238b",
+      "json_sha256": "3d904d9047015e2d3d2642e20057ca5db17e0b5919142f7209f7a0cd453cd83f",
+      "bytes": 24995643,
+      "pages": 559,
+      "recommendation_id": 2
+    },
+    {
+      "key": "user_rec_gao_german_philosophy_2020",
+      "source": "pdfs/用户荐书/高宣扬文集 德国哲学的发展 ([法]高宣扬) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "json": "pdfs/用户荐书/高宣扬文集 德国哲学的发展 ([法]高宣扬) (z-library.sk, 1lib.sk, z-lib.sk).pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "58dc7af227bd7137909ae2331b61b958d93216ad3f39d6469c219e8cae04294d",
+      "json_sha256": "ddc7444c1b717d2640cd81a66b1cdfc44146889c9361e899d870bf95b8fd08fb",
+      "bytes": 96528997,
+      "pages": 1010,
+      "recommendation_id": 3
+    },
+    {
+      "key": "user_rec_hiroi_postcapitalism_2021",
+      "source": "pdfs/用户荐书/后资本主义时代 (广井良典) (z-library.sk, 1lib.sk, z-lib.sk).pdf",
+      "json": "pdfs/用户荐书/后资本主义时代 (广井良典) (z-library.sk, 1lib.sk, z-lib.sk).pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "8ea51b999910d249d38d83a6741201001f82b3d8fd24685f29bc37388030405d",
+      "json_sha256": "47a149c36aa54d2625900a2f02e6d49743d981bc8e112754e8c59ff07bd1ddff",
+      "bytes": 4535501,
+      "pages": 167,
+      "recommendation_id": 4
+    },
+    {
+      "key": "user_rec_varoufakis_technofeudalism_2024",
+      "source": "pdfs/用户荐书/【九月虺丛书42】技术封建主义 (（希腊）瓦鲁法基斯) (Z-Library) (1).pdf",
+      "json": "pdfs/用户荐书/【九月虺丛书42】技术封建主义 (（希腊）瓦鲁法基斯) (Z-Library) (1).pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "8d721e7250e9363acbd9d24885af4123f40b426e93b79ed7498b64202aa6f7b4",
+      "json_sha256": "37f341bfe77f8782b14d5c2dd5e120078beae0c444fe7b88d02b0b9dd06d5518",
+      "bytes": 2702876,
+      "pages": 328,
+      "recommendation_id": 5
+    },
+    {
+      "key": "user_rec_fraser_cannibal_capitalism_2023",
+      "source": "pdfs/用户荐书/食人资本主义 (南希·弗雷泽,蓝江 译) (Z-Library).pdf",
+      "json": "pdfs/用户荐书/食人资本主义 (南希·弗雷泽,蓝江 译) (Z-Library).pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "d4b600e2d63afd5212c3400f84cad619297fd139fcbf6c7439eba7dbf7406a07",
+      "json_sha256": "582926d7e3cf107db1f2578505b1fd5b843bcaead9f5753edf63186f56e4e2aa",
+      "bytes": 2448431,
+      "pages": 152,
+      "recommendation_id": 6
+    },
+    {
+      "key": "user_rec_rosa_alienation_2018",
+      "source": "pdfs/用户荐书/新异化的诞生：社会加速批判理论大纲 (（德）哈特穆特·罗萨（Hartmut Rosa)) (Z-Library).pdf",
+      "json": "pdfs/用户荐书/新异化的诞生：社会加速批判理论大纲 (（德）哈特穆特·罗萨（Hartmut Rosa)) (Z-Library).pdf_by_PaddleOCR-VL-1.6.json",
+      "sha256": "caafd6b7c3f65a9ba1da151ca8e20515f8dffabe15f043cf6fd594daf80daab0",
+      "json_sha256": "63b66962e097450e870f6a9f96ad615f557751727823e659fc16e80a25d0d0a8",
+      "bytes": 1377973,
+      "pages": 146,
+      "recommendation_id": 7
+    }
+  ]
+}

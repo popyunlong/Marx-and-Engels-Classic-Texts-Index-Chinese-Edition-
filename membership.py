@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from runtime_env import APPDATA_DIR, secure_db_file
+import membership_purchase as multi_purchase
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
@@ -680,6 +681,8 @@ def init_membership_db() -> Path:
                 conn.execute(f"ALTER TABLE plans ADD COLUMN {column} {ddl}")
 
         order_columns = _table_columns(conn, "orders")
+        if "purchase_months" not in order_columns:
+            conn.execute("ALTER TABLE orders ADD COLUMN purchase_months INTEGER NOT NULL DEFAULT 1")
         if "purchase_action" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN purchase_action TEXT NOT NULL DEFAULT 'new'")
         if "target_subscription_id" not in order_columns:
@@ -1952,7 +1955,10 @@ def prune_duplicate_pending_orders_for_user(user_id: int | None = None) -> int:
                 FROM orders
                 WHERE status = 'pending'
                   AND (expires_at = '' OR expires_at > ?)
-                GROUP BY user_id, plan_code
+                GROUP BY user_id, plan_code, purchase_months, purchase_action, target_subscription_id,
+                    CASE WHEN json_valid(entitlement_snapshot_json)
+                         THEN COALESCE(json_extract(entitlement_snapshot_json, '$.discount_percent'), 100)
+                         ELSE 100 END
               )
             """,
             tuple(params),
@@ -1968,20 +1974,30 @@ def _plan_is_on_sale(plan: dict, at_text: str | None = None) -> bool:
     return bool(plan.get("is_active")) and (starts is None or at >= starts) and (ends is None or at < ends)
 
 
-def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: bool = False) -> dict:
+def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: bool = False, purchase_months: int = 1) -> dict:
+    purchase_months = multi_purchase.validate_months(purchase_months)
     plan = get_plan(plan_code)
     if not plan or not plan.get("is_active"):
         raise ValueError("套餐不存在或未启用")
+    monthly = multi_purchase.eligible(plan)
+    if purchase_months > 1 and not monthly:
+        raise ValueError("该项目不支持按月购买，请按原方式购买。")
+    if purchase_months > 1 and not multi_purchase.enabled():
+        raise ValueError("多月购买暂不可用，请稍后再试。")
     # 不在此再跑全表 expire：下方「复用待支付单」查询已用 expires_at > now 过滤，过期单本就不会被复用；
     # 全局过期统一交后台小时级 sweep（app._sweep_expired_orders_if_due），不在下单写路径多挂一把全表写。
     created_at = utc_now_text()
     if not allow_out_of_sale and not _plan_is_on_sale(plan, created_at):
         raise ValueError("该套餐当前不在销售期。")
     with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         purchase_action = "new"
         target_subscription_id = None
         amount_cents = int(plan["price_cents"])
         entitlement_snapshot: dict = {}
+        if monthly:
+            entitlement_snapshot = multi_purchase.quote(plan, purchase_months)
+            amount_cents = int(entitlement_snapshot["amount_cents"])
         if str(plan.get("parallel_group") or "") == "new_membership":
             current = conn.execute(
                 """
@@ -2004,6 +2020,8 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
                 if target_rank == current_rank:
                     purchase_action = "renew"
                 else:
+                    if purchase_months > 1:
+                        raise ValueError("请先按现有方式补差升档，完成后再购买该档多月续费。")
                     purchase_action = "upgrade"
                     target_subscription_id = int(current["id"])
                     starts = _parse_utc(str(current["starts_at"] or "")) or utc_now()
@@ -2035,31 +2053,36 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
             FROM orders o
             JOIN plans p ON p.code = o.plan_code
             WHERE o.user_id = ?
-              AND o.plan_code = ? AND o.purchase_action = ?
+              AND o.plan_code = ? AND o.purchase_action = ? AND o.purchase_months = ?
               AND o.status = 'pending'
               AND (o.expires_at = '' OR o.expires_at > ?)
             ORDER BY o.created_at DESC, o.id DESC
             LIMIT 1
             """,
-            (int(user_id), plan_code, purchase_action, created_at),
+            (int(user_id), plan_code, purchase_action, purchase_months, created_at),
         ).fetchone()
         if existing is not None:
-            # 仅当金额/币种与当前套餐价一致时才复用旧的待支付订单；
-            # 否则说明套餐价已调整，旧订单金额已过时——作废后按新价重建，避免支付页显示旧金额。
+            # Different discount schedules retain their payable order snapshots during rollout.
             if (
                 int(existing["amount_cents"]) == amount_cents
                 and str(existing["currency"] or "").upper() == str(plan["currency"] or "CNY").upper()
+                and existing["target_subscription_id"] == target_subscription_id
+                and (purchase_action == "upgrade" or multi_purchase.snapshot(existing) == entitlement_snapshot)
             ):
                 return row_to_dict(existing) or {}
-            conn.execute(
+            preserve_discount_order = (multi_purchase.is_monthly_order(existing)
+                and entitlement_snapshot.get("purchase_version") == multi_purchase.SNAPSHOT_VERSION
+                and multi_purchase.snapshot(existing).get("discount_percent") != entitlement_snapshot.get("discount_percent"))
+            if not preserve_discount_order:
+                conn.execute(
                 """
                 UPDATE orders
                 SET status = 'expired',
                     notes = CASE WHEN notes = '' THEN 'price-changed' ELSE notes || '; price-changed' END
                 WHERE id = ?
                 """,
-                (int(existing["id"]),),
-            )
+                    (int(existing["id"]),),
+                )
 
         order_no = f"{utc_now().strftime('%Y%m%d%H%M%S')}{secrets.randbelow(100000):05d}"
         expires_at = (utc_now() + timedelta(hours=24)).isoformat(timespec="seconds")
@@ -2068,9 +2091,9 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
             INSERT INTO orders(
                 order_no, user_id, plan_code, status, amount_cents, currency,
                 payment_provider, notes, created_at, expires_at, purchase_action,
-                target_subscription_id, entitlement_snapshot_json
+                target_subscription_id, entitlement_snapshot_json, purchase_months
             )
-            VALUES(?, ?, ?, 'pending', ?, ?, 'pending', '', ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, 'pending', ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?)
             """,
             (
                 order_no,
@@ -2083,6 +2106,7 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
                 purchase_action,
                 target_subscription_id,
                 json.dumps(entitlement_snapshot, ensure_ascii=False, sort_keys=True),
+                purchase_months,
             ),
         )
         order_id = cur.lastrowid
@@ -2535,6 +2559,11 @@ def mark_order_paid(
             conn.commit()
             raise ValueError("该旧套餐已停止销售；截止后到账不能获得旧套餐权益。")
         if order["status"] == "paid":
+            if multi_purchase.is_monthly_order(order):
+                subscriptions = multi_purchase.subscriptions_for_order(conn, order)
+                conn.rollback()
+                return {"order": row_to_dict(order), "subscriptions": subscriptions,
+                        "subscription": subscriptions[-1] if subscriptions else None}
             # 已支付：幂等返回。打赏只入账、不开会员，直接回订单本身。
             if is_donation:
                 conn.rollback()
@@ -2748,6 +2777,11 @@ def mark_order_paid(
             _invalidate_request_membership_cache()
             return {"order": row_to_dict(updated_order), "subscription": row_to_dict(subscription)}
 
+        if multi_purchase.is_monthly_order(order):
+            return multi_purchase.settle_monthly_order(
+                conn, order, paid_at=paid_at, provider=provider,
+                payment_reference=payment_reference, notes=notes, source=source)
+
         starts_at = utc_now()
         current_membership = conn.execute(
             """
@@ -2894,6 +2928,7 @@ def reverse_paid_order(*, order_no: str, reason: str, refund_reference: str = ""
         action = str(order["purchase_action"] or "new")
         wallets: list[sqlite3.Row] = []
         subscription: sqlite3.Row | None = None
+        order_subscriptions = []
         if str(order["plan_kind"] or "membership") == "credit_pack":
             wallets = conn.execute(
                 "SELECT * FROM ai_wallets WHERE source_type='resource_pack' AND source_ref=?",
@@ -2912,15 +2947,19 @@ def reverse_paid_order(*, order_no: str, reason: str, refund_reference: str = ""
                 (str(subscription["id"]),),
             ).fetchall()
         else:
-            subscription = conn.execute(
-                "SELECT * FROM subscriptions WHERE paid_order_no=? AND user_id=? ORDER BY id DESC LIMIT 1",
+            order_subscriptions = conn.execute(
+                "SELECT * FROM subscriptions WHERE paid_order_no=? AND user_id=? ORDER BY id",
                 (str(order_no), int(order["user_id"])),
-            ).fetchone()
-            if subscription is not None:
-                wallets = conn.execute(
+            ).fetchall()
+            for item in order_subscriptions:
+                upgrades = conn.execute("SELECT 1 FROM orders WHERE target_subscription_id=? "
+                    "AND status='paid' AND purchase_action='upgrade' LIMIT 1", (item["id"],)).fetchone()
+                if upgrades or str(item["plan_code"]) != str(order["plan_code"]):
+                    raise ValueError("该订单关联周期已升档，请先冲正升档订单或联系管理员审核。")
+                wallets.extend(conn.execute(
                     "SELECT * FROM ai_wallets WHERE source_type='subscription' AND source_ref=?",
-                    (str(subscription["id"]),),
-                ).fetchall()
+                    (str(item["id"]),),
+                ).fetchall())
 
         if any(int(wallet["reserved_micros"] or 0) > 0 for wallet in wallets):
             conn.rollback()
@@ -2999,7 +3038,7 @@ def reverse_paid_order(*, order_no: str, reason: str, refund_reference: str = ""
                     (int(wallet["id"]), int(order["user_id"]), -available, str(order_no),
                      json.dumps({"reason": reason_text, "spent_micros": int(wallet["spent_micros"] or 0)}, ensure_ascii=False), reversed_at),
                 )
-            if subscription is not None:
+            for subscription in order_subscriptions:
                 conn.execute(
                     "UPDATE subscriptions SET status='refunded', updated_at=?, notes=? WHERE id=?",
                     (reversed_at, f"refund:{order_no}:{reason_text}", int(subscription["id"])),
@@ -3601,6 +3640,8 @@ def get_community_weekly_trends(
     首页只公开检索词句，默认取前六；卷册统计仍保留在内部返回值中，供历史调用兼容。
     本周不足目标数量时，按上周最终排名依次补入，且不重复展示同一项。
     """
+    from community_trend_policy import LEGACY_PROBE_TEXTS, LEGACY_SEARCH_EXCLUSION_SQL
+
     moment = now or utc_now()
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
@@ -3615,13 +3656,16 @@ def get_community_weekly_trends(
     def _top(kind: str, *, limit: int, required_actors: int) -> tuple[list[dict], int]:
         with _connect() as conn:
             def _rows_for_period(start_day, end_day):
+                exclude_sql = LEGACY_SEARCH_EXCLUSION_SQL if kind == "search" else ""
+                exclude_params = LEGACY_PROBE_TEXTS if kind == "search" else ()
                 return conn.execute(
-                    """
+                    f"""
                     SELECT item_key, MAX(display_text) AS text,
                            COUNT(*) AS event_count,
                            COUNT(DISTINCT actor_hash) AS actor_count
                     FROM community_trend_events
                     WHERE day >= ? AND day <= ? AND kind = ?
+                    {exclude_sql}
                     GROUP BY item_key
                     HAVING COUNT(DISTINCT actor_hash) >= ?
                     ORDER BY event_count DESC, actor_count DESC, text ASC
@@ -3631,6 +3675,7 @@ def get_community_weekly_trends(
                         start_day.isoformat(),
                         end_day.isoformat(),
                         kind,
+                        *exclude_params,
                         required_actors,
                         max(1, int(limit)),
                     ),
@@ -3785,14 +3830,24 @@ def _reader_anomaly_reasons(item: dict) -> list[str]:
     return reasons
 
 
-def list_reader_anomaly_visitors(*, day: str, limit: int = 30) -> list[dict]:
+def list_reader_anomaly_visitors(*, day: str, limit: int = 30, endpoints=None, since: str = "") -> list[dict]:
+    scope = "1=1"
+    scope_params = []
+    if endpoints is not None:
+        allowed = sorted(set(endpoints))
+        scope += " AND endpoint IN (" + ",".join("?" for _ in allowed) + ")" if allowed else " AND 0"
+        scope_params.extend(allowed)
+    if since:
+        scope += " AND created_at >= ?"
+        scope_params.append(since)
     day_value = (day or china_day_text()).strip()
     with _connect() as conn:
         rows = conn.execute(
-            """
-            WITH minute_counts AS (
+            f"""
+            WITH eligible_events AS (SELECT * FROM reader_access_events WHERE {scope}),
+            minute_counts AS (
                 SELECT actor_key, COUNT(*) AS minute_count
-                FROM reader_access_events
+                FROM eligible_events
                 WHERE day = ?
                 GROUP BY actor_key, substr(created_at, 1, 16)
             ),
@@ -3816,25 +3871,26 @@ def list_reader_anomaly_visitors(*, day: str, limit: int = 30) -> list[dict]:
                 MIN(e.created_at) AS first_seen_at,
                 MAX(e.created_at) AS last_seen_at,
                 COALESCE(MAX(m.max_minute_requests), 0) AS max_minute_requests
-            FROM reader_access_events e
+            FROM eligible_events e
             LEFT JOIN minute_max m ON m.actor_key = e.actor_key
             WHERE e.day = ?
             GROUP BY e.actor_key
             ORDER BY request_count DESC, page_image_count DESC
             LIMIT ?
             """,
-            (day_value, day_value, max(1, int(limit) * 4)),
+            (*scope_params, day_value, day_value, max(1, int(limit) * 4)),
         ).fetchall()
         items = [row_to_dict(row) for row in rows]
         for item in items:
             page_rows = conn.execute(
-                """
+                f"""
+                WITH eligible_events AS (SELECT * FROM reader_access_events WHERE {scope})
                 SELECT DISTINCT source_file, page
-                FROM reader_access_events
+                FROM eligible_events
                 WHERE day = ? AND actor_key = ? AND source_file != '' AND page > 0
                 ORDER BY source_file ASC, page ASC
                 """,
-                (day_value, item.get("actor_key") or ""),
+                (*scope_params, day_value, item.get("actor_key") or ""),
             ).fetchall()
             item["max_consecutive_pages"] = _max_consecutive_page_run(
                 [(str(row["source_file"] or ""), int(row["page"] or 0)) for row in page_rows]
@@ -3854,12 +3910,23 @@ def list_reader_ip_pool_burst_candidates(
     path_min: int = 60,
     window_minutes: int = 15,
     limit: int = 1000,
+    endpoints=None,
+    since: str = "",
 ) -> list[dict]:
     """Find anonymous rotating-IP bursts that share one UA in a short time window.
 
     This catches the "IP pool" pattern where each address only requests a few pages,
     so per-IP anomaly thresholds are not enough, but the synchronized group is obvious.
     """
+    scope = "1=1"
+    scope_params = []
+    if endpoints is not None:
+        allowed = sorted(set(endpoints))
+        scope += " AND endpoint IN (" + ",".join("?" for _ in allowed) + ")" if allowed else " AND 0"
+        scope_params.extend(allowed)
+    if since:
+        scope += " AND created_at >= ?"
+        scope_params.append(since)
     day_value = (day or china_day_text()).strip()
     ip_threshold = max(2, int(ip_min or 0))
     request_threshold = max(2, int(request_min or 0))
@@ -3867,13 +3934,14 @@ def list_reader_ip_pool_burst_candidates(
     window = min(60, max(1, int(window_minutes or 1)))
     with _connect() as conn:
         rows = conn.execute(
-            """
-            WITH events AS (
+            f"""
+            WITH eligible_events AS (SELECT * FROM reader_access_events WHERE {scope}),
+            events AS (
                 SELECT
                     *,
                     substr(created_at, 1, 13) || ':' ||
                         printf('%02d', (CAST(substr(created_at, 15, 2) AS INTEGER) / ?) * ?) AS window_start
-                FROM reader_access_events
+                FROM eligible_events
                 WHERE day = ?
                   AND actor_type = 'ip'
                   AND user_id IS NULL
@@ -3913,6 +3981,7 @@ def list_reader_ip_pool_burst_candidates(
             LIMIT ?
             """,
             (
+                *scope_params,
                 window,
                 window,
                 day_value,
@@ -4280,6 +4349,9 @@ def _support_subscription_paid_amount_cents(
 
 def _support_subscription_budget_micros(conn: sqlite3.Connection, subscription: sqlite3.Row) -> int:
     """Use exactly 90% of actual paid support-plan orders as the shared model wallet."""
+    monthly_budget = multi_purchase.monthly_budget_for_subscription(conn, subscription)
+    if monthly_budget is not None:
+        return monthly_budget
     paid_cents = _support_subscription_paid_amount_cents(conn, subscription)
     return max(0, paid_cents) * _SUPPORT_WALLET_MICROS_PER_CENT
 

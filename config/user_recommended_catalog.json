@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "source_policy": "user_supplied_paddle_json",
+  "quality_note": "识别文本持续校对，请以 PDF 原文为准",
+  "books": {
+    "user_rec_zhijiang_xinyu_2007": {
+      "title": "之江新语", "citation_title": "之江新语", "authors": ["习近平"], "translators": [],
+      "place": "杭州", "publisher": "浙江人民出版社", "year": "2007", "edition": "2007年8月第1版",
+      "recommender_name": "刘", "recommender_email_masked": "158xxxx489@qq.com", "recommendation_id": 1,
+      "toc_strategy": "printed", "reliable_printed_pages": true, "bibliography_source_pages": [2, 3]
+    },
+    "user_rec_hegel_history_2006": {
+      "title": "历史哲学", "citation_title": "历史哲学", "authors": ["黑格尔"], "translators": ["王造时"],
+      "place": "上海", "publisher": "上海书店出版社", "year": "2006", "edition": "2006年版",
+      "recommender_name": "青黑", "recommender_email_masked": "keyxxx262@163.com", "recommendation_id": 2,
+      "toc_strategy": "layout_printed", "toc_page_start": 28, "toc_page_end": 44,
+      "body_page_start": 45, "body_page_end": 550, "printed_to_pdf_offset": 44,
+      "toc_manual_overrides": {"重印说明": 7, "英译者序言": 9, "干斯博士为原书第一版所作的序言": 15, "查理·黑格尔博士为原书第二版所作的序言": 25},
+      "reliable_printed_pages": true, "bibliography_source_pages": [2, 3]
+    },
+    "user_rec_gao_german_philosophy_2020": {
+      "title": "德国哲学的发展", "citation_title": "德国哲学的发展", "authors": ["高宣扬"], "translators": [],
+      "place": "上海", "publisher": "上海交通大学出版社", "year": "2020", "edition": "2020年版",
+      "recommender_name": "Lier", "recommender_email_masked": "101xxxx067@qq.com", "recommendation_id": 3,
+      "toc_strategy": "printed", "reliable_printed_pages": true, "bibliography_source_pages": [3, 4]
+    },
+    "user_rec_hiroi_postcapitalism_2021": {
+      "title": "后资本主义时代", "citation_title": "后资本主义时代", "authors": ["广井良典"], "translators": ["张玲"],
+      "place": "成都", "publisher": "四川人民出版社", "year": "2021", "edition": "2021年版",
+      "recommender_name": "Lier", "recommender_email_masked": "101xxxx067@qq.com", "recommendation_id": 4,
+      "toc_strategy": "structural", "body_page_start": 7, "body_page_end": 163, "reliable_printed_pages": false, "bibliography_source_pages": [2, 3]
+    },
+    "user_rec_varoufakis_technofeudalism_2024": {
+      "title": "技术封建主义", "citation_title": "技术封建主义", "authors": ["雅尼斯·瓦鲁法基斯"], "translators": ["蓝江"],
+      "place": "[出版地不详]", "publisher": "九月虺图书", "year": "2024", "edition": "2024年2月个人制作版",
+      "recommender_name": "lalala", "recommender_email_masked": "189xxxxx936@163.com", "recommendation_id": 5,
+      "toc_strategy": "layout_printed", "toc_page_start": 5, "toc_page_end": 5,
+      "body_page_start": 7, "body_page_end": 325, "printed_to_pdf_offset": 6,
+      "toc_manual_overrides": {},
+      "toc_title_corrections": {"第六章 技术封建主义全球影响力：新冷战": "第六章 技术封建主义的全球影响力：新冷战"},
+      "reliable_printed_pages": true, "bibliography_source_pages": [2, 3]
+    },
+    "user_rec_fraser_cannibal_capitalism_2023": {
+      "title": "食人资本主义", "citation_title": "食人资本主义", "authors": ["南希·弗雷泽"], "translators": ["蓝江"],
+      "place": "上海", "publisher": "上海人民出版社", "year": "2023", "edition": "2023年版",
+      "recommender_name": "lalala", "recommender_email_masked": "189xxxxx936@163.com", "recommendation_id": 6,
+      "toc_strategy": "structural", "body_page_start": 5, "body_page_end": 145, "reliable_printed_pages": false, "bibliography_source_pages": [2, 3]
+    },
+    "user_rec_rosa_alienation_2018": {
+      "title": "新异化的诞生", "citation_title": "新异化的诞生", "authors": ["哈特穆特·罗萨"], "translators": ["郑作彧"],
+      "place": "上海", "publisher": "上海人民出版社", "year": "2018", "edition": "2018年版",
+      "recommender_name": "lalala", "recommender_email_masked": "189xxxxx936@163.com", "recommendation_id": 7,
+      "toc_strategy": "structural", "body_page_start": 10, "body_page_end": 143, "reliable_printed_pages": false, "bibliography_source_pages": [2, 3]
+    }
+  }
+}
