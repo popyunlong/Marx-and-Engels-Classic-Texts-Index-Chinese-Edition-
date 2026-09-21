@@ -229,6 +229,7 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     proxy_filter = (ROOT / "deploy" / "citation-agent.filter.example").read_text(
         encoding="utf-8"
     )
+    appnav = (ROOT / "templates" / "_appnav.html").read_text(encoding="utf-8")
     test_worker = (
         ROOT / "deploy" / "marx-search-citation-agent-test-worker.service"
     ).read_text(encoding="utf-8")
@@ -242,3 +243,5 @@ def test_citation_agent_web_entrypoint_and_https_proxy_are_packaged_safely() -> 
     assert proxy_filter.strip() == r"^api\.deepseek\.com$"
     assert "UMask=0007" in test_worker
     assert "UMask=0077" not in test_worker
+    assert "url_for('citation_agent_test_page') if is_admin" in appnav
+    assert appnav.count('href="{{ _citation_href }}"') == 2
