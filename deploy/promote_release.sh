@@ -20,7 +20,10 @@ CADDYFILE="${MARX_CADDYFILE:-/etc/caddy/Caddyfile}"
 MAIN_SERVICE="${MARX_MAIN_SERVICE:-marx-search.service}"
 PRIMARY_PORT="${MARX_PRIMARY_PORT:-8000}"
 CANDIDATE_PORT="${MARX_CANDIDATE_PORT:-8001}"
-HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-45}"
+# Loading the production corpus can take a little over a minute while both the
+# candidate and primary coexist. Keep serving the healthy side of the cutover
+# while allowing the replacement up to three minutes to become ready.
+HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-90}"
 DRAIN_TIMEOUT_SECONDS="${MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS:-720}"
 CANDIDATE_UNIT="marx-search-candidate-${RELEASE_ID//[^A-Za-z0-9_.-]/-}.service"
 MANAGED_SUPPORT_UNITS=(
