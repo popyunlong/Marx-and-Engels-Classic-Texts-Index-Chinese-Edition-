@@ -1845,16 +1845,39 @@ class ZAIClient:
 
     @classmethod
     def sanitize_ungrounded_answer(cls, text: str) -> str:
-        """Remove source-specific claims from the model-knowledge fallback."""
+        """Neutralize unverified source styling without deleting useful prose.
+
+        Ungrounded answers must not present model memory as verified quotations,
+        page references or author/work attributions.  Those claims are local to a
+        marker or lead-in, however: deleting the whole Markdown line also deletes
+        proposed wording, transitions and the surrounding analysis.  Preserve the
+        text and remove only the unsupported presentation/claim fragments.
+        """
 
         kept: list[str] = []
-        for line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            if line.lstrip().startswith(">"):
-                continue
-            if _GROUNDING_REF_RE.search(line) or _PAGE_CLAIM_RE.search(line) or _ATTRIBUTION_RE.search(line):
-                continue
+        for raw_line in str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            # A model often uses blockquotes to highlight a proposed sentence,
+            # not to claim a verbatim source.  Flatten every quote level to plain
+            # Markdown so the wording remains visible without quotation styling.
+            line = re.sub(r"^(?P<indent>[ \t]*)(?:>[ \t]*)+", r"\g<indent>", raw_line)
+            line = _GROUNDING_REF_RE.sub("", line)
+            line = _PAGE_CLAIM_RE.sub("", line)
+            line = re.sub(
+                r"(?:参见|详见|载于|位于|来自|见)[ \t]*(?=[，,。；;])", "", line
+            )
+            line = _ATTRIBUTION_RE.sub("", line)
             line = _ANY_LONG_QUOTE_RE.sub(lambda match: match.group("quote"), line)
-            kept.append(line)
+
+            # Removing a source lead can leave only its separator.  Clean that
+            # punctuation locally while retaining Markdown prefixes and layout.
+            line = re.sub(
+                r"^(?P<prefix>[ \t]*(?:(?:#{1,6}|[-*+]|\d+[.)\u3001])[ \t]+)?)"
+                r"[\uff1a:,\uff0c\uff1b;]+[ \t]*",
+                r"\g<prefix>",
+                line,
+            )
+            line = re.sub(r"[ \t]+([\uff0c。！？；：,.!?;:])", r"\1", line).rstrip()
+            kept.append(line if line.strip() else "")
         return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
     @staticmethod
@@ -2177,7 +2200,8 @@ class ZAIClient:
                 "不得输出经典原文的逐字引文、具体页码、本站式 [N]，也不得写未经本站语料核验的"
                 "“某人在《某篇》中指出/强调”式具体归属。\n"
                 "4. 排版用 Markdown、清晰易读：分论点用 `### 小标题` 起头，关键术语与核心论断用 "
-                "`**加粗**` 突出，较长引文用 `> 引用块` 呈现；不要用一级/二级大标题。\n\n"
+                "`**加粗**` 突出；不要使用 Markdown `> 引用块`。需要给出示例、改写稿、"
+                "过渡句或建议文本时，用普通段落或列表完整呈现；不要用一级/二级大标题。\n\n"
                 f"用户问题：{question}"
             )
             system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"
@@ -2192,7 +2216,8 @@ class ZAIClient:
                 "如果需要实时资料或外部来源核验，要明确提示用户当前未启用联网检索。\n"
                 f"{source_refresh_line}"
                 "4. 排版用 Markdown、清晰易读：分论点用 `### 小标题` 起头，关键术语与核心论断用 "
-                "`**加粗**` 突出，较长引文用 `> 引用块` 呈现；不要用一级/二级大标题。\n\n"
+                "`**加粗**` 突出；不要使用 Markdown `> 引用块`。需要给出示例、改写稿、"
+                "过渡句或建议文本时，用普通段落或列表完整呈现；不要用一级/二级大标题。\n\n"
                 f"用户问题：{question}"
             )
             system_content = "你是一位严谨、清楚、重视来源标注的中文研究助手。"

@@ -21,6 +21,7 @@ MAIN_SERVICE="${MARX_MAIN_SERVICE:-marx-search.service}"
 PRIMARY_PORT="${MARX_PRIMARY_PORT:-8000}"
 CANDIDATE_PORT="${MARX_CANDIDATE_PORT:-8001}"
 HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-45}"
+DRAIN_TIMEOUT_SECONDS="${MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS:-720}"
 CANDIDATE_UNIT="marx-search-candidate-${RELEASE_ID//[^A-Za-z0-9_.-]/-}.service"
 MANAGED_SUPPORT_UNITS=(
   marx-corpus-repair.service marx-corpus-repair.timer
@@ -51,7 +52,11 @@ if ! [[ "$EXPECTED_LIVE" =~ ^[A-Za-z0-9][A-Za-z0-9._:+-]{0,191}$ ]]; then
   echo "unsafe parent release id" >&2
   exit 2
 fi
-for command in flock python3 tar curl systemctl systemd-run caddy sha256sum; do
+if ! [[ "$DRAIN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+for command in flock python3 tar curl systemctl systemd-run caddy sha256sum ss; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 2; }
 done
 [ -f "$ARCHIVE" ] || { echo "release archive not found" >&2; exit 2; }
@@ -221,6 +226,62 @@ switch_caddy() {
   rm -f "$backup"
 }
 
+drain_port() {
+  local port="$1" label="$2" elapsed=0 connections
+  echo "waiting for $label on port $port to drain (timeout=${DRAIN_TIMEOUT_SECONDS}s)"
+  while true; do
+    if ! connections="$(ss -Htn state established "( sport = :${port} )" 2>/dev/null)"; then
+      echo "unable to inspect active connections for $label on port $port" >&2
+      return 1
+    fi
+    [ -z "$connections" ] && break
+    if [ "$elapsed" -ge "$DRAIN_TIMEOUT_SECONDS" ]; then
+      echo "$label on port $port did not drain within ${DRAIN_TIMEOUT_SECONDS}s" >&2
+      return 1
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  echo "$label on port $port drained"
+}
+
+retire_candidate_if_drained() {
+  local label="$1"
+  if ! drain_port "$CANDIDATE_PORT" "$label"; then
+    echo "WARNING: $label still has active connections; leaving $CANDIDATE_UNIT running for manual retirement" >&2
+    echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
+    return 1
+  fi
+  if ! systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1; then
+    echo "WARNING: failed to stop $CANDIDATE_UNIT; preserving its immutable release" >&2
+    echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
+    return 1
+  fi
+  if systemctl is-active --quiet "$CANDIDATE_UNIT"; then
+    echo "WARNING: $CANDIDATE_UNIT is still active after stop; preserving its immutable release" >&2
+    echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
+    return 1
+  fi
+  systemctl reset-failed "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
+}
+
+abort_before_commit() {
+  echo "previous primary did not drain; restoring traffic without restarting or replacing it" >&2
+  if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
+    echo "CRITICAL: could not restore the primary route; healthy candidate remains live" >&2
+    return 1
+  fi
+  if ! wait_health "$PRIMARY_PORT" "$EXPECTED_LIVE"; then
+    echo "CRITICAL: restored primary route is unhealthy; moving traffic back to the healthy candidate" >&2
+    switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT" >/dev/null 2>&1 || true
+    return 1
+  fi
+  if retire_candidate_if_drained "aborted release candidate"; then
+    KEEP_FINAL=0
+  fi
+  return 0
+}
+
 systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
 systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
@@ -239,13 +300,13 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   "$RUNTIME_PYTHON" -m ingestion.runtime --port "$CANDIDATE_PORT" >/dev/null
 if ! wait_health "$CANDIDATE_PORT" "$RELEASE_ID"; then
   journalctl -u "$CANDIDATE_UNIT" -n 80 --no-pager >&2 || true
-  systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
+  retire_candidate_if_drained "unhealthy candidate" || KEEP_FINAL=1
   echo "candidate failed; live traffic was not changed" >&2
   exit 4
 fi
 
 if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"; then
-  systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
+  retire_candidate_if_drained "uncut candidate" || KEEP_FINAL=1
   echo "candidate was healthy but Caddy cutover failed; primary is unchanged" >&2
   exit 5
 fi
@@ -253,6 +314,16 @@ fi
 # release directory in an error trap; the explicit rollback path restores the
 # predecessor before stopping the candidate.
 KEEP_FINAL=1
+
+# Caddy sends every new request to the candidate now.  Do not restart the old
+# primary until its already accepted requests (notably long-running AI SSE
+# answers) have completed.  A timeout aborts before current/systemd are touched.
+if ! drain_port "$PRIMARY_PORT" "previous primary"; then
+  if abort_before_commit; then
+    exit 9
+  fi
+  exit 10
+fi
 
 OLD_CURRENT=""
 if [ -L "$APP_ROOT/current" ]; then OLD_CURRENT="$(readlink -f "$APP_ROOT/current")"; fi
@@ -295,8 +366,9 @@ rollback_primary() {
     systemctl restart marx-search-citation-worker.service || true
   fi
   if wait_health "$PRIMARY_PORT" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
-    systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
-    KEEP_FINAL=0
+    if retire_candidate_if_drained "rollback candidate"; then
+      KEEP_FINAL=0
+    fi
   else
     echo "CRITICAL: predecessor did not recover; healthy candidate remains on the candidate route" >&2
   fi
@@ -332,9 +404,9 @@ if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
   rollback_primary
   exit 7
 fi
-sleep "${MARX_DEPLOY_DRAIN_SECONDS:-10}"
-systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
-systemctl reset-failed "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
+# New traffic is back on the canonical primary.  Existing candidate requests
+# get the same bounded drain protection before the transient process retires.
+retire_candidate_if_drained "promoted release candidate" || true
 health "$PRIMARY_PORT" "$RELEASE_ID" || { rollback_primary; exit 8; }
 
 # The historical corpus-promotion path mutates live state outside the release

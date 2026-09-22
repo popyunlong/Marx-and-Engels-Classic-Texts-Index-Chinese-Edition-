@@ -354,8 +354,9 @@ JOURNAL_ALERT_BASE_URL=https://你的域名
 2. 每个压缩包、远端上传和候选目录均使用完整提交号、UTC 时间与随机标识，不共享临时文件名。
 3. 服务器在 `/run/lock/marx-search-release.lock` 内比较当前版本与包内父版本；不一致即拒绝。
 4. 候选在 8001 端口通过 `/api/runtime`、首页、定价、AI 与阅读页验证后，Caddy 才平滑切流。
-5. `current`/`previous` 原子切换；主进程验证失败时自动恢复直接前任。
-6. `/api/runtime`、`current/release.json`、`DEPLOYED_SHA` 和发布账本共同记录同一代码版本。`data_version` 独立表示语料版本。
+5. 每次切流后先等待旧端口的已建立连接排空（默认最长 720 秒，可用 `MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS` 覆盖），再重启或停止该实例；旧主站超时未排空时撤销本次发布，不中断正在进行的 AI 回答。
+6. `current`/`previous` 原子切换；主进程验证失败时自动恢复直接前任。
+7. `/api/runtime`、`current/release.json`、`DEPLOYED_SHA` 和发布账本共同记录同一代码版本。`data_version` 独立表示语料版本。
 
 PDF、索引和运行数据库是显式共享数据，不进入源码版本目录。直接语料上传/交换脚本已冻结；语料只能走受验证的候选流程，并与代码发布共用同一把锁。
 

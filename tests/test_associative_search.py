@@ -1080,6 +1080,34 @@ class AssociativeRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 429)
         ans_mock.assert_not_called()
 
+    def test_ungrounded_chat_keeps_proposed_blockquote_wording(self) -> None:
+        """关闭引文检索时，模型常用 Markdown 引用块突出“可以写成”的示例句。
+
+        这些句子是用户要的拟写结果，不是本站已核验引文；应去掉引用样式但保留文字。
+        """
+        self._login_member("chat-ungrounded-proposal@example.test")
+        token = self._csrf()
+        generated = (
+            "### 建议的过渡句写法\n"
+            "如果只补一句，可以写成：\n\n"
+            "> 理论只有转化为实践，才能成为改造现实的力量。\n\n"
+            "或者更贴合原文风格：\n\n"
+            "> 统一的评价尺度，只有在具体工作实践中得到贯彻，才能真正发挥作用。\n\n"
+            "这样，两段之间的逻辑就连起来了。"
+        )
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value=generated):
+            resp = self._post_chat(
+                {"question": "请写两个过渡句", "grounding": False}, token
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = _read_result(resp)
+        self.assertTrue(data["ok"])
+        answer = data["answer_markdown"]
+        self.assertIn("理论只有转化为实践", answer)
+        self.assertIn("统一的评价尺度", answer)
+        self.assertIn("两段之间的逻辑就连起来了", answer)
+        self.assertFalse(any(line.lstrip().startswith(">") for line in answer.splitlines()))
+
     def test_effective_ai_limit_buckets(self) -> None:
         # 分档：每日额度＋本周硬上限(=每日×7)；访客 guest、月度会员 monthly；管理员不限。
         app_module.set_setting(app_module.AI_TOKEN_DAILY_SETTING_KEY, {
@@ -2140,6 +2168,47 @@ class ReaderAiStreamAndScopeTests(unittest.TestCase):
         # 至少渲染出一个真实著作群 chip（本地语料非空时）
         chip_ids = re.findall(r'data-scope="([^"]+)"', html)
         self.assertTrue(len(chip_ids) > 2, chip_ids)
+
+
+class UngroundedAnswerSanitizerTests(unittest.TestCase):
+    def test_flattens_quote_blocks_without_deleting_their_text(self) -> None:
+        answer = (
+            "### 建议的过渡句写法\n"
+            "如果只补一句，可以写成：\n\n"
+            "> 理论只有转化为实践，才能成为改造现实的力量。\n\n"
+            "或者更贴合原文风格：\n\n"
+            ">> 统一的评价尺度，只有在具体工作实践中得到贯彻，才能真正发挥作用。\n\n"
+            "这样，两段之间的逻辑就连起来了。"
+        )
+        cleaned = app_module.AI_CLIENT.sanitize_ungrounded_answer(answer)
+        self.assertIn("理论只有转化为实践", cleaned)
+        self.assertIn("统一的评价尺度", cleaned)
+        self.assertIn("两段之间的逻辑就连起来了", cleaned)
+        self.assertFalse(any(line.lstrip().startswith(">") for line in cleaned.splitlines()))
+
+    def test_removes_only_unverified_claim_fragments(self) -> None:
+        answer = (
+            "马克思在《资本论》中指出：“资本不是物，而是一定的社会关系。”[2] "
+            "这一分析仍需结合现实展开。\n"
+            "这一判断见第 12 页，但核心分析仍然保留。\n"
+            "> [3]"
+        )
+        cleaned = app_module.AI_CLIENT.sanitize_ungrounded_answer(answer)
+        self.assertIn("资本不是物，而是一定的社会关系。", cleaned)
+        self.assertIn("这一分析仍需结合现实展开。", cleaned)
+        self.assertIn("核心分析仍然保留。", cleaned)
+        self.assertNotIn("马克思在《资本论》中指出", cleaned)
+        self.assertNotIn("第 12 页", cleaned)
+        self.assertNotRegex(cleaned, r"\[\d+\]")
+        self.assertNotIn("“", cleaned)
+        self.assertNotIn("”", cleaned)
+
+    def test_ungrounded_prompt_forbids_quote_blocks(self) -> None:
+        with mock.patch.object(app_module.AI_CLIENT, "chat_complete", return_value="普通段落。") as complete:
+            app_module.AI_CLIENT.answer_search_chat([], "请改写这句话")
+        prompt = complete.call_args.args[0][-1]["content"]
+        self.assertIn("不要使用 Markdown `> 引用块`", prompt)
+        self.assertIn("示例、改写稿、过渡句或建议文本", prompt)
 
 
 class GroundedDirectQuoteSanitizerTests(unittest.TestCase):

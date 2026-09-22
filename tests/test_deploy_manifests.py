@@ -97,7 +97,9 @@ def test_candidate_is_healthy_before_any_cutover_or_service_replacement() -> Non
     source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
     candidate = source.index("systemd-run")
     candidate_health = source.index('wait_health "$CANDIDATE_PORT"', candidate)
-    caddy_cutover = source.index('switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"')
+    caddy_cutover = source.index(
+        'switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"', candidate_health
+    )
     unit_install = source.index("/etc/systemd/system/marx-search.service")
     assert candidate < candidate_health < caddy_cutover < unit_install
     for endpoint in ("/api/runtime", "/pricing", "/ai", "/v2/ai", "/v2/read"):
@@ -107,6 +109,90 @@ def test_candidate_is_healthy_before_any_cutover_or_service_replacement() -> Non
     assert 'wait_health "$PRIMARY_PORT" "$RELEASE_ID"' in source
     assert "rollback_primary" in source
     assert "restoring the direct predecessor" in source
+
+
+def test_both_cutovers_drain_connections_before_restarting_or_stopping() -> None:
+    source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    assert 'DRAIN_TIMEOUT_SECONDS="${MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS:-720}"' in source
+    assert 'ss -Htn state established "( sport = :${port} )"' in source
+    assert 'echo "unable to inspect active connections' in source  # socket inspection fails closed
+
+    first_cutover = source.index('switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"')
+    primary_drain = source.index(
+        'drain_port "$PRIMARY_PORT" "previous primary"', first_cutover
+    )
+    current_swap = source.index(
+        'mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"',
+        primary_drain,
+    )
+    primary_restart = source.index('systemctl restart "$MAIN_SERVICE"', current_swap)
+    assert first_cutover < primary_drain < current_swap < primary_restart
+
+    final_cutover = source.index(
+        'if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"', primary_restart
+    )
+    final_retirement = source.index(
+        'retire_candidate_if_drained "promoted release candidate"', final_cutover
+    )
+    assert primary_restart < final_cutover < final_retirement
+
+    retire_helper = source.index("retire_candidate_if_drained()")
+    helper_drain = source.index('drain_port "$CANDIDATE_PORT" "$label"', retire_helper)
+    helper_stop = source.index('if ! systemctl stop "$CANDIDATE_UNIT"', helper_drain)
+    helper_active_check = source.index(
+        'systemctl is-active --quiet "$CANDIDATE_UNIT"', helper_stop
+    )
+    assert retire_helper < helper_drain < helper_stop < helper_active_check
+    assert source.count('CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT') >= 3
+
+
+def test_primary_drain_timeout_aborts_before_commit_and_restores_old_route() -> None:
+    source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    timeout_guard = source.index('if ! drain_port "$PRIMARY_PORT" "previous primary"')
+    abort_call = source.index("if abort_before_commit", timeout_guard)
+    current_swap = source.index(
+        'mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"',
+        timeout_guard,
+    )
+    assert timeout_guard < abort_call < current_swap
+
+    abort_helper = source.index("abort_before_commit()")
+    abort_helper_end = source.index("systemctl stop \"$CANDIDATE_UNIT\"", abort_helper)
+    abort_body = source[abort_helper:abort_helper_end]
+    assert 'switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"' in abort_body
+    assert 'wait_health "$PRIMARY_PORT" "$EXPECTED_LIVE"' in abort_body
+    assert 'switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"' in abort_body
+    assert "systemctl restart" not in abort_body
+
+
+def test_candidate_cutover_and_primary_start_failures_use_safe_paths() -> None:
+    source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    candidate_failure = source.index('if ! wait_health "$CANDIDATE_PORT" "$RELEASE_ID"')
+    first_cutover = source.index(
+        'if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"', candidate_failure
+    )
+    current_swap = source.index(
+        'mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"', first_cutover
+    )
+    candidate_failure_body = source[candidate_failure:first_cutover]
+    cutover_failure_body = source[first_cutover:current_swap]
+    assert 'retire_candidate_if_drained "unhealthy candidate"' in candidate_failure_body
+    assert "exit 4" in candidate_failure_body
+    assert 'retire_candidate_if_drained "uncut candidate"' in cutover_failure_body
+    assert "primary is unchanged" in cutover_failure_body
+    assert "exit 5" in cutover_failure_body
+
+    primary_start = source.index('if ! systemctl restart "$MAIN_SERVICE"', current_swap)
+    final_cutover = source.index(
+        'if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"', primary_start
+    )
+    assert "rollback_primary" in source[primary_start:final_cutover]
+    assert "rollback_primary" in source[final_cutover:]
+
+
+def test_drain_timeout_is_documented_in_production_environment_example() -> None:
+    env_example = (ROOT / "deploy" / "marx-search.env.example").read_text(encoding="utf-8")
+    assert "MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS=720" in env_example
 
 
 def test_rollback_is_separate_locked_and_audited() -> None:
