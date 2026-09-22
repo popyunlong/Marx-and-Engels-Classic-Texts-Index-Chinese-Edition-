@@ -1,3 +1,4 @@
+{% from "_citation_styles.html" import citation_options with context %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -19,6 +20,7 @@
         data-scope='{{ book_scope_tree|tojson|forceescape }}'
         data-access="{{ '1' if citation_access else '0' }}"
         data-upgrade-url="{{ upgrade_url }}"
+        data-citation-style-groups='{{ citation_style_groups | tojson | forceescape }}'
         data-gb2025-approved="{{ '1' if gb2025_approved else '0' }}">
     <section class="ca-hero">
       <div>
@@ -54,7 +56,7 @@
         <div class="ca-grid">
           <label><span>处理方式</span><select name="mode" id="caModeSelect"><option value="both">插注＋校注（推荐）</option><option value="generate">插注</option><option value="audit">校注</option></select></label>
           <label id="caNoteKindField"><span>插注类型</span><select name="note_kind"><option value="footnote">脚注</option><option value="endnote">尾注</option></select><small>新增上标、标号和注文统一使用浅蓝色。</small></label>
-          <label><span>引文格式</span><select name="citation_style"><option value="mkszyj" selected>《马克思主义研究》（默认）</option>{% if gb2025_approved %}<option value="auto">自动识别</option><option value="gb2025">GB/T 7714—2025</option>{% endif %}<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option></select>{% if not gb2025_approved %}<small>2025 模板待站长依据正式标准和黄金样例确认，当前不参与内测。</small>{% endif %}</label>
+          <label><span>引文格式</span><select name="citation_style">{{ citation_options(citation_style_groups, 'mkszyj', true) }}</select>{% if not gb2025_approved %}<small>2025 模板待站长依据正式标准和黄金样例确认，当前不参与内测。</small>{% endif %}</label>
         </div>
         <div class="ca-rule-note"><b>三种模式严格分开</b><span>插注只自动写入唯一、逐字一致且锚点安全的新注释；校注只添加批注，不改原脚注；组合模式在同一个副本中完成两者。</span></div>
         <div class="ca-scope-block">
@@ -107,6 +109,6 @@
   </main>
 
   <script src="/static/book-scope/book-scope.js?v=3"></script>
-  <script src="/static/citation-assistant/citation-assistant.js?v=8"></script>
+  <script src="/static/citation-assistant/citation-assistant.js?v=9"></script>
 </body>
 </html>

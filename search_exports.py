@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 from runtime_env import APPDATA_DIR
+from citation_styles import CITATION_FORMAT_KEYS, CITATION_FORMAT_LABELS
 from page_labels import VERSION as PAGE_LABEL_VERSION
 
 
@@ -47,7 +48,7 @@ EXPORT_CONTENT_VERSION = "complete-sentence-v2:" + PAGE_LABEL_VERSION
 WORKER_HEARTBEAT_MAX_AGE_SECONDS = 30
 VALID_FORMATS = {"docx", "html"}
 VALID_MODES = {"exact", "cooccurrence"}
-VALID_STYLES = {"gb2025", "gb2015", "zgshkx", "mkszyj"}
+VALID_STYLES = set(CITATION_FORMAT_KEYS)
 ACTIVE_STATUSES = {"queued", "counting", "collecting", "rendering", "packaging"}
 TERMINAL_STATUSES = {"complete", "too_large", "failed", "expired"}
 
@@ -897,12 +898,7 @@ def _zip_parts(path: Path, parts: list[Path]) -> None:
 
 
 def _citation_label(style: str) -> str:
-    return {
-        "gb2025": "GB/T 7714—2025",
-        "gb2015": "GB/T 7714—2015",
-        "zgshkx": "《中国社会科学》",
-        "mkszyj": "《马克思主义研究》",
-    }.get(style, style)
+    return CITATION_FORMAT_LABELS.get(style, style)
 
 
 def run_job(

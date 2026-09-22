@@ -78,7 +78,16 @@
   var AI_SCOPE_KEY = "marx-ai-scope-v2";
   var AI_DEPTH_KEY = "marx-ai-depth-v1";       // 本页专属
   var CITE_FORMAT_KEY = "marx-citation-format-v1";
-  var CITE_FORMAT_LABELS = { gb2015: 1, zgshkx: 1, mkszyj: 1 };
+  var CITE_FORMAT_GROUPS = [];
+  try { CITE_FORMAT_GROUPS = JSON.parse(root.getAttribute("data-citation-style-groups") || "[]"); } catch (_) {}
+  if (!CITE_FORMAT_GROUPS.length) CITE_FORMAT_GROUPS = [{ label: "引用格式", styles: [
+    { key: "gb2015", label: "GB/T 7714—2015" },
+    { key: "zgshkx", label: "《中国社会科学》" },
+    { key: "mkszyj", label: "《马克思主义研究》" }
+  ] }];
+  var CITE_FORMAT_OPTIONS = [].concat.apply([], CITE_FORMAT_GROUPS.map(function (g) { return g.styles || []; }));
+  var CITE_FORMAT_LABELS = {};
+  CITE_FORMAT_OPTIONS.forEach(function (o) { CITE_FORMAT_LABELS[o.key] = o.label; });
 
   var HISTORY_CHAR_CAP = 4000;   // 送入「快速问答」历史的单条上限（研究综述很长，防 token 暴涨）
 
@@ -210,15 +219,11 @@
   }
   // 引用格式可选（与检索页 citeFormatBar 同一套共享键 marx-citation-format-v1）：
   // 把多格式出处串序列化进 data-citations，切换时就地重写文本（保留展开态、无需整树重渲染）。
-  var CITE_FORMAT_OPTIONS = [
-    ["gb2015", "国标 GB/T 7714—2015"],
-    ["zgshkx", "《中国社会科学》"],
-    ["mkszyj", "《马克思主义研究》"],
-  ];
   function citeDataAttr(obj) {
     var m = obj && obj.citations;
     if ((!m || !Object.keys(m).length) && obj && obj.citation) {
-      m = { gb2015: obj.citation, zgshkx: obj.citation, mkszyj: obj.citation };
+      m = {};
+      CITE_FORMAT_OPTIONS.forEach(function (o) { m[o.key] = obj.citation; });
     }
     return m ? escAttr(JSON.stringify(m)) : "";
   }
@@ -226,8 +231,10 @@
     var cur = citeFormat();
     return '<label class="aip-cite-fmt"><span class="aip-cite-fmt-label">引用格式</span>' +
       '<select class="aip-cite-fmt-select" aria-label="选择引用格式">' +
-      CITE_FORMAT_OPTIONS.map(function (o) {
-        return '<option value="' + o[0] + '"' + (o[0] === cur ? " selected" : "") + ">" + esc(o[1]) + "</option>";
+      CITE_FORMAT_GROUPS.map(function (group) {
+        return '<optgroup label="' + escAttr(group.label) + '">' + (group.styles || []).map(function (o) {
+          return '<option value="' + o.key + '"' + (o.key === cur ? " selected" : "") + ">" + esc(o.label) + "</option>";
+        }).join("") + "</optgroup>";
       }).join("") + "</select></label>";
   }
   function applyCiteFormat(fmt) {
@@ -1027,15 +1034,15 @@
       return "<w:r><w:rPr>" + props.join("") + '</w:rPr><w:t xml:space="preserve">' + xmlText(group.text) + "</w:t></w:r>";
     }).join("");
   }
-  function mkszyjCitation(citation) {
+  function selectedCitation(citation) {
     var formats = citation && citation.citations;
-    return String((formats && formats.mkszyj) || (citation && citation.citation) || pickCite(citation || {}) || "").replace(/^\s*\[\d+\]\s*/, "").trim();
+    return String(pickCite(citation || {}) || (formats && formats.mkszyj) || (citation && citation.citation) || "").replace(/^\s*\[\d+\]\s*/, "").trim();
   }
   function wordCitationMap(message) {
     var map = {};
     (Array.isArray(message.citations) ? message.citations : []).forEach(function (citation, index) {
       var number = String(citation.grounding_index || citation.review_index || (index + 1));
-      var text = mkszyjCitation(citation);
+      var text = selectedCitation(citation);
       if (text) map[number] = text;
     });
     return map;

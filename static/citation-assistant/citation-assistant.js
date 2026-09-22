@@ -4,6 +4,7 @@
   const csrf=root.dataset.csrf||'';
   const citationAccess=root.dataset.access==='1';
   let job=parse(root.dataset.job,{}), jobs=parse(root.dataset.jobs,[]), tree=parse(root.dataset.scope,[]),gb2025Approved=root.dataset.gb2025Approved==='1';
+  const citationStyleGroups=parse(root.dataset.citationStyleGroups,[]);
   let scopeCtl=null,page=1,pageSize=40,total=0,items=[],pollTimer=null,reviewDecision='pending';
   let summary={total:0,accepted:0,pending:0,rejected:0,auto_accepted:0};
   const $=s=>document.querySelector(s);
@@ -124,7 +125,7 @@
     sections.hidden=true;review.hidden=true;downloads.hidden=true;review.innerHTML=review.innerHTML;
     if(['extracting','queued','matching','exporting'].includes(job.status)){status.innerHTML=progressHtml(job);if(job.status==='exporting'&&job.word_export_status==='ready')renderDownloads()}
     else if(job.status==='awaiting_sections'){status.innerHTML='';renderSections()}
-    else if(job.status==='review_ready'){const needsStyle=job.citation_style==='auto'&&Number(job.style_confidence||0)<.8;status.innerHTML=needsStyle?'<div class="ca-warning" id="caRequiredStyle"><b>需要你选择引文格式</b><p>现有注释少于 3 条、格式混用，或主格式占比不足 80%，系统不会替你猜测。</p><select id="caRequiredStyleSelect">'+(gb2025Approved?'<option value="gb2025">GB/T 7714—2025</option>':'')+'<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option><option value="mkszyj">《马克思主义研究》</option></select> <button type="button" id="caRequiredStyleSave">确认格式</button></div>':'';setupReview();if(needsStyle)setupRequiredStyle()}
+    else if(job.status==='review_ready'){const needsStyle=job.citation_style==='auto'&&Number(job.style_confidence||0)<.8;const styleOptions=citationStyleGroups.map(g=>'<optgroup label="'+esc(g.label)+'">'+(g.styles||[]).map(s=>'<option value="'+esc(s.key)+'">'+esc(s.label)+'</option>').join('')+'</optgroup>').join('');status.innerHTML=needsStyle?'<div class="ca-warning" id="caRequiredStyle"><b>需要你选择引文格式</b><p>现有注释少于 3 条、格式混用，或主格式占比不足 80%，系统不会替你猜测。</p><select id="caRequiredStyleSelect">'+styleOptions+'</select> <button type="button" id="caRequiredStyleSave">确认格式</button></div>':'';setupReview();if(needsStyle)setupRequiredStyle()}
     else if(job.status==='complete'){status.innerHTML='';renderDownloads()}
     else if(job.status==='failed'){status.innerHTML='<div class="ca-errorbox"><b>任务未完成</b><p>'+esc(job.error||'处理时发生错误。')+'</p></div>'}
     else status.innerHTML='<div class="ca-status"><h3>'+esc(statusLabels[job.status]||job.status)+'</h3></div>';

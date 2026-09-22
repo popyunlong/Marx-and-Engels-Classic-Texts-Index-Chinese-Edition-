@@ -1,3 +1,4 @@
+{% from "_citation_styles.html" import citation_options with context %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -22,6 +23,7 @@
         data-access="{{ '1' if citation_access else '0' }}"
         data-api-base="/api/citation-agent"
         data-upgrade-url="{{ upgrade_url }}"
+        data-citation-styles='{{ citation_style_options | tojson | forceescape }}'
         data-gb2025-approved="{{ '1' if gb2025_approved else '0' }}">
     <section class="ca-hero cat-hero">
       <div class="cat-hero-copy">
@@ -80,7 +82,7 @@
           <label><span>处理方式</span><select name="mode" id="catModeSelect"><option value="both">插注＋校注（推荐）</option><option value="generate">插注</option><option value="audit">校注</option></select></label>
           <label id="catNoteKindField"><span>插注类型</span><select name="note_kind"><option value="footnote">脚注</option><option value="endnote">尾注</option></select><small>新增上标、标号和注文统一使用浅蓝色。</small></label>
           <label><span>识别深度</span><select name="recognition_depth"><option value="direct_only" selected>仅直接引文（默认）</option><option value="direct_and_paraphrase">直接引文＋观点依据发现（实验）</option></select><small>观点依据只表示站内文献可能支持论文观点，不证明论文语句出自该文献，且永不自动采用。</small></label>
-          <label><span>引文格式</span><select name="citation_style"><option value="mkszyj" selected>《马克思主义研究》</option>{% if gb2025_approved %}<option value="auto">自动识别</option><option value="gb2025">GB/T 7714—2025</option>{% endif %}<option value="gb2015">GB/T 7714—2015</option><option value="zgshkx">《中国社会科学》</option></select></label>
+          <label><span>引文格式</span><select name="citation_style">{{ citation_options(citation_style_groups, 'mkszyj', true) }}</select></label>
         </div>
         <div class="ca-rule-note cat-rule-note"><b>自动采用闸门</b><span>只有唯一、归一化逐字一致且印刷页可靠的命中才可能自动采用；Agent 自报的出处与置信度不能越过证据闸门。</span></div>
         <div class="ca-scope-block cat-scope-block">

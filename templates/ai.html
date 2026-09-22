@@ -23,7 +23,8 @@
        data-csrf="{{ csrf_token }}"
        data-uid="{{ current_user.id if current_user else '' }}"
        data-chat-access="{{ '1' if search_chat_access_enabled else '0' }}"
-       data-research-access="{{ '1' if research_access_enabled else '0' }}">
+       data-research-access="{{ '1' if research_access_enabled else '0' }}"
+       data-citation-style-groups="{{ citation_style_groups | tojson | forceescape }}">
 
     <header class="aip-topbar">
       <a class="aip-back" href="{{ url_for('index') }}">← 返回首页</a>
@@ -150,6 +151,6 @@
     </main>
   </div>
   <script src="/static/book-scope/book-scope.js?v=4" defer></script>
-  <script src="/static/ai-page/ai-page.js?v=20260915-nested-1" defer></script>
+  <script src="/static/ai-page/ai-page.js?v=20260922-citation-styles-1" defer></script>
 </body>
 </html>

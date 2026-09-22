@@ -1,3 +1,4 @@
+{% from "_citation_styles.html" import citation_options with context %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -2717,12 +2718,7 @@
             <div id="citeFormatBar" class="cite-format-bar" hidden>
               <span class="cfb-label">引用格式</span>
               <select id="citeFormatSelect" aria-label="引用格式">
-                {% if gb2025_approved %}
-                <option value="gb2025">国标 GB/T 7714—2025</option>
-                {% endif %}
-                <option value="gb2015">国标 GB/T 7714—2015</option>
-                <option value="zgshkx">《中国社会科学》</option>
-                <option value="mkszyj">《马克思主义研究》</option>
+                {{ citation_options(citation_style_groups, 'gb2015') }}
               </select>
               <span class="cfb-hint">切换后下方所有引文出处与「复制引文」即按此格式</span>
               <div id="searchExportControls" class="search-export-controls" hidden>
@@ -3373,7 +3369,7 @@
   // 出处串（后端 hit.citations）。用户在结果上方下拉里选定格式后，本地记忆并即时重排所有
   // 已渲染引文；新检索/恢复亦按当前格式渲染；「复制引文」复制的就是当前所选格式的文本。
   const CITE_FORMAT_KEY = 'marx-citation-format-v1';
-  const CITE_FORMAT_LABELS = { {% if gb2025_approved %}gb2025: '国标 GB/T 7714—2025', {% endif %}gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+  const CITE_FORMAT_LABELS = {{ citation_style_labels | tojson }};
   const CITE_FORMAT_DEFAULT = 'gb2015';
   function loadCiteFormat() {
     try { const v = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[v] ? v : CITE_FORMAT_DEFAULT; }
@@ -3395,7 +3391,7 @@
   function citeDataAttr(obj) {
     let m = obj && obj.citations;
     if ((!m || !Object.keys(m).length) && obj && obj.citation) {
-      m = { gb2025: obj.citation, gb2015: obj.citation, zgshkx: obj.citation, mkszyj: obj.citation };
+      m = Object.fromEntries(Object.keys(CITE_FORMAT_LABELS).map(k => [k, obj.citation]));
     }
     return m ? escAttr(JSON.stringify(m)) : '';
   }

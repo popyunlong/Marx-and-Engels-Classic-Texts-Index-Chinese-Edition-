@@ -358,6 +358,14 @@ from runtime_env import (
 APP_NAME = WEB_APP_NAME
 
 from book_config import BOOKS_CONFIG_PATH, BookConfig, load_book_configs
+from citation_styles import (
+    CITATION_FORMAT_KEYS,
+    CITATION_FORMAT_LABELS,
+    CITATION_STYLE_BY_KEY,
+    flat_style_options,
+    style_options,
+    style_registry_payload,
+)
 from volume_presentation import TRUSTED_TOC_DATE_BOOKS, reader_title, volume_presentation
 from static_library_web import (
     register_static_library,
@@ -2338,16 +2346,11 @@ def _get_feature_tags() -> dict[str, list[dict]]:
 
 
 # ---- 引文检索「引用格式」自定义模板（控制台·内容运营，存设置项 citation_formats）----
-# 后台可改三种引用格式（国标 GB/T 7714 / 《中国社会科学》/《马克思主义研究》）的输出模板，仅作用于
-# 「卷·页」型标准著作的多格式引文（hit.citations）；公文/选编等特殊体例不套模板。设置项只存「改过且
+# 后台可按注册表分别修改国标、综合社科与 25 种期刊的输出模板，仅作用于
+# 结构化书目的多格式引文（hit.citations）；报告/公报等已审定权威串不套模板。设置项只存「改过且
 # 与默认不同」的格式，空＝全用 search.DEFAULT_CITATION_TEMPLATES。保存后即时注入 corpus、当场生效。
-_CITATION_FORMAT_LABELS = {
-    "gb2025": "国标 GB/T 7714—2025",
-    "gb2015": "国标 GB/T 7714—2015",
-    "zgshkx": "《中国社会科学》",
-    "mkszyj": "《马克思主义研究》",
-}
-_CITATION_FORMAT_KEYS = ("gb2025", "gb2015", "zgshkx", "mkszyj")
+_CITATION_FORMAT_LABELS = CITATION_FORMAT_LABELS
+_CITATION_FORMAT_KEYS = CITATION_FORMAT_KEYS
 _CITATION_TEMPLATE_MAXLEN = 240
 
 
@@ -2382,8 +2385,16 @@ def _citation_formats_editor() -> list[dict]:
             "template": customs.get(key, default_tpl),
             "default": default_tpl,
             "is_custom": key in customs,
-            "requires_approval": key == "gb2025",
-            "approved": _gb2025_template_approved() if key == "gb2025" else True,
+            "requires_approval": CITATION_STYLE_BY_KEY[key].requires_approval,
+            "approved": _gb2025_template_approved() if CITATION_STYLE_BY_KEY[key].requires_approval else True,
+            "category": CITATION_STYLE_BY_KEY[key].category,
+            "family": CITATION_STYLE_BY_KEY[key].family,
+            "aliases": list(CITATION_STYLE_BY_KEY[key].aliases),
+            "subject_codes": list(CITATION_STYLE_BY_KEY[key].subject_codes),
+            "source_url": CITATION_STYLE_BY_KEY[key].source_url,
+            "source_date": CITATION_STYLE_BY_KEY[key].source_date,
+            "reviewed_at": CITATION_STYLE_BY_KEY[key].reviewed_at,
+            "evidence_type": CITATION_STYLE_BY_KEY[key].evidence_type,
         })
     return rows
 
@@ -6358,7 +6369,7 @@ def _handle_feature_tags_submit(*, remote_admin: bool):
 
 
 def _handle_citation_formats_submit(*, remote_admin: bool):
-    """引文检索「引用格式」自定义模板保存：三种格式各一模板串，只动 citation_formats 设置项，
+    """引文检索「引用格式」自定义模板保存：注册表每个格式各一模板串，只动 citation_formats 设置项，
     保存后即时注入 corpus、当场生效。仅网站 /admin 可改（本地控制台只负责诊断/同步）。"""
     _require_management_access(remote_admin)
     _require_management_csrf()
@@ -8385,6 +8396,9 @@ def render_community_items(text: str) -> list:
 def inject_auth_context():
     membership = getattr(g, "membership", get_membership_snapshot(None))
     site_texts = _request_site_texts()
+    citation_gb2025_approved = _gb2025_template_approved()
+    citation_groups = style_options(gb2025_approved=citation_gb2025_approved)
+    citation_flat = flat_style_options(gb2025_approved=citation_gb2025_approved)
 
     def _site_text(key: str, **kwargs: object) -> str:
         base = site_texts.get(key)
@@ -8440,6 +8454,13 @@ def inject_auth_context():
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
         "citation_assistant_available": _citation_assistant_entry_visible(),
+        # 全站引文格式的唯一清单：模板与静态 JS 均从这组数据渲染。
+        "citation_style_groups": citation_groups,
+        "citation_style_options": citation_flat,
+        "citation_style_labels": {row["key"]: row["label"] for row in citation_flat},
+        "citation_style_templates": {row["key"]: DEFAULT_CITATION_TEMPLATES.get(row["key"], "") for row in citation_flat},
+        "citation_style_registry": style_registry_payload(),
+        "gb2025_approved": citation_gb2025_approved,
     }
 
 

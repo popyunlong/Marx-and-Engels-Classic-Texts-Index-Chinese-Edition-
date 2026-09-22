@@ -28,6 +28,12 @@ from rapidfuzz.distance import Levenshtein
 
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
+from citation_styles import (
+    CITATION_FORMAT_KEYS,
+    CITATION_STYLE_BY_KEY,
+    DEFAULT_CITATION_TEMPLATES,
+    add_publication_segments,
+)
 from page_label_overrides import apply_page_label_overrides, load_page_label_overrides
 from page_labels import citation_pages, page_reference, load_page_evidence, apply_page_evidence
 
@@ -427,10 +433,7 @@ class Hit:
             "fuzzy_errors": self.fuzzy_errors,
             "context": self.context,
             "citation": self.citation,
-            "citations": self.citations or {
-                "gb2025": self.citation, "gb2015": self.citation,
-                "zgshkx": self.citation, "mkszyj": self.citation,
-            },
+            "citations": self.citations or {key: self.citation for key in CITATION_FORMAT_KEYS},
             "section_title": self.section_title,
             "subject_label": self.subject_label,
             "document_id": self.document_id,
@@ -488,26 +491,21 @@ class HitGroup:
 # ---------------------------------------------------------------------------
 # 引用格式模板（可后台自定义）
 # ---------------------------------------------------------------------------
-# 多格式引文的默认模板：键与前端「引用格式」下拉一致。后台可对任一格式给出自定义模板覆盖
-# 默认值（仅作用于「卷·页」型标准著作；公文/选编/显式 cite 覆盖等特殊体例不套模板）。
+# 多格式引文的默认模板由 citation_styles 注册表统一提供。后台可对任一格式
+# 给出自定义模板覆盖默认值。
 # 可用占位符（缺失/拼错会被替换为空串，绝不抛错）：
 #   {title}      引文题名（如 马克思恩格斯文集 / 马克思恩格斯全集（第二版））
-#   {volume}     卷次数字（如 1）
+#   {volume}     原始卷册标签（如 1 / 上卷）
+#   {volume_segment}/{volume_colon}/{volume_comma}/{volume_parenthesized}/{volume_gb}
+#                已按单卷本、卷/册、非数字卷标归一的可直接拼接片段
 #   {place}      出版地（如 北京）
 #   {publisher}  出版者（如 人民出版社）
 #   {year}       出版年（如 2009；未知时为 xxxx）
 #   {page}       脚注式页码串（如 第781页 / 第781-784页；印刷页缺失时含「（此为PDF页码，非原书印刷页码）」）
 #   {page_range} 紧凑页码（独立编号及混合缺失页含区段和 PDF 说明）
 #   {page_note}  页码脚注（印刷页缺失时为「（此为PDF页码，非原书印刷页码）」，否则空串）
-# 默认模板务必与 _make_citation / _make_citation_gb 的程序化输出逐字一致（后台「恢复默认」据此）。
-DEFAULT_CITATION_TEMPLATES: dict[str, str] = {
-    # 2025 版刻意不提供推测性默认值。站长必须依据正式标准录入模板并通过
-    # 黄金样例确认；在此之前前台隐藏该选项，避免把 2015 模板冒充 2025。
-    "gb2025": "",
-    "gb2015": "{title}:第{volume}卷[M].{place}:{publisher},{year}:{page_range}{page_note}.",
-    "zgshkx": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
-    "mkszyj": "《{title}》第{volume}卷，{place}：{publisher}，{year}年，{page}。",
-}
+# 2025 版在注册表中保留空模板：后台审批前前端隐藏，后端为旧客户仍提供
+# GB/T 7714—2015 兼容回退，不将其宣称为 2025 正式模板。
 
 
 class _CiteSafeDict(dict):
@@ -3957,14 +3955,9 @@ class Corpus:
         edition_suffix = f"（{'；'.join(edition_bits)}）" if edition_bits else ""
         return f"{title}，{place}：{publisher}，{year_str}{edition_suffix}，{page_str}。"
 
-    # 引文格式标识：与前端「引用格式」下拉一致。
-    #   gb2025 = 国标 GB/T 7714—2025（独立可配置模板）
-    #   gb2015 = 国标 GB/T 7714—2015（专著 [M]，半角标点）
-    #   zgshkx = 《中国社会科学》脚注体例
-    #   mkszyj = 《马克思主义研究》脚注体例
-    # 两刊脚注当前为同一写法（均带出版地、不加「版」字，与既有 _make_citation 一致），
-    # 故 zgshkx/mkszyj 暂同源；保留两个独立键，以便日后任一刊微调而互不影响。
-    CITATION_FORMATS = ("gb2025", "gb2015", "zgshkx", "mkszyj")
+    # 与 citation_styles.CITATION_STYLES 一对一。同格式族的期刊仍保留独立键，
+    # 便于日后按刊物分别更新。
+    CITATION_FORMATS = CITATION_FORMAT_KEYS
 
     def set_citation_templates(self, templates: dict | None) -> None:
         """注入后台自定义的引用格式模板（仅 CITATION_FORMATS 内的键、非空字符串生效）。
@@ -3984,30 +3977,99 @@ class Corpus:
         self.citation_templates = clean
 
     def _citation_parts(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
-        """标准「卷·页」型著作的引文字段，供自定义模板替换（公文/选编等特殊体例不经此处）。"""
-        file_years = self.volumes_cfg.get("file_years") or {}
+        """把书目先归一为结构化字段，再由格式族渲染。
+
+        单卷本、非“卷”制分册、非数字卷标、译者/编者/整理者和第二版全集
+        均在此处变成可安全拼接的片段；缺失字段留空，不猜测。
+        """
         year = self._citation_year(book, volume, source_file)
         book_cfg = self.get_book_config(book)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
         pagination = citation_pages(pages)
         page, page_range, page_note = (pagination[k] for k in ("page", "page_range", "page_note"))
-        return {
-            "title": book_cfg.citation_title,
+        volume_label = dict(book_cfg.volume_labels).get(volume, "")
+        if book in self._XUANBIAN_BOOKS:
+            volume_segment = f"（{self._XUANBIAN_VOL_CN.get(volume, str(volume))}）"
+        elif book_cfg.single_volume or volume in book_cfg.unnumbered_volumes:
+            volume_segment = ""
+        elif volume_label:
+            volume_segment = str(volume_label)
+        else:
+            volume_segment = f"第{volume}{book_cfg.volume_unit}"
+
+        # 经典著作集的旧书目为保持既有引文，authors 曾留空；责任者式期刊
+        # 需要显式责任者。只对题名能唯一确定的经典作者补入，其余缺失即省略。
+        authors = list(book_cfg.authors)
+        if not authors:
+            title_prefix_authors = (
+                ("马克思恩格斯", ("马克思", "恩格斯")),
+                ("马克思", ("马克思",)),
+                ("恩格斯", ("恩格斯",)),
+                ("列宁", ("列宁",)),
+                ("斯大林", ("斯大林",)),
+                ("毛泽东", ("毛泽东",)),
+                ("邓小平", ("邓小平",)),
+                ("习近平", ("习近平",)),
+            )
+            for prefix, inferred in title_prefix_authors:
+                if book_cfg.citation_title.startswith(prefix):
+                    authors = list(inferred)
+                    break
+
+        title = book_cfg.citation_title
+        edition_title = title
+        edition_compact = ""
+        edition_match = re.search(r"[（(](?:第)?二版[）)]", title)
+        if edition_match:
+            edition_title = (title[:edition_match.start()] + title[edition_match.end():]).strip()
+            edition_compact = "第2版"
+
+        responsibility_cn_names = "，".join(authors)
+        responsibility_gb_names = ",".join(authors)
+        tail_cn: list[str] = []
+        tail_gb: list[str] = []
+        if book_cfg.translators:
+            tail_cn.append("、".join(book_cfg.translators) + "译")
+            tail_gb.append(",".join(book_cfg.translators) + ",译")
+        if authors and book_cfg.editors:
+            tail_cn.append("、".join(book_cfg.editors) + "编")
+            tail_gb.append(",".join(book_cfg.editors) + ",编")
+        if (authors or book_cfg.editors) and book_cfg.organizers:
+            tail_cn.append("、".join(book_cfg.organizers) + "整理")
+            tail_gb.append(",".join(book_cfg.organizers) + ",整理")
+        edition_bits = [x for x in (book_cfg.edition_note, book_cfg.source_edition) if x]
+        edition_suffix = f"（{'；'.join(edition_bits)}）" if edition_bits else ""
+
+        return add_publication_segments({
+            "title": title,
+            "edition_title": edition_title,
+            "edition_compact": edition_compact,
             "authors": "、".join(book_cfg.authors),
             "translators": "、".join(book_cfg.translators),
             "editors": "、".join(book_cfg.editors),
             "organizers": "、".join(book_cfg.organizers),
             "edition_note": book_cfg.edition_note,
             "source_edition": book_cfg.source_edition,
-            "volume": dict(book_cfg.volume_labels).get(volume, str(volume)),
+            "volume": volume_label or str(volume),
+            "volume_segment": volume_segment,
+            "volume_parenthesized": f"（{volume_segment}）" if volume_segment else "",
+            "volume_colon": f"：{volume_segment}" if volume_segment else "",
+            "volume_comma": f"，{volume_segment}" if volume_segment else "",
+            "volume_gb": f":{volume_segment}" if volume_segment else "",
             "place": place,
             "publisher": publisher,
             "year": f"{year}" if year else "xxxx",
             "page": page,
             "page_range": page_range,
             "page_note": page_note,
-        }
+            "edition_suffix": edition_suffix,
+            "responsibility_cn": f"{responsibility_cn_names}." if responsibility_cn_names else "",
+            "responsibility_author_year": f"{responsibility_cn_names}，" if responsibility_cn_names else "",
+            "responsibility_gb": f"{responsibility_gb_names}." if responsibility_gb_names else "",
+            "responsibility_tail_cn": ("." + "，".join(tail_cn)) if tail_cn else "",
+            "responsibility_tail_gb": ("." + ".".join(tail_gb)) if tail_gb else "",
+        })
 
     def _make_citations(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
         """产出多格式引文，供前端「引用格式」下拉即时切换。
@@ -4019,21 +4081,22 @@ class Corpus:
         journal = self._make_citation(book, volume, pages, source_file=source_file)
         gb = self._make_citation_gb(book, volume, pages, source_file=source_file)
         tpls = self.citation_templates or {}
-        has_override = bool(((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("cite"))
-        # 单卷本 / 无卷次的个别卷也走默认程序化串：自定义模板固定含「第{volume}卷」，套上会错标卷次。
-        _bc = self.get_book_config(book)
-        # volume_unit != 卷（如两套《重要文献选编》按「册」分册）也走默认串：模板写死了
-        # 「第{volume}卷」，套上会把「第17册」错标成「第17卷」。
-        special = (book in self._DOC_CITATION_BOOKS or book in self._XUANBIAN_BOOKS
-                   or has_override or _bc.single_volume or volume in _bc.unnumbered_volumes
-                   or _bc.volume_unit != "卷" or bool(dict(_bc.volume_labels).get(volume))
-                   or bool(_bc.editors or _bc.organizers or _bc.edition_note or _bc.source_edition))
-        if special or not tpls:
-            return {"gb2025": gb, "gb2015": gb, "zgshkx": journal, "mkszyj": journal}
+        has_authoritative_override = bool(((self.party_meta.get(book, {}) or {}).get(volume, {}) or {}).get("cite"))
+        # 报告/公报没有可转换的“书名—卷册—页码”结构；保留已审定的权威串。
+        # 选编、单卷本、非“卷”分册、译著和版次书目均不再走此旧回退。
+        if book in self._DOC_CITATION_BOOKS or has_authoritative_override:
+            return {key: (gb if key in {"gb2025", "gb2015"} else journal) for key in self.CITATION_FORMATS}
         parts = self._citation_parts(book, volume, pages, source_file=source_file)
 
-        def _render(key: str, default: str) -> str:
-            tpl = tpls.get(key)
+        def _render(key: str) -> str:
+            style = CITATION_STYLE_BY_KEY[key]
+            default = gb if style.family in {"gb2025", "gb2015"} else journal
+            custom_tpl = tpls.get(key)
+            # 国标的默认继续由原有程序化渲染器生成，确保旧引文字节不变；
+            # 后台显式录入的自定义模板仍可覆盖。
+            if style.family in {"gb2025", "gb2015"} and not custom_tpl:
+                return gb
+            tpl = custom_tpl or DEFAULT_CITATION_TEMPLATES.get(key)
             if not tpl:
                 return default
             try:
@@ -4044,12 +4107,7 @@ class Corpus:
             except Exception:
                 return default
 
-        return {
-            "gb2025": _render("gb2025", gb),
-            "gb2015": _render("gb2015", gb),
-            "zgshkx": _render("zgshkx", journal),
-            "mkszyj": _render("mkszyj", journal),
-        }
+        return {key: _render(key) for key in self.CITATION_FORMATS}
 
     def _make_citation_gb(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> str:
         """国标 GB/T 7714—2015 专著著录（[M]，半角标点）。

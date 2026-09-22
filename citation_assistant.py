@@ -32,6 +32,7 @@ from lxml import etree
 from rapidfuzz.distance import Levenshtein
 
 from build_index import normalize
+from citation_styles import CITATION_FORMAT_KEYS
 from runtime_env import APPDATA_DIR
 
 try:  # C 扩展快路径；开发环境缺依赖时仍有确定性的低速兜底。
@@ -71,7 +72,7 @@ REVIEW_RESCUE_ANCHORS_PER_RECORD_VOLUME = 12
 VALID_MODES = {"generate", "audit", "both"}
 VALID_NOTE_KINDS = {"footnote", "endnote"}
 VALID_THRESHOLDS = {"conservative", "balanced", "broad"}
-VALID_CITATION_STYLES = {"auto", "gb2025", "gb2015", "zgshkx", "mkszyj"}
+VALID_CITATION_STYLES = {"auto", *CITATION_FORMAT_KEYS}
 INSERTION_BLUE = "5B9BD5"
 ACTIVE_STATUSES = {"extracting", "awaiting_sections", "queued", "matching", "review_ready", "exporting"}
 JOB_STATUSES = ACTIVE_STATUSES | {"complete", "failed", "expired", "deleted"}
@@ -1711,18 +1712,22 @@ def _candidate_has_existing_note(paragraph: dict, raw_end: int) -> bool:
 def _detect_style(notes: list[str], requested: str) -> tuple[str, float]:
     if requested != "auto":
         return requested, 1.0
+    # 自动识别只确认有足够文本特征的“格式族”。[M] 可以证明是国标型，
+    # 却不足以区分 2015/2025；多本期刊使用完全相同的脚注时也不猜具体刊名。
+    # 因此仅把家族代表键作为候选返回，置低置信度，由用户明确选择后
+    # 才保存确切期刊键。
     labels: list[str] = []
     for note in notes:
         if "[M]" in note or "［M］" in note:
-            labels.append("gb2025")
+            labels.append("gb2015")
         elif "人民出版社" in note or "中央文献出版社" in note or re.search(r"，\s*(?:北京|上海|重庆)[：:]", note):
             labels.append("zgshkx")
     if len(labels) >= 3:
         winner = max(set(labels), key=labels.count)
         confidence = labels.count(winner) / len(labels)
         if confidence >= 0.80:
-            return winner, confidence
-    return "gb2025", 0.0
+            return winner, 0.79  # 只能到格式族，不能越过具体格式的人工确认闸门
+    return "gb2015", 0.0
 
 
 ISSUE_LABELS = {

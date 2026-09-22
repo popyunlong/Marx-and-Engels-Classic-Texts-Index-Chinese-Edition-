@@ -11,6 +11,7 @@ from hashlib import sha256
 
 from admin_store import get_setting, init_admin_store_db
 from build_index import DB_PATH as CORPUS_INDEX_DB_PATH
+from citation_styles import CITATION_FORMAT_KEYS
 import citation_agent_test_backend as tasks
 import personal_corpus
 import personal_library
@@ -18,7 +19,7 @@ from runtime_env import compute_sha256
 from search import Corpus, DEFAULT_CITATION_TEMPLATES
 
 
-_FORMAT_KEYS = ("gb2025", "gb2015", "zgshkx", "mkszyj")
+_FORMAT_KEYS = CITATION_FORMAT_KEYS
 _FORMAT_MAX_LENGTH = 240
 
 
