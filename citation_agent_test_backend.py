@@ -1218,6 +1218,10 @@ def claim_next_job(*args, **kwargs):
     return core.claim_next_job(*args, **kwargs)
 
 
+def recover_jobs_for_loaded_runtime(*args, **kwargs):
+    return core.recover_jobs_for_loaded_runtime(*args, **kwargs)
+
+
 def choose_citation_style(*args, **kwargs):
     return core.choose_citation_style(*args, **kwargs)
 

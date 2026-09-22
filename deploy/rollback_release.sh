@@ -83,10 +83,20 @@ for unit in "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
     OPTIONAL_UNITS_PRESENT+=("$unit")
   fi
 done
-CITATION_WORKER_WAS_ACTIVE=0
-if systemctl is-active --quiet marx-search-citation-worker.service; then
-  CITATION_WORKER_WAS_ACTIVE=1
-fi
+ACTIVE_CITATION_WORKERS=()
+for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service; do
+  if systemctl is-active --quiet "$unit"; then
+    ACTIVE_CITATION_WORKERS+=("$unit")
+  fi
+done
+
+restart_active_citation_workers() {
+  local unit
+  for unit in "${ACTIVE_CITATION_WORKERS[@]}"; do
+    echo "gracefully restarting $unit for the selected release"
+    systemctl restart "$unit" || return 1
+  done
+}
 
 restore_predecessor() {
   trap - ERR
@@ -103,9 +113,7 @@ restore_predecessor() {
   fi
   systemctl daemon-reload
   systemctl restart "$MAIN_SERVICE" || true
-  if [ "$CITATION_WORKER_WAS_ACTIVE" -eq 1 ]; then
-    systemctl restart marx-search-citation-worker.service || true
-  fi
+  restart_active_citation_workers || true
 }
 
 target_healthy() {
@@ -149,9 +157,9 @@ if ! target_healthy; then
   echo "target failed health checks; current release restored" >&2
   exit 5
 fi
-if [ "$CITATION_WORKER_WAS_ACTIVE" -eq 1 ] && ! systemctl restart marx-search-citation-worker.service; then
+if ! restart_active_citation_workers; then
   restore_predecessor
-  echo "citation worker failed to restart; current release restored" >&2
+  echo "an active citation worker failed to restart; current release restored" >&2
   exit 6
 fi
 systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true

@@ -340,10 +340,20 @@ for unit in "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
     OPTIONAL_UNITS_PRESENT+=("$unit")
   fi
 done
-CITATION_WORKER_WAS_ACTIVE=0
-if systemctl is-active --quiet marx-search-citation-worker.service; then
-  CITATION_WORKER_WAS_ACTIVE=1
-fi
+ACTIVE_CITATION_WORKERS=()
+for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service; do
+  if systemctl is-active --quiet "$unit"; then
+    ACTIVE_CITATION_WORKERS+=("$unit")
+  fi
+done
+
+restart_active_citation_workers() {
+  local unit
+  for unit in "${ACTIVE_CITATION_WORKERS[@]}"; do
+    echo "gracefully restarting $unit for the selected release"
+    systemctl restart "$unit" || return 1
+  done
+}
 
 rollback_primary() {
   trap - ERR
@@ -365,9 +375,7 @@ rollback_primary() {
   fi
   systemctl daemon-reload
   systemctl restart "$MAIN_SERVICE" || true
-  if [ "$CITATION_WORKER_WAS_ACTIVE" -eq 1 ]; then
-    systemctl restart marx-search-citation-worker.service || true
-  fi
+  restart_active_citation_workers || true
   if wait_health "$PRIMARY_PORT" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
     if retire_candidate_if_drained "rollback candidate"; then
       KEEP_FINAL=0
@@ -399,7 +407,7 @@ if ! systemctl restart "$MAIN_SERVICE" || ! wait_health "$PRIMARY_PORT" "$RELEAS
   rollback_primary
   exit 6
 fi
-if [ "$CITATION_WORKER_WAS_ACTIVE" -eq 1 ] && ! systemctl restart marx-search-citation-worker.service; then
+if ! restart_active_citation_workers; then
   rollback_primary
   exit 6
 fi

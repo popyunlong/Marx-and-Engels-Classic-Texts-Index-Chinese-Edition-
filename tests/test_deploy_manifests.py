@@ -210,6 +210,37 @@ def test_rollback_is_separate_locked_and_audited() -> None:
     assert "target failed health checks; current release restored" in source
 
 
+def test_release_and_rollback_restart_only_previously_active_citation_workers() -> None:
+    for relative in ("deploy/promote_release.sh", "deploy/rollback_release.sh"):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "ACTIVE_CITATION_WORKERS=()" in source
+        assert "for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service" in source
+        assert 'if systemctl is-active --quiet "$unit"' in source
+        assert 'ACTIVE_CITATION_WORKERS+=("$unit")' in source
+        assert "restart_active_citation_workers()" in source
+        assert 'for unit in "${ACTIVE_CITATION_WORKERS[@]}"' in source
+        assert 'systemctl restart "$unit" || return 1' in source
+        assert "if ! restart_active_citation_workers; then" in source
+        assert "systemctl enable marx-search-citation-agent-test-worker.service" not in source
+
+
+def test_citation_workers_finish_claimed_jobs_before_release_restart() -> None:
+    for relative in (
+        "scripts/citation_assistant_worker.py",
+        "scripts/citation_agent_test_worker.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "signal.signal(signal.SIGTERM, _request_stop)" in source
+        assert "if once or _STOP_REQUESTED:" in source
+
+    for relative in (
+        "deploy/marx-search-citation-worker.service",
+        "deploy/marx-search-citation-agent-test-worker.service",
+    ):
+        unit = (ROOT / relative).read_text(encoding="utf-8")
+        assert "TimeoutStopSec=20min" in unit
+
+
 def test_legacy_application_mutators_are_disabled_or_delegate() -> None:
     update = (ROOT / "deploy" / "update_cloud.ps1").read_text(encoding="utf-8")
     assert 'Join-Path $PSScriptRoot "release.ps1"' in update

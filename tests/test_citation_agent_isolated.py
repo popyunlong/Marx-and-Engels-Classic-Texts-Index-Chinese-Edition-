@@ -96,6 +96,120 @@ def test_agent_test_jobs_remain_owner_isolated(isolated_test_store: Path) -> Non
     assert test_tasks.get_job(str(job["id"]), 7)
 
 
+def _queue_test_job_for_analysis(
+    store: Path,
+    *,
+    corpus_sha256: str = "corpus",
+    template_version: str = "template",
+) -> dict:
+    job = test_tasks.create_job(
+        7, "匿名恢复样本.docx", _docx(store / f"recover-{template_version}.docx"),
+        recognition_depth="direct_only", scope_tokens=["book:文集"],
+        corpus_sha256=corpus_sha256, template_version=template_version,
+    )
+    test_tasks.run_extraction(str(job["id"]))
+    current = test_tasks.get_job(str(job["id"]), 7)
+    sections = [str(item["id"]) for item in current.get("sections") or []]
+    return test_tasks.set_analysis_config(
+        str(job["id"]), 7, section_ids=sections, scope_tokens=["book:文集"],
+    )
+
+
+def test_version_recovery_only_requeues_safe_current_runtime_jobs(
+    isolated_test_store: Path,
+) -> None:
+    analysis_error = "引文模板已变更，请重新创建测试任务。"
+    export_error = "引文模板已变更，为保证结果可复现，已拒绝导出。"
+
+    recoverable = _queue_test_job_for_analysis(isolated_test_store)
+    test_tasks.update_job(
+        str(recoverable["id"]), status="failed", error=analysis_error,
+        progress_done=9, progress_total=12, lease_owner="stale", lease_expires_at="2099-01-01T00:00:00+00:00",
+    )
+
+    wrong_template = _queue_test_job_for_analysis(
+        isolated_test_store, template_version="old-template",
+    )
+    test_tasks.update_job(str(wrong_template["id"]), status="failed", error=analysis_error)
+
+    wrong_corpus = _queue_test_job_for_analysis(
+        isolated_test_store, corpus_sha256="old-corpus",
+    )
+    test_tasks.update_job(str(wrong_corpus["id"]), status="failed", error=analysis_error)
+
+    missing_file = _queue_test_job_for_analysis(isolated_test_store)
+    Path(str(missing_file["extraction_path"])).unlink()
+    test_tasks.update_job(str(missing_file["id"]), status="failed", error=analysis_error)
+
+    missing_sections = _queue_test_job_for_analysis(isolated_test_store)
+    test_tasks.update_job(str(missing_sections["id"]), status="failed", error=analysis_error)
+    with test_tasks.core._connect() as conn:
+        conn.execute(
+            "UPDATE citation_assistant_jobs SET selected_sections_json='[]' WHERE id=?",
+            (str(missing_sections["id"]),),
+        )
+
+    unrelated = _queue_test_job_for_analysis(isolated_test_store)
+    test_tasks.update_job(str(unrelated["id"]), status="failed", error="模型暂不可用")
+
+    expired = _queue_test_job_for_analysis(isolated_test_store)
+    test_tasks.update_job(str(expired["id"]), status="failed", error=analysis_error)
+    with test_tasks.core._connect() as conn:
+        conn.execute(
+            "UPDATE citation_assistant_jobs SET expires_at=? WHERE id=?",
+            ("2000-01-01T00:00:00+00:00", str(expired["id"])),
+        )
+
+    exportable = _job(isolated_test_store)
+    test_tasks.update_job(
+        str(exportable["id"]), status="failed", error=export_error, candidate_count=1,
+    )
+    empty_export = _job(isolated_test_store)
+    test_tasks.update_job(str(empty_export["id"]), status="failed", error=export_error)
+
+    recovered = test_tasks.recover_jobs_for_loaded_runtime(
+        "corpus",
+        "template",
+        analysis_errors=(analysis_error,),
+        export_errors=(export_error,),
+    )
+
+    assert recovered == {"analysis": 1, "export": 1}
+    analysis = test_tasks.get_job(str(recoverable["id"]), 7)
+    assert analysis["status"] == "queued"
+    assert analysis["error"] == ""
+    assert analysis["progress_done"] == 0
+    assert analysis["progress_total"] == 0
+    assert analysis["lease_owner"] == ""
+    assert analysis["selected_sections"] == recoverable["selected_sections"]
+    assert test_tasks.get_job(str(exportable["id"]), 7)["status"] == "exporting"
+    for job in (
+        wrong_template, wrong_corpus, missing_file, missing_sections,
+        unrelated, expired, empty_export,
+    ):
+        assert test_tasks.get_job(str(job["id"]), 7)["status"] == "failed"
+
+
+def test_version_filtered_claim_leaves_stale_runtime_jobs_unclaimed(
+    isolated_test_store: Path,
+) -> None:
+    stale = test_tasks.create_job(
+        7, "旧版本.docx", _docx(isolated_test_store / "stale.docx"),
+        recognition_depth="direct_only", scope_tokens=["book:文集"],
+        corpus_sha256="corpus", template_version="old-template",
+    )
+    current = _job(isolated_test_store)
+
+    claimed = test_tasks.claim_next_job(
+        "worker:current", lease_seconds=60,
+        corpus_sha256="corpus", template_version="template",
+    )
+
+    assert claimed and claimed["id"] == current["id"]
+    assert test_tasks.get_job(str(stale["id"]), 7)["status"] == "extracting"
+    assert test_tasks.get_job(str(stale["id"]), 7)["lease_owner"] == ""
+
+
 def test_queue_rejects_original_document_metadata() -> None:
     with pytest.raises(queue.AgentQueueError, match="禁止字段"):
         queue.validate_request({
@@ -997,7 +1111,8 @@ def test_network_worker_initializes_queue_before_first_cleanup(
 
 def test_deterministic_test_worker_does_not_import_web_application() -> None:
     path = Path(__file__).resolve().parents[1] / "scripts" / "citation_agent_test_worker.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -1005,6 +1120,11 @@ def test_deterministic_test_worker_does_not_import_web_application() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module)
     assert "app" not in imported
+    assert "recover_jobs_for_loaded_runtime" in source
+    assert "corpus_sha256=loaded_corpus_sha256" in source
+    assert "template_version=loaded_template_version" in source
+    assert "runtime.template_version() != loaded_template_version" in source
+    assert "signal.signal(signal.SIGTERM, _request_stop)" in source
 
 
 def test_agent_release_bundle_is_strictly_allowlisted(tmp_path: Path) -> None:

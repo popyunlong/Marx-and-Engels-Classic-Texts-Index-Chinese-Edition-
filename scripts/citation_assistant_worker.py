@@ -9,6 +9,7 @@ Claims are atomic and leased, so a killed worker can safely be replaced.
 
 import argparse
 import os
+import signal
 import socket
 import sys
 import time
@@ -33,6 +34,15 @@ from app import (  # noqa: E402
 )
 
 
+_STOP_REQUESTED = False
+
+
+def _request_stop(_signum, _frame) -> None:
+    """Finish the claimed job before systemd replaces this worker."""
+    global _STOP_REQUESTED
+    _STOP_REQUESTED = True
+
+
 def _corpus_file_fingerprint() -> tuple[int, int, int, int] | None:
     """Identity of the on-disk corpus loaded when this process imported app."""
     try:
@@ -51,6 +61,10 @@ def _reload_if_corpus_changed(loaded_fingerprint: tuple[int, int, int, int] | No
 
 
 def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
+    global _STOP_REQUESTED
+    _STOP_REQUESTED = False
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     processed = 0
     next_cleanup_at = 0.0
@@ -68,6 +82,8 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
             flush=True,
         )
     while True:
+        if _STOP_REQUESTED:
+            return processed
         _reload_if_corpus_changed(loaded_fingerprint)
         try:
             search_export_tasks.record_worker_heartbeat(worker_id)
@@ -125,7 +141,7 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
             elif stage == "exporting":
                 _citation_export_worker(job_id)
         processed += 1
-        if once:
+        if once or _STOP_REQUESTED:
             return processed
 
 

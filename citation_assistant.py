@@ -442,8 +442,14 @@ def update_job(job_id: str, **values: object) -> None:
         conn.execute(f"UPDATE citation_assistant_jobs SET {sets} WHERE id=?", (*clean.values(), str(job_id)))
 
 
-def recover_jobs_for_loaded_corpus(corpus_sha256: str, template_version: str) -> dict[str, int]:
-    """Requeue only jobs falsely failed by a stale worker process.
+def recover_jobs_for_loaded_runtime(
+    corpus_sha256: str,
+    template_version: str,
+    *,
+    analysis_errors: Iterable[str],
+    export_errors: Iterable[str],
+) -> dict[str, int]:
+    """Requeue only version-mismatch jobs safe for the loaded runtime.
 
     A corpus promotion may restart the web process before the standalone citation worker.
     Jobs created by the new web process then already carry the *current* corpus/template
@@ -454,26 +460,31 @@ def recover_jobs_for_loaded_corpus(corpus_sha256: str, template_version: str) ->
     """
     corpus_version = str(corpus_sha256 or "").strip()
     template = str(template_version or "").strip()
-    if not corpus_version or not template:
+    analysis_messages = {
+        str(message or "").strip() for message in analysis_errors if str(message or "").strip()
+    }
+    export_messages = {
+        str(message or "").strip() for message in export_errors if str(message or "").strip()
+    }
+    version_errors = sorted(analysis_messages | export_messages)
+    if not corpus_version or not template or not version_errors:
         return {"analysis": 0, "export": 0}
 
     now = _iso()
     recovered = {"analysis": 0, "export": 0}
+    error_placeholders = ",".join("?" for _ in version_errors)
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute(
             "SELECT id,error,extraction_path,selected_sections_json,candidate_count "
             "FROM citation_assistant_jobs WHERE status='failed' AND corpus_sha256=? "
-            "AND template_version=? AND expires_at>? AND error IN (?,?)",
-            (
-                corpus_version, template, now,
-                CORPUS_ANALYSIS_VERSION_ERROR, CORPUS_EXPORT_VERSION_ERROR,
-            ),
+            f"AND template_version=? AND expires_at>? AND error IN ({error_placeholders})",
+            (corpus_version, template, now, *version_errors),
         ).fetchall()
         for row in rows:
             error = str(row[1] or "")
             target = ""
-            if error == CORPUS_ANALYSIS_VERSION_ERROR:
+            if error in analysis_messages:
                 try:
                     selected = json.loads(str(row[3] or "[]"))
                 except (TypeError, ValueError, json.JSONDecodeError):
@@ -481,7 +492,7 @@ def recover_jobs_for_loaded_corpus(corpus_sha256: str, template_version: str) ->
                 extraction_path = Path(str(row[2] or ""))
                 if selected and extraction_path.is_file():
                     target = "queued"
-            elif error == CORPUS_EXPORT_VERSION_ERROR and int(row[4] or 0) > 0:
+            elif error in export_messages and int(row[4] or 0) > 0:
                 target = "exporting"
             if not target:
                 continue
@@ -493,6 +504,16 @@ def recover_jobs_for_loaded_corpus(corpus_sha256: str, template_version: str) ->
             recovered["analysis" if target == "queued" else "export"] += 1
         conn.commit()
     return recovered
+
+
+def recover_jobs_for_loaded_corpus(corpus_sha256: str, template_version: str) -> dict[str, int]:
+    """Backward-compatible recovery for the established public corpus errors."""
+    return recover_jobs_for_loaded_runtime(
+        corpus_sha256,
+        template_version,
+        analysis_errors=(CORPUS_ANALYSIS_VERSION_ERROR,),
+        export_errors=(CORPUS_EXPORT_VERSION_ERROR,),
+    )
 
 
 def set_analysis_config(

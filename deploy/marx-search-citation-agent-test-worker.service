@@ -21,6 +21,7 @@ Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
 ExecStart=/opt/marx-search/runtime-python scripts/citation_agent_test_worker.py
 Restart=always
 RestartSec=3
+TimeoutStopSec=20min
 # The redacted SQLite/WAL queue is shared only with the dedicated Agent group.
 # Keep group write permission so either isolated worker may create WAL sidecars.
 UMask=0007

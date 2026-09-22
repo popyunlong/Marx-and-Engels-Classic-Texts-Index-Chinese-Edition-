@@ -20,6 +20,7 @@ Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
 ExecStart=/opt/marx-search/runtime-python scripts/citation_assistant_worker.py
 Restart=always
 RestartSec=3
+TimeoutStopSec=20min
 Nice=10
 CPUQuota=100%
 CPUWeight=10
