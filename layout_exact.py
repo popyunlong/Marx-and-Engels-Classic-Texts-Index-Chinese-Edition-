@@ -19,6 +19,23 @@ RUN = struct.Struct('<QQQ')  # projected character start, canonical start, lengt
 VERSION = 1
 
 
+def _runtime_pdf_path(source_file):
+    """Resolve manifest PDF paths against the configured shared PDF root.
+
+    Corpus manifests normally store paths as ``pdfs/<relative path>``.  An
+    immutable release runs from ``releases/<id>/app``, where that historical
+    relative directory does not exist; the PDFs are injected through
+    ``MARX_RUNTIME_PDF_DIR`` instead.  Keep the legacy fallback for any
+    non-standard manifest path that is not rooted under ``pdfs``.
+    """
+    source = Path(source_file)
+    if source.parts and source.parts[0].casefold() == 'pdfs':
+        from runtime_env import PDF_ROOT
+        return Path(PDF_ROOT).joinpath(*source.parts[1:])
+    from build_index import _EXEDIR
+    return Path(_EXEDIR) / source
+
+
 def volume_fingerprint(corpus, vol):
     h = hashlib.sha256()
     for p in vol.pages:
@@ -143,8 +160,7 @@ class LayoutIndex:
                 if vol is None or volume_fingerprint(corpus, vol) != entry['fingerprint']:
                     raise ValueError('layout corpus/TOC fingerprint mismatch')
                 if 'pdf_stat' in entry:
-                    from build_index import _EXEDIR
-                    stat = (Path(_EXEDIR) / sf).stat()
+                    stat = _runtime_pdf_path(sf).stat()
                     if [stat.st_size, stat.st_mtime_ns] != entry['pdf_stat']:
                         raise ValueError('layout PDF fingerprint requires revalidation')
                 if not all(c in '0123456789abcdef' for c in entry['id']) or len(entry['id']) != 64:
