@@ -95,6 +95,7 @@ def test_server_promotion_has_one_lock_and_compare_and_swap() -> None:
 
 def test_candidate_is_healthy_before_any_cutover_or_service_replacement() -> None:
     source = (ROOT / "deploy" / "promote_release.sh").read_text(encoding="utf-8")
+    assert 'HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-90}"' in source
     candidate = source.index("systemd-run")
     candidate_health = source.index('wait_health "$CANDIDATE_PORT"', candidate)
     caddy_cutover = source.index(
