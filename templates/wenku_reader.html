@@ -606,12 +606,12 @@
       const pageStr = pg ? pg.text : '';
       const cit = buildCitations(pageStr);
       const pgTxt = pg ? ('第 ' + pg.text + ' 页') : '未识别页码';
-      const fmts = cit.formats;                 // 三格式可切换；null（外文书等）则回退单一 zh
+      const fmts = cit.formats;                 // 注册表格式可切换；null（外文书等）则回退单一 zh
       let curFmt = citeFormat();
       const shown = () => (fmts && fmts[curFmt]) || cit.zh;
       const fmtSel = fmts
         ? '<label class="cp-fmt">引用格式 <select id="cpFmt">' +
-            Object.keys(CITE_FORMAT_LABELS).map(k => '<option value="' + k + '"' + (k === curFmt ? ' selected' : '') + '>' + escapeHtml(CITE_FORMAT_LABELS[k]) + '</option>').join('') +
+            citeFormatOptionsHtml(curFmt) +
           '</select></label>'
         : '';
       citePop.dataset.on = '1';
@@ -876,12 +876,18 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
                  source: (m && m.getAttribute('content') || '').trim() };
       }catch(e){ return {}; }
     }
-    // 三种标准中文引文格式（与检索/AI 页共用同一套：国标 GB/T 7714 / 中国社会科学 / 马克思主义研究），
-    // 供「引用所选 / 引用本页」下拉切换；共用同一把 localStorage 键，跨页记忆。仅中文《文集》流式启用。
+    // 全站中文引文格式注册表；与检索、PDF 阅读器、AI 和 Agent 共用记忆键。
     const CITE_FORMAT_KEY = 'marx-citation-format-v1';
-    const CITE_FORMAT_LABELS = { gb2025: '国标 GB/T 7714—2025', gb2015: '国标 GB/T 7714—2015', zgshkx: '《中国社会科学》', mkszyj: '《马克思主义研究》' };
+    const CITE_FORMAT_GROUPS = {{ citation_style_groups | tojson }};
+    const CITE_FORMAT_LABELS = {{ citation_style_labels | tojson }};
+    const CITE_FORMAT_TEMPLATES = {{ citation_style_templates | tojson }};
+    function citeFormatOptionsHtml(current){
+      return CITE_FORMAT_GROUPS.map(group => '<optgroup label="' + escapeHtml(group.label) + '">' +
+        (group.styles || []).map(style => '<option value="' + style.key + '"' + (style.key === current ? ' selected' : '') + '>' + escapeHtml(style.label) + '</option>').join('') +
+        '</optgroup>').join('');
+    }
     function citeFormat(){ try{ const val = localStorage.getItem(CITE_FORMAT_KEY); return CITE_FORMAT_LABELS[val] ? val : 'gb2015'; }catch(e){ return 'gb2015'; } }
-    // 从卷字段就地拼装三格式，与后端 search.DEFAULT_CITATION_TEMPLATES 对齐（题名领起、无著者前缀）。
+    // 从卷字段就地构造与后端一致的结构化字段，再套用注册表模板。
     // 仅中文《文集》(lang=zh) 生成；外文书/缺题名·出版者时返回 null → 不显下拉、回退到 zh 单一格式。
     function stdCiteFormats(c, v, page){
       if((CFG.lang || 'zh') !== 'zh') return null;
@@ -892,12 +898,33 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
       if(mm){ place = mm[1]; pub = mm[2]; }
       if(!pub) return null;
       const n = (v.n != null ? v.n : ''), year = (v.year != null ? v.year : ''), pg = page || '';
-      return {
-        gb2025: `${title}:第${n}卷[M].${place}:${pub},${year}:${pg}.`,
-        gb2015: `${title}:第${n}卷[M].${place}:${pub},${year}:${pg}.`,
-        zgshkx: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
-        mkszyj: `《${title}》第${n}卷，${place}：${pub}，${year}年，第${pg}页。`,
+      const volumeSegment = n === '' ? '' : `第${n}卷`;
+      const responsibility = String(c.author_zh || '').trim().replace(/、/g, '，');
+      const publisherPlace = place && pub ? `${place}：${pub}` : (pub || place);
+      const yearText = year === '' ? '' : `${year}年`;
+      const authorLeadBits = [responsibility, String(year)].filter(Boolean);
+      const parts = {
+        title, edition_title:title, edition_compact:'', volume:String(n), volume_segment:volumeSegment,
+        volume_parenthesized:volumeSegment ? `（${volumeSegment}）` : '',
+        volume_colon:volumeSegment ? `：${volumeSegment}` : '', volume_comma:volumeSegment ? `，${volumeSegment}` : '',
+        volume_gb:volumeSegment ? `:${volumeSegment}` : '', place, publisher:pub, year:String(year||'xxxx'),
+        page:`第${pg}页`, page_range:String(pg||'页码未核实'), page_note:'', edition_suffix:'',
+        responsibility_cn:responsibility ? responsibility + '.' : '',
+        responsibility_author_year:responsibility ? responsibility + '，' : '', responsibility_gb:'',
+        responsibility_tail_cn:'', responsibility_tail_gb:'',
+        publication_full:'，' + [publisherPlace, yearText].filter(Boolean).join('，'),
+        publication_publisher_year:'，' + pub + (year === '' ? '' : `${year}年版`),
+        publication_separated:'，' + [pub, yearText].filter(Boolean).join('，'),
+        publication_bibliography_cn:'.' + [publisherPlace, String(year)].filter(Boolean).join('，'),
+        publication_author_year:`，${publisherPlace}`,
+        author_year_lead:authorLeadBits.length ? authorLeadBits.join('，') + '：' : ''
       };
+      const formats = {};
+      Object.keys(CITE_FORMAT_LABELS).forEach(key => {
+        let tpl = CITE_FORMAT_TEMPLATES[key] || CITE_FORMAT_TEMPLATES.gb2015 || '';
+        formats[key] = fillTpl(tpl, parts);
+      });
+      return formats;
     }
     function buildCitations(page){
       const c = CFG.citation || {}, v = CFG.volume || {};
@@ -948,15 +975,15 @@ aside.endnotes h3{font-size:1em!important;margin:0 0 .7em!important;color:var(--
     function openCite(){
       const p = updatePageLabel();
       const cit = buildCitations(p);
-      const fmts = cit.formats;                 // 中文《文集》有三格式可切换；外文书为 null
+      const fmts = cit.formats;                 // 中文《文集》有注册表格式可切换；外文书为 null
       const zhEl = document.getElementById('citeZh');
       const lab = document.getElementById('citeZhLab');
       const sel = document.getElementById('citeFmtSel');
       let curFmt = citeFormat();
       const setZh = () => { zhEl.textContent = (fmts && fmts[curFmt]) || cit.zh; };
-      if(fmts){          // 用下拉替换固定「中文（GB/T 7714）」标签，可切三格式
+      if(fmts){          // 用下拉替换固定「中文（GB/T 7714）」标签，可切换全站格式
         lab.style.display = 'none'; sel.style.display = '';
-        sel.innerHTML = Object.keys(CITE_FORMAT_LABELS).map(k => '<option value="' + k + '"' + (k === curFmt ? ' selected' : '') + '>' + CITE_FORMAT_LABELS[k] + '</option>').join('');
+        sel.innerHTML = citeFormatOptionsHtml(curFmt);
         sel.onchange = function(){ curFmt = this.value; try{ localStorage.setItem(CITE_FORMAT_KEY, curFmt); }catch(e){} setZh(); };
       } else { lab.style.display = ''; sel.style.display = 'none'; }
       setZh();

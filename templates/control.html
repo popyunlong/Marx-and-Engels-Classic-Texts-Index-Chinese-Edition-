@@ -1322,11 +1322,12 @@
         </script>
         <section class="card" id="citation-formats-editor" style="border:2px solid var(--accent,#7b1f1f)">
           <h2>引文检索·引用格式</h2>
-          <p class="section-note">自定义「引文检索」结果中三种引用格式（国标 GB/T 7714—2015、《中国社会科学》、《马克思主义研究》）的输出写法。仅作用于「卷·页」型经典著作（马恩文集 / 全集、列宁全集、毛邓江胡习等）的引文出处；公文（党代会报告 / 全会公报 / 五年规划）、重要文献选编等特殊体例会自动沿用其规范写法、不受此处影响。文本框留空或点「恢复默认」即回到内置默认格式。改动保存后整站即时生效。</p>
+          <p class="section-note">统一管理国家标准、综合社科与 25 种马克思主义/政治经济学期刊格式。单卷本、分册、特殊卷标、版次、译者和编者均已结构化；报告/公报的已审定权威串保持不变。文本框留空或点「恢复默认」即回到内置体例，保存后检索、阅读器、AI、Agent 和导出同步生效。</p>
           <p class="section-note" style="background:#fffdf8;border:1px dashed var(--line,#ddd);border-radius:8px;padding:8px 10px;line-height:1.9">
             可用占位符（保存后按命中实际数据替换）：
             <code>{title}</code> 题名 ·
             <code>{volume}</code> 卷次 ·
+            <code>{volume_segment}</code> 已归一的卷/册片段 ·
             <code>{place}</code> 出版地 ·
             <code>{publisher}</code> 出版者 ·
             <code>{year}</code> 出版年 ·
@@ -1342,6 +1343,13 @@
                 <strong style="flex:1">{{ row.label }}{% if row.is_custom %}<span style="color:var(--accent);font-weight:700"> · 已自定义</span>{% endif %}</strong>
                 <button type="button" class="btn secondary cfmt-reset">恢复默认</button>
               </div>
+              <div style="margin-top:5px;font-size:12px;color:var(--muted,#666)">
+                {{ row.category }} · 格式族 {{ row.family }} · 核验 {{ row.reviewed_at }}
+                {% if row.subject_codes %} · 学科代码 {{ row.subject_codes | join(' / ') }}{% endif %}
+                {% if row.aliases %} · 别名 {{ row.aliases | join(' / ') }}{% endif %}
+                {% if row.source_url %} · <a href="{{ row.source_url }}" target="_blank" rel="noopener">查看核验来源</a>{% endif %}
+              </div>
+              <div style="margin-top:3px;font-size:12px;color:var(--muted,#666)">{{ row.evidence_type }}{% if row.source_date %} · 资料日期 {{ row.source_date }}{% endif %}</div>
               <textarea class="cfmt-tpl" name="citation_tpl_{{ row.key }}" data-default="{{ row.default }}" rows="2" maxlength="240" style="width:100%;margin-top:8px;font-family:inherit;line-height:1.7;padding:8px 10px;border:1px solid var(--line,#ddd);border-radius:8px">{{ row.template }}</textarea>
               <div class="cfmt-preview" style="margin-top:6px;font-size:13px;color:var(--muted,#666)">预览：<span class="cfmt-preview-out"></span></div>
               {% if row.requires_approval %}
@@ -1360,7 +1368,17 @@
         </section>
         <script>
         (function () {
-          var SAMPLE = { title: '马克思恩格斯文集', volume: '1', place: '北京', publisher: '人民出版社', year: '2009', page: '第781页', page_range: '781', page_note: '' };
+          var SAMPLE = {
+            title: '马克思恩格斯文集', edition_title: '马克思恩格斯文集', edition_compact: '',
+            volume: '1', volume_segment: '第1卷', volume_parenthesized: '（第1卷）',
+            volume_colon: '：第1卷', volume_comma: '，第1卷', volume_gb: ':第1卷',
+            place: '北京', publisher: '人民出版社', year: '2009', page: '第781页', page_range: '781', page_note: '',
+            edition_suffix: '', responsibility_cn: '马克思，恩格斯.', responsibility_author_year: '马克思，恩格斯，',
+            responsibility_gb: '马克思,恩格斯.', responsibility_tail_cn: '', responsibility_tail_gb: '',
+            publication_full: '，北京：人民出版社，2009年', publication_publisher_year: '，人民出版社2009年版',
+            publication_separated: '，人民出版社，2009年', publication_bibliography_cn: '.北京：人民出版社，2009',
+            publication_author_year: '，北京：人民出版社', author_year_lead: '马克思，恩格斯，2009：'
+          };
           function render(tpl) {
             return String(tpl).replace(/\{(\w+)\}/g, function (m, k) { return Object.prototype.hasOwnProperty.call(SAMPLE, k) ? SAMPLE[k] : ''; });
           }

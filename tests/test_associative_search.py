@@ -1590,7 +1590,7 @@ class ReviewCitationHighlightTests(unittest.TestCase):
 
 
 class CitationFormatTests(unittest.TestCase):
-    """多格式引文（国标 / 两刊脚注）与后台自定义模板。"""
+    """28 个独立格式键、25 刊格式族与后台自定义模板。"""
 
     def setUp(self) -> None:
         self.corpus = app_module.corpus
@@ -1613,12 +1613,14 @@ class CitationFormatTests(unittest.TestCase):
             self.skipTest("no printed page")
         return vol, page
 
-    def test_to_dict_carries_three_formats(self) -> None:
+    def test_to_dict_carries_all_registered_formats(self) -> None:
+        from citation_styles import CITATION_FORMAT_KEYS
         book, sub = _corpus_sample()
         hits = self.corpus.locate_quote(sub, allow_fuzzy=False)
         self.assertTrue(hits)
         d = hits[0].to_dict()
-        self.assertEqual(set(d["citations"]), {"gb2025", "gb2015", "zgshkx", "mkszyj"})
+        self.assertEqual(set(d["citations"]), set(CITATION_FORMAT_KEYS))
+        self.assertEqual(len(d["citations"]), 28)
         self.assertTrue(d["citation"].startswith("《"))  # 向后兼容：默认仍是脚注体例
 
     def test_default_templates_match_procedural(self) -> None:
@@ -1642,6 +1644,106 @@ class CitationFormatTests(unittest.TestCase):
         self.assertTrue(d["zgshkx"].startswith("《"))
         self.assertEqual(d["zgshkx"], d["mkszyj"])  # 两刊当前同源
 
+    def test_twenty_five_journal_golden_families(self) -> None:
+        from citation_styles import CITATION_STYLE_BY_KEY, JOURNAL_STYLE_KEYS
+        vol, page = self._std_vol_page()
+        pg = str(page.printed_page).upper()
+        d = self.corpus._make_citations("文集", 1, [page], source_file=vol.source_file)
+        self.assertEqual(len(JOURNAL_STYLE_KEYS), 25)
+        self.assertEqual(d["mkszyj"], f"《马克思恩格斯文集》第1卷，北京：人民出版社，2009年，第{pg}页。")
+        self.assertEqual(d["qs"], f"《马克思恩格斯文集》（第1卷），北京：人民出版社，2009年，第{pg}页。")
+        self.assertEqual(d["gwlldx"], f"《马克思恩格斯文集》第1卷，人民出版社2009年版，第{pg}页。")
+        self.assertEqual(d["zgdsyj"], f"《马克思恩格斯文集》第1卷，人民出版社，2009年，第{pg}页。")
+        self.assertEqual(d["mkszyyxs"], f"《马克思恩格斯文集》第1卷第{pg}页。")
+        self.assertEqual(d["jxyyj"], f"《马克思恩格斯文集》，第1卷，人民出版社，2009年，第{pg}页。")
+        self.assertEqual(d["zgtsshzyyj"], f"马克思恩格斯文集：第1卷[M].北京：人民出版社，2009：{pg}.")
+        self.assertEqual(d["sxllyjdk"], f"马克思恩格斯文集，第1卷[M].北京：人民出版社，2009:{pg}.")
+        self.assertEqual(d["llsy"], f"马克思，恩格斯.马克思恩格斯文集：第1卷[M].北京：人民出版社，2009：{pg}.")
+        self.assertEqual(d["jjllyjjgl"], f"马克思，恩格斯，2009：《马克思恩格斯文集》第1卷，北京：人民出版社，第{pg}页。")
+        family_golden = {
+            "full_footnote": d["mkszyj"],
+            "parenthesized_volume_footnote": d["qs"],
+            "publisher_year_footnote": d["gwlldx"],
+            "separated_footnote": d["zgdsyj"],
+            "compact_footnote": d["mkszyyxs"],
+            "edition_compact_footnote": f"《马克思恩格斯文集》第1卷第{pg}页。",
+            "comma_segmented_footnote": d["jxyyj"],
+            "colon_volume_bibliography": d["zgtsshzyyj"],
+            "comma_volume_bibliography": d["sxllyjdk"],
+            "responsible_bibliography": d["llsy"],
+            "author_year": d["jjllyjjgl"],
+        }
+        for key in JOURNAL_STYLE_KEYS:
+            self.assertEqual(d[key], family_golden[CITATION_STYLE_BY_KEY[key].family], key)
+
+    def test_registry_alias_codes_groups_and_approval_counts(self) -> None:
+        from citation_styles import (
+            CITATION_STYLE_BY_KEY, CITATION_STYLE_ALIASES, JOURNAL_STYLE_KEYS, flat_style_options,
+        )
+        self.assertEqual(len(JOURNAL_STYLE_KEYS), 25)
+        self.assertEqual(CITATION_STYLE_ALIASES["中特研究"], "zgtsshzyyj")
+        self.assertEqual(CITATION_STYLE_BY_KEY["zgtsshzyyj"].label, "《中国特色社会主义研究》")
+        self.assertEqual(CITATION_STYLE_BY_KEY["zgtsshzyyj"].subject_codes, ("A81", "G641", "D64"))
+        self.assertEqual(len(flat_style_options(gb2025_approved=False)), 27)
+        self.assertEqual(len(flat_style_options(gb2025_approved=True)), 28)
+
+    def test_missing_publication_fields_are_omitted_not_guessed(self) -> None:
+        from citation_styles import DEFAULT_CITATION_TEMPLATES, add_publication_segments
+        from search import _CiteSafeDict
+        parts = add_publication_segments({
+            "title": "测试著作", "volume_segment": "第1卷", "volume_parenthesized": "（第1卷）",
+            "volume_colon": "：第1卷", "volume_comma": "，第1卷", "place": "", "publisher": "",
+            "year": "xxxx", "edition_suffix": "", "page": "第9页", "page_range": "9", "page_note": "",
+            "responsibility_cn": "马克思.", "responsibility_author_year": "马克思，", "responsibility_tail_cn": "",
+        })
+        footnote = DEFAULT_CITATION_TEMPLATES["mkszyj"].format_map(_CiteSafeDict(parts))
+        author_year = DEFAULT_CITATION_TEMPLATES["jjllyjjgl"].format_map(_CiteSafeDict(parts))
+        self.assertEqual(footnote, "《测试著作》第1卷，第9页。")
+        self.assertEqual(author_year, "马克思：《测试著作》第1卷，第9页。")
+        self.assertNotIn("xxxx", footnote + author_year)
+
+    def test_edition_single_volume_and_non_volume_units_are_structured(self) -> None:
+        second = next(iter(self.corpus.books.get("全集二版", [])), None)
+        if second and second.pages:
+            d = self.corpus._make_citations("全集二版", second.volume, [second.pages[0]], source_file=second.source_file)
+            self.assertIn(f"《马克思恩格斯全集》第2版第{second.volume}卷", d["ddsjyshzy"])
+            self.assertNotIn("（第二版）第2版", d["ddsjyshzy"])
+
+        single_cfg = next((cfg for cfg in self.corpus.book_configs if cfg.single_volume and self.corpus.books.get(cfg.key)), None)
+        if single_cfg:
+            vol = self.corpus.books[single_cfg.key][0]
+            parts = self.corpus._citation_parts(single_cfg.key, vol.volume, [vol.pages[0]], source_file=vol.source_file)
+            self.assertEqual(parts["volume_segment"], "")
+
+        unit_cfg = next((cfg for cfg in self.corpus.book_configs if cfg.volume_unit != "卷" and self.corpus.books.get(cfg.key)), None)
+        if unit_cfg:
+            vol = self.corpus.books[unit_cfg.key][0]
+            parts = self.corpus._citation_parts(unit_cfg.key, vol.volume, [vol.pages[0]], source_file=vol.source_file)
+            self.assertEqual(parts["volume_segment"], f"第{vol.volume}{unit_cfg.volume_unit}")
+
+    def test_page_ranges_and_missing_printed_page_flow_to_all_families(self) -> None:
+        from search import Page
+        pages = [
+            Page(pdf_page=1, printed_page="123", raw_text="", norm_text=""),
+            Page(pdf_page=2, printed_page="124", raw_text="", norm_text=""),
+        ]
+        d = self.corpus._make_citations("文集", 1, pages, source_file="pdfs/文集/马克思恩格斯文集第1卷.pdf")
+        self.assertIn("第123-124页", d["mkszyj"])
+        self.assertIn(":123-124.", d["sxllyjdk"])
+
+        disjoint = [
+            Page(pdf_page=1, printed_page="123", raw_text="", norm_text=""),
+            Page(pdf_page=3, printed_page="126", raw_text="", norm_text=""),
+        ]
+        d2 = self.corpus._make_citations("文集", 1, disjoint, source_file="pdfs/文集/马克思恩格斯文集第1卷.pdf")
+        self.assertIn("第123页；第126页", d2["mkszyj"])
+        self.assertIn("123；126", d2["zgtsshzyyj"])
+
+        missing = [Page(pdf_page=9, printed_page=None, raw_text="", norm_text="")]
+        d3 = self.corpus._make_citations("文集", 1, missing, source_file="pdfs/文集/马克思恩格斯文集第1卷.pdf")
+        self.assertIn("此为PDF页码，非原书印刷页码", d3["mkszyj"])
+        self.assertIn("此为PDF页码，非原书印刷页码", d3["jjllyjjgl"])
+
     def test_custom_template_overrides_single_format(self) -> None:
         vol, page = self._std_vol_page()
         self.corpus.set_citation_templates(
@@ -1661,9 +1763,9 @@ class CitationFormatTests(unittest.TestCase):
             self.corpus._make_citation_gb("文集", 1, [page], source_file=vol.source_file),
         )
 
-    def test_special_books_ignore_templates(self) -> None:
+    def test_authoritative_documents_ignore_templates(self) -> None:
         special = None
-        for key in ("十八大以来重要文献选编", "五年规划", "历次党代会报告"):
+        for key in ("五年规划", "历次党代会报告", "历届全会公报"):
             vols = self.corpus.books.get(key) or []
             if vols:
                 special = (key, vols[0])
@@ -1683,8 +1785,10 @@ class CitationFormatTests(unittest.TestCase):
         self.assertFalse(d["gb2015"].startswith("X"))  # 自定义模板未生效
 
     def test_editor_rows_and_loader_drops_default(self) -> None:
+        from citation_styles import CITATION_FORMAT_KEYS
         rows = app_module._citation_formats_editor()
-        self.assertEqual([r["key"] for r in rows], ["gb2025", "gb2015", "zgshkx", "mkszyj"])
+        self.assertEqual([r["key"] for r in rows], list(CITATION_FORMAT_KEYS))
+        self.assertTrue(all(r["source_url"] and r["reviewed_at"] and r["family"] for r in rows))
         app_module.set_setting(
             "citation_formats", {"zgshkx": app_module.DEFAULT_CITATION_TEMPLATES["zgshkx"]}
         )

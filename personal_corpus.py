@@ -17,6 +17,7 @@ from pathlib import Path
 from statistics import median
 
 from book_config import BookConfig
+from citation_styles import add_publication_segments
 from build_index import detect_printed_page_from_text, normalize
 from runtime_env import APPDATA_DIR
 from search import Corpus, Page
@@ -2765,6 +2766,25 @@ class PersonalCorpus(Corpus):
         if year:
             publication += f",{year}" if publication else f".{year}"
         return f"{prefix}{cfg.citation_title}[M]{translator}{publication}:{page}."
+
+    def _citation_parts(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
+        """个人书目只使用用户已确认的出版项，不回退公共书库的默认出版社/年份。"""
+        parts = super()._citation_parts(book, volume, pages, source_file=source_file)
+        bib = self._bibliographic(book)
+        parts["place"] = str(bib.get("place") or "")
+        parts["publisher"] = str(bib.get("publisher") or "")
+        parts["year"] = str(bib.get("year") or "")
+        return add_publication_segments(parts)
+
+    def _make_citations(self, book: str, volume: int, pages: list[Page], source_file: str | None = None) -> dict[str, str]:
+        bib = self._bibliographic(book)
+        # 格式族模板需要出版项才能安全放置分隔符。个人书若缺出版社或年份，
+        # 沿用上面的“只输出已知字段”权威串，不伪造“人民出版社/xxxx”。
+        if not str(bib.get("publisher") or "").strip() or not str(bib.get("year") or "").strip():
+            journal = self._make_citation(book, volume, pages, source_file=source_file)
+            gb = self._make_citation_gb(book, volume, pages, source_file=source_file)
+            return {key: (gb if key in {"gb2025", "gb2015"} else journal) for key in self.CITATION_FORMATS}
+        return super()._make_citations(book, volume, pages, source_file=source_file)
 
 
 def _signature(books: list[dict]) -> str:

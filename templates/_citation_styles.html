@@ -1,0 +1,8 @@
+{% macro citation_options(groups, selected_key='', include_auto=false) -%}
+  {% if include_auto %}<option value="auto"{% if selected_key == 'auto' %} selected{% endif %}>自动识别</option>{% endif %}
+  {% for group in groups %}
+  <optgroup label="{{ group.label }}">
+    {% for style in group.styles %}<option value="{{ style.key }}"{% if style.key == selected_key %} selected{% endif %}>{{ style.label }}</option>{% endfor %}
+  </optgroup>
+  {% endfor %}
+{%- endmacro %}

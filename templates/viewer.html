@@ -1,3 +1,4 @@
+{% from "_citation_styles.html" import citation_options with context %}
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1181,9 +1182,7 @@
                 <label class="page-cite-format" for="pageCiteFormatSelect">
                   <span>引用格式</span>
                   <select id="pageCiteFormatSelect" aria-label="选择本页引文格式">
-                    <option value="gb2015">国标 GB/T 7714—2015</option>
-                    <option value="zgshkx">《中国社会科学》</option>
-                    <option value="mkszyj" selected>《马克思主义研究》</option>
+                    {{ citation_options(citation_style_groups, 'mkszyj') }}
                   </select>
                 </label>
                 <button type="button" class="tool-btn secondary" id="copyCiteBtn">复制引文</button>
@@ -1431,7 +1430,7 @@
   let imageSeq = 0;
   let pageLoadSeq = 0;       // 快速连续跳页时，只允许最后一次请求更新正文与引文。
   const PAGE_CITE_FORMAT_KEY = 'marx-citation-format-v1';
-  const PAGE_CITE_FORMATS = { gb2015: true, zgshkx: true, mkszyj: true };
+  const PAGE_CITE_FORMATS = Object.fromEntries(Object.keys({{ citation_style_labels | tojson }}).map(k => [k, true]));
   const PAGE_CITE_FORMAT_DEFAULT = 'mkszyj';
   function loadPageCiteFormat() {
     try {
@@ -3131,4 +3130,3 @@
   {% include "_marx_mascot.html" %}
 </body>
 </html>
-

@@ -14,6 +14,7 @@
      data-csrf="{{ csrf_token }}"
      data-empty="{{ site_text('index.ai_empty_state') }}"
      data-locked="{{ site_text('index.ai_drawer_locked_login') }}"
+     data-citation-styles='{{ citation_style_options | tojson | forceescape }}'
      data-unavailable="{{ site_text('index.ai_unavailable') }}">
 
   {% if aia_variant != 'inline' %}
@@ -80,4 +81,4 @@
   </aside>
 </div>
 <script src="/static/book-scope/book-scope.js?v=3" defer></script>
-<script src="/static/ai-assistant/ai-assistant.js?v=7" defer></script>
+<script src="/static/ai-assistant/ai-assistant.js?v=8" defer></script>
