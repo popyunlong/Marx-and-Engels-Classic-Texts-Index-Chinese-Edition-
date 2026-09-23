@@ -1437,7 +1437,8 @@ def test_pdf_position_recovery_is_current_version_pdf_only_and_lossless(
 
     def failed_pdf_job(
         name: str, *, corpus: str = "corpus", template: str = "template",
-        error: str = legacy_error, keep_word: bool = True, expired: bool = False,
+        error: str = legacy_error, pdf_status: str = "position_failed",
+        keep_word: bool = True, expired: bool = False,
     ) -> tuple[dict, Path]:
         job = test_tasks.create_job(
             7, f"{name}.docx", _docx(isolated_test_store / f"{name}-source.docx"),
@@ -1459,7 +1460,7 @@ def test_pdf_position_recovery_is_current_version_pdf_only_and_lossless(
         )
         test_tasks.update_job(
             str(job["id"]), status="complete", word_export_status="ready",
-            pdf_export_status="position_failed", output_docx_path=str(word_path),
+            pdf_export_status=pdf_status, output_docx_path=str(word_path),
             output_pdf_path=str(word_path.with_suffix(".pdf")), error=error,
             progress_done=1, progress_total=1, pdf_position_failure_count=1,
         )
@@ -1475,13 +1476,18 @@ def test_pdf_position_recovery_is_current_version_pdf_only_and_lossless(
 
     recoverable, word_path = failed_pdf_job("recoverable")
     word_hash = hashlib.sha256(word_path.read_bytes()).hexdigest()
+    body_validation, body_word_path = failed_pdf_job(
+        "body-validation", error=public_tasks.LEGACY_PDF_BODY_ERROR_PREFIX,
+        pdf_status="failed",
+    )
+    body_word_hash = hashlib.sha256(body_word_path.read_bytes()).hexdigest()
     wrong_template, _ = failed_pdf_job("wrong-template", template="old-template")
     wrong_corpus, _ = failed_pdf_job("wrong-corpus", corpus="old-corpus")
     other_error, _ = failed_pdf_job("other-error", error="Word 已生成；PDF 未生成：转换失败。")
     expired, _ = failed_pdf_job("expired", expired=True)
     missing_word, _ = failed_pdf_job("missing-word", keep_word=False)
 
-    assert test_tasks.recover_pdf_position_failures("corpus", "template") == 1
+    assert test_tasks.recover_pdf_position_failures("corpus", "template") == 2
     current = test_tasks.get_job(str(recoverable["id"]), 7)
     assert current["status"] == "exporting"
     assert current["word_export_status"] == "ready"
@@ -1492,6 +1498,10 @@ def test_pdf_position_recovery_is_current_version_pdf_only_and_lossless(
     assert current["progress_done"] == 0 and current["progress_total"] == 1
     assert hashlib.sha256(word_path.read_bytes()).hexdigest() == word_hash
     assert test_tasks.all_candidates(str(recoverable["id"]))[0]["decision"] == "accepted"
+    body_current = test_tasks.get_job(str(body_validation["id"]), 7)
+    assert body_current["status"] == "exporting"
+    assert body_current["pdf_export_status"] == "converting"
+    assert hashlib.sha256(body_word_path.read_bytes()).hexdigest() == body_word_hash
     for unchanged in (wrong_template, wrong_corpus, other_error, expired, missing_word):
         row = test_tasks.get_job(str(unchanged["id"]), 7)
         assert row["status"] == "complete"
@@ -1809,3 +1819,30 @@ def test_pdf_locator_sorts_out_of_storage_order_fragments_by_page_coordinates(
     assert page_index == 0
     assert rectangles
     assert rectangles[0].x0 < rectangles[-1].x0
+
+
+def test_pdf_validation_uses_visual_order_for_body_retention(tmp_path: Path) -> None:
+    source = tmp_path / "visual-order-source.docx"
+    body_text = "visual beginning middle anchor closing phrase retained body text"
+    document = Document()
+    document.add_paragraph(body_text)
+    document.save(source)
+
+    pdf_path = tmp_path / "visual-order-validated.pdf"
+    pdf = public_tasks.fitz.open()
+    page = pdf.new_page()
+    page.insert_text((230, 72), "middle anchor")
+    page.insert_text((72, 72), "visual beginning")
+    page.insert_text((340, 72), "closing phrase retained body text")
+    page.insert_text((72, 102), "proofreading note")
+    pdf.save(pdf_path)
+    pdf.close()
+
+    with public_tasks.fitz.open(pdf_path) as check:
+        assert public_tasks.normalize(check[0].get_text("text")) != public_tasks.normalize(body_text)
+    result = public_tasks._validate_annotated_pdf(
+        pdf_path,
+        {"input_path": str(source)},
+        [{"decision": "accepted", "issue_label": "proofreading note"}],
+    )
+    assert result == {"pages": 1, "rendered_pages": 1}

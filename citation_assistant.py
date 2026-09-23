@@ -81,6 +81,13 @@ CORPUS_EXPORT_VERSION_ERROR = "语料库版本已变更，为保证结果可复�
 LEGACY_PDF_POSITION_ERROR_PREFIX = (
     "Word 已生成；PDF 未生成：PDF 批注定位校验失败：无法唯一定位"
 )
+LEGACY_PDF_BODY_ERROR_PREFIX = (
+    "Word 已生成；PDF 未生成：批注式 PDF 未充分保留原论文正文版式内容。"
+)
+LEGACY_PDF_RECOVERY_ERROR_PREFIXES = (
+    LEGACY_PDF_POSITION_ERROR_PREFIX,
+    LEGACY_PDF_BODY_ERROR_PREFIX,
+)
 REASON_LABELS = {
     "exact_text": "逐字核对一致",
     "near_text_requires_review": "文字接近，仍需人工复核",
@@ -544,7 +551,7 @@ def recover_pdf_position_failures(
     corpus_sha256: str,
     template_version: str,
     *,
-    error_prefix: str = LEGACY_PDF_POSITION_ERROR_PREFIX,
+    error_prefixes: Iterable[str] = LEGACY_PDF_RECOVERY_ERROR_PREFIXES,
 ) -> int:
     """Requeue PDF-only retries that were rejected by the legacy locator.
 
@@ -557,26 +564,30 @@ def recover_pdf_position_failures(
     """
     corpus_version = str(corpus_sha256 or "").strip()
     template = str(template_version or "").strip()
-    prefix = str(error_prefix or "").strip()
-    if not corpus_version or not template or not prefix:
+    prefixes = tuple(dict.fromkeys(
+        str(prefix or "").strip() for prefix in error_prefixes if str(prefix or "").strip()
+    ))
+    if not corpus_version or not template or not prefixes:
         return 0
 
     now = _iso()
     recovered = 0
+    error_clause = " OR ".join("error LIKE ?" for _prefix in prefixes)
+    error_values = tuple(f"{prefix}%" for prefix in prefixes)
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         rows = conn.execute(
             "SELECT id,user_id,output_docx_path FROM citation_assistant_jobs "
             "WHERE status='complete' AND mode IN ('audit','both') "
-            "AND word_export_status='ready' AND pdf_export_status='position_failed' "
+            "AND word_export_status='ready' AND pdf_export_status IN ('position_failed','failed') "
             "AND corpus_sha256=? AND template_version=? AND expires_at>? "
-            "AND error LIKE ? AND EXISTS ("
+            f"AND ({error_clause}) AND EXISTS ("
             " SELECT 1 FROM citation_assistant_candidates candidate "
             " WHERE candidate.job_id=citation_assistant_jobs.id "
             " AND candidate.kind='audit' AND candidate.decision='accepted' "
             " AND candidate.match_type!='locator'"
             ") ORDER BY created_at",
-            (corpus_version, template, now, f"{prefix}%"),
+            (corpus_version, template, now, *error_values),
         ).fetchall()
         for row in rows:
             job_id = str(row[0])
@@ -594,9 +605,9 @@ def recover_pdf_position_failures(
                 "pdf_export_status='converting',output_pdf_path='',"
                 "pdf_position_failure_count=0,progress_done=0,progress_total=1,"
                 "error='',lease_owner='',lease_expires_at='',updated_at=? "
-                "WHERE id=? AND status='complete' AND pdf_export_status='position_failed' "
-                "AND error LIKE ?",
-                (now, job_id, f"{prefix}%"),
+                "WHERE id=? AND status='complete' AND pdf_export_status IN ('position_failed','failed') "
+                f"AND ({error_clause})",
+                (now, job_id, *error_values),
             ).rowcount
             recovered += int(changed == 1)
         conn.commit()
@@ -3963,7 +3974,8 @@ def _validate_annotated_pdf(path: Path, job: dict, candidates: list[dict]) -> di
             raise CitationAssistantError("批注式 PDF 没有有效页面。")
         page_count = document.page_count
         for page in document:
-            text_parts.append(page.get_text("text"))
+            visual_text, _boxes = _pdf_normalized_geometry(page)
+            text_parts.append(visual_text)
             pixmap = page.get_pixmap(matrix=fitz.Matrix(0.6, 0.6), colorspace=fitz.csGRAY, alpha=False)
             if pixmap.samples and min(pixmap.samples) < 250:
                 rendered_nonblank += 1
@@ -3985,7 +3997,7 @@ def _validate_annotated_pdf(path: Path, job: dict, candidates: list[dict]) -> di
         ][:40]
         retained = sum(bool(sample and sample in pdf_norm) for sample in samples)
         if samples and retained / len(samples) < 0.60:
-            raise CitationAssistantError("批注式 PDF 未充分保留原论文正文版式内容。")
+            raise CitationAssistantError("批注式 PDF 正文视觉文本完整性校验未通过。")
     except CitationAssistantError:
         raise
     except Exception as exc:
