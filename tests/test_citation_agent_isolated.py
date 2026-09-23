@@ -1072,6 +1072,8 @@ def test_admin_ui_distinguishes_locator_from_textual_evidence() -> None:
     assert ".map(reasonLabel)" in script
     assert "class=\"ca-citation-edit cat-citation-edit\"" in script
     assert "scrollHeight" in script
+    assert "legacyIssueLabels" in script
+    assert "esc(issueLabel(candidate))" in script
 
 
 def test_network_worker_does_not_import_site_or_corpus() -> None:
@@ -1399,6 +1401,14 @@ def test_comment_uses_verified_note_markers_and_never_internal_ids() -> None:
     assert "66" not in comment
     assert "审核原因：逐字核对一致、校注意见只写入 Word 批注，不改正文" in comment
     assert "exact_text" not in comment
+
+    legacy_label = dict(
+        candidate,
+        issue_label="已核验原文；管理员确认后仅以 Word 批注写入",
+    )
+    legacy_comment = public_tasks._candidate_comment_text(legacy_label)
+    assert "采信后将作为 Word 批注写入，不改动正文" in legacy_comment
+    assert "管理员确认后" not in legacy_comment
 
     literal = dict(candidate, existing_note_kind="manual_endnote", existing_note_marker="〔43〕")
     literal_comment = public_tasks._candidate_comment_text(literal)

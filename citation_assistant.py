@@ -101,6 +101,10 @@ REASON_LABELS = {
     "unsafe_ooxml_anchor": "Word 结构复杂，不能安全自动写入",
     "no_local_evidence": "未找到可核验的站内证据",
 }
+LEGACY_ISSUE_LABELS = {
+    "已核验原文；管理员确认后仅以 Word 批注写入":
+        "已核验原文；采信后将作为 Word 批注写入，不改动正文",
+}
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -177,6 +181,12 @@ class CitationAssistantError(ValueError):
 def reason_label(code: object) -> str:
     """Return a readable public label without exposing internal reason codes."""
     return REASON_LABELS.get(str(code or "").strip(), "其他需要人工复核的情况")
+
+
+def readable_issue_label(candidate: dict) -> str:
+    """Keep stored decision data stable while modernizing public wording."""
+    label = str(candidate.get("issue_label") or candidate.get("issue_code") or "校注建议")
+    return LEGACY_ISSUE_LABELS.get(label, label)
 
 
 def _utcnow() -> datetime:
@@ -2924,7 +2934,7 @@ def _candidate_comment_text(candidate: dict) -> str:
     decision = {"accepted": "已采用", "pending": "待确认", "rejected": "已排除"}.get(
         str(candidate.get("decision") or "pending"), "待确认",
     )
-    lines = [f"{candidate.get('issue_label') or candidate.get('issue_code') or '校注建议'}｜{decision}"]
+    lines = [f"{readable_issue_label(candidate)}｜{decision}"]
     match_labels = {"exact": "逐字一致", "near": "近似文字", "paraphrase": "观点依据", "none": "文字未核验"}
     resolution_labels = {
         "unique": "唯一出处", "reference_disambiguated": "参考文献消歧",
