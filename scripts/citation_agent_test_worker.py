@@ -107,10 +107,18 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
         analysis_errors=(CORPUS_ANALYSIS_VERSION_ERROR, TEMPLATE_ANALYSIS_VERSION_ERROR),
         export_errors=(CORPUS_EXPORT_VERSION_ERROR, TEMPLATE_EXPORT_VERSION_ERROR),
     )
+    recovered_pdf = tasks.recover_pdf_position_failures(
+        loaded_corpus_sha256, loaded_template_version,
+    )
     if recovered["analysis"] or recovered["export"]:
         print(
             "citation Agent test worker recovered version-mismatch jobs "
             f"analysis={recovered['analysis']} export={recovered['export']}",
+            flush=True,
+        )
+    if recovered_pdf:
+        print(
+            f"citation Agent test worker queued PDF-only recovery jobs={recovered_pdf}",
             flush=True,
         )
     while True:

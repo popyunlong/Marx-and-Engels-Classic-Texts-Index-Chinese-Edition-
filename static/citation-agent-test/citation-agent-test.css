@@ -151,6 +151,10 @@ body.cat-page .ca-job:hover { transform: translateY(-1px); border-color: rgba(35
 .cat-readonly .ca-cand-head { justify-content: flex-start; }
 .cat-evidence-mark { padding: 0 .08em; border-radius: .18em; background: #ffe6a3; color: inherit; }
 body.cat-page .ca-candidate { border-color: var(--cat-line); box-shadow: 0 8px 22px rgba(43, 65, 55, .045); }
+body.cat-page .cat-citation-editor { padding: 13px; border: 1px solid rgba(35, 107, 79, .16); border-radius: 12px; background: linear-gradient(135deg, #fbfdfb, #f7f4ed); }
+body.cat-page .cat-citation-edit { display: block; width: 100%; min-height: 104px; max-height: 260px; padding: 13px 15px; border: 1px solid rgba(35, 107, 79, .26); border-radius: 10px; background: rgba(255, 255, 255, .94); color: var(--cat-ink); font: inherit; font-size: 14px; line-height: 1.8; resize: vertical; box-shadow: inset 0 1px 2px rgba(31, 58, 46, .035); transition: border-color .16s, box-shadow .16s, background .16s; }
+body.cat-page .cat-citation-edit:focus { outline: none; border-color: var(--cat-green-2); background: #fff; box-shadow: 0 0 0 3px rgba(59, 135, 105, .12); }
+body.cat-page .cat-citation-editor small { display: block; margin-top: 7px; color: var(--cat-muted); font-size: 11px; }
 body.cat-page .ca-exportbar-top { border: 1px solid rgba(35, 107, 79, .25); background: linear-gradient(105deg, #f2f8f4, #fbf8f0); }
 body.cat-page .ca-review-tabs button.active { border-color: var(--cat-deep); background: var(--cat-deep); }
 

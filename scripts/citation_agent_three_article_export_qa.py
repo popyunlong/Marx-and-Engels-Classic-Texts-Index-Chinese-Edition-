@@ -176,9 +176,12 @@ def run_case(
             raise RuntimeError(f"missing rendered QA PDF: {rendered_pdf}")
         review_items = core._pdf_review_manifest(job, accepted)
         with core.fitz.open(rendered_pdf) as rendered:
-            page_texts = [core.normalize(page.get_text("text")) for page in rendered]
+            page_geometries = [core._pdf_normalized_geometry(page) for page in rendered]
+            page_texts = [geometry[0] for geometry in page_geometries]
             for item in review_items:
-                core._locate_pdf_candidate(rendered, page_texts, item)
+                core._locate_pdf_candidate(
+                    rendered, page_texts, item, page_geometries=page_geometries,
+                )
                 located_comments += 1
         if located_comments != expected_comments:
             raise RuntimeError(

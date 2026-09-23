@@ -370,9 +370,14 @@ def _apply_test_evidence_rules(
                 or (candidate_kind == "audit" and bool(paragraph.get("has_field")))
             )
         )
+        cross_reference = str(result.get("existing_note_kind") or "") == "reference_field"
         if level == "paraphrase" or scope == "locator_only":
             writeback = "none"
-        elif bool(paragraph.get("tracked")) or str(result.get("review_bucket") or "") == "unresolved":
+        elif (
+            cross_reference
+            or bool(paragraph.get("tracked"))
+            or str(result.get("review_bucket") or "") == "unresolved"
+        ):
             writeback = "readonly"
         elif candidate_kind == "audit" and options and safe_anchor:
             writeback = "comment"
@@ -396,6 +401,7 @@ def _apply_test_evidence_rules(
         if resolution == "locator_only": reasons.append("locator_without_text_match")
         if writeback == "comment": reasons.append("proofreading_comment_only")
         if writeback in core.VALID_NOTE_KINDS: reasons.append("auto_insert_hard_evidence")
+        if cross_reference: reasons.append("cross_reference_readonly")
         if writeback == "readonly": reasons.append("unsafe_ooxml_anchor")
         if not options: reasons.append("no_local_evidence")
         result["reason_codes"] = list(dict.fromkeys(reasons))
@@ -437,7 +443,7 @@ def _apply_test_evidence_rules(
             "review_bucket": "actionable" if audit_comment else "unresolved",
             "verification_scope": "readonly_structure",
             "issue_label": (
-                "已核验原文；管理员确认后仅以 Word 批注写入"
+                "已核验原文；采信后将作为 Word 批注写入，不改动正文"
                 if audit_comment else "已核验原文；该段含复杂结构，仅供只读复核"
             ),
             "auto_selected": False,
@@ -1220,6 +1226,10 @@ def claim_next_job(*args, **kwargs):
 
 def recover_jobs_for_loaded_runtime(*args, **kwargs):
     return core.recover_jobs_for_loaded_runtime(*args, **kwargs)
+
+
+def recover_pdf_position_failures(*args, **kwargs):
+    return core.recover_pdf_position_failures(*args, **kwargs)
 
 
 def choose_citation_style(*args, **kwargs):

@@ -103,6 +103,8 @@
   const textMatchLabels={exact:'逐字一致',near:'近似文字',none:'文字未核验',paraphrase:'观点依据'};
   const sourceResolutionLabels={unique:'唯一出处',reference_disambiguated:'参考文献消歧',multiple:'多个转载版本',locator_only:'仅页码定位',none:'无站内出处'};
   const writebackLabels={footnote:'浅蓝色脚注插入',endnote:'浅蓝色尾注插入',comment:'正文 Word 批注',readonly:'网页只读',none:'不写回文件'};
+  const reasonLabels={exact_text:'逐字核对一致',near_text_requires_review:'文字接近，仍需人工复核',paraphrase_never_auto:'属于观点转述，不会自动采用',reference_field_disambiguated:'已通过参考文献交叉核对出处',multiple_reprints:'存在多个转载或版本，需人工选择',locator_without_text_match:'仅核对到页码，尚未核实文字',proofreading_comment_only:'校注意见只写入 Word 批注，不改正文',auto_insert_hard_evidence:'证据充分，可安全自动插注',cross_reference_readonly:'尾注交叉引用无法唯一解析，仅供人工复核',unsafe_ooxml_anchor:'Word 结构复杂，不能安全自动写入',no_local_evidence:'未找到可核验的站内证据'};
+  function reasonLabel(code){return reasonLabels[String(code||'')]||'其他需要人工复核的情况'}
   function badges(candidate){
     const locatorOnly=candidate.match_type==='locator'||candidate.verification_scope==='locator_only';
     const origin=locatorOnly?'<span class="ca-tag">原注页码定位</span>':(candidate.evidence_origin==='agent'?'<span class="ca-tag cat-origin">Agent 补漏</span>':(candidate.evidence_level==='exact'?'<span class="ca-tag">确定性命中</span>':'<span class="ca-tag">确定性检索</span>'));
@@ -119,8 +121,8 @@
     const viewpointNotice=viewpoint?'<div class="ca-rule-note"><b>这不是引文命中</b><span>仅表示该站内文献可能支持论文观点；不得用它声称论文语句出自该处。</span></div>':'';
     const scope=candidate.verification_scope||(locatorOnly?'locator_only':'unknown'),scopeNotice='<div class="ca-rule-note"><b>核验范围</b><span>'+esc(verificationLabels[scope]||verificationLabels.unknown)+'</span></div>';
     const resultNotice='<div class="ca-rule-note"><b>文字与来源</b><span>'+esc(textMatchLabels[candidate.text_match_level]||'文字未核验')+'；'+esc(sourceResolutionLabels[candidate.source_resolution]||'无站内出处')+'；'+esc(writebackLabels[candidate.writeback_mode]||'不写回文件')+'</span></div>';
-    const reasonNotice=(candidate.reason_codes||[]).length?'<div class="ca-rule-note"><b>审核原因</b><span>'+esc((candidate.reason_codes||[]).join('、'))+'</span></div>':'';
-    const editableEvidence='<dt>站内证据</dt><dd class="ca-source">'+select+'<div class="cat-evidence-context">'+evidenceHtml(option.context,false)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原文 ↗</a></dd><dt>'+(viewpoint?'建议依据注':'建议注释')+'</dt><dd><textarea data-field="citation">'+esc(candidate.proposed_citation||'')+'</textarea></dd>';
+    const reasonNotice=(candidate.reason_codes||[]).length?'<div class="ca-rule-note"><b>审核原因</b><span>'+esc((candidate.reason_codes||[]).map(reasonLabel).join('；'))+'</span></div>':'';
+    const editableEvidence='<dt>站内证据</dt><dd class="ca-source">'+select+'<div class="cat-evidence-context">'+evidenceHtml(option.context,false)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原文 ↗</a></dd><dt>'+(viewpoint?'建议依据注':'建议注释')+'</dt><dd class="cat-citation-editor"><textarea class="ca-citation-edit cat-citation-edit" data-field="citation" rows="3" aria-label="'+(viewpoint?'建议依据注':'建议注释')+'">'+esc(candidate.proposed_citation||'')+'</textarea><small>可在采信前修改；内容会随卡片决定一并保存。</small></dd>';
     const locatorEvidence=locatorOnly&&options.length?'<dt>原注所指页面</dt><dd class="ca-source"><div>'+esc(optionLabel(option,chosen))+'</div><div class="cat-evidence-context">'+evidenceHtml(option.context,true)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原注所指页面 ↗</a></dd>':'';
     const readonlyEvidence=!locatorOnly&&options.length?'<dt>只读站内证据</dt><dd class="ca-source"><div>'+esc(optionLabel(option,chosen))+'</div><div class="cat-evidence-context">'+evidenceHtml(option.context,false)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原文 ↗</a></dd>':'';
     return '<article class="ca-candidate '+(effectiveReadonly?'cat-readonly':esc(candidate.decision))+'" data-id="'+candidate.id+'"><div class="ca-cand-head"><strong>'+esc(candidate.issue_label||candidate.issue_code)+'</strong>'+badges(candidate)+actions+'</div>'+viewpointNotice+scopeNotice+resultNotice+reasonNotice+'<dl><dt>实际核对文字</dt><dd class="ca-quote">'+esc(candidate.paper_text||'（无）')+'</dd>'+(candidate.existing_note_text?'<dt>原注</dt><dd>'+esc(candidate.existing_note_text)+'</dd>':'')+(effectiveReadonly?(locatorEvidence||readonlyEvidence):editableEvidence)+'</dl></article>';
@@ -140,6 +142,10 @@
       card.querySelector('.cat-evidence-context').innerHTML=evidenceHtml(option.context,false);
       link.href=url;link.hidden=!url;
     }));
+    box.querySelectorAll('.cat-citation-edit').forEach(textarea=>{
+      const resize=()=>{textarea.style.height='auto';textarea.style.height=Math.min(260,Math.max(104,textarea.scrollHeight+2))+'px'};
+      textarea.addEventListener('input',resize);resize();
+    });
     const pages=Math.max(1,Math.ceil(total/pageSize));$('#catPage').textContent='第 '+page+' / '+pages+' 页';$('#catPrev').disabled=page<=1;$('#catNext').disabled=page>=pages;renderSummary();
   }
   function renderSummary(){

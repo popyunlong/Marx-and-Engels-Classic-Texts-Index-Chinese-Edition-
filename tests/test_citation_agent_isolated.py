@@ -1067,6 +1067,11 @@ def test_admin_ui_distinguishes_locator_from_textual_evidence() -> None:
     assert "文字未核验" in script
     assert "引号内完整文字" in script
     assert "locatorOnly?'':" in script
+    assert "逐字核对一致" in script
+    assert "校注意见只写入 Word 批注，不改正文" in script
+    assert ".map(reasonLabel)" in script
+    assert "class=\"ca-citation-edit cat-citation-edit\"" in script
+    assert "scrollHeight" in script
 
 
 def test_network_worker_does_not_import_site_or_corpus() -> None:
@@ -1121,6 +1126,7 @@ def test_deterministic_test_worker_does_not_import_web_application() -> None:
             imported.add(node.module)
     assert "app" not in imported
     assert "recover_jobs_for_loaded_runtime" in source
+    assert "recover_pdf_position_failures" in source
     assert "corpus_sha256=loaded_corpus_sha256" in source
     assert "template_version=loaded_template_version" in source
     assert "runtime.template_version() != loaded_template_version" in source
@@ -1339,7 +1345,7 @@ def test_confirmed_field_paragraph_writes_true_word_comment(
         "paper_text": "社会生活在本质上是实践的", "decision": "accepted",
         "writeback_mode": "comment", "text_match_level": "exact",
         "source_resolution": "unique", "reason_codes": ["proofreading_comment_only"],
-        "issue_label": "已核验原文；管理员确认后仅以 Word 批注写入",
+        "issue_label": "已核验原文；采信后将作为 Word 批注写入，不改动正文",
         "proposed_citation": "马克思：《关于费尔巴哈的提纲》，第1页。",
         "source_options": [{"display_title": "关于费尔巴哈的提纲", "printed_pages": [1]}],
     }])
@@ -1355,6 +1361,9 @@ def test_confirmed_field_paragraph_writes_true_word_comment(
         instruction_text = "".join(body.xpath(".//w:instrText/text()", namespaces=public_tasks.NS))
         assert 'HYPERLINK \\l "Ref_1"' in instruction_text
         assert public_tasks._paragraph_text(body.xpath("./w:body//w:p", namespaces=public_tasks.NS)[0]) == prefix + "[1]"
+        comment_text = "".join(comments.xpath("./w:comment//w:t/text()", namespaces=public_tasks.NS))
+        assert "审核原因：校注意见只写入 Word 批注，不改正文" in comment_text
+        assert "proofreading_comment_only" not in comment_text
 
 
 def _accepted_exact_candidate(*, kind: str, paragraph_index: int = 1) -> dict:
@@ -1376,6 +1385,117 @@ def _accepted_exact_candidate(*, kind: str, paragraph_index: int = 1) -> dict:
         "proposed_citation": "马克思：《关于费尔巴哈的提纲》，第1页。",
         "source_options": [{"display_title": "关于费尔巴哈的提纲", "printed_pages": [1]}],
     }
+
+
+def test_comment_uses_verified_note_markers_and_never_internal_ids() -> None:
+    candidate = _accepted_exact_candidate(kind="audit")
+    candidate.update({
+        "existing_note_kind": "footnote", "existing_note_id": 66,
+        "reason_codes": ["exact_text", "proofreading_comment_only"],
+    })
+    comment = public_tasks._candidate_comment_text(candidate)
+    assert "对应脚注：见正文引文处原注标记（编号可能按页或分节重排）" in comment
+    assert "对应脚注编号" not in comment
+    assert "66" not in comment
+    assert "审核原因：逐字核对一致、校注意见只写入 Word 批注，不改正文" in comment
+    assert "exact_text" not in comment
+
+    literal = dict(candidate, existing_note_kind="manual_endnote", existing_note_marker="〔43〕")
+    literal_comment = public_tasks._candidate_comment_text(literal)
+    assert "对应手工尾注标记：〔43〕" in literal_comment
+
+    cross_reference = dict(candidate, existing_note_kind="reference_field")
+    cross_comment = public_tasks._candidate_comment_text(cross_reference)
+    assert "对应交叉引用：见正文域标记（更新域后可能变化，仅供人工复核）" in cross_comment
+    assert "66" not in cross_comment
+
+
+def test_noteref_cross_reference_is_readonly_and_not_comment_eligible() -> None:
+    paragraph = public_tasks.etree.fromstring(
+        (
+            f'<w:p xmlns:w="{public_tasks.W_NS}"><w:r><w:t>引文正文</w:t></w:r>'
+            '<w:r><w:instrText> NOTEREF _Ref987654 \\h </w:instrText>'
+            '<w:t>3</w:t></w:r></w:p>'
+        ).encode("utf-8"),
+        parser=public_tasks._safe_xml_parser(),
+    )
+    references = public_tasks._paragraph_reference_fields(paragraph, {})
+    assert references == [{
+        "kind": "reference_field", "id": 987654, "field_target": "_Ref987654",
+        "offset": 4, "text": "", "readonly": True,
+        "reference_mode": "note_cross_reference",
+    }]
+    candidate = _accepted_exact_candidate(kind="audit")
+    candidate["existing_note_kind"] = "reference_field"
+    assert public_tasks._candidate_is_comment_eligible({"mode": "audit"}, candidate) is False
+
+
+def test_pdf_position_recovery_is_current_version_pdf_only_and_lossless(
+    isolated_test_store: Path,
+) -> None:
+    legacy_error = public_tasks.LEGACY_PDF_POSITION_ERROR_PREFIX + "“社会生活在本质上是实践的”。"
+
+    def failed_pdf_job(
+        name: str, *, corpus: str = "corpus", template: str = "template",
+        error: str = legacy_error, keep_word: bool = True, expired: bool = False,
+    ) -> tuple[dict, Path]:
+        job = test_tasks.create_job(
+            7, f"{name}.docx", _docx(isolated_test_store / f"{name}-source.docx"),
+            mode="audit", recognition_depth="direct_only", scope_tokens=["book:文集"],
+            corpus_sha256=corpus, template_version=template,
+        )
+        current = test_tasks.get_job(str(job["id"]), 7)
+        word_path = Path(str(current["input_path"])).parent / f"{name}-final.docx"
+        word_path.write_bytes(Path(str(current["input_path"])).read_bytes())
+        test_tasks.replace_candidates(str(job["id"]), [_accepted_exact_candidate(kind="audit")])
+        candidate = test_tasks.all_candidates(str(job["id"]))[0]
+        test_tasks.save_decisions(
+            str(job["id"]), 7,
+            [{
+                "id": candidate["id"], "decision": "accepted",
+                "selected_option": candidate["selected_option"],
+                "proposed_citation": candidate["proposed_citation"],
+            }],
+        )
+        test_tasks.update_job(
+            str(job["id"]), status="complete", word_export_status="ready",
+            pdf_export_status="position_failed", output_docx_path=str(word_path),
+            output_pdf_path=str(word_path.with_suffix(".pdf")), error=error,
+            progress_done=1, progress_total=1, pdf_position_failure_count=1,
+        )
+        if not keep_word:
+            word_path.unlink()
+        if expired:
+            with test_tasks.core._connect() as conn:
+                conn.execute(
+                    "UPDATE citation_assistant_jobs SET expires_at=? WHERE id=?",
+                    ("2000-01-01T00:00:00+00:00", str(job["id"])),
+                )
+        return job, word_path
+
+    recoverable, word_path = failed_pdf_job("recoverable")
+    word_hash = hashlib.sha256(word_path.read_bytes()).hexdigest()
+    wrong_template, _ = failed_pdf_job("wrong-template", template="old-template")
+    wrong_corpus, _ = failed_pdf_job("wrong-corpus", corpus="old-corpus")
+    other_error, _ = failed_pdf_job("other-error", error="Word 已生成；PDF 未生成：转换失败。")
+    expired, _ = failed_pdf_job("expired", expired=True)
+    missing_word, _ = failed_pdf_job("missing-word", keep_word=False)
+
+    assert test_tasks.recover_pdf_position_failures("corpus", "template") == 1
+    current = test_tasks.get_job(str(recoverable["id"]), 7)
+    assert current["status"] == "exporting"
+    assert current["word_export_status"] == "ready"
+    assert current["pdf_export_status"] == "converting"
+    assert current["output_docx_path"] == str(word_path)
+    assert current["output_pdf_path"] == ""
+    assert current["error"] == ""
+    assert current["progress_done"] == 0 and current["progress_total"] == 1
+    assert hashlib.sha256(word_path.read_bytes()).hexdigest() == word_hash
+    assert test_tasks.all_candidates(str(recoverable["id"]))[0]["decision"] == "accepted"
+    for unchanged in (wrong_template, wrong_corpus, other_error, expired, missing_word):
+        row = test_tasks.get_job(str(unchanged["id"]), 7)
+        assert row["status"] == "complete"
+        assert row["pdf_export_status"] == "position_failed"
 
 
 @pytest.mark.parametrize("note_kind", ["footnote", "endnote"])
@@ -1630,14 +1750,17 @@ def test_pdf_locator_rejects_missing_or_ambiguous_comment_anchor(
     document.save(path)
     document.close()
     with public_tasks.fitz.open(path) as pdf:
-        page_texts = [public_tasks.normalize(page.get_text("text")) for page in pdf]
-        with pytest.raises(public_tasks.CitationAssistantError, match="定位校验失败"):
+        geometries = [public_tasks._pdf_normalized_geometry(page) for page in pdf]
+        page_texts = [geometry[0] for geometry in geometries]
+        with pytest.raises(public_tasks.CitationAssistantError, match="存在多个候选位置"):
             public_tasks._locate_pdf_candidate(
                 pdf, page_texts, {"paper_text": "repeated quotation anchor"},
+                page_geometries=geometries,
             )
-        with pytest.raises(public_tasks.CitationAssistantError, match="定位校验失败"):
+        with pytest.raises(public_tasks.CitationAssistantError, match="文本层未找到可验证位置"):
             public_tasks._locate_pdf_candidate(
                 pdf, page_texts, {"paper_text": "quotation that is absent"},
+                page_geometries=geometries,
             )
 
 
@@ -1651,8 +1774,38 @@ def test_pdf_locator_joins_normalized_character_boxes_across_lines(tmp_path: Pat
     document.close()
     candidate = {"paper_text": "quotation anchor starts and continues across lines"}
     with public_tasks.fitz.open(path) as pdf:
-        page_texts = [public_tasks.normalize(page.get_text("text")) for page in pdf]
-        page_index, rectangles = public_tasks._locate_pdf_candidate(pdf, page_texts, candidate)
+        geometries = [public_tasks._pdf_normalized_geometry(page) for page in pdf]
+        page_texts = [geometry[0] for geometry in geometries]
+        page_index, rectangles = public_tasks._locate_pdf_candidate(
+            pdf, page_texts, candidate, page_geometries=geometries,
+        )
     assert page_index == 0
     assert len(rectangles) >= 2
     assert len({round(rectangle.y0) for rectangle in rectangles}) == 2
+
+
+def test_pdf_locator_sorts_out_of_storage_order_fragments_by_page_coordinates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "visual-order-locator.pdf"
+    document = public_tasks.fitz.open()
+    page = document.new_page()
+    # Insert the middle fragment first to reproduce LibreOffice's nonvisual
+    # PDF object order while keeping the rendered line left-to-right.
+    page.insert_text((230, 72), "middle anchor")
+    page.insert_text((72, 72), "visual beginning")
+    page.insert_text((340, 72), "closing phrase")
+    document.save(path)
+    document.close()
+
+    candidate = {"paper_text": "visual beginning middle anchor closing phrase"}
+    with public_tasks.fitz.open(path) as pdf:
+        assert public_tasks.normalize(pdf[0].get_text("text")) != public_tasks.normalize(candidate["paper_text"])
+        geometry = public_tasks._pdf_normalized_geometry(pdf[0])
+        assert geometry[0] == public_tasks.normalize(candidate["paper_text"])
+        page_index, rectangles = public_tasks._locate_pdf_candidate(
+            pdf, [geometry[0]], candidate, page_geometries=[geometry],
+        )
+    assert page_index == 0
+    assert rectangles
+    assert rectangles[0].x0 < rectangles[-1].x0

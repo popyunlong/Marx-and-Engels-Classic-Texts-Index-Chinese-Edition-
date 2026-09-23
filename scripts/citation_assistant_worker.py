@@ -75,10 +75,18 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
     recovered = tasks.recover_jobs_for_loaded_corpus(
         loaded_corpus_sha256, loaded_template_version,
     )
+    recovered_pdf = tasks.recover_pdf_position_failures(
+        loaded_corpus_sha256, loaded_template_version,
+    )
     if recovered["analysis"] or recovered["export"]:
         print(
             "citation worker recovered version-mismatch jobs "
             f"analysis={recovered['analysis']} export={recovered['export']}",
+            flush=True,
+        )
+    if recovered_pdf:
+        print(
+            f"citation worker queued PDF-only recovery jobs={recovered_pdf}",
             flush=True,
         )
     while True:
