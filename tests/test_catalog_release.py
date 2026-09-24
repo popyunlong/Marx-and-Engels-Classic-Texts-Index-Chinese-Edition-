@@ -1,6 +1,7 @@
 import copy
 import json
 import sqlite3
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -292,3 +293,46 @@ def test_first_binding_requires_compatible_predecessor(tmp_path):
     with pytest.raises(ValueError, match='compatibility foundation'):
         preflight(tmp_path, candidate)
     assert not (tmp_path / 'data').exists()
+
+
+def test_toc_suggestion_index_reads_requested_catalog_version(monkeypatch):
+    import app as app_module
+    from search import TocEntry
+
+    seen = []
+    fake = SimpleNamespace(
+        get_volumes=lambda book: [SimpleNamespace(volume=1, source_file='pdfs/b.pdf')],
+        get_toc_entries=lambda source, version=None: (
+            seen.append((source, version)) or
+            [TocEntry(title='Historical chapter', pdf_page=2, level=7)]),
+    )
+    monkeypatch.setattr(app_module, 'corpus', fake)
+    monkeypatch.setattr(app_module, 'BOOK_CONFIGS', [SimpleNamespace(key='B')])
+    monkeypatch.setattr(app_module, '_book_is_public', lambda value: True)
+    monkeypatch.setattr(app_module, '_book_payload', lambda book: {})
+    result = app_module._build_toc_suggest_index('catalog-v1')
+    assert seen == [('pdfs/b.pdf', 'catalog-v1')]
+    assert result[0]['level'] == 7
+
+
+def test_toc_suggestion_urls_keep_requested_catalog_version(monkeypatch):
+    import app as app_module
+
+    item = {'title': 'Historical chapter', 'norm': 'historicalchapter',
+            'book': 'B', 'book_title': 'Book', 'book_short_title': 'B',
+            'book_sort_order': 1, 'tag_class': 'book-other', 'volume': 1,
+            'source_file': 'pdfs/b.pdf', 'pdf_page': 2, 'printed_page': '1',
+            'level': 7, 'kind': 'body', 'sort_order': 1}
+    monkeypatch.setattr(app_module, '_require_content_feature', lambda feature: None)
+    monkeypatch.setattr(app_module, '_require_search', lambda: None)
+    monkeypatch.setattr(app_module, 'catalog_status', lambda: {'id': 'catalog-v2'})
+    monkeypatch.setattr(app_module, '_get_book_alias_index', lambda: [])
+    monkeypatch.setattr(app_module, '_get_toc_suggest_index',
+                        lambda version=None: [item] if version == 'catalog-v1' else [])
+    monkeypatch.setattr(app_module, '_book_is_public', lambda value: True)
+    with app_module.app.test_request_context(
+            '/api/library/toc-suggest?q=historicalchapter&catalog_version=catalog-v1'):
+        response = app_module.api_library_toc_suggest()
+        payload = response.get_json()
+    assert payload['catalog_version'] == 'catalog-v1'
+    assert 'catalog_version=catalog-v1' in payload['results'][0]['url']

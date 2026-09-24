@@ -587,8 +587,10 @@
       async function fetchSuggest(q) {
         const mine = ++seq;
         const bookArg = scopeSel && scopeSel.value ? '&book=' + encodeURIComponent(scopeSel.value) : '';
+        const catalogVersion = {{ bound_catalog_version | default(none) | tojson }};
+        const versionArg = catalogVersion ? '&catalog_version=' + encodeURIComponent(catalogVersion) : '';
         try {
-          const url = '/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q) + bookArg;
+          const url = '/api/library/toc-suggest?mode=' + encodeURIComponent(mode) + '&q=' + encodeURIComponent(q) + bookArg + versionArg;
           const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
           if (!resp.ok) { if (mine === seq) hide(); return; }
           const data = await resp.json();

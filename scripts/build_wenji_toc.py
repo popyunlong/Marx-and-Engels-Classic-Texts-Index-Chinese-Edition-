@@ -145,7 +145,9 @@ def build_entries_for_volume(volume_obj, overrides: dict[str, Any]) -> list[dict
             if key in seen:
                 continue
             seen.add(key)
-            level = max(1, min(6, int(raw_level or 1)))
+            # Preserve the source outline's full hierarchy. The reader and
+            # versioned catalogue format support arbitrary positive depths.
+            level = max(1, int(raw_level or 1))
             rows.append(
                 {
                     "title": title,
