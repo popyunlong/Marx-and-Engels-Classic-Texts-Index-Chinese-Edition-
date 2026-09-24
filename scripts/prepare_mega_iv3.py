@@ -26,6 +26,33 @@ from scripts.catalog_bundle import build, difference
 PDF_SHA256 = '0b9978fd41f0ba1ab6511dc0a85657e6cdd6c313970b1986ce3fc6a910b61967'
 SOURCE = 'static_library/mega-full/mega2-iv-3/index.html'
 
+# Exact positions visible in the facsimile's body, not OCR h2 guesses. These
+# extra IDs leave all page IDs and the text nodes themselves unchanged.
+PRECISE = {
+    'Exzerpte aus Pierre de Boisguillebert': (35, '[1) Boisguillebert:', 'iv3-toc-boisguillebert'),
+    'Le détail de la France': (35, '[a) Le Détail de la France', 'iv3-toc-detail'),
+    "Dissertation sur la nature des richesses, de l'argent et des tributs":
+        (43, 'b) Dissertation sur la nature', 'iv3-toc-dissertation'),
+    'Traité de la nature, culture, commerce et intérêt des grains':
+        (57, 'c ) Traité de la nature', 'iv3-toc-traite'),
+    'Exzerpte aus François Louis Auguste Ferrier: Du gouvernement considéré dans ses rapports avec le commerce':
+        (210, '|[1]| Ferrier. F.LA.', 'iv3-toc-ferrier'),
+    "Exzerpte aus Théodore Fix: De l'esprit progressif et de l'esprit de conservation en économie politique":
+        (231, 'In einem Aufsatz v. Fix', 'iv3-toc-fix'),
+    "Exzerpte aus Alexandre Moreau de Jonnès: Aperçus statistiques sur la vie civile et l'économie domestique des Romains au commencement du quatrième siècle de notre ère":
+        (231, 'Aus einem Aufsatz v. Moreau de Jonnès:', 'iv3-toc-moreau'),
+    "Exzerpte aus Henri Storch: Cours d'économie politique. T. III, V, IV":
+        (273, 'i| 1) Storch. Suite.', 'iv3-toc-storch-4'),
+    'Exzerpte aus Auguste de Gasparin: Considérations sur les machines':
+        (322, '|[2]| 2) Gasparin', 'iv3-toc-gasparin'),
+    "Exzerpte aus Joseph Pecchio: Histoire de l'économie politique en Italie":
+        (389, '1) ... le comte Joseph Pecchio:', 'iv3-toc-pecchio'),
+}
+CONTENTS_PRECISE = {
+    115: (115, '[Inhaltsverzeichnis]', 'iv3-toc-inhalt-1'),
+    141: (141, '[Inhaltsverzeichnis]', 'iv3-toc-inhalt-2'),
+}
+
 # (level, title, printed Text page, facsimile contents PDF page). The hierarchy
 # and typography were reviewed against the original's printed pages V–VII.
 # The main title is on the text title leaf (PDF page 10).
@@ -120,6 +147,35 @@ def page_targets(pdf: Path, folder: Path):
     return targets
 
 
+def precise_target(title: str, printed: int):
+    return CONTENTS_PRECISE[printed] if title == 'Inhaltsverzeichnis' else PRECISE.get(title)
+
+
+def add_precise_anchors(folder: Path, targets):
+    changed = set()
+    for level, title, printed, _ in PRINTED_TOC:
+        selected = precise_target(title, printed)
+        if selected is None:
+            continue
+        expected_page, needle, new_id = selected
+        if printed != expected_page:
+            raise ValueError('intra-page target has moved: ' + title)
+        pdf_page, filename, old_anchor = targets[printed]
+        path = folder / filename
+        raw = path.read_text(encoding='utf-8')
+        marker = re.search(r'<a id="' + old_anchor + r'"[^>]*></a>(.*?)(?=<a id="s\d+"|</article>)', raw, re.S)
+        if marker is None or marker.group(1).count(needle) != 1 or ('id="' + new_id + '"') in raw:
+            raise ValueError('precise source heading is missing or ambiguous: ' + title)
+        section = marker.group(1).replace(needle, '<span id="' + new_id + '"></span>' + needle, 1)
+        updated = raw[:marker.start(1)] + section + raw[marker.end(1):]
+        # Span insertion must never edit OCR or editorial text.
+        if lhtml.fromstring(raw.encode()).xpath('//article')[0].text_content() != lhtml.fromstring(updated.encode()).xpath('//article')[0].text_content():
+            raise ValueError('body text changed while adding an anchor')
+        path.write_text(updated, encoding='utf-8')
+        changed.add(filename)
+    return changed
+
+
 def prepare(parent: Path, work: Path, output: Path, version: str, pdf: Path):
     prior = Catalog(parent)
     shutil.copytree(prior.root, work, ignore=lambda directory, names:
@@ -127,6 +183,7 @@ def prepare(parent: Path, work: Path, output: Path, version: str, pdf: Path):
     work = Path(work)
     folder = work / 'static_library/mega-full/mega2-iv-3'
     targets = page_targets(pdf, folder)
+    changed_sections = add_precise_anchors(folder, targets)
     parts, depth, evidence = [], 0, []
     for level, title, printed, evidence_pdf_page in PRINTED_TOC:
         if level > depth + 1:
@@ -145,7 +202,8 @@ def prepare(parent: Path, work: Path, output: Path, version: str, pdf: Path):
             pages = ''
         else:
             pdf_page, filename, anchor = targets[printed]
-            target = filename + '#' + anchor
+            precise = precise_target(title, printed)
+            target = filename + '#' + (precise[2] if precise else anchor)
             pages = f' <span class="pages">{printed}</span>'
         parts.append(f'<li data-level="{level}"><a href="{target}">{html.escape(title)}</a>{pages}')
         evidence.append({'level': level, 'title': title, 'printed_page': printed,
@@ -173,14 +231,15 @@ def prepare(parent: Path, work: Path, output: Path, version: str, pdf: Path):
     old = {k: v for k, v in prior.manifest['files'].items() if k not in ('toc.json', 'sources.json')}
     new = {k: v for k, v in inventory(work).items() if k not in ('toc_entries.json', 'sources.json')}
     changed = difference(old, new)
-    if set(changed) != {SOURCE}:
-        raise ValueError('IV/3 candidate changed files outside reviewed index')
-    changed[SOURCE]['evidence'] = ('1998 Akademie Verlag MEGA² IV/3 Text original SHA-256 '
-                                   + PDF_SHA256 + '; printed contents V–VII; original PDF page anchors')
+    expected_files = {SOURCE} | {'static_library/mega-full/mega2-iv-3/' + name for name in changed_sections}
+    if set(changed) != expected_files or len(changed_sections) != 9:
+        raise ValueError('IV/3 candidate changed files outside reviewed volume scope')
+    for name in changed:
+        changed[name]['evidence'] = ('1998 Akademie Verlag MEGA² IV/3 Text original SHA-256 '
+                                     + PDF_SHA256 + '; printed contents V–VII; verified body position; old anchors retained')
     binding = build(work, output, version, parent=parent, approvals={'toc': {}, 'files': changed})
     report = {'binding': binding, 'entries': evidence, 'approvals': changed,
               'limitations': ['The original PDF and HTML contain only Text, not Apparat and indexes.',
-                              'Entries on the same printed page currently jump to the page anchor; exact intra-page heading targets require review.',
                               'Body independent heading coverage is still unverified.']}
     (work.parent / (version + '-repairs.json')).write_bytes(canonical(report))
     return binding
