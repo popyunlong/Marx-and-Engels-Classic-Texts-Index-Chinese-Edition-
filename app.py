@@ -12089,7 +12089,7 @@ def pdf_viewer():
     except (OSError, ValueError, KeyError):
         abort(409, description='该目录版本暂不可用，请重新进入本卷。')
     current_section = requested_section or (
-        corpus.get_section_for_page(source_file, page) if corpus else None
+        corpus.get_section_for_page(source_file, page, catalog_version) if corpus else None
     )
     page_count = _reader_volume_page_count(volume) if volume else 1
     page_labels: dict[int, str] = {}

@@ -221,6 +221,19 @@ def test_historical_catalog_needs_acceptance_receipt(snapshot, tmp_path, monkeyp
     module.historic_catalog.cache_clear()
 
 
+def test_historical_section_heading_uses_requested_catalog():
+    from search import Corpus, TocEntry
+    corpus = object.__new__(Corpus)
+    seen = []
+    def entries(source, version=None):
+        seen.append((source, version))
+        return [TocEntry(title='旧版章节' if version == 'v1' else '新版章节',
+                         pdf_page=12, level=2)]
+    corpus.get_toc_entries = entries
+    assert corpus.get_section_for_page('sample.pdf', 12, 'v1') == '旧版章节'
+    assert seen == [('sample.pdf', 'v1')]
+
+
 def test_rollback_refuses_different_catalog_binding(tmp_path):
     from scripts.catalog_deploy import rollback_guard
     for name, version in [('current/app', 'v2'), ('target/app', 'v1')]:

@@ -936,8 +936,9 @@ class Corpus:
             )
         return grouped
 
-    def get_section_for_page(self, source_file: str, pdf_page: int) -> str | None:
-        entries = self.get_toc_entries(source_file)
+    def get_section_for_page(self, source_file: str, pdf_page: int,
+                             catalog_version: str | None = None) -> str | None:
+        entries = self.get_toc_entries(source_file, catalog_version)
         if not entries:
             return None
         candidates = [entry for entry in entries if entry.pdf_page <= pdf_page]
