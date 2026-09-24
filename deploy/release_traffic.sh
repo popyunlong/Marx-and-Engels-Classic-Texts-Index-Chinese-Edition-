@@ -57,4 +57,3 @@ retire_candidate_if_drained() {
   fi
   systemctl reset-failed "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
 }
-
