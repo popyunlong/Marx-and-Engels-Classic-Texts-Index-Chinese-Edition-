@@ -2485,7 +2485,7 @@
       }
     }
   </style>
-  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=29">{% endif %}
+  {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=30">{% endif %}
 </head>
 <body{% if layout_v2 %} class="v2"{% endif %}>
   {# 四页面布局（layout_v2）：同一模板按 layout_page 分区渲染。
@@ -3015,16 +3015,20 @@
             elBody.innerHTML='<div class="v2toc-actions"><a class="v2toc-read" href="'+esc(withFrom(vol.url))+'">进入阅读器 · 从头通读本卷</a></div><div class="v2toc-list" id="v2TocList"><div class="v2toc-loading">正在载入目录…</div></div>';
             elBody.scrollTop=0;
             var list=document.getElementById('v2TocList');
-            fetch('/api/library/volume-toc?mode=ai&file='+encodeURIComponent(vol.file),{headers:{'Accept':'application/json'}})
-              .then(function(r){ return r.ok?r.json():{results:[]}; })
+            var catalogVersion = {{ bound_catalog_version | default(none) | tojson }};
+            fetch('/api/library/volume-toc?mode=ai&file='+encodeURIComponent(vol.file)+(catalogVersion?'&catalog_version='+encodeURIComponent(catalogVersion):''),{headers:{'Accept':'application/json'}})
+              .then(function(r){ if(!r.ok) throw new Error('目录载入失败'); return r.json(); })
               .then(function(d){ var items=(d&&d.results)||[];
                 if(!items.length){ list.innerHTML='<div class="v2toc-empty">本卷暂无结构化目录，可点上方「进入阅读器」通读，或用「篇章直达」检索具体篇名。</div>'; return; }
-                list.innerHTML=items.map(function(it){ var lv=Math.max(1,Math.min(6,it.level||1));
+                list.innerHTML=items.map(function(it){ var lv=Math.max(1,Math.trunc(Number(it.level))||1);
                   var pg=it.printed_page?('第 '+it.printed_page+' 页'):('PDF '+it.pdf_page);
-                  return '<a class="v2toc-item lv'+lv+'" href="'+esc(withFrom(it.url))+'"><span class="v2toc-t">'+esc(it.title)+'</span><span class="v2toc-p">'+esc(pg)+'</span></a>';
+                  return '<a class="v2toc-item lv'+lv+'" data-level="'+lv+'" style="--toc-level:'+lv+'" href="'+esc(withFrom(it.url))+'"><span class="v2toc-t">'+esc(it.title)+'</span><span class="v2toc-p">'+esc(pg)+'</span></a>';
                 }).join('');
               })
-              .catch(function(){ list.innerHTML='<div class="v2toc-empty">目录载入失败，请重试。</div>'; });
+              .catch(function(){
+                list.innerHTML='<div class="v2toc-empty">目录载入失败。<button type="button" class="v2toc-retry">重试</button></div>';
+                list.querySelector('button').addEventListener('click',function(){ showToc(book,vol); });
+              });
           }
           document.querySelectorAll('.v2book[data-bk]').forEach(function(card){ card.addEventListener('click',function(e){
             var book=byKey[card.getAttribute('data-bk')]; if(!book) return;

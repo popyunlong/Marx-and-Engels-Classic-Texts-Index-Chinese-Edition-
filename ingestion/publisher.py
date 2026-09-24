@@ -225,6 +225,8 @@ class Publisher:
         raise YieldRequired(f"候选实例未在 {readiness_timeout} 秒内就绪，保留现网")
 
     def publish(self, packages, prepared=None):
+        from catalog_release import assert_legacy_catalog_write_allowed
+        assert_legacy_catalog_write_allowed()
         self.checkpoint()
         if not (self.app_root / 'scripts/switch_caddy_upstream.py').is_file():
             raise RuntimeError('发布入口切换工具未安装，保留现网')

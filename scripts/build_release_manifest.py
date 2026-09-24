@@ -95,6 +95,11 @@ def create_manifest(args: argparse.Namespace) -> int:
         "built_at": built_at,
         "source_tree_sha256": source_tree_sha256(source_dir),
     }
+    if (source_dir / 'catalog_release.py').is_file():
+        payload['catalog_protocol'] = 1
+    catalog_binding = source_dir / 'config/catalog_release.json'
+    if catalog_binding.exists():
+        payload['catalog_release'] = json.loads(catalog_binding.read_text(encoding='utf-8'))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False))
@@ -103,6 +108,13 @@ def create_manifest(args: argparse.Namespace) -> int:
 
 def verify_manifest(args: argparse.Namespace) -> int:
     payload = _load_metadata(args.metadata.resolve())
+    binding_path = args.source_dir / 'config/catalog_release.json'
+    bound = json.loads(binding_path.read_text(encoding='utf-8')) if binding_path.exists() else None
+    if payload.get('catalog_release') != bound:
+        raise ValueError('catalogue binding differs from committed source')
+    if bound and (not RELEASE_RE.fullmatch(str(bound.get('id', ''))) or
+                  not re.fullmatch('[0-9a-f]{64}', str(bound.get('sha256', '')))):
+        raise ValueError('invalid catalogue release binding')
     actual = source_tree_sha256(args.source_dir.resolve())
     if actual != payload["source_tree_sha256"]:
         raise ValueError(

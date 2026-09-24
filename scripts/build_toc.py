@@ -90,7 +90,7 @@ def build_entries_for_volume(corpus: Corpus, volume_obj) -> list[dict[str, Any]]
                 "title": title,
                 "pdf_page": pdf_page,
                 "printed_page": getattr(entry, "printed_page", None) or printed_by_pdf.get(pdf_page),
-                "level": max(1, min(6, int(getattr(entry, "level", 1) or 1))),
+                "level": max(1, int(getattr(entry, "level", 1) or 1)),
                 "kind": str(getattr(entry, "kind", "") or entry_kind(title)),
                 "sort_order": len(rows) + 1,
             }
@@ -141,6 +141,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    from catalog_release import assert_legacy_catalog_write_allowed
+    assert_legacy_catalog_write_allowed()
     args = parse_args()
     configs = book_config_map()
     selected = args.book or (list(configs) if args.all else ["列宁全集"])

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from page_labels import page_reference, citation_pages, VERSION as PAGE_LABEL_VERSION
 from release_metadata import current_app_release
+from catalog_release import catalog_status
 
 import json
 import membership_purchase as multi_purchase
@@ -503,6 +504,12 @@ def create_app() -> Flask:
 
 
 app = create_app()
+
+
+@app.context_processor
+def _catalog_template_context():
+    selected = request.args.get('catalog_version') or catalog_status()['id']
+    return {'bound_catalog_version': None if selected == 'legacy' else selected}
 
 
 def _server_ai_settings_payload() -> dict:
@@ -12006,14 +12013,21 @@ def api_library_volume_toc():
     if volume is None:
         return jsonify({"ok": False, "results": []}), 404
     results = []
-    for entry in corpus.get_toc_entries(volume.source_file):
+    catalog_version = request.args.get('catalog_version') or catalog_status()['id']
+    if catalog_version == 'legacy' and catalog_status()['id'] != 'legacy':
+        return jsonify({'ok': False, 'error': 'catalog_version_unavailable', 'results': []}), 409
+    try:
+        entries = corpus.get_toc_entries(volume.source_file, None if catalog_version == 'legacy' else catalog_version)
+    except (OSError, ValueError, KeyError):
+        return jsonify({'ok': False, 'error': 'catalog_version_unavailable', 'results': []}), 409
+    for entry in entries:
         title = str(getattr(entry, "title", "") or "")
         pdf_page = int(getattr(entry, "pdf_page", 1) or 1)
         printed = str(getattr(entry, "printed_page", "") or "")
         results.append(
             {
                 "title": title,
-                "level": max(1, min(6, int(getattr(entry, "level", 1) or 1))),
+                "level": max(1, int(getattr(entry, "level", 1) or 1)),
                 "pdf_page": pdf_page,
                 "printed_page": printed,
                 "url": url_for(
@@ -12023,11 +12037,12 @@ def api_library_volume_toc():
                     section=title,
                     printed=printed,
                     mode=mode,
+                    catalog_version=catalog_version if catalog_version != 'legacy' else None,
                 ),
             }
         )
-    resp = jsonify({"ok": True, "results": results})
-    resp.headers["Cache-Control"] = f"private, max-age={_source_public_cache_seconds(source_file, 600)}"
+    resp = jsonify({"ok": True, "results": results, "catalog_version": catalog_version})
+    resp.headers["Cache-Control"] = "private, no-cache"
     return resp
 
 
@@ -12068,7 +12083,11 @@ def pdf_viewer():
     # 仍可逐页阅读并使用 AI 导读；《文集》等带 PDF 的卷册维持原有「书页图像」渲染。
     render_mode = "image" if _pdf_render_available(source_file) else "text"
     reader_heading = reader_title(_book_config(volume.book), volume.volume, volume.display_title)
-    toc_entries = [entry.to_dict() for entry in corpus.get_toc_entries(source_file)] if corpus else []
+    catalog_version = request.args.get('catalog_version')
+    try:
+        toc_entries = [entry.to_dict() for entry in corpus.get_toc_entries(source_file, catalog_version)] if corpus else []
+    except (OSError, ValueError, KeyError):
+        abort(409, description='该目录版本暂不可用，请重新进入本卷。')
     current_section = requested_section or (
         corpus.get_section_for_page(source_file, page) if corpus else None
     )
@@ -12297,6 +12316,7 @@ def api_runtime():
             "issues": state["issues"],
             "management_api_enabled": state["management_api_enabled"],
             "app_release": current_app_release(),
+            "catalog_release": catalog_status(),
             "layout_exact_ready": bool(layout_index and layout_index.enabled and
                                        not layout_index.error and layout_index.projections),
         }

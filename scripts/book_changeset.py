@@ -89,6 +89,8 @@ def cmd_export(args: argparse.Namespace) -> None:
 
 
 def cmd_inject(args: argparse.Namespace) -> None:
+    from catalog_release import assert_legacy_catalog_write_allowed
+    assert_legacy_catalog_write_allowed()
     src = Path(getattr(args, "in"))
     if not src.exists():
         raise SystemExit(f"找不到变更集：{src}")

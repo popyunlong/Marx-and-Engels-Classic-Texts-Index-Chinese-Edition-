@@ -10,6 +10,7 @@ param(
     [int]$SshPort = 22,
     [string]$IdentityFile = $env:MARX_DEPLOY_KEY,
     [string]$ArtifactDirectory = "",
+    [string]$CatalogArchive = "",
     [switch]$DryRun,
     [switch]$KeepArtifact
 )
@@ -98,6 +99,7 @@ $scratch = $null
 $artifactPath = $null
 $remoteArchive = $null
 $uploaded = $false
+$remoteCatalogArchive = ""
 try {
     $branch = Invoke-Checked -Label "Read current branch" -FilePath $git -ArgumentList @("symbolic-ref", "--quiet", "--short", "HEAD") -Capture
     if ($branch -ne "production") {
@@ -182,6 +184,12 @@ try {
     Write-Host "Release archive verified: $artifactPath"
     Write-Host "Release id: $releaseId"
     Write-Host "Parent release id: $ExpectedLive"
+    if ($CatalogArchive) {
+        $CatalogArchive = (Resolve-Path -LiteralPath $CatalogArchive).Path
+        if (-not (Test-Path -LiteralPath (Join-Path $appDir "config/catalog_release.json"))) {
+            throw "Catalogue artifacts require a committed config/catalog_release.json binding."
+        }
+    }
 
     if ($DryRun) {
         $KeepArtifact = $true
@@ -206,7 +214,15 @@ try {
     Invoke-Checked -Label "Upload unique release archive" -FilePath $scp -ArgumentList @($scpCommon + @($artifactPath, "${remote}:$remoteArchive"))
     $uploaded = $true
 
-    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId'"
+    if ($CatalogArchive) {
+        $remoteCatalogArchive = "/var/tmp/marx-catalog-$releaseId.tar.gz"
+        Invoke-Checked -Label "Upload bound catalogue artifact" -FilePath $scp -ArgumentList @($scpCommon + @($CatalogArchive, "${remote}:$remoteCatalogArchive"))
+    }
+
+    $reviewNonce = [Guid]::NewGuid().ToString("N")
+    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce'"
+    Write-Host "Candidate review nonce: $reviewNonce"
+    Write-Host "The transaction will pause before cutover for candidate browser checks."
     Invoke-Checked -Label "Promote release transaction" -FilePath $ssh -ArgumentList @($sshCommon + @($remote, $remoteCommand))
     Write-Host "Production release completed: $releaseId"
 } finally {
@@ -218,6 +234,10 @@ try {
                 if ($IdentityFile) { $cleanupArgs += @("-i", [IO.Path]::GetFullPath($IdentityFile)) }
                 $cleanupArgs += @("${ServerUser}@${ServerHost}", "rm -f -- '$remoteArchive'")
                 & $ssh.Source @cleanupArgs 2>$null | Out-Null
+                if ($remoteCatalogArchive) {
+                    $cleanupArgs[-1] = "rm -f -- '$remoteCatalogArchive'"
+                    & $ssh.Source @cleanupArgs 2>$null | Out-Null
+                }
             }
         } catch {
             Write-Warning "Could not remove the unique remote upload: $remoteArchive"

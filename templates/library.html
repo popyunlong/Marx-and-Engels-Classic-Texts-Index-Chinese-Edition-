@@ -68,9 +68,12 @@
       margin: 24px auto 48px;
       display: grid;
       gap: 14px;
+      grid-template-columns: minmax(0, 1fr);
     }
+    main > *, .intro > * { min-width: 0; }
     .intro {
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
       padding: 22px 24px;
       border: 1px solid var(--line);
@@ -146,10 +149,7 @@
       background: var(--accent-soft);
       color: #641212;
     }
-    .toc .level-2 { padding-left: 26px; }
-    .toc .level-3 { padding-left: 42px; }
-    .toc .level-4 { padding-left: 58px; }
-    .toc .level-5, .toc .level-6 { padding-left: 72px; }
+    .toc a { padding-left: calc(10px + (var(--toc-level, 1) - 1) * 16px); overflow-wrap: anywhere; }
     .page {
       color: var(--muted);
       white-space: nowrap;
@@ -187,7 +187,7 @@
     }
     .book-section[open] > summary::before { content: "▾"; }
     .book-section > summary:hover { background: var(--accent-soft); }
-    .book-section .bg-name { flex: 1; }
+    .book-section .bg-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .book-section .bg-count {
       flex: none;
       font-size: .82rem;
@@ -235,8 +235,8 @@
         grid-template-columns: 1fr;
         gap: 2px;
       }
-      .toc .level-2, .toc .level-3, .toc .level-4, .toc .level-5, .toc .level-6 {
-        padding-left: 10px;
+      .toc a {
+        padding-left: calc(10px + (var(--toc-level, 1) - 1) * 8px);
       }
     }
     .toc-search-card {
@@ -646,7 +646,10 @@
         const frag = document.createDocumentFragment();
         results.forEach(function (r) {
           const a = document.createElement('a');
-          a.className = 'level-' + (r.level && r.level <= 6 ? r.level : 6);
+          const level = Math.max(1, Math.trunc(Number(r.level)) || 1);
+          a.className = 'level-' + level;
+          a.dataset.level = level;
+          a.style.setProperty('--toc-level', level);
           a.href = r.url || '#';
           const t = document.createElement('span');
           t.textContent = r.title || '';
@@ -664,7 +667,8 @@
         nav.setAttribute('data-loaded', '1');
         const src = nav.getAttribute('data-toc-src');
         const mode = nav.getAttribute('data-toc-mode') || 'ai';
-        const url = '/api/library/volume-toc?file=' + encodeURIComponent(src) + '&mode=' + encodeURIComponent(mode);
+        const version = {{ bound_catalog_version | default(none) | tojson }};
+        const url = '/api/library/volume-toc?file=' + encodeURIComponent(src) + '&mode=' + encodeURIComponent(mode) + (version ? '&catalog_version=' + encodeURIComponent(version) : '');
         fetch(url, { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
           .then(function (resp) { if (!resp.ok) throw new Error(resp.status); return resp.json(); })
           .then(function (data) { renderEntries(nav, data && data.results); })

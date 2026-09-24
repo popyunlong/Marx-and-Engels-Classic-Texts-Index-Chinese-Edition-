@@ -666,7 +666,13 @@ class Corpus:
                 )
                 for book, volume, pdf_page, printed_page, raw_text, norm_text, page_id in raw_rows
             ]
-        self._toc_db_entries = self._load_toc_entries_from_db(conn)
+        from catalog_release import active_catalog
+        self.catalog = active_catalog()
+        if self.catalog:
+            self.catalog.verify_corpus(conn)
+            self._toc_db_entries = self._catalog_entries(self.catalog)
+        else:
+            self._toc_db_entries = self._load_toc_entries_from_db(conn)
         page_evidence = load_page_evidence(conn)
         conn.close()
 
@@ -774,10 +780,27 @@ class Corpus:
                 return False
         return True
 
-    def get_toc_entries(self, source_file: str) -> list[TocEntry]:
+    def _catalog_entries(self, catalog, source_file=None):
+        grouped = {}
+        rows = catalog.rows if source_file is None else catalog.rows_by_source.get(source_file, [])
+        for row in rows:
+            grouped.setdefault(row['source_file'], []).append(TocEntry(
+                title=self._clean_title(row['title']), pdf_page=row['pdf_page'],
+                level=row['level'], source='db', printed_page=str(row['printed_page']) if row['printed_page'] else None,
+                kind=row['kind'], sort_order=row['sort_order']))
+        return grouped
+
+    def get_toc_entries(self, source_file: str, catalog_version: str | None = None) -> list[TocEntry]:
         source_file = self._normalize_source_file(source_file)
         if not source_file:
             return []
+        catalog = getattr(self, 'catalog', None)
+        if catalog_version and (not catalog or catalog_version != catalog.version):
+            from catalog_release import historic_catalog
+            return self._catalog_entries(historic_catalog(catalog_version), source_file).get(source_file, [])
+        if catalog:
+            # Empty is an authoritative catalogue result; do not re-extract PDF bookmarks.
+            return self._toc_db_entries.get(source_file, [])
         if source_file not in self._toc_cache:
             volume = self.get_volume_by_source_file(source_file)
             from_db = self._toc_db_entries.get(source_file) or []

@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
-from flask import abort, render_template, request, send_file
+from flask import abort, redirect, render_template, request, send_file, url_for
+from catalog_release import active_catalog, historic_catalog
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_LIBRARY_ROOT = Path(
@@ -91,6 +94,12 @@ class _BookSource:
 # 默认数据源。模块级 load_books()/static_library_has_content() 维持旧接口不变（被 app.py 引用）。
 _STATIC = _BookSource(CONFIG_PATH, STATIC_LIBRARY_ROOT)
 _STREAM = _BookSource(STREAM_CONFIG_PATH, STREAM_LIBRARY_ROOT)
+
+# Resolve once per process: candidate and current instances may use different versions.
+_CATALOG = active_catalog()
+if _CATALOG:
+    _STATIC.root = _CATALOG.root / 'static_library'
+    _STREAM.root = _CATALOG.root / 'stream_library'
 
 
 def load_books() -> list[dict]:
@@ -194,6 +203,8 @@ def register_static_library(
         if back_targets and bf in back_targets:
             back_ep, back_title = back_targets[bf]
         serve_prefix = str(book.get("serve_prefix") or f"/{prefix}/raw/{book_key}").rstrip("/")
+        if _CATALOG:
+            serve_prefix = f'/{prefix}/v/{_CATALOG.version}/raw/{book_key}'
         source_lang = volume.get("lang") or book.get("lang") or "ru"
 
         def reader_flag(name: str, default: bool) -> bool:
@@ -242,12 +253,36 @@ def register_static_library(
             ai_enabled=ai_enabled,
         )
 
-    def raw(book_key, relpath):  # endpoint: <endpoint_prefix>_raw
+    def raw(book_key, relpath, catalog_version=None):  # endpoint: <endpoint_prefix>_raw
         require_content_feature(feature)
         book = source.get_book(book_key)
         if not book:
             abort(404)
         base = source.book_folder(book).resolve()
+        if catalog_version:
+            try:
+                historical = historic_catalog(catalog_version)
+                folder = 'stream_library' if prefix == 'liushi' else 'static_library'
+                base = (historical.root / folder / str(book.get('folder') or book_key)).resolve()
+                base.relative_to(historical.root / folder)
+            except (OSError, ValueError, KeyError):
+                abort(404)
+        elif _CATALOG:
+            # A path prefix, unlike a query parameter, survives relative HTML links.
+            version = _CATALOG.version
+            referrer = urlsplit(request.referrer or '')
+            match = re.match(r'^/' + re.escape(prefix) + r'/v/([A-Za-z0-9._-]+)/raw/', referrer.path)
+            if referrer.netloc == request.host and match:
+                # A few mirrored documents contain absolute legacy raw URLs.
+                # Keep those links on the referring page's accepted snapshot too.
+                try:
+                    version = historic_catalog(match.group(1)).version
+                except (OSError, ValueError, KeyError):
+                    abort(404)
+            response = redirect(url_for(raw_ep + '_versioned', catalog_version=version,
+                                        book_key=book_key, relpath=relpath), code=302)
+            response.headers['Cache-Control'] = 'private, no-cache'
+            return response
         target = (base / relpath).resolve()
         try:
             target.relative_to(base)  # 防 ../ 路径穿越
@@ -265,6 +300,8 @@ def register_static_library(
     app.add_url_rule(f"/{prefix}", endpoint=home_ep, view_func=home)
     app.add_url_rule(f"/{prefix}/<book_key>", endpoint=reader_ep, view_func=reader)
     app.add_url_rule(f"/{prefix}/raw/<book_key>/<path:relpath>", endpoint=raw_ep, view_func=raw)
+    app.add_url_rule(f"/{prefix}/v/<catalog_version>/raw/<book_key>/<path:relpath>",
+                     endpoint=raw_ep + '_versioned', view_func=raw)
 
 
 def register_stream_reading(

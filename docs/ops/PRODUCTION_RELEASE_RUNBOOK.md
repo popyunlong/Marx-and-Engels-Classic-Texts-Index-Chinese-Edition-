@@ -30,7 +30,7 @@ The authoritative source baseline is the annotated tag `production-baseline-2026
 - A changed live id causes an immediate compare-and-swap failure. An older queued session cannot overwrite a newer release.
 - A candidate is compiled, smoke-tested, started on port 8001, and checked on the runtime, home, pricing, AI, and reader endpoints before Caddy changes.
 - `current` and `previous` are atomically replaced symlinks. A failed primary restart restores the direct predecessor and its service configuration.
-- The ledger is append-only at `/opt/marx-search/release-ledger.jsonl`; the newest ten release directories are retained, with `current` and `previous` always protected.
+- The ledger is append-only at `/opt/marx-search/release-ledger.jsonl`. Release directories, catalogue versions and backups are retained; count-based deletion is disabled. Recoverable archival requires two newer releases each healthy for at least 30 days.
 
 ## Audited rollback
 
@@ -42,7 +42,7 @@ pwsh -File deploy/rollback_release.ps1 `
   -TargetRelease '<target-release-id>'
 ```
 
-The server takes the same global lock, verifies the current id and immutable target, restarts and probes the target, restores the original release if health fails, and appends a rollback event to the ledger.
+The server takes the same global lock, verifies the current id and immutable target, starts and probes a target candidate, drains existing connections before each cutover, restores the original release if health fails, and appends a rollback event to the ledger. Catalogue bindings must match, except for a verified one-time baseline rollback to catalogue-aware compatibility code. See [catalogue rollout](CATALOG_RELEASE_RUNBOOK.md).
 
 ## Version agreement check
 

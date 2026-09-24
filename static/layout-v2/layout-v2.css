@@ -561,6 +561,9 @@ body.v2 .v2read-locked p{margin:0; flex:1;}
 .v2toc-item.lv4 .v2toc-t{font-weight:400; font-size:13px; color:var(--muted,#756a5f); padding-left:47px;}
 .v2toc-item.lv5 .v2toc-t{font-weight:400; font-size:12.5px; color:var(--muted,#756a5f); padding-left:63px;}
 .v2toc-item.lv6 .v2toc-t{font-weight:400; font-size:12px; color:var(--faint,#9c9186); padding-left:79px;}
+.v2toc-item[data-level] .v2toc-t{padding-left:calc((var(--toc-level,1) - 1) * 16px); overflow-wrap:anywhere;}
+.v2toc-item[data-level]:not(.lv1):not(.lv2):not(.lv3) .v2toc-t{font-size:13px;font-weight:400;color:var(--muted,#756a5f);}
+@media(max-width:600px){.v2toc-item[data-level] .v2toc-t{padding-left:calc((var(--toc-level,1) - 1) * 8px);}}
 .v2toc-loading,.v2toc-empty{padding:16px 6px; color:var(--muted,#756a5f); font-size:13px; line-height:1.7;}
 @media (max-width:720px){
   .v2drawer{width:100%; max-width:100vw;}

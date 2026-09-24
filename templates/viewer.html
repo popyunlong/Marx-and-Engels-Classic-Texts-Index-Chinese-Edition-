@@ -257,9 +257,10 @@
       background: #f3e1da;
       color: #6b1414;
     }
-    .toc-link.level-2 { padding-left: 22px; }
-    .toc-link.level-3 { padding-left: 34px; }
-    .toc-link.level-4 { padding-left: 46px; }
+    .toc-link { padding-left: calc(10px + (var(--toc-level, 1) - 1) * 12px); overflow-wrap: anywhere; }
+    @media (max-width: 600px) {
+      .toc-link { padding-left: calc(10px + (var(--toc-level, 1) - 1) * 8px); }
+    }
     .viewer-panel {
       display: flex;
       flex-direction: column;
@@ -1068,8 +1069,9 @@
                   {% for entry in toc_entries %}
                   <li>
                     <a
-                      class="toc-link level-{{ entry.level if entry.level <= 4 else 4 }}{% if entry.pdf_page == page %} active{% endif %}"
-                      href="{{ url_for('pdf_viewer', file=source_file, page=entry.pdf_page, q=query_text, h=highlight_text, mode=viewer_mode) }}"
+                      class="toc-link level-{{ entry.level }}{% if entry.pdf_page == page %} active{% endif %}"
+                      style="--toc-level: {{ entry.level }}" data-level="{{ entry.level }}"
+                      href="{{ url_for('pdf_viewer', file=source_file, page=entry.pdf_page, q=query_text, h=highlight_text, mode=viewer_mode, catalog_version=bound_catalog_version) }}"
                       data-page="{{ entry.pdf_page }}"
                       data-title="{{ entry.title }}"
                     >{{ entry.title }}</a>
@@ -1723,6 +1725,8 @@
 
   function buildViewerUrl(page) {
     const url = new URL('/viewer', window.location.origin);
+    const catalogVersion = {{ bound_catalog_version | default(none) | tojson }};
+    if (catalogVersion) url.searchParams.set('catalog_version', catalogVersion);
     url.searchParams.set('file', sourceFile);
     const layoutRef = activeLayoutRef;
     if (layoutRef) url.searchParams.set('lr', layoutRef);

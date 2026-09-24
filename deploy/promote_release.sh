@@ -4,8 +4,8 @@
 set -Eeuo pipefail
 umask 027
 
-if [ "$#" -ne 4 ]; then
-  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID" >&2
+if [ "$#" -ne 6 ]; then
+  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID CATALOG_ARCHIVE REVIEW_NONCE" >&2
   exit 2
 fi
 
@@ -13,6 +13,8 @@ APP_ROOT="$1"
 ARCHIVE="$2"
 EXPECTED_LIVE="$3"
 RELEASE_ID="$4"
+CATALOG_ARCHIVE="${5:-}"
+REVIEW_NONCE="${6:-}"
 RELEASES="$APP_ROOT/releases"
 LOCK_FILE="/run/lock/marx-search-release.lock"
 LEDGER="$APP_ROOT/release-ledger.jsonl"
@@ -53,6 +55,10 @@ if ! [[ "$RELEASE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
 fi
 if ! [[ "$EXPECTED_LIVE" =~ ^[A-Za-z0-9][A-Za-z0-9._:+-]{0,191}$ ]]; then
   echo "unsafe parent release id" >&2
+  exit 2
+fi
+if ! [[ "$REVIEW_NONCE" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "unsafe candidate review nonce" >&2
   exit 2
 fi
 if ! [[ "$DRAIN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
@@ -102,6 +108,7 @@ rm -rf -- "$STAGING"
 mkdir -p "$STAGING"
 KEEP_FINAL=0
 cleanup_incomplete() {
+  if [ "${REVIEW_OWNED:-0}" -eq 1 ]; then rm -f -- "$REVIEW_FIFO"; fi
   rm -rf -- "$STAGING"
   if [ "$KEEP_FINAL" -eq 0 ] && [ -d "$FINAL" ]; then
     rm -rf -- "$FINAL"
@@ -147,6 +154,13 @@ mv -- "$STAGING" "$FINAL"
 [ -d "$APP_ROOT/data" ] || { echo "shared runtime data directory is missing" >&2; exit 3; }
 [ -d "$APP_ROOT/pdfs" ] || { echo "shared runtime PDF directory is missing" >&2; exit 3; }
 
+# Same lock and compare-and-swap transaction as application promotion. No live
+# database is replaced, and installed snapshots are never mutated or overwritten.
+CATALOG_ARGS=()
+if [ -n "$CATALOG_ARCHIVE" ]; then CATALOG_ARGS=(--archive "$CATALOG_ARCHIVE"); fi
+python3 "$FINAL/app/scripts/catalog_deploy.py" preflight \
+  --root "$APP_ROOT" --app "$FINAL/app" "${CATALOG_ARGS[@]}"
+
 RUNTIME_PYTHON="${MARX_RUNTIME_PYTHON:-}"
 if [ -z "$RUNTIME_PYTHON" ]; then
   RUNTIME_PYTHON="$(systemctl show "$MAIN_SERVICE" -p ExecStart --value | grep -oE '/[^ ;{}]+/python([0-9.]*)?' | head -n1 || true)"
@@ -186,6 +200,10 @@ health() {
   runtime_json="$(curl -fsS --max-time 6 "http://127.0.0.1:${port}/api/runtime")" \
     || return 1
   if [ -n "$expected_release" ]; then
+    if [ -f "$RELEASES/$expected_release/release.json" ]; then
+      printf '%s' "$runtime_json" | python3 "$FINAL/app/scripts/catalog_deploy.py" health \
+        --metadata "$RELEASES/$expected_release/release.json" || return 1
+    fi
     printf '%s' "$runtime_json" | python3 -c '
 import json, sys
 payload = json.load(sys.stdin)
@@ -285,6 +303,10 @@ abort_before_commit() {
   return 0
 }
 
+if ss -Hltn "( sport = :${CANDIDATE_PORT} )" | grep -q .; then
+  echo "candidate port occupied; preserve the prior candidate until it drains" >&2
+  exit 75
+fi
 systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
 systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
@@ -308,6 +330,29 @@ if ! wait_health "$CANDIDATE_PORT" "$RELEASE_ID"; then
   exit 4
 fi
 
+# A named pipe lets the coordinator inspect the live candidate through an SSH
+# tunnel while this release transaction continues to own the global lock. Only
+# a matching release id and one-use nonce lets new traffic cross the cutover.
+if [ -n "$REVIEW_NONCE" ]; then
+  source "$FINAL/app/deploy/review_gate.sh"
+  if ! review_candidate; then
+    retire_candidate_if_drained "rejected candidate" || KEEP_FINAL=1
+    echo "candidate review rejected; primary unchanged" >&2
+    exit 4
+  fi
+  if ! health "$CANDIDATE_PORT" "$RELEASE_ID"; then
+    retire_candidate_if_drained "candidate changed during review" || KEEP_FINAL=1
+    echo "candidate became unhealthy during review; primary unchanged" >&2
+    exit 4
+  fi
+fi
+
+# Register this already-validated version before it can appear in a reader URL.
+# Retain the receipt even after a failed cutover so an opened tab stays readable.
+if ! python3 "$FINAL/app/scripts/catalog_deploy.py" accept --root "$APP_ROOT" --app "$FINAL/app"; then
+  retire_candidate_if_drained "unaccepted catalogue candidate" || KEEP_FINAL=1
+  exit 4
+fi
 if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"; then
   retire_candidate_if_drained "uncut candidate" || KEEP_FINAL=1
   echo "candidate was healthy but Caddy cutover failed; primary is unchanged" >&2
@@ -358,6 +403,14 @@ restart_active_citation_workers() {
 rollback_primary() {
   trap - ERR
   set +e
+  # A post-cutover health failure can occur while the primary still has live
+  # requests. Keep the healthy candidate until this check and drain both hops.
+  if grep -Eq "reverse_proxy[[:space:]]+127\\.0\\.0\\.1:${PRIMARY_PORT}([[:space:]]|$)" "$CADDYFILE"; then
+    if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT" || ! drain_port "$PRIMARY_PORT" "failed primary"; then
+      echo "CRITICAL: cannot safely drain the failed primary; preserving both instances" >&2
+      return 1
+    fi
+  fi
   echo "new primary failed; restoring the direct predecessor" >&2
   rm -f -- /etc/systemd/system/marx-search.service
   rm -rf -- /etc/systemd/system/marx-search.service.d
@@ -417,8 +470,8 @@ if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
 fi
 # New traffic is back on the canonical primary.  Existing candidate requests
 # get the same bounded drain protection before the transient process retires.
-retire_candidate_if_drained "promoted release candidate" || true
 health "$PRIMARY_PORT" "$RELEASE_ID" || { rollback_primary; exit 8; }
+retire_candidate_if_drained "promoted release candidate" || true
 
 # The historical corpus-promotion path mutates live state outside the release
 # transaction. Keep it installed as an explanatory compatibility stub, but
@@ -428,12 +481,13 @@ systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
 
 printf '%s\n' "$RELEASE_ID" > "$APP_ROOT/DEPLOYED_SHA.tmp"
 mv -f -- "$APP_ROOT/DEPLOYED_SHA.tmp" "$APP_ROOT/DEPLOYED_SHA"
-python3 - "$LEDGER" "$RELEASE_ID" "$EXPECTED_LIVE" <<'PY'
+python3 - "$LEDGER" "$RELEASE_ID" "$EXPECTED_LIVE" "$FINAL/release.json" <<'PY'
 import datetime, json, pathlib, sys
 entry = {
     "event": "promote",
     "release_id": sys.argv[2],
     "parent_release_id": sys.argv[3],
+    "catalog_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("catalog_release"),
     "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
 }
 with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
@@ -441,15 +495,7 @@ with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
 PY
 trap - ERR
 
-# Keep the newest ten immutable releases, never deleting current or previous.
-CURRENT_REAL="$(readlink -f "$APP_ROOT/current")"
-PREVIOUS_REAL="$(readlink -f "$APP_ROOT/previous" 2>/dev/null || true)"
-count=0
-while IFS= read -r old_release; do
-  [ -n "$old_release" ] || continue
-  if [ "$old_release" = "$CURRENT_REAL" ] || [ "$old_release" = "$PREVIOUS_REAL" ]; then continue; fi
-  count=$((count + 1))
-  if [ "$count" -gt 8 ]; then rm -rf -- "$old_release"; fi
-done < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d ! -name '.staging-*' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+# Retain every prior release and catalogue. Archival requires evidence that two
+# newer releases have each been healthy for 30 days; count-based deletion is unsafe.
 
 echo "RELEASE_PROMOTED=$RELEASE_ID"
