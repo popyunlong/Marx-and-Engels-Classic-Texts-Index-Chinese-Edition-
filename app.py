@@ -11576,7 +11576,7 @@ def api_dictionary_suggest():
 
 
 # ---- 篇章名称自动补全（搜索全部书库目录） ----
-_TOC_SUGGEST_INDEX: list[dict] | None = None
+_TOC_SUGGEST_INDEX: dict[str, list[dict]] = {}
 _TOC_SUGGEST_LOCK = threading.Lock()
 _TOC_SUGGEST_PUNCT_RE = re.compile(r"""[\s·.,，。、；;：:！!？?（）()《》<>\[\]【】"'“”‘’\-—_]+""")
 
@@ -11621,7 +11621,7 @@ def _toc_match_rank(item: dict, qn: str) -> tuple[int, int, int]:
     return match_rank, aux_rank, level
 
 
-def _build_toc_suggest_index() -> list[dict]:
+def _build_toc_suggest_index(catalog_version: str | None = None) -> list[dict]:
     index: list[dict] = []
     if corpus is None:
         return index
@@ -11629,7 +11629,7 @@ def _build_toc_suggest_index() -> list[dict]:
     # 尚未上线的书库（如列宁《全集》）即使语料里已有目录，也不在「篇章直达」露出。
     for book in (cfg.key for cfg in BOOK_CONFIGS if _book_is_public(cfg)):
         for volume in corpus.get_volumes(book):
-            for entry in corpus.get_toc_entries(volume.source_file):
+            for entry in corpus.get_toc_entries(volume.source_file, catalog_version):
                 title = str(getattr(entry, "title", "") or "").strip()
                 if len(title) < 2:
                     continue
@@ -11651,13 +11651,20 @@ def _build_toc_suggest_index() -> list[dict]:
     return index
 
 
-def _get_toc_suggest_index() -> list[dict]:
-    global _TOC_SUGGEST_INDEX
-    if _TOC_SUGGEST_INDEX is None:
+def _get_toc_suggest_index(catalog_version: str | None = None) -> list[dict]:
+    key = catalog_version or "legacy"
+    cached = _TOC_SUGGEST_INDEX.get(key)
+    if cached is None:
         with _TOC_SUGGEST_LOCK:
-            if _TOC_SUGGEST_INDEX is None:
-                _TOC_SUGGEST_INDEX = _build_toc_suggest_index()
-    return _TOC_SUGGEST_INDEX
+            cached = _TOC_SUGGEST_INDEX.get(key)
+            if cached is None:
+                cached = _build_toc_suggest_index(catalog_version)
+                _TOC_SUGGEST_INDEX[key] = cached
+                # Historical links are retained on disk, but an application
+                # process only needs a small bounded set of suggestion indexes.
+                while len(_TOC_SUGGEST_INDEX) > 8:
+                    _TOC_SUGGEST_INDEX.pop(next(iter(_TOC_SUGGEST_INDEX)))
+    return cached
 
 
 # ---- 书名 / 卷次「直达」识别 ----
@@ -11873,6 +11880,12 @@ def api_library_toc_suggest():
     _require_search()
     raw = (request.args.get("q") or "").strip()
     mode = "reader" if (request.args.get("mode") or "").strip() == "reader" else "ai"
+    active_version = catalog_status()["id"]
+    catalog_version = (request.args.get("catalog_version") or active_version).strip()
+    if catalog_version == "legacy" and active_version != "legacy":
+        return jsonify({"ok": False, "error": "catalog_version_unavailable",
+                        "results": []}), 409
+    lookup_version = None if catalog_version == "legacy" else catalog_version
     # book：限定到单一书库或专题 collection（如 western_marxism）。
     scope = (request.args.get("book") or "").strip()
     known_books = {b["book"] for b in _get_book_alias_index()}
@@ -11887,7 +11900,7 @@ def api_library_toc_suggest():
         scope_book_set = set()
     qn = _toc_norm(raw)
     if len(qn) < 2:
-        return jsonify({"ok": True, "results": []})
+        return jsonify({"ok": True, "results": [], "catalog_version": catalog_version})
     # 1) 书名 / 卷次直达（置顶）：直接输入书名（可带卷次/版次）跳整卷。
     _viewer_mode = "reader" if mode == "reader" else "ai"
     book_results = []
@@ -11916,12 +11929,18 @@ def api_library_toc_suggest():
                     file=v["source_file"],
                     page=v["first_page"],
                     mode=_viewer_mode,
+                    catalog_version=lookup_version,
                 ),
             }
         )
     # 2) 篇章标题补全（原逻辑）；scope 命中时只在该书库内匹配。
     ranked_matches: list[tuple] = []
-    for item in _get_toc_suggest_index():
+    try:
+        suggestion_index = _get_toc_suggest_index(lookup_version)
+    except (OSError, ValueError, KeyError):
+        return jsonify({"ok": False, "error": "catalog_version_unavailable",
+                        "results": []}), 409
+    for item in suggestion_index:
         if not _book_is_public(str(item.get("book") or "")):
             continue
         if scope_book_set and item["book"] not in scope_book_set:
@@ -11983,15 +12002,20 @@ def api_library_toc_suggest():
                     section=item["title"],
                     printed=item["printed_page"],
                     mode=("reader" if mode == "reader" else "ai"),
+                    catalog_version=lookup_version,
                 ),
             }
         )
-    return jsonify({"ok": True, "results": book_results + chapter_results})
+    resp = jsonify({"ok": True, "results": book_results + chapter_results,
+                    "catalog_version": catalog_version})
+    resp.headers["Cache-Control"] = "private, no-cache"
+    return resp
 
 
 def _warm_toc_suggest_index() -> None:
     try:
-        _get_toc_suggest_index()
+        selected = catalog_status()["id"]
+        _get_toc_suggest_index(None if selected == "legacy" else selected)
         _get_book_alias_index()
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("TOC suggest index warm failed: %s", exc)

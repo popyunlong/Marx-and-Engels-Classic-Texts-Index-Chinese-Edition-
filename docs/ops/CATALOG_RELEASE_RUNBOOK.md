@@ -12,10 +12,11 @@
 
 ## 构建、复核及交付物
 
-- `scripts/snapshot_catalog.py --output <new-artifact-directory>` 通过只读事务与共享发布锁提取最新基线；不复制用户数据或秘密配置。
+- `scripts/snapshot_catalog.py --output <new-artifact-directory>` 先采集五分钟线上时延与磁盘等待基线，再通过短只读事务和非阻塞共享发布锁提取最新目录。数据库事务在网页文件传输前结束；网页每批最多 100 个，服务器使用最低 I/O/CPU 优先级并限速 2 MiB/s，不压缩、不分析、不落地临时副本。采集中每 30 秒检查健康、代表页面、5xx、p95 和磁盘等待；越过门槛立即中止并删除本地半成品。发布锁忙时等待下一窗口，不阻塞发布。压缩和完整校验只在本地进行；不复制用户数据或秘密配置。
 - `scripts/catalog_bundle.py build --snapshot <snapshot> --output <new-version-directory> --version <id>` 固化基线。输出目录不能预先存在。
 - 第一批使用 `scripts/prepare_catalog_repairs.py`；第二批试点使用 `scripts/prepare_catalog_pilot.py`。两者必须传入正确的 `--parent`、全新 `--work`、`--output` 和 `--version`。
-- 每个版本检查逐来源的前后指纹、确切原书证据及逐文件清单。第一批只允许 3 个来源的 6 条目录记录和 2 个 HTML 文件变化。试点只允许《文集》5 卷的 12 个层级值及 3 个 HTML 文件变化。
+- MEGA² IV/3 使用 `scripts/prepare_mega_iv3.py`，只能排在第二批之后作为独立候选。输入必须是指纹匹配的 1998 年 Text 卷原书 PDF；候选只允许修改 IV/3 目录首页和 9 个正文 HTML 的新增锚点，并保留旧分页链接。Text 卷没有的 Apparat、导论、缩略语和索引不得补成已上线内容；正文独立标题覆盖完成核验前仍标记为待核实。
+- 每个版本检查逐来源的前后指纹、确切原书证据及逐文件清单。第一批只允许 3 个来源的 6 条目录记录和 2 个 HTML 文件变化。试点只允许《文集》5 卷的 12 个层级值及 3 个 HTML 文件变化。IV/3 候选重基时，10 个父文件和审定结果文件的前后指纹必须全部逐字节匹配；任一不一致即重新按原书生成和核验，不能沿用旧包。
 - `scripts/scan_catalog_links.py --root <version> --output <report> --baseline <previous-report>` 扫描全部镜像，包括不在公开书单中的旧文件。不能将它的统计直接当作公开书目覆盖数；绝对 URL 和应用路由另做 HTTP 检查。
 - `scripts/catalog_deploy.py pack --root <version> --archive <artifact.tar.gz>` 打包已经校验的目录版本。大文件保存在独立审计产物目录，不能进入 Git。
 - 把绑定写入提交之前，必须审查包中 `catalog.json` 的全部差异与证据。绑定的 SHA-256 是该文件的文件哈希，不是目录 ID 或 TOC 哈希。
