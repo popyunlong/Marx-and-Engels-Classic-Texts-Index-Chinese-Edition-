@@ -65,6 +65,18 @@ def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
 
     import app as app_module  # noqa: PLC0415
 
+    if mode == "server" and os.environ.get("APP_RELEASE_FILE"):
+        index = getattr(app_module.corpus, "layout_index", None)
+        if not index or not index.enabled or index.error or not index.projections:
+            raise RuntimeError(
+                "排版补充检索索引不可用："
+                + (str(getattr(index, "error", "")) or "未加载有效投影")
+            )
+        for query in ("马克思", "劳动"):
+            _, complete, warning = app_module.corpus._layout_scan(query)
+            if not complete:
+                raise RuntimeError(f"排版补充检索未完成：{query}：{warning}")
+
     # server 模式下 PUBLIC_BASE_URL 若误配为 http:// 会让会话 cookie 静默以非 Secure 下发，
     # 形成「对外 https 但 cookie 可被降级嗅探」的隐蔽不一致。部署期就拦住。
     # 本地冒烟通常不设 PUBLIC_BASE_URL（base 为空时跳过，不误伤）。
