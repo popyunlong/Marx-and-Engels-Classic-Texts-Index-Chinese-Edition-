@@ -17,6 +17,7 @@ from pathlib import Path
 
 RUN = struct.Struct('<QQQ')  # projected character start, canonical start, length
 VERSION = 1
+SCAN_BUDGET_SECONDS = 10  # Allow cold projections to finish while retaining a hard bound.
 
 
 def _runtime_pdf_path(source_file):
@@ -194,7 +195,7 @@ class LayoutIndex:
             return {}, False, 'layout scan busy'
         found = {}
         try:
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + SCAN_BUDGET_SECONDS
             for vol in volumes:
                 projection = self.projections.get(vol.source_file)
                 if projection:
