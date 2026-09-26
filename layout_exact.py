@@ -135,7 +135,9 @@ class LayoutIndex:
         self.projections = {}
         self.error = ''
         self.revision = ''
-        if not root and not os.environ.get('MARX_LAYOUT_EXACT_DIR'):
+        # A release's checked-in pointer is authoritative. A host EnvironmentFile
+        # can retain the prior release's path during a candidate cutover.
+        if not root:
             from build_index import _EXEDIR
             pointer = Path(_EXEDIR) / 'config/layout_exact_runtime.json'
             if pointer.is_file():
