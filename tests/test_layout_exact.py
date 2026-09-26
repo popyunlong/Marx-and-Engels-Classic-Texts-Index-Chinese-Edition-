@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 import runtime_env
+import build_index
 from layout_exact import LayoutIndex, RUN, VERSION, volume_fingerprint
 
 
@@ -62,4 +63,21 @@ def test_layout_index_uses_configured_shared_pdf_root(tmp_path, monkeypatch):
         assert list(index.projections) == [volume.source_file]
     finally:
         for projection in index.projections.values():
+            projection.close()
+
+    # A stale host EnvironmentFile must not override the immutable release's
+    # configured index when the candidate service starts.
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "layout_exact_runtime.json").write_text(
+        json.dumps({"directory": str(index_root)}), encoding="utf-8"
+    )
+    monkeypatch.setattr(build_index, "_EXEDIR", tmp_path)
+    monkeypatch.setenv("MARX_LAYOUT_EXACT_DIR", str(tmp_path / "old-index"))
+    candidate_index = LayoutIndex(corpus)
+    try:
+        assert candidate_index.error == ""
+        assert list(candidate_index.projections) == [volume.source_file]
+    finally:
+        for projection in candidate_index.projections.values():
             projection.close()
