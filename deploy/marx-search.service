@@ -38,7 +38,6 @@ ReadOnlyPaths=/opt/marx-search/releases
 ProtectHome=tmpfs
 BindReadOnlyPaths=/home/data/marx-ocr-geometry
 BindReadOnlyPaths=/home/data/marx-layout-releases/layout-20260913-v1/.venv
-BindReadOnlyPaths=/home/data/marx-layout-releases/layout-20260913-v1/layout-index-v2
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true

@@ -108,6 +108,9 @@ def test_candidate_is_healthy_before_any_cutover_or_service_replacement() -> Non
     assert 'actual = ((payload.get("app_release") or {}).get("id") or "")' in source
     assert 'wait_health "$CANDIDATE_PORT" "$RELEASE_ID"' in source
     assert 'wait_health "$PRIMARY_PORT" "$RELEASE_ID"' in source
+    assert 'payload.get("layout_exact_ready") is True' in source
+    assert 'expected != sys.argv[2] or layout_ready' in source
+    assert 'wait_health "$PRIMARY_PORT" "$EXPECTED_LIVE"' in source
     assert "rollback_primary" in source
     assert "restoring the direct predecessor" in source
 

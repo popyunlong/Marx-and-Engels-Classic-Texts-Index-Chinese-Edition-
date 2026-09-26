@@ -47,7 +47,7 @@ jobs:
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
 
       - name: Run deterministic pull-request tests
-        run: python -m pytest tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_candidate_review.py -q
+        run: python -m pytest tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_candidate_review.py tests/test_layout_release_smoke.py -q
 
       - name: Check release shell syntax
         run: |

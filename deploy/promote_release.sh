@@ -209,8 +209,9 @@ import json, sys
 payload = json.load(sys.stdin)
 expected = sys.argv[1]
 actual = ((payload.get("app_release") or {}).get("id") or "")
-raise SystemExit(0 if actual == expected else 1)
-' "$expected_release" || return 1
+layout_ready = payload.get("layout_exact_ready") is True
+raise SystemExit(0 if actual == expected and (expected != sys.argv[2] or layout_ready) else 1)
+' "$expected_release" "$RELEASE_ID" || return 1
   fi
   curl -fsS --max-time 10 "http://127.0.0.1:${port}/" >/dev/null \
     && curl -fsS --max-time 10 "http://127.0.0.1:${port}/pricing" >/dev/null \
