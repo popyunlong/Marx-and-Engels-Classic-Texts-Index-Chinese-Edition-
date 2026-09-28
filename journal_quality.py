@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -141,6 +142,7 @@ def source_body_page_coverage(pdf_path: Path, paragraphs: list[dict]) -> tuple[f
         spans = block.get("source_spans") or []
         if spans:
             span_pages = [int(span.get("page") or 0) for span in spans if isinstance(span, dict)]
+            span_pages.extend((int(block.get("page") or 0), int(block.get("page_end") or block.get("page") or 0)))
             if span_pages and min(span_pages) > 0 and max(span_pages) <= len(pages):
                 covered.update(range(min(span_pages), max(span_pages) + 1))
         else:
@@ -195,6 +197,102 @@ def _table_numbers(block: dict) -> list[str]:
         elif isinstance(row, (list, tuple)):
             pieces.extend(str(item) for item in row)
     return numeric_tokens(" ".join(pieces))
+
+
+def _english_words(value: Any) -> list[str]:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii").lower()
+    return re.findall(r"[a-z]{3,}", ascii_text)
+
+
+def source_pdf_rejection_reasons(document: dict, article_dir: Path) -> list[str]:
+    """Compare the saved bilingual text with its actual source PDF.
+
+    A declared 100% coverage value cannot establish that every PDF page was
+    processed. Paragraphs may span pages, so their text counts on each page in
+    their recorded span. Early title/abstract pages get a lower threshold.
+    """
+    source = Path(article_dir) / "source.pdf"
+    if not source.is_file():
+        return ["source-pdf-missing"]
+    try:
+        import fitz
+
+        pdf = fitz.open(source)
+    except Exception:
+        return ["source-pdf-unreadable"]
+    errors: list[str] = []
+    try:
+        if int(document.get("page_count") or 0) != pdf.page_count:
+            errors.append("source-page-count-mismatch")
+        provenance = document.get("provenance") if isinstance(document.get("provenance"), dict) else {}
+        recorded_hash = str(provenance.get("sha256") or "").lower()
+        if not recorded_hash:
+            errors.append("source-pdf-hash-missing")
+        elif file_sha256(source) != recorded_hash:
+            errors.append("source-pdf-hash-mismatch")
+
+        title = str((document.get("metadata") or {}).get("title_en") or "")
+        title_words = {word for word in _english_words(title) if len(word) >= 4}
+        opening_words = set(_english_words(" ".join(
+            pdf[index].get_text("text") for index in range(min(4, pdf.page_count))
+        )))
+        if not title_words:
+            errors.append("source-title-missing")
+        elif len(title_words & opening_words) / len(title_words) < 0.7:
+            errors.append("source-title-mismatch")
+
+        paragraphs = [block for block in document.get("paragraphs") or [] if isinstance(block, dict)]
+        for index, page in enumerate(pdf):
+            page_number = index + 1
+            source_text = page.get_text("text")
+            min_chars = 2000 if page_number <= 3 else 1200
+            if len(source_text) < min_chars:
+                continue
+            expected = Counter(_english_words(source_text))
+            if not expected:
+                continue
+            represented = Counter()
+            for block in paragraphs:
+                start = int(block.get("page") or 0)
+                end = int(block.get("page_end") or start)
+                if start <= page_number <= end:
+                    represented.update(_english_words(block.get("text")))
+                asset = block.get("asset") if isinstance(block.get("asset"), dict) else {}
+                if int(asset.get("source_page") or 0) == page_number:
+                    bbox = asset.get("source_bbox") or []
+                    if len(bbox) == 4:
+                        represented.update(_english_words(page.get_text("text", clip=fitz.Rect(bbox))))
+            matched = sum(min(count, represented[word]) for word, count in expected.items())
+            coverage = matched / sum(expected.values())
+            floor = 0.25 if page_number <= 3 else 0.7
+            if coverage < floor:
+                errors.append(f"source-page-{page_number}-coverage:{coverage:.2f}")
+    finally:
+        pdf.close()
+    return errors
+
+
+def quality_failure_summary(report: dict) -> str:
+    """Give administrators actionable reasons without exposing document text."""
+    parts: list[str] = []
+    for article_id in report.get("failed_article_ids") or []:
+        errors = (report.get("articles") or {}).get(str(article_id), {}).get("errors") or []
+        reasons: list[str] = []
+        if any(error.startswith("source-title-") or error.startswith("source-pdf-hash-") for error in errors):
+            reasons.append("来源 PDF 不符")
+        if any(error.startswith("source-page-") or error == "source-page-count-mismatch" for error in errors):
+            reasons.append("正文缺页或抽取不完整")
+        if any("translation" in error for error in errors):
+            reasons.append("译文缺失")
+        if any("control-character" in error or error == "content-not-sanitized" for error in errors):
+            reasons.append("识别文本含控制字符")
+        if any("caption" in error or "asset" in error for error in errors):
+            reasons.append("图表未配对")
+        if any("abstract" in error for error in errors):
+            reasons.append("摘要不合格")
+        parts.append(f"{article_id}：{'、'.join(reasons or ['内容检查未通过'])}")
+    return "；".join(parts) or "未知文章：内容检查未通过"
 
 
 def build_quality_report(document: dict, *, body_word_coverage: float) -> dict:
@@ -356,6 +454,8 @@ def validate_document(document: dict, article_dir: Path) -> dict:
         errors.append("translation-incomplete")
     if visual_blocks != assets_ok:
         errors.append("visual-assets-incomplete")
+
+    errors.extend(source_pdf_rejection_reasons(document, article_dir))
 
     errors = list(dict.fromkeys(errors))
     return {

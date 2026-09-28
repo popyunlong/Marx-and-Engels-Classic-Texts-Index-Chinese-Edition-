@@ -10,6 +10,7 @@ import fitz
 from journal_fulltext import normalize_reflow_content
 from journal_quality import (
     build_quality_report,
+    file_sha256,
     pdf_identity_error,
     source_body_page_coverage,
     validate_document,
@@ -34,6 +35,7 @@ class JournalQualityGateTest(unittest.TestCase):
         source.close()
         self.document = {
             "schema_version": 5,
+            "page_count": 3,
             "metadata": {
                 "title_en": "Verified research on credit and trade",
                 "authors_en": ["A. Smith"],
@@ -41,7 +43,7 @@ class JournalQualityGateTest(unittest.TestCase):
                 "including the mechanisms that shape market access and the outcomes of trade.",
                 "abstract_zh": "本研究考察信贷与贸易。",
             },
-            "provenance": {"doi": "10.1234/verified"},
+            "provenance": {"doi": "10.1234/verified", "sha256": file_sha256(self.article_dir / "source.pdf")},
             "paragraphs": [
                 {"kind": "body", "page": 1, "text": "A substantial opening discussion of credit and trade.", "zh": "信贷与贸易的讨论。"},
                 {"kind": "body", "page": 2, "text": "A substantial second part of the article about credit markets.", "zh": "信贷市场的第二部分。"},
