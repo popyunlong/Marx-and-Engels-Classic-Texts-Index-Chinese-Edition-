@@ -94,6 +94,17 @@ class JournalQualityGateTest(unittest.TestCase):
         self._report()
         self.assertIn("captions-unpaired", validate_document(self.document, self.article_dir)["errors"])
 
+    def test_saved_pass_cannot_hide_new_fragment_or_caption(self) -> None:
+        self._report()
+        self.assertEqual(self.document["quality"]["status"], "passed")
+        self.document["paragraphs"].extend([
+            {"kind": "body", "page": 2, "text": "w", "zh": "w"},
+            {"kind": "caption", "page": 2, "text": "Figure 1. Market outcomes", "zh": "图1　市场结果"},
+        ])
+        errors = validate_document(self.document, self.article_dir)["errors"]
+        self.assertIn("orphan-fragments", errors)
+        self.assertIn("captions-unpaired", errors)
+
     def test_abstract_cleanup_stops_before_unlabelled_body(self) -> None:
         blocks = [
             {"kind": "heading", "page": 1, "text": "Abstract"},

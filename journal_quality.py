@@ -438,17 +438,25 @@ def validate_document(document: dict, article_dir: Path) -> dict:
         coverage = 0.0
         evidence = {"missing_body_pages": []}
         errors.append(f"source-validation:{type(exc).__name__}")
+    recomputed_checks = build_quality_report(
+        document, body_word_coverage=coverage
+    )["checks"]
     if coverage < 0.98:
         errors.append("body-word-coverage")
-    if declared_checks.get("orphan_fragments") not in (0, "0"):
+    if (declared_checks.get("orphan_fragments") not in (0, "0")
+            or recomputed_checks["orphan_fragments"]):
         errors.append("orphan-fragments")
-    if declared_checks.get("captions_paired") is not True:
+    if (declared_checks.get("captions_paired") is not True
+            or not recomputed_checks["captions_paired"]):
         errors.append("captions-unpaired")
-    if declared_checks.get("table_numbers_verified") is not True:
+    if (declared_checks.get("table_numbers_verified") is not True
+            or not recomputed_checks["table_numbers_verified"]):
         errors.append("table-numbers-unverified")
-    if declared_checks.get("translation_complete") is not True:
+    if (declared_checks.get("translation_complete") is not True
+            or not recomputed_checks["translation_complete"]):
         errors.append("translation-declared-incomplete")
-    if declared_checks.get("content_sanitized") is not True:
+    if (declared_checks.get("content_sanitized") is not True
+            or not recomputed_checks["content_sanitized"]):
         errors.append("content-not-sanitized")
     if required != translated:
         errors.append("translation-incomplete")
