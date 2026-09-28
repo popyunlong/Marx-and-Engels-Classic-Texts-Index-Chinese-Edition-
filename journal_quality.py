@@ -10,6 +10,7 @@ the same immutable file contract without introducing a database migration.
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -73,6 +74,89 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _identity_words(value: Any) -> list[str]:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return re.findall(r"[a-z0-9]+", normalized)
+
+
+def pdf_identity_error(article: dict, pdf_path: Path) -> str:
+    """Reject a plausible-sized PDF belonging to a different paper."""
+    import fitz
+
+    with fitz.open(pdf_path) as pdf:
+        first_pages = " ".join(pdf[index].get_text() for index in range(min(3, len(pdf))))
+    words = _identity_words(first_pages)
+    title = [word for word in _identity_words(article.get("title")) if len(word) > 2]
+    if len(title) < 2 or not words:
+        return "pdf-title-unverifiable"
+    title_hits = sum(word in words for word in title)
+    if title_hits / len(title) < 0.75:
+        return "pdf-title-mismatch"
+    authors = article.get("authors") or []
+    if isinstance(authors, str):
+        authors = [authors]
+    surnames = [parts[-1] for name in authors if (parts := _identity_words(name)) and len(parts[-1]) >= 3]
+    if surnames and not any(surname in words for surname in surnames):
+        return "pdf-author-mismatch"
+    expected_doi = re.sub(r"\s+", "", str(article.get("doi") or "")).casefold()
+    pdf_dois = {match.rstrip(".,;)").casefold() for match in re.findall(
+        r"10\.\d{4,9}/[^\s<>]+", first_pages, flags=re.I
+    )}
+    if expected_doi and pdf_dois and expected_doi not in pdf_dois:
+        return "pdf-doi-mismatch"
+    return ""
+
+
+def source_body_page_coverage(pdf_path: Path, paragraphs: list[dict]) -> tuple[float, dict]:
+    """Measure physical source body pages represented by readable document blocks."""
+    import fitz
+
+    with fitz.open(pdf_path) as pdf:
+        pages = [page.get_text() for page in pdf]
+    intro = [index + 1 for index, value in enumerate(pages) if re.search(
+        r"(?im)^\s*(?:\d+(?:\.\d+)?[.)]?\s*)?introduction\s*$", value
+    )]
+    dense = [index + 1 for index, value in enumerate(pages)
+             if len(re.findall(r"[A-Za-z]+", value)) >= 120]
+    start = intro[0] if intro else (dense[0] if dense else 0)
+    # Repository cover sheets may precede an abstract-only first article page.
+    if (not intro and len(pages) > 2
+            and re.search(r"research online|deposited via", pages[0], re.I)
+            and re.search(r"\babstract\b", pages[1], re.I)):
+        section = [index + 1 for index, value in enumerate(pages[1:5], 1)
+                   if re.search(r"(?im)^\s*[1-9]\d*(?:\.\d+)*[.)]\s+[A-Za-z]", value)]
+        if section:
+            start = section[0]
+    references = [index + 1 for index, value in enumerate(pages) if re.search(
+        r"(?im)^\s*(?:references|bibliography)\s*$", value
+    )]
+    end = next((page - 1 for page in references if page > start), len(pages))
+    expected = set(range(start, end + 1)) if start and end >= start else set()
+    covered: set[int] = set()
+    for block in paragraphs:
+        if not isinstance(block, dict) or block.get("kind") == "reference":
+            continue
+        if len(re.findall(r"[A-Za-z]+", str(block.get("text") or ""))) < 5:
+            continue
+        spans = block.get("source_spans") or []
+        if spans:
+            span_pages = [int(span.get("page") or 0) for span in spans if isinstance(span, dict)]
+            if span_pages and min(span_pages) > 0 and max(span_pages) <= len(pages):
+                covered.update(range(min(span_pages), max(span_pages) + 1))
+        else:
+            first = int(block.get("page") or 0)
+            last = int(block.get("page_end") or first)
+            if first > 0 and first <= last <= len(pages):
+                covered.update(range(first, last + 1))
+    ratio = len(expected & covered) / len(expected) if expected else 0.0
+    return ratio, {
+        "source_sha256": file_sha256(pdf_path),
+        "source_body_pages": sorted(expected),
+        "covered_body_pages": sorted(expected & covered),
+        "missing_body_pages": sorted(expected - covered),
+    }
+
+
 def safe_asset_path(article_dir: Path, name: Any) -> Path:
     """Resolve one flat asset filename and reject traversal/symlink escapes."""
     raw = str(name or "").strip()
@@ -113,7 +197,7 @@ def _table_numbers(block: dict) -> list[str]:
     return numeric_tokens(" ".join(pieces))
 
 
-def build_quality_report(document: dict, *, body_word_coverage: float = 1.0) -> dict:
+def build_quality_report(document: dict, *, body_word_coverage: float) -> dict:
     """Build the fail-closed report attached by normal ingestion.
 
     Captions emitted as plain text are deliberately rejected: a later layout
@@ -148,7 +232,10 @@ def build_quality_report(document: dict, *, body_word_coverage: float = 1.0) -> 
         "captions_paired": captions_paired,
         "table_numbers_verified": table_numbers_verified,
         "translation_complete": translation_complete,
-        "orphan_fragments": 0,
+        "orphan_fragments": sum(
+            bool(re.fullmatch(r"[A-Za-z.]", str(item.get("text") or "").strip()))
+            for item in paragraphs if item.get("kind") == "body"
+        ),
         "known_placeholders": placeholders,
         "content_sanitized": content_sanitized,
     }
@@ -157,6 +244,7 @@ def build_quality_report(document: dict, *, body_word_coverage: float = 1.0) -> 
         and captions_paired
         and table_numbers_verified
         and translation_complete
+        and checks["orphan_fragments"] == 0
         and placeholders == 0
         and content_sanitized
     )
@@ -232,7 +320,26 @@ def validate_document(document: dict, article_dir: Path) -> dict:
 
     quality = document.get("quality") if isinstance(document.get("quality"), dict) else {}
     declared_checks = quality.get("checks") if isinstance(quality.get("checks"), dict) else {}
-    coverage = float(declared_checks.get("body_word_coverage") or 0.0)
+    source_pdf = Path(article_dir) / "source.pdf"
+    try:
+        if not source_pdf.is_file():
+            raise FileNotFoundError("source.pdf")
+        coverage, evidence = source_body_page_coverage(source_pdf, paragraphs)
+        source_article = {
+            "title": metadata.get("title_en"),
+            "authors": metadata.get("authors_en"),
+            "doi": (document.get("provenance") or {}).get("doi"),
+        }
+        identity_error = pdf_identity_error(source_article, source_pdf)
+        if identity_error:
+            errors.append(identity_error)
+        declared_source = str(declared_checks.get("source_sha256") or "")
+        if declared_source and declared_source != evidence["source_sha256"]:
+            errors.append("source-changed")
+    except Exception as exc:
+        coverage = 0.0
+        evidence = {"missing_body_pages": []}
+        errors.append(f"source-validation:{type(exc).__name__}")
     if coverage < 0.98:
         errors.append("body-word-coverage")
     if declared_checks.get("orphan_fragments") not in (0, "0"):

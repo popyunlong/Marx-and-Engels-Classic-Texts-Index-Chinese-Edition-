@@ -45,8 +45,11 @@ from journal_quality import (
     DOCUMENT_SCHEMA_VERSION,
     document_asset_manifest,
     file_sha256,
+    pdf_identity_error,
     safe_asset_path,
+    source_body_page_coverage,
     strip_abstract_label,
+    validate_document,
 )
 
 LOGGER = logging.getLogger("marx_search.journal_fulltext")
@@ -1067,7 +1070,13 @@ def _pdf_candidate_completeness_error(article: dict, path: Path, url: str) -> st
             doc.close()
     except Exception as exc:
         return f"invalid-pdf:{type(exc).__name__}"
-    return validate_pdf_completeness(article, {"page_count": page_count}, url)
+    completeness = validate_pdf_completeness(article, {"page_count": page_count}, url)
+    if completeness:
+        return completeness
+    try:
+        return pdf_identity_error(article, path)
+    except Exception as exc:
+        return f"pdf-identity-unverifiable:{type(exc).__name__}"
 
 
 def _download_pdf(url: str, dest: Path) -> tuple[bool, str]:
@@ -2648,16 +2657,25 @@ def normalize_reflow_content(paragraphs: list[dict], *, article: dict | None = N
         if _is_abstract_frontmatter(para):
             front_end = max(front_end, index + 1)
             cursor = index + 1
+            abstract_chars = 0
+            abstract_page = int(para.get("page") or 1)
             while cursor < len(items):
                 candidate = str(items[cursor].get("text") or "").strip()
+                # Line-oriented repository PDFs may label every following line
+                # as body, including the entire article and its references.
+                if ((int(items[cursor].get("page") or 1) > abstract_page
+                     and abstract_chars >= 80)
+                        or abstract_chars + len(candidate) > 2200):
+                    break
                 if _KEYWORDS_HEADING_RE.match(candidate) or _BODY_START_HEADING_RE.match(candidate):
                     break
                 if str(items[cursor].get("kind") or "") == "heading" and cursor > index + 1:
                     break
                 front_end = cursor + 1
+                abstract_chars += len(candidate)
                 cursor += 1
 
-        keyword_label = _KEYWORDS_HEADING_RE.match(text)
+        keyword_label = _KEYWORDS_HEADING_RE.match(text) if int(para.get("page") or 1) <= 3 else None
         if (
             keyword_label is None
             and int(para.get("page") or 1) <= 3
@@ -3144,8 +3162,23 @@ def build_article_fulltext(article: dict, *, translate: bool = True, allow_ocr: 
         "generated_at": _now_text(),
         "paragraphs": paragraphs,
     }
-    doc["quality"] = build_quality_report(doc)
+    coverage, source_evidence = source_body_page_coverage(pdf_path, paragraphs)
+    doc["quality"] = build_quality_report(doc, body_word_coverage=coverage)
+    doc["quality"]["checks"]["source_sha256"] = source_evidence["source_sha256"]
+    doc["quality"]["source_coverage"] = source_evidence
     _save_document(article_id, doc)
+    validated = validate_document(doc, article_dir(article_id))
+    if validated["status"] != "passed":
+        _upsert_state(
+            article_id, batch_id=batch_id, status="failed", pdf_url=pdf_url,
+            pdf_host_type=host_type, pdf_sha256=pdf_sha256,
+            pdf_bytes=pdf_path.stat().st_size, page_count=extracted["page_count"],
+            para_count=len(paragraphs), translated=translated,
+            required_translations=required, src_lang=src_lang,
+            provenance_json=json.dumps(provenance, ensure_ascii=False),
+            error=("quality: " + ",".join(validated["errors"]))[:600],
+        )
+        return get_fulltext_state(article_id) or {}
     _upsert_state(
         article_id,
         batch_id=batch_id,
@@ -3229,6 +3262,9 @@ def process_batch_fulltext(
         if state and state.get("status") == "ready" and (
             int(state.get("required_translations") or 0) > 0
             and int(state.get("translated") or 0) == int(state.get("required_translations") or 0)
+            and validate_document(
+                load_document(int(article["id"])) or {}, article_dir(int(article["id"]))
+            )["status"] == "passed"
         ):
             summary["ready"] += 1
             continue

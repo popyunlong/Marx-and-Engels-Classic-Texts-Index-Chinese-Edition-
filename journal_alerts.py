@@ -1774,7 +1774,18 @@ def public_batch_articles(digest_id: int) -> list[dict]:
             """,
             (int(digest_id),),
         ).fetchall()
-    return [article for row in rows if _public_article_complete(article := _article_row(row))]
+    articles = [article for row in rows if _public_article_complete(article := _article_row(row))]
+    if not articles:
+        return []
+    # Sent, archived and sample issues are immutable historical publications;
+    # their source PDFs may have been removed by the retention worker.
+    batch = get_batch(digest_id) or {}
+    if str(batch.get("status") or "") in {"sent", "archived", "sample"}:
+        return articles
+    quality = validate_batch_documents((article["id"] for article in articles), JOURNAL_ARTICLES_DIR)
+    passed = {article_id for article_id, result in quality["articles"].items()
+              if result.get("status") == "passed"}
+    return [article for article in articles if str(article["id"]) in passed]
 
 
 def _public_article_complete(article: dict) -> bool:

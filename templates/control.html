@@ -2277,7 +2277,7 @@
             {% endfor %}
           </div>
 
-          <h4 style="margin-top:14px">已完成双语处理，等待整期批准（{{ journal_batch_ready_articles|length }} 篇）</h4>
+          <h4 style="margin-top:14px">本期已处理文章与质量复核（{{ journal_batch_ready_articles|length }} 篇）</h4>
           <div class="table-list">
             {% for article in journal_batch_ready_articles %}
             <div class="table-row">
@@ -2285,6 +2285,11 @@
               <div class="kv">
                 {% if article.ai_discipline %}<div>学科：{{ article.ai_discipline }}{% if article.ai_problem_type %} · {{ article.ai_problem_type }}{% endif %}</div>{% endif %}
                 <div>{{ article.journal_name }} / {{ article.published_at or "日期暂缺" }}</div>
+                {% set check = article.quality_validation or {} %}
+                <div>复核：{% if check.status == 'passed' %}<strong style="color:var(--ok)">通过</strong>{% else %}<strong style="color:var(--warn)">未通过，暂不进入邮件</strong>{% endif %}
+                  {% if check.body_word_coverage is defined %} · 原文正文页覆盖 {{ (check.body_word_coverage * 100)|round(1) }}%{% endif %}
+                </div>
+                {% if check.errors %}<div>原因：{{ check.errors|join('、') }}</div>{% endif %}
               </div>
               <form method="post" action="{{ url_for(control_journal_article_review_endpoint, article_id=article.id) }}" class="actions" style="margin-top:10px">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

@@ -5775,6 +5775,12 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
             ),
         )
         journal_batch_ready = batch_articles(int(journal_batch["id"]), statuses=("ready",))
+        if journal_batch_ready:
+            quality_results = validate_batch_documents(
+                (int(article["id"]) for article in journal_batch_ready), JOURNAL_ARTICLES_DIR
+            )["articles"]
+            for article in journal_batch_ready:
+                article["quality_validation"] = quality_results.get(str(article["id"]), {})
         journal_processing_states = list_journal_processing_states(int(journal_batch["id"]), limit=500)
     if remote_admin:
         journal_workflow = _journal_workflow_snapshot(journal_batch)
