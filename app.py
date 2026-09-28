@@ -329,7 +329,7 @@ from journal_fulltext import (
 )
 from journal_taxonomy import DISCIPLINES as JOURNAL_DISCIPLINES
 from journal_storage import JOURNAL_ARTICLES_DIR, JOURNAL_TMP_DIR
-from journal_quality import document_asset_manifest, file_sha256, safe_asset_path, validate_batch_documents
+from journal_quality import document_asset_manifest, file_sha256, quality_failure_summary, safe_asset_path, validate_batch_documents
 from broadcast_email import (
     BROADCAST_SCOPES,
     count_recipients as count_broadcast_recipients,
@@ -10400,8 +10400,7 @@ def admin_journal_digest_review(digest_id: int):
             (int(article["id"]) for article in complete_articles), JOURNAL_ARTICLES_DIR
         )
         if quality.get("status") != "passed":
-            failed = "、".join(str(value) for value in quality.get("failed_article_ids") or [])
-            flash(f"新版版面、摘要或译文质量门槛未通过（文章 {failed or '未知'}），不能批准或发送。", "warning")
+            flash(f"本期内容检查未通过（{quality_failure_summary(quality)}），不能批准或发送。", "warning")
             return _management_redirect(True, "journal-alerts")
         schedule = action == "approve_schedule"
         if schedule:
@@ -10480,8 +10479,7 @@ def admin_journal_digest_send(digest_id: int):
         (int(article["id"]) for article in complete_articles), JOURNAL_ARTICLES_DIR
     )
     if quality.get("status") != "passed":
-        failed = "、".join(str(value) for value in quality.get("failed_article_ids") or [])
-        flash(f"新版版面、摘要或译文质量门槛未通过（文章 {failed or '未知'}），发送已阻止。", "warning")
+        flash(f"本期内容检查未通过（{quality_failure_summary(quality)}），发送已阻止。", "warning")
         return _management_redirect(True, "journal-alerts")
     # 收件人解析是快查询，同步做以便即时校验（无人可发/参数错当场提示）；真正逐封阻塞 SMTP 的发送
     # 改为后台单飞，避免向「全部注册用户」逐封发信把请求线程钉死数分钟 / 触 CF 100s 超时。
