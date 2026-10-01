@@ -118,7 +118,9 @@ def probe(base_url, started):
     for path in ['/api/runtime','/','/login']:
         begin = time.monotonic()
         try:
-            with urllib.request.urlopen(base_url.rstrip('/') + path, timeout=8) as response:
+            request=urllib.request.Request(base_url.rstrip('/') + path,
+                headers={'User-Agent':'marx-paddle-repair-health/1.0','Cache-Control':'no-cache'})
+            with urllib.request.urlopen(request, timeout=8) as response:
                 data = response.read(4 * 1024**2)
                 item = {'path': path, 'status': response.status, 'ok': response.status == 200}
             if path == '/api/runtime':
