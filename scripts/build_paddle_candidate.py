@@ -19,6 +19,49 @@ def copy_sqlite(source,target):
             raise ValueError('invalid snapshot database')
 
 
+def verify_source_snapshot(source):
+    """Reject mixed or incomplete source components before allocating a candidate."""
+    snapshot=json.loads((source/'manifest.json').read_text('utf-8'))
+    files=snapshot.get('files',{})
+    if (not isinstance(files,dict) or not {'corpus.sqlite','geometry.sqlite'} <= files.keys()
+            or files.get('corpus.sqlite')!=snapshot.get('corpus_sha256')):
+        raise ValueError('incomplete core snapshot binding')
+    if (source/'subject_index.sqlite').exists() and 'subject_index.sqlite' not in files:
+        raise ValueError('unbound subject index')
+    for name,sha in files.items():
+        path=safe_path(source,name)
+        if path.is_symlink() or not path.is_file() or file_hash(path)!=sha:
+            raise ValueError('core snapshot hash mismatch: '+name)
+    proof=source/'auxiliary-manifest.json'
+    if not proof.is_file() or proof.is_symlink():
+        raise ValueError('verified auxiliary snapshot is required')
+    auxiliary=json.loads(proof.read_text('utf-8'))
+    if (auxiliary.get('schema_version')!=1
+            or auxiliary.get('parent_snapshot_sha256')!=file_hash(source/'manifest.json')
+            or auxiliary.get('app_release')!=snapshot.get('app_release')
+            or auxiliary.get('catalog_release')!=snapshot.get('catalog_release')):
+        raise ValueError('auxiliary snapshot belongs to a different core version')
+    bound=auxiliary.get('files',{})
+    if not isinstance(bound,dict) or not {'layout/manifest.json','catalog/catalog.json'} <= bound.keys():
+        raise ValueError('incomplete auxiliary snapshot binding')
+    for name,sha in bound.items():
+        if not (name.startswith('layout/') or name=='catalog/catalog.json'):
+            raise ValueError('invalid auxiliary component')
+        path=safe_path(source,name)
+        if path.is_symlink() or not path.is_file() or file_hash(path)!=sha:
+            raise ValueError('auxiliary snapshot hash mismatch: '+name)
+    if bound['catalog/catalog.json']!=snapshot['catalog_release']['sha256']:
+        raise ValueError('catalogue binding mismatch')
+    previous=json.loads((source/'layout/manifest.json').read_text('utf-8'))
+    required={'layout/manifest.json','catalog/catalog.json'}
+    for entry in previous['volumes'].values():
+        for suffix in ('text','runs','evidence.json'):
+            required.add('layout/'+entry['id']+'.'+suffix)
+    if set(bound)!=required:
+        raise ValueError('incomplete or unexpected auxiliary files')
+    return snapshot
+
+
 def apply_reviews(source, queue, output):
     """Only exact, source-reviewed page versions may change candidate text."""
     from build_index import normalize
@@ -64,9 +107,7 @@ def build(root,version,queue_name,baseline=False):
     source=root/'source'
     os.environ['MARX_RUNTIME_DATA_DIR']=str(source)
     os.environ['MARX_RUNTIME_PDF_DIR']=str(source/'pdfs')
-    snapshot=json.loads((source/'manifest.json').read_text('utf-8'))
-    if file_hash(source/'corpus.sqlite')!=snapshot['corpus_sha256']:
-        raise ValueError('source changed')
+    snapshot=verify_source_snapshot(source)
     target=root/'candidates'/version
     target.mkdir(parents=False,exist_ok=False)
     # A failed build is retained for diagnosis and never gets manifest.json.
@@ -131,6 +172,8 @@ def build(root,version,queue_name,baseline=False):
         manifest['volumes'][sf]=entry
     write_evidence(layout/'manifest.json',manifest)
     draft={'schema_version':1,'id':version,'parent':snapshot.get('corpus_release'),
+           'source_snapshot_sha256':file_hash(source/'manifest.json'),
+           'auxiliary_snapshot_sha256':file_hash(source/'auxiliary-manifest.json'),
            'catalog_release':snapshot['catalog_release'],'baseline_sha256':snapshot['corpus_sha256'],
            'changed_pages':[c['page_id'] for c in changes],'changed_sources':sorted(changed),
            'pdfs':{sf:snapshot['pdfs'][sf] for sf in changed},'page_identity':page_identity(target/'corpus.sqlite')}

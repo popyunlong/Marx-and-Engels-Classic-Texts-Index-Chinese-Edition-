@@ -314,3 +314,36 @@ def test_reviewed_update_changes_only_candidate_text_and_bound_geometry(source,t
         assert c.execute('SELECT raw_text FROM pages WHERE id=2').fetchone()[0]=='人民不是没有力量。'
     assert page_identity(source)==page_identity(target/'corpus.sqlite')
     assert not (target/'manifest.json').exists()
+
+
+def test_candidate_requires_all_components_bound_to_same_frozen_snapshot(tmp_path):
+    from scripts.build_paddle_candidate import verify_source_snapshot,build
+    from paddle_repair import file_hash
+    root=tmp_path;source=root/'source';source.mkdir();(root/'candidates').mkdir()
+    files={'corpus.sqlite':b'core','geometry.sqlite':b'geometry','subject_index.sqlite':b'index'}
+    extra={'catalog/catalog.json':b'catalogue','layout/manifest.json':canonical({'volumes':{'pdfs/book.pdf':{'id':'one'}}}),
+           'layout/one.text':b'text','layout/one.runs':b'runs','layout/one.evidence.json':b'evidence'}
+    for name,data in {**files,**extra}.items():
+        path=source/name;path.parent.mkdir(exist_ok=True);path.write_bytes(data)
+    snapshot={'files':{n:digest(data) for n,data in files.items()},'corpus_sha256':digest(b'core'),
+              'app_release':{'id':'app'},'catalog_release':{'id':'catalog','sha256':digest(b'catalogue')}}
+    (source/'manifest.json').write_bytes(canonical(snapshot))
+    with pytest.raises(ValueError,match='auxiliary snapshot'):
+        build(root,'test-version','pilot.sqlite',baseline=True)
+    assert not (root/'candidates/test-version').exists()
+    overlay={'schema_version':1,'parent_snapshot_sha256':file_hash(source/'manifest.json'),
+             'app_release':snapshot['app_release'],'catalog_release':snapshot['catalog_release'],
+             'files':{n:digest(data) for n,data in extra.items()}}
+    proof=source/'auxiliary-manifest.json';proof.write_bytes(canonical(overlay))
+    assert verify_source_snapshot(source)==snapshot
+    (source/'geometry.sqlite').write_bytes(b'mixed-version')
+    with pytest.raises(ValueError,match='core snapshot hash'):verify_source_snapshot(source)
+    (source/'geometry.sqlite').write_bytes(b'geometry')
+    overlay['parent_snapshot_sha256']='another-core';proof.write_bytes(canonical(overlay))
+    with pytest.raises(ValueError,match='different core version'):verify_source_snapshot(source)
+    overlay['parent_snapshot_sha256']=file_hash(source/'manifest.json');proof.write_bytes(canonical(overlay))
+    (source/'layout/one.evidence.json').write_bytes(b'changed-evidence')
+    with pytest.raises(ValueError,match='auxiliary snapshot hash'):verify_source_snapshot(source)
+    (source/'layout/one.evidence.json').write_bytes(b'evidence')
+    overlay['files'].pop('layout/one.evidence.json');proof.write_bytes(canonical(overlay))
+    with pytest.raises(ValueError,match='incomplete or unexpected'):verify_source_snapshot(source)
