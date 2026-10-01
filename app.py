@@ -7491,7 +7491,7 @@ def _page_image_cache_path(source_file: str, page_number: int, query_text: str, 
         if query_text else ""
     )
     corpus_token = corpus_release.status()['sha256'] or 'legacy'
-    cache_version = f"v9g:{corpus_token}:{geometry_token}" if query_text else "v6"
+    cache_version = f"v10g:{corpus_token}:{geometry_token}" if query_text else "v6"
     raw = f"{source_file}|{page_number}|{query_text}|{stamp}|{cache_version}{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
     # WebP 与 JPEG 同 digest、仅扩展名不同（同一页两变体各占一条缓存、互不覆盖）。
@@ -7872,7 +7872,9 @@ def _render_page_image_uncached(source_file: str, page_number: int, query_text: 
                     page.rect.y0 + y0 * page.rect.height,
                     page.rect.x0 + x1 * page.rect.width,
                     page.rect.y0 + y1 * page.rect.height,
-                )
+                ) * page.derotation_matrix
+                # Offline OCR boxes refer to the rendered, rotated page. PDF
+                # annotation APIs require coordinates in unrotated page space.
                 annot = page.add_highlight_annot(rect)
                 annot.set_colors(stroke=(1.0, 0.86, 0.2))
                 annot.set_opacity(0.45)
