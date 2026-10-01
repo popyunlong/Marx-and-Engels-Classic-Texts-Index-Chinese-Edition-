@@ -8,6 +8,7 @@ import ipaddress
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -50,22 +51,42 @@ class Paddle:
             headers['Content-Type'] = content_type
         request = urllib.request.Request(self.base + path, data=data, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=90) as response:
+            with urllib.request.urlopen(request, timeout=300) as response:
                 payload = json.loads(response.read(4 * 1024**2))
             return payload.get('data', payload)
         except urllib.error.HTTPError as exc:
-            # Never place provider bodies, authorization or signed URLs in logs.
-            raise ProviderError('provider HTTP ' + str(exc.code),
+            # Retain safe validation diagnostics without the raw provider body,
+            # credentials, echoed input, or signed resource URLs.
+            detail = ''
+            try:
+                error = json.loads(exc.read(65536))
+                code = error.get('code')
+                if isinstance(code,int) and not isinstance(code,bool):
+                    detail += ' code=' + str(code)
+                message = error.get('msg') or error.get('message')
+                if not message and isinstance(error.get('detail'),list):
+                    message = '; '.join(str(x.get('msg','')) for x in error['detail'] if isinstance(x,dict))
+                if isinstance(message,str):
+                    message = message.replace(self.token,'[redacted]')
+                    message = re.sub(r'https?://\S+','[url]',message)
+                    message = re.sub(r'(?i)bearer\s+\S+','Bearer [redacted]',message)
+                    detail += ' detail=' + ' '.join(message.split())[:300]
+            except (OSError,ValueError,AttributeError):
+                pass
+            raise ProviderError('provider HTTP ' + str(exc.code) + detail,
                 uncertain=data is not None and exc.code not in {400,401,403,404,413,422,429},
                 fatal=exc.code in {400,401,403,404,413,422,429}) from None
         except (OSError, ValueError) as exc:
-            raise ProviderError('provider transport/format error: ' + type(exc).__name__, uncertain=data is not None) from None
+            kind=type(exc).__name__
+            if isinstance(exc,urllib.error.URLError):kind+=' reason='+type(exc.reason).__name__
+            raise ProviderError('provider transport/format error: ' + kind, uncertain=data is not None) from None
 
     @staticmethod
     def batch_id(request_key):
         if len(request_key) != 64 or any(c not in '0123456789abcdef' for c in request_key):
             raise ValueError('invalid persisted request fingerprint')
-        return 'marx-' + request_key
+        # Keep the complete fingerprint using only 64 alphanumeric characters.
+        return request_key
 
     def inspect_batch(self, request_key):
         # A batch labels a request; it is not an idempotency guarantee. Never POST

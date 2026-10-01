@@ -185,15 +185,15 @@ def test_submission_carries_persisted_fingerprint_for_lost_response_lookup(monke
     def request(path,data=None,content_type=None):
         calls.append((path,data,content_type))
         if data is not None:
-            assert b'name="batchId"\r\n\r\nmarx-'+key.encode() in data
+            assert b'name="batchId"\r\n\r\n'+key.encode() in data
             raise ProviderError('unknown response',uncertain=True)
-        return {'batchId':'marx-'+key,'extractResult':[{'jobId':'known-job','state':'done','resultUrl':'secret-url'}]}
+        return {'batchId':key,'extractResult':[{'jobId':'known-job','state':'done','resultUrl':'secret-url'}]}
     monkeypatch.setattr(client,'request',request)
     with pytest.raises(ProviderError,match='unknown'):
         client.submit(b'image',PRIMARY_MODEL,key)
     assert client.inspect_batch(key)==[{'jobId':'known-job','state':'done'}]
     assert len(calls)==2 and calls[1][1] is None
-    assert calls[1][0]=='/api/v2/ocr/jobs/batch/marx-'+key
+    assert calls[1][0]=='/api/v2/ocr/jobs/batch/'+key
 
 
 def test_batch_lookup_empty_or_wrong_identity_never_submits(monkeypatch):
@@ -202,13 +202,30 @@ def test_batch_lookup_empty_or_wrong_identity_never_submits(monkeypatch):
     def request(path,data=None,content_type=None):
         assert data is None
         calls.append(path)
-        return {'batchId':'marx-'+key,'extractResult':[]}
+        return {'batchId':key,'extractResult':[]}
     monkeypatch.setattr(client,'request',request)
     assert client.inspect_batch(key)==[]
     monkeypatch.setattr(client,'request',lambda *args: {'batchId':'another','extractResult':[]})
     with pytest.raises(ProviderError,match='identity mismatch'):client.inspect_batch(key)
     with pytest.raises(ValueError):client.batch_id('unpersisted-key')
     assert len(calls)==1
+
+
+def test_provider_rejection_keeps_safe_diagnostics_without_credentials_or_urls(monkeypatch):
+    import io,urllib.error
+    from scripts.paddle_corpus_repair import Paddle
+    token='test-credential-never-log';client=Paddle(token)
+    body=canonical({'code':10001,'msg':'batchId validation: '+token+' Bearer hidden https://example.com/private?token=hidden'})
+    def rejected(*args,**kwargs):
+        assert kwargs['timeout']==300
+        raise urllib.error.HTTPError('https://example.com',400,'bad request',{},io.BytesIO(body))
+    monkeypatch.setattr('urllib.request.urlopen',rejected)
+    with pytest.raises(ProviderError) as result:client.submit(b'image','model','a'*64)
+    message=str(result.value)
+    assert 'code=10001' in message and 'batchId validation' in message
+    assert token not in message and 'hidden' not in message and 'https://' not in message
+    assert result.value.fatal and not result.value.uncertain
+    assert len(client.batch_id('a'*64))==64
 
 
 def layout(text='人民不是没有力量。',box=None):
