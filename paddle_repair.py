@@ -95,7 +95,8 @@ def write_evidence(path, payload):
     return digest(data)
 
 
-def prioritized_pages(conn, *, per_group=None, limit=None):
+def prioritized_pages(conn, *, per_group=None, limit=None, priority_hints=None):
+    hints=priority_hints or {}
     volumes = defaultdict(list)
     for row in conn.execute('SELECT id,book,volume,source_file,pdf_page FROM pages ORDER BY source_file,pdf_page,id'):
         if source_group(row['book']) in 'ABC':
@@ -116,8 +117,15 @@ def prioritized_pages(conn, *, per_group=None, limit=None):
                     yield samples[group][i]
         return
     first = sorted((k for k in volumes if k[:2] in FIRST_VOLUMES), key=lambda k: (FIRST_VOLUMES.index(k[:2]), k[2]))
+    def rank(k,g):
+        hint=hints.get(k[2],{})
+        reported,missing=hint.get('reported_errors',0),hint.get('missing_geometry_ratio',0)
+        if type(reported) is not int or reported<0 or not isinstance(missing,(int,float)) or not 0<=missing<=1:
+            raise ValueError('invalid source priority evidence')
+        series=(MARX if g=='A' else CHINA).index(k[0]) if g in 'AB' else 0
+        return (-reported,-missing,series,k)
     queues = {g: deque(sorted((k for k in volumes if source_group(k[0]) == g and k not in first),
-              key=lambda k: ((MARX if g == 'A' else CHINA).index(k[0]) if g in 'AB' else 0, k))) for g in 'ABC'}
+              key=lambda k: rank(k,g))) for g in 'ABC'}
     order = list(first)
     while any(queues.values()):
         for g in 'ABC':

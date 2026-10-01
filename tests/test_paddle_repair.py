@@ -34,6 +34,15 @@ def test_priority_round_robin(source):
         assert [r['id'] for r in prioritized_pages(conn,per_group=1)]==[1,2,3]
 
 
+def test_reported_errors_prioritize_later_volumes_after_named_first_batch(source):
+    from paddle_repair import readonly
+    with sqlite3.connect(source) as conn:
+        conn.execute('INSERT INTO pages VALUES(6,?,?,?,?,?,?,?)',('文集',3,'pdfs/6.pdf',1,'1','原文','原文'))
+    with readonly(source) as conn:
+        rows=list(prioritized_pages(conn,priority_hints={'pdfs/6.pdf':{'reported_errors':5}}))
+    assert [r['id'] for r in rows]==[1,2,3,6,4]
+
+
 def test_crash_never_reposts_uncertain_submission(source,tmp_path):
     q=queue_for(source,tmp_path)
     q.prepare_job(1,'model','key')

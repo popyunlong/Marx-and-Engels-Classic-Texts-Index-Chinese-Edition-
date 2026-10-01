@@ -260,9 +260,26 @@ def plan(args):
     if file_hash(database) != snapshot['corpus_sha256']:
         raise ValueError('source snapshot fingerprint mismatch')
     queue = Queue(root/'jobs'/args.queue)
+    hints_file=root/'source/priority-hints.json'
+    hints=json.loads(hints_file.read_text('utf-8')) if hints_file.exists() else {}
     queue.bind(snapshot)
+    policy_hash=file_hash(hints_file) if hints_file.exists() else 'none'
+    previous=queue.conn.execute("SELECT value FROM meta WHERE key='priority_hints_sha256'").fetchone()
+    if previous and previous[0]!=policy_hash:
+        raise ValueError('priority evidence changed; create a new queue')
+    with queue.conn:
+        queue.conn.execute("INSERT OR IGNORE INTO meta VALUES('priority_hints_sha256',?)",(policy_hash,))
     with readonly(database) as conn:
-        rows = prioritized_pages(conn, per_group=args.per_group, limit=args.limit)
+        geometry=root/'source/geometry.sqlite'
+        if geometry.exists():
+            expected=snapshot.get('files',{}).get('geometry.sqlite')
+            if not expected or file_hash(geometry)!=expected:
+                raise ValueError('source geometry fingerprint mismatch')
+            with readonly(geometry) as g:
+                ready=dict(g.execute("SELECT source_file,count(*) FROM geometry_pages WHERE status='ready' GROUP BY source_file"))
+            for source,total in conn.execute('SELECT source_file,count(*) FROM pages GROUP BY source_file'):
+                hints.setdefault(source,{})['missing_geometry_ratio']=max(0,1-ready.get(source,0)/total)
+        rows = prioritized_pages(conn, per_group=args.per_group, limit=args.limit,priority_hints=hints)
         queue.plan(database, rows)
     print(json.dumps(queue.status(), ensure_ascii=False))
 
