@@ -61,13 +61,33 @@ class Paddle:
         except (OSError, ValueError) as exc:
             raise ProviderError('provider transport/format error: ' + type(exc).__name__, uncertain=data is not None) from None
 
-    def submit(self, image, model):
+    @staticmethod
+    def batch_id(request_key):
+        if len(request_key) != 64 or any(c not in '0123456789abcdef' for c in request_key):
+            raise ValueError('invalid persisted request fingerprint')
+        return 'marx-' + request_key
+
+    def inspect_batch(self, request_key):
+        # A batch labels a request; it is not an idempotency guarantee. Never POST
+        # again because a lookup is empty, unavailable, delayed or ambiguous.
+        batch_id = self.batch_id(request_key)
+        result = self.request('/api/v2/ocr/jobs/batch/' + batch_id)
+        if not isinstance(result, dict) or result.get('batchId') != batch_id:
+            raise ProviderError('batch identity mismatch', fatal=True)
+        rows = result.get('extractResult')
+        if not isinstance(rows, list) or any(not isinstance(r, dict) or not r.get('jobId') for r in rows):
+            raise ProviderError('invalid batch task identities', fatal=True)
+        # Exclude signed result URLs and provider bodies from operator output.
+        return [{'jobId': str(r['jobId']), 'state': str(r.get('state', ''))} for r in rows]
+
+    def submit(self, image, model, request_key):
         boundary = 'marx-' + digest(image)[:24]
         options = {'useDocOrientationClassify': False, 'useDocUnwarping': False, 'visualize': False}
         if model == PRIMARY_MODEL:
             options.update(useLayoutDetection=True, prettifyMarkdown=False, temperature=0.0)
         chunks = []
-        for name, value in [('model', model), ('optionalPayload', canonical(options).decode())]:
+        for name, value in [('model', model), ('batchId', self.batch_id(request_key)),
+                            ('optionalPayload', canonical(options).decode())]:
             chunks.append(('--' + boundary + '\r\nContent-Disposition: form-data; name="' + name + '"\r\n\r\n' + value + '\r\n').encode())
         chunks += [('--' + boundary + '\r\nContent-Disposition: form-data; name="file"; filename="page.png"\r\nContent-Type: image/png\r\n\r\n').encode(),
                    image, ('\r\n--' + boundary + '--\r\n').encode()]
@@ -201,7 +221,7 @@ def fetch_job(queue_path, root, page_id, image, pdf_sha, model, budget, stop=Non
                     raise ProviderError(str(exc), fatal=True) from None
                 raise
             try:
-                job_id = client.submit(image, model)
+                job_id = client.submit(image, model, key)
             except ProviderError as exc:
                 queue.transition(page_id, model, 'uncertain' if exc.uncertain else 'failed', error=str(exc))
                 if (exc.fatal or exc.uncertain) and stop is not None:

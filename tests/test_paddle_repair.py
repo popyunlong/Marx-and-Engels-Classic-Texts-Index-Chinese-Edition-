@@ -95,6 +95,38 @@ def test_unknown_submission_pauses_all_jobs_and_preserves_identity(source,tmp_pa
     assert len(calls)==1
 
 
+def test_submission_carries_persisted_fingerprint_for_lost_response_lookup(monkeypatch):
+    from scripts.paddle_corpus_repair import Paddle, PRIMARY_MODEL
+    client=Paddle('test-only');calls=[];key='a'*64
+    def request(path,data=None,content_type=None):
+        calls.append((path,data,content_type))
+        if data is not None:
+            assert b'name="batchId"\r\n\r\nmarx-'+key.encode() in data
+            raise ProviderError('unknown response',uncertain=True)
+        return {'batchId':'marx-'+key,'extractResult':[{'jobId':'known-job','state':'done','resultUrl':'secret-url'}]}
+    monkeypatch.setattr(client,'request',request)
+    with pytest.raises(ProviderError,match='unknown'):
+        client.submit(b'image',PRIMARY_MODEL,key)
+    assert client.inspect_batch(key)==[{'jobId':'known-job','state':'done'}]
+    assert len(calls)==2 and calls[1][1] is None
+    assert calls[1][0]=='/api/v2/ocr/jobs/batch/marx-'+key
+
+
+def test_batch_lookup_empty_or_wrong_identity_never_submits(monkeypatch):
+    from scripts.paddle_corpus_repair import Paddle
+    client=Paddle('test-only');key='b'*64;calls=[]
+    def request(path,data=None,content_type=None):
+        assert data is None
+        calls.append(path)
+        return {'batchId':'marx-'+key,'extractResult':[]}
+    monkeypatch.setattr(client,'request',request)
+    assert client.inspect_batch(key)==[]
+    monkeypatch.setattr(client,'request',lambda *args: {'batchId':'another','extractResult':[]})
+    with pytest.raises(ProviderError,match='identity mismatch'):client.inspect_batch(key)
+    with pytest.raises(ValueError):client.batch_id('unpersisted-key')
+    assert len(calls)==1
+
+
 def layout(text='人民不是没有力量。',box=None):
     return canonical({'result':{'layoutParsingResults':[{'prunedResult':{'width':100,'height':200,
         'parsing_res_list':[{'block_label':'text','block_content':text,'block_bbox':box or [10,20,90,80]}]}}]}})
