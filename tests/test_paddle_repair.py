@@ -95,6 +95,90 @@ def test_unknown_submission_pauses_all_jobs_and_preserves_identity(source,tmp_pa
     assert len(calls)==1
 
 
+def quarantine_fixture(source,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from paddle_repair import file_hash
+    q=Queue(tmp_path/'jobs/pilot.sqlite')
+    snapshot={'corpus_sha256':'x','pdfs':{'pdfs/1.pdf':{'sha256':'pdfsha'}}}
+    q.bind(snapshot);q.plan(source,[{'id':1},{'id':2}])
+    key='a'*64;q.prepare_job(1,'model',key);q.reserve(1,'model','2026-10-01',12);q.recover()
+    area=tmp_path/'source';area.mkdir();manifest=area/'manifest.json';manifest.write_bytes(canonical(snapshot))
+    page=dict(q.conn.execute('SELECT * FROM pages WHERE page_id=1').fetchone())
+    entry={k:page[k] for k in ('page_id','baseline_hash','source_file','pdf_page')}
+    entry.update(model='model',request_key=key,pdf_sha256='pdfsha',reason='lost POST response; never upload this page again')
+    policy={'schema_version':1,'source_manifest_sha256':file_hash(manifest),
+            'action':'exclude_page_permanently_continue_others',
+            'authorization':'user explicitly instructed isolation and continued work','requests':[entry]}
+    path=area/'uncertain-quarantine.json';path.write_bytes(canonical(policy));path.chmod(0o444)
+    real_stat=Path.stat
+    def trusted_stat(self,*args,**kwargs):
+        stat=real_stat(self,*args,**kwargs)
+        if self==path:return SimpleNamespace(st_uid=0,st_mode=stat.st_mode)
+        return stat
+    monkeypatch.setattr(Path,'stat',trusted_stat)
+    return q,path,policy
+
+
+def test_authorized_isolation_preserves_unknown_and_budget_and_blocks_reupload(source,tmp_path,monkeypatch):
+    from scripts.paddle_corpus_repair import quarantined_pages,Paddle
+    q,path,policy=quarantine_fixture(source,tmp_path,monkeypatch)
+    before=[tuple(r) for r in q.conn.execute('SELECT * FROM jobs')]
+    assert quarantined_pages(tmp_path)=={1}
+    monkeypatch.setattr(Paddle,'submit',lambda *args:pytest.fail('quarantined page submitted'))
+    with pytest.raises(ProviderError,match='permanently quarantined'):
+        fetch_job(q.path,tmp_path,1,b'different-image','pdfsha','second-model',12)
+    assert [tuple(r) for r in q.conn.execute('SELECT * FROM jobs')]==before
+    assert q.conn.execute('SELECT count FROM usage').fetchone()[0]==1
+    account=sqlite3.connect(tmp_path/'jobs/provider-budget.sqlite')
+    assert account.execute('SELECT count FROM usage').fetchone()[0]==1
+    account.close();path.chmod(0o644)
+
+
+def test_quarantine_does_not_waive_new_uncertainty_or_hide_another_queue(source,tmp_path,monkeypatch):
+    from scripts.paddle_corpus_repair import quarantined_pages
+    q,path,policy=quarantine_fixture(source,tmp_path,monkeypatch)
+    other=Queue(tmp_path/'jobs/other.sqlite');other.bind({'corpus_sha256':'x'});other.plan(source,[{'id':2}])
+    other.prepare_job(2,'model','b'*64);other.reserve(2,'model','2026-10-01',12)
+    with pytest.raises(ProviderError,match='reconciliation'):quarantined_pages(tmp_path)
+    # Active threads may be submitting; an interrupted POST after recovery still blocks.
+    assert quarantined_pages(tmp_path,allow_submitting=True)=={1}
+    other.recover()
+    with pytest.raises(ProviderError,match='reconciliation'):quarantined_pages(tmp_path,allow_submitting=True)
+    path.chmod(0o644)
+
+
+@pytest.mark.parametrize('tamper',['writable','request_key','pdf_sha256','source_manifest_sha256','authorization'])
+def test_quarantine_requires_frozen_exact_authorized_evidence(source,tmp_path,monkeypatch,tamper):
+    from scripts.paddle_corpus_repair import quarantined_pages
+    q,path,policy=quarantine_fixture(source,tmp_path,monkeypatch)
+    path.chmod(0o644)
+    if tamper=='request_key':policy['requests'][0]['request_key']='b'*64
+    elif tamper=='pdf_sha256':policy['requests'][0]['pdf_sha256']='another-pdf'
+    elif tamper=='source_manifest_sha256':policy[tamper]='another-source'
+    elif tamper=='authorization':policy[tamper]=''
+    path.write_bytes(canonical(policy))
+    if tamper!='writable':path.chmod(0o444)
+    with pytest.raises((ValueError,ProviderError)):quarantined_pages(tmp_path)
+    path.chmod(0o644)
+
+
+def test_isolated_page_replaced_within_stable_three_group_scope(source,tmp_path):
+    from scripts.paddle_corpus_repair import eligible_pages
+    with sqlite3.connect(source) as conn:
+        for i in range(6,19):
+            book=['文集','毛泽东选集','习近平著作选读'][(i-6)%3]
+            conn.execute('INSERT INTO pages VALUES(?,?,?,?,?,?,?,?)',(i,book,1,f'pdfs/{i}.pdf',i,'1','原文','原文'))
+    q=Queue(tmp_path/'jobs/pilot.sqlite');q.bind({'corpus_sha256':'x'})
+    ids=[1,2,3,6,7,8,9,10,11,12,13,14,15,16,17]
+    q.plan(source,[{'id':i} for i in ids])
+    first=list(eligible_pages(q.conn,12,{1},12))
+    assert len(first)==12 and 1 not in {p['page_id'] for p in first}
+    assert {g:sum(p['group_id']==g for p in first) for g in 'ABC'}==dict.fromkeys('ABC',4)
+    q.conn.execute("UPDATE pages SET state='awaiting_review' WHERE page_id=?",(first[0]['page_id'],));q.conn.commit()
+    second=list(eligible_pages(q.conn,12,{1},12))
+    assert len(second)==11 and {p['page_id'] for p in second} < {p['page_id'] for p in first}
+
+
 def test_submission_carries_persisted_fingerprint_for_lost_response_lookup(monkeypatch):
     from scripts.paddle_corpus_repair import Paddle, PRIMARY_MODEL
     client=Paddle('test-only');calls=[];key='a'*64
@@ -231,6 +315,41 @@ def test_operator_baseline_reuse_keeps_duration_freshness_and_original_limits(tm
     with pytest.raises(ValueError,match='original thresholds'):operator_baseline(path,snapshot,now)
     path.chmod(0o644)
     with pytest.raises(ValueError,match='frozen'):operator_baseline(path,snapshot,now)
+
+
+def test_health_relay_keeps_measurement_origin_and_fails_closed(tmp_path,monkeypatch):
+    from datetime import datetime,timezone
+    from types import SimpleNamespace
+    from scripts.paddle_corpus_repair import operator_observation
+    now=datetime.now(timezone.utc);original=validate_baseline([sample(t) for t in range(0,1801,30)])
+    area=tmp_path/'source';area.mkdir();path=area/'live.json'
+    payload={'measurement_origin':'production-loopback:8000','baseline_sha256':digest(canonical(original)),
+             'sample':sample(1900),'observation_age_at_publish_seconds':2}
+    real_stat=Path.stat
+    def trusted_stat(self,*args,**kwargs):
+        stat=real_stat(self,*args,**kwargs)
+        if self==path:return SimpleNamespace(st_uid=0,st_mode=stat.st_mode,st_mtime=now.timestamp()-1)
+        return stat
+    monkeypatch.setattr(Path,'stat',trusted_stat)
+    def save(value):
+        if path.exists():path.chmod(0o644)
+        path.write_bytes(canonical(value));path.chmod(0o444)
+    save(payload)
+    result=operator_observation(tmp_path,path,original,40,now)
+    assert result['elapsed']==40 and result['probes']==payload['sample']['probes']
+    # Failure is forwarded, rather than hidden; the ordinary two-failure gate applies.
+    save({**payload,'sample':sample(1900,ok=False)})
+    gate=HealthGate(original)
+    assert gate.observe(operator_observation(tmp_path,path,original,40,now))==''
+    assert gate.observe(operator_observation(tmp_path,path,original,70,now))=='critical_probe_failed'
+    for bad in ({'measurement_origin':'public-network'}, {'baseline_sha256':'other'},
+                {'observation_age_at_publish_seconds':80},{'observation_age_at_publish_seconds':float('nan')},
+                {'sample':sample(1900,release='changed')},
+                {'sample':{**sample(1900),'probes':[]}}):
+        save({**payload,**bad})
+        with pytest.raises(ValueError):operator_observation(tmp_path,path,original,40,now)
+    save(payload);path.chmod(0o644)
+    with pytest.raises(ValueError,match='frozen'):operator_observation(tmp_path,path,original,40,now)
 
 
 def test_worker_python_wrapper_keeps_venv_entrypoint(tmp_path,monkeypatch):

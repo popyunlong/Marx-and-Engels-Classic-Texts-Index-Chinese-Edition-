@@ -198,6 +198,8 @@ def render_page(pdf, number):
 
 
 def fetch_job(queue_path, root, page_id, image, pdf_sha, model, budget, stop=None):
+    if page_id in quarantined_pages(root, allow_submitting=True):
+        raise ProviderError('page permanently quarantined; submission forbidden', fatal=True)
     queue = Queue(queue_path)
     client = Paddle(os.environ.get('PADDLEOCR_ACCESS_TOKEN', '').strip())
     page = queue.conn.execute('SELECT * FROM pages WHERE page_id=?', (page_id,)).fetchone()
@@ -309,6 +311,76 @@ def plan(args):
     print(json.dumps(queue.status(), ensure_ascii=False))
 
 
+def quarantined_pages(root, *, allow_submitting=False):
+    """An explicit frozen authorization isolates a lost response, never clears it.
+
+    Inspect every queue so creating another queue cannot bypass an unknown POST.
+    The exception covers the exact persisted request only; any new uncertainty
+    still stops work. A quarantined page is excluded for every model and image.
+    """
+    policy_path = root/'source/uncertain-quarantine.json'
+    entries, snapshot = [], None
+    if policy_path.exists():
+        stat = policy_path.stat()
+        if policy_path.is_symlink() or stat.st_uid != 0 or stat.st_mode & 0o222:
+            raise ValueError('quarantine authorization must be root-owned and frozen')
+        policy = json.loads(policy_path.read_text('utf-8'))
+        manifest = root/'source/manifest.json'
+        if (policy.get('schema_version') != 1 or
+                policy.get('source_manifest_sha256') != file_hash(manifest) or
+                policy.get('action') != 'exclude_page_permanently_continue_others' or
+                not isinstance(policy.get('authorization'), str) or not policy['authorization'].strip()):
+            raise ValueError('invalid quarantine authorization or source identity')
+        snapshot = json.loads(manifest.read_text('utf-8'))
+        entries = policy.get('requests')
+        required = {'page_id','model','request_key','baseline_hash','source_file','pdf_page','pdf_sha256','reason'}
+        if (not isinstance(entries, list) or not entries or
+                any(not isinstance(e, dict) or not required <= e.keys() or not e['reason'] for e in entries)):
+            raise ValueError('invalid quarantined request identities')
+        if len({e['page_id'] for e in entries}) != len(entries):
+            raise ValueError('duplicate quarantined page')
+        for entry in entries:
+            if snapshot.get('pdfs',{}).get(entry['source_file'],{}).get('sha256') != entry['pdf_sha256']:
+                raise ValueError('quarantined PDF identity mismatch')
+    matched = set()
+    for path in sorted((root/'jobs').glob('*.sqlite')):
+        if path.is_symlink():
+            raise ValueError('queue symlink is forbidden')
+        conn = sqlite3.connect(path.as_uri()+'?mode=ro', uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'").fetchone():
+                continue  # Shared account budget has no request table.
+            rows = conn.execute("SELECT j.*,p.source_file,p.pdf_page,p.baseline_hash FROM jobs j LEFT JOIN pages p USING(page_id) WHERE j.state IN ('uncertain','submitting')").fetchall()
+            for row in rows:
+                if allow_submitting and row['state'] == 'submitting':
+                    continue  # Another thread may currently await its first POST.
+                entry = next((e for e in entries if e['request_key'] == row['request_key']), None)
+                source = conn.execute("SELECT value FROM meta WHERE key='source'").fetchone()
+                if (not entry or row['state'] != 'uncertain' or row['remote_id'] or
+                        not source or json.loads(source[0]) != snapshot or
+                        any(row[k] != entry[k] for k in ('page_id','model','request_key','baseline_hash','source_file','pdf_page'))):
+                    raise ProviderError('uncertain submission requires reconciliation before any new jobs', fatal=True)
+                matched.add(entry['page_id'])
+        finally:
+            conn.close()
+    if matched != {e['page_id'] for e in entries}:
+        raise ValueError('quarantine evidence is missing; retain the original uncertain job')
+    return matched
+
+
+def eligible_pages(conn, total, excluded, limit):
+    # Count the approved scope AFTER permanent exclusions, before completion
+    # filtering. Restarts cannot accumulate extra pages beyond that same scope.
+    placeholders = ','.join('?' for _ in excluded) or 'NULL'
+    return deque_rows(conn.execute(
+        "SELECT * FROM (SELECT * FROM pages WHERE page_id NOT IN ("+placeholders+") ORDER BY priority LIMIT ?) "
+        "WHERE state IN ('planned','awaiting_retry') ORDER BY priority LIMIT ?",
+        (*sorted(excluded), total, limit))) if excluded else deque_rows(conn.execute(
+        "SELECT * FROM (SELECT * FROM pages ORDER BY priority LIMIT ?) WHERE state IN ('planned','awaiting_retry') ORDER BY priority LIMIT ?",
+        (total,limit)))
+
+
 def run_worker(args):
     import fcntl
     root = args.root.resolve()
@@ -317,8 +389,7 @@ def run_worker(args):
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     queue = Queue(root/'jobs'/args.queue)
     queue.recover()
-    if queue.conn.execute("SELECT 1 FROM jobs WHERE state='uncertain' LIMIT 1").fetchone():
-        raise RuntimeError('uncertain submission requires reconciliation before any new jobs')
+    excluded = quarantined_pages(root)
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
@@ -335,6 +406,8 @@ def run_worker(args):
     started, baseline_samples = time.monotonic(), []
     report = root/'reports'/('run-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
     report.mkdir()
+    if args.health_observation_file and not args.baseline_file:
+        raise ValueError('relayed observations require a matching protected baseline')
     with (report/'health.jsonl').open('a', encoding='utf-8') as log:
         baseline = None
         if args.baseline_file:
@@ -361,8 +434,20 @@ def run_worker(args):
                 break
             time.sleep(30)
         write_evidence(report/'baseline.json', baseline)
+        def current_health():
+            if args.health_observation_file:
+                return operator_observation(root,args.health_observation_file,baseline,time.monotonic()-started)
+            return probe(args.health_url,started)
+        if args.health_observation_file:
+            sample=current_health()
+            if any(not p['ok'] for p in sample['probes']):
+                raise RuntimeError('website probe failed before new jobs')
+            log.write(canonical(sample).decode()+'\n');log.flush()
         gate, last_probe = HealthGate(baseline), time.monotonic()
-        pages = deque_rows(queue.conn.execute("SELECT * FROM (SELECT * FROM pages ORDER BY priority LIMIT ?) WHERE state IN ('planned','awaiting_retry') ORDER BY priority LIMIT ?", (scope['max_total_pages'],args.max_pages)))
+        pages = eligible_pages(queue.conn, scope['max_total_pages'], excluded, args.max_pages)
+        write_evidence(report/'quarantine.json', {'excluded_page_ids':sorted(excluded),
+            'authorization_sha256':file_hash(root/'source/uncertain-quarantine.json') if excluded else None,
+            'eligible_scope_pages':scope['max_total_pages'],'unknown_jobs_preserved':True})
         running, pdf_hashes, stopped = {}, {}, ''
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as pool, readonly(database) as source:
             while pages or running:
@@ -373,9 +458,14 @@ def run_worker(args):
                 if stop.is_set():
                     stopped = stopped or 'scheduler pause requested'
                 if time.monotonic()-last_probe >= 30:
-                    sample = probe(args.health_url, started)
-                    log.write(canonical(sample).decode()+'\n');log.flush();last_probe=time.monotonic()
-                    stopped = stopped or gate.observe(sample)
+                    try:
+                        sample = current_health()
+                    except (ValueError,OSError,KeyError,TypeError) as exc:
+                        stopped = stopped or 'health observation unavailable: '+type(exc).__name__
+                    else:
+                        log.write(canonical(sample).decode()+'\n');log.flush()
+                        stopped = stopped or gate.observe(sample)
+                    last_probe=time.monotonic()
                 if stopped:
                     stop.set()
                 while pages and len(running) < args.concurrency and not stopped:
@@ -451,6 +541,40 @@ def operator_baseline(path, snapshot, now=None):
     return original
 
 
+def operator_observation(root,path,baseline,elapsed,now=None):
+    """Compare production loopback samples to production loopback thresholds.
+
+    A root operator relays observations, not credentials, onto the data node.
+    If the observer disappears or the proof changes origin/version, fail closed.
+    """
+    if not path.resolve().is_relative_to((root/'source').resolve()):
+        raise ValueError('health observation must be in the protected source area')
+    stat=path.stat()
+    if path.is_symlink() or stat.st_uid != 0 or stat.st_mode & 0o222:
+        raise ValueError('health observation must be root-owned and frozen')
+    payload=json.loads(path.read_text('utf-8'))
+    age_at_publish=payload['observation_age_at_publish_seconds']
+    if (isinstance(age_at_publish,bool) or not isinstance(age_at_publish,(int,float)) or
+            not math.isfinite(age_at_publish) or age_at_publish<0):
+        raise ValueError('invalid health observation age')
+    age=(now or datetime.now(timezone.utc)).timestamp()-stat.st_mtime+age_at_publish
+    if not 0 <= age < 75:
+        raise ValueError('health observation expired; stop new jobs')
+    if (payload.get('measurement_origin') != 'production-loopback:8000' or
+            payload.get('baseline_sha256') != digest(canonical(baseline))):
+        raise ValueError('health observation measurement or baseline mismatch')
+    sample=payload['sample']
+    if sample.get('release')!=baseline['release'] or sample.get('catalog')!=baseline['catalog']:
+        raise ValueError('health observation production version changed')
+    rows=sample['probes']
+    if (not isinstance(rows,list) or len(rows)!=len(baseline['p95']) or
+            {p.get('path') for p in rows}!=set(baseline['p95']) or
+            any(not isinstance(p.get('ok'),bool) or isinstance(p.get('seconds'),bool) or
+                not isinstance(p.get('seconds'),(int,float)) or not math.isfinite(p['seconds']) or p['seconds']<0 for p in rows)):
+        raise ValueError('invalid health observation probes')
+    return {**sample,'elapsed':elapsed,'measurement_origin':payload['measurement_origin']}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['plan','run','status','review'])
@@ -463,6 +587,7 @@ def main(argv=None):
     parser.add_argument('--daily-budget', type=int, default=18000)
     parser.add_argument('--health-url', default='https://mazhuzuojiansuo.com')
     parser.add_argument('--baseline-file', type=Path)
+    parser.add_argument('--health-observation-file', type=Path)
     parser.add_argument('--review-file', type=Path)
     args=parser.parse_args(argv)
     if Path(args.queue).name != args.queue or not 1 <= args.daily_budget <= 18000:
