@@ -139,3 +139,29 @@ def test_highlights_use_real_character_widths_or_entire_proven_line():
     row.pop('chars');row['precision']='line'
     rows=decode_rows(encode_rows([row]));_,refs=_flatten_rows(rows)
     assert _rects_for_spans(rows,refs,[(1,2)],max_rects=2)==[(.1,.1,.9,.2)]
+
+
+def test_reviewed_update_changes_only_candidate_text_and_bound_geometry(source,tmp_path):
+    import shutil
+    from paddle_repair import file_hash
+    from ocr_geometry import init_geometry_db
+    from scripts.build_paddle_candidate import apply_reviews
+    q=queue_for(source,tmp_path)
+    target=tmp_path/'candidate';target.mkdir()
+    shutil.copy2(source,target/'corpus.sqlite');init_geometry_db(target/'geometry.sqlite')
+    source_hash=file_hash(source)
+    result={'page_id':1,'book':'文集','volume':1,'source_file':'pdfs/1.pdf','pdf_page':1,'printed_page':'1',
+        'baseline_hash':digest('人民不是没有力量。'),'pdf_sha256':'a'*64,'width':100,'height':100,
+        'text':'人民是有力量的。','geometry_precision':'line','geometry_aligned':True,
+        'geometry':[{'text':'人民是有力量的。','bbox':[.1,.1,.9,.2],'confidence':1,'precision':'line'}]}
+    path=tmp_path/'geometry/1.json';q.record_result(1,path,result)
+    q.review(1,decision='accepted',reviewer='test reviewer',evidence={
+        'baseline_hash':result['baseline_hash'],'result_hash':file_hash(path),
+        'reason':'fixture source verified','source_verified':True})
+    changes=apply_reviews(tmp_path/'source',q,target)
+    assert len(changes)==1 and file_hash(source)==source_hash
+    with sqlite3.connect(target/'corpus.sqlite') as c:
+        assert c.execute('SELECT raw_text FROM pages WHERE id=1').fetchone()[0]=='人民是有力量的。'
+        assert c.execute('SELECT raw_text FROM pages WHERE id=2').fetchone()[0]=='人民不是没有力量。'
+    assert page_identity(source)==page_identity(target/'corpus.sqlite')
+    assert not (target/'manifest.json').exists()

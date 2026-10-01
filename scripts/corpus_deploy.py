@@ -73,8 +73,6 @@ def preflight(root, app, archive=None):
     if selected!=previous:
         if m.get('parent')!=previous or m.get('baseline_sha256')!=file_hash(baseline):
             raise ValueError('stale corpus parent; rebase candidate on current generation')
-        if not previous and (m.get('changed_pages') or file_hash(candidate.path('database'))!=file_hash(baseline)):
-            raise ValueError('first bound corpus must be an unchanged rollback baseline')
     for source,record in m.get('pdfs',{}).items():
         if not source.startswith('pdfs/') or file_hash(safe_path((root/'pdfs').resolve(),source[5:]))!=record['sha256']:
             raise ValueError('candidate original PDF fingerprint mismatch: '+source)
@@ -88,10 +86,10 @@ def rollback_guard(root, app):
         return
     if target is None:
         metadata=json.loads((app.parent/'release.json').read_text('utf-8'))
-        if metadata.get('corpus_protocol')!=1 or current.manifest.get('parent') is not None or current.manifest.get('changed_pages'):
-            raise ValueError('legacy rollback is only allowed for the unchanged baseline')
+        if metadata.get('corpus_protocol')!=1 or current.manifest.get('parent') is not None:
+            raise ValueError('legacy rollback requires the first generation and a compatible foundation')
         target_db=root/'data/corpus.sqlite'
-        if file_hash(current.path('database'))!=file_hash(target_db):
+        if current.manifest.get('baseline_sha256')!=file_hash(target_db):
             raise ValueError('legacy corpus changed since baseline')
     else:
         target_db=target.path('database')

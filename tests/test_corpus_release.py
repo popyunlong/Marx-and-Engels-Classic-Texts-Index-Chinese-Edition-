@@ -55,7 +55,7 @@ def test_app_binding_cannot_disagree_with_archive_metadata(tmp_path):
     with pytest.raises(ValueError,match='differs'):binding(app)
 
 
-def test_preflight_requires_foundation_and_unchanged_first_generation(tmp_path):
+def test_preflight_requires_foundation_and_preserves_stable_identity(tmp_path):
     root=tmp_path/'site';current=root/'current/app';candidate=root/'releases/app'
     for app in (current,candidate):
         (app/'config').mkdir(parents=True)
@@ -70,6 +70,28 @@ def test_preflight_requires_foundation_and_unchanged_first_generation(tmp_path):
     (root/'data/corpus.sqlite').chmod(0o644)
     with sqlite3.connect(root/'data/corpus.sqlite') as c:c.execute("UPDATE pages SET printed_page='changed'")
     with pytest.raises(ValueError,match='identity'):corpus_deploy.preflight(root,candidate)
+
+
+def test_first_repair_rolls_back_to_untouched_legacy_without_requiring_old_ocr_to_pass_new_quality(tmp_path):
+    root=tmp_path/'site';current=root/'current/app';target=root/'previous/app'
+    for app in (current,target):
+        (app/'config').mkdir(parents=True)
+        (app/'config/catalog_release.json').write_bytes(canonical({'id':'cat'}))
+    gen=draft(root/'data/corpus-releases')
+    shutil.copy2(gen/'corpus.sqlite',root/'data/corpus.sqlite')
+    with sqlite3.connect(gen/'corpus.sqlite') as c:
+        c.execute("UPDATE pages SET raw_text='修订原文',normalized_text='修订原文'")
+    (gen/'corpus.sqlite.sha256').write_text(file_hash(gen/'corpus.sqlite'),'utf-8')
+    manifest=json.loads((gen/'draft.json').read_bytes());manifest.update(changed_pages=[1],changed_sources=['pdfs/1.pdf'])
+    (gen/'draft.json').write_bytes(canonical(manifest))
+    report=quality(gen);report['volume_samples']={'pdfs/1.pdf':10}
+    selected=seal(gen,report)
+    (current/'config/corpus_release.json').write_bytes(canonical(selected))
+    (root/'current/release.json').write_bytes(canonical({'corpus_protocol':1,'corpus_release':selected}))
+    (root/'previous/release.json').write_bytes(canonical({'corpus_protocol':1}))
+    corpus_deploy.rollback_guard(root,target)
+    with sqlite3.connect(root/'data/corpus.sqlite') as c:c.execute("UPDATE pages SET raw_text='unexpected mutation'")
+    with pytest.raises(ValueError,match='changed since baseline'):corpus_deploy.rollback_guard(root,target)
 
 
 def test_archive_rejects_links_and_traversal_without_touching_live_data(tmp_path):
