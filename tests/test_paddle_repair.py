@@ -202,14 +202,18 @@ def test_operator_baseline_reuse_keeps_duration_freshness_and_original_limits(tm
 
 
 def test_worker_python_wrapper_keeps_venv_entrypoint(tmp_path,monkeypatch):
-    import sys
-    root=tmp_path/'root';root.mkdir();entry=tmp_path/'venv with spaces/bin/python';entry.parent.mkdir(parents=True)
+    import sys,venv,subprocess,os,shutil
+    bash=os.environ.get('MARX_TEST_BASH') or shutil.which('bash')
+    if not bash:pytest.skip('bash required to exercise the generated launcher')
+    root=tmp_path/'root';root.mkdir();env=tmp_path/'venv with spaces'
+    venv.EnvBuilder(with_pip=False).create(env)
+    entry=env/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
     installer=(Path(__file__).resolve().parents[1]/'deploy/install_paddle_worker.sh').read_text('utf-8')
     wrapper=installer.split('python3 - "$PYTHON" "$ROOT" <<\'PY\'\n',1)[1].split('\nPY\n',1)[0]
     monkeypatch.setattr(sys,'argv',['wrapper',str(entry),str(root)])
     exec(compile(wrapper,'venv-wrapper','exec'),{})
-    text=(root/'runtime-python').read_text()
-    assert "exec '"+str(entry)+"' \"$@\"" in text
+    prefix=subprocess.check_output([bash,str(root/'runtime-python'),'-c','import sys;print(sys.prefix)'],text=True).strip()
+    assert Path(prefix).resolve()==env.resolve()
     assert not (root/'runtime-python').is_symlink()
 
 
