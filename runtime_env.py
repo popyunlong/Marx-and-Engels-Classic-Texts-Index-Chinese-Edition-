@@ -239,6 +239,10 @@ def compute_sha256(path: Path) -> str:
 
 
 def resolve_runtime_db_files() -> tuple[Path | None, Path | None]:
+    from corpus_release import pinned_path
+    pinned = pinned_path('database')
+    if pinned is not None:
+        return pinned, pinned.with_name('corpus.sqlite.sha256')
     external_db = EXTERNAL_DATA_DIR / "corpus.sqlite"
     external_hash = EXTERNAL_DATA_DIR / "corpus.sqlite.sha256"
     if external_db.exists():

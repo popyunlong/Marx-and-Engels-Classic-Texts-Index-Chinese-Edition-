@@ -124,6 +124,8 @@ def preflight(app_root, candidate_app, archive=None):
 
 
 def rollback_guard(app_root, target_app):
+    from scripts.corpus_deploy import rollback_guard as corpus_rollback_guard
+    corpus_rollback_guard(app_root, target_app)
     current = read_binding(Path(app_root) / 'current/app')
     target = read_binding(target_app)
     if current != target:
@@ -154,6 +156,10 @@ def rollback_guard(app_root, target_app):
 
 
 def check_health(payload, metadata):
+    expected_corpus = metadata.get('corpus_release') or {'id': 'legacy', 'sha256': None}
+    actual_corpus = payload.get('corpus_release') or {'id': 'legacy', 'sha256': None}
+    if actual_corpus != expected_corpus:
+        raise ValueError('runtime corpus generation mismatch')
     expected = metadata.get('catalog_release') or {'id': 'legacy', 'sha256': None}
     actual = payload.get('catalog_release') or {'id': 'legacy', 'sha256': None}
     if (payload.get('ok') is not True or payload.get('app_release', {}).get('id') != metadata['release_id']

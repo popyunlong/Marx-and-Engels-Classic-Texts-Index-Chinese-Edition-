@@ -73,6 +73,10 @@ def sha256_text(value: str) -> str:
 
 
 def default_geometry_path(corpus_db: Path) -> Path:
+    from corpus_release import pinned_path
+    pinned = pinned_path('geometry')
+    if pinned is not None:
+        return pinned
     configured = str(os.environ.get("MARX_OCR_GEOMETRY_DB") or "").strip()
     return Path(configured).expanduser() if configured else Path(corpus_db).with_name("ocr_geometry.sqlite")
 
@@ -162,6 +166,13 @@ def encode_rows(rows: Sequence[dict]) -> bytes:
                 str(row.get("text") or ""), round(float(row.get("confidence") or 0.0), 6),
             ]
         )
+        if row.get('chars'):
+            chars = row['chars']
+            if ''.join(c['text'] for c in chars) != str(row.get('text') or ''):
+                raise ValueError('character coordinates do not match line text')
+            compact[-1].append({'chars': chars, 'precision': 'character'})
+        elif row.get('precision') == 'line':
+            compact[-1].append({'precision': 'line'})
     raw = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return zlib.compress(raw, level=9)
 
@@ -324,13 +335,13 @@ def _flatten_rows(rows: Sequence[Sequence]) -> tuple[str, list[tuple[int, int, i
     return "".join(chars), refs
 
 
-def _match_spans(flat: str, query: str, *, max_occurrences: int) -> list[tuple[int, int]]:
+def _match_spans(flat: str, query: str, *, max_occurrences: int, exact_only: bool = False) -> list[tuple[int, int]]:
     spans: list[tuple[int, int]] = []
     start = flat.find(query)
     while start >= 0 and len(spans) < max_occurrences:
         spans.append((start, start + len(query)))
         start = flat.find(query, start + max(1, len(query)))
-    if spans or len(query) < MIN_QUERY_CHARS:
+    if spans or exact_only or len(query) < MIN_QUERY_CHARS:
         return spans
     if _rapidfuzz is None:
         return []
@@ -363,7 +374,21 @@ def _rects_for_spans(rows: Sequence[Sequence], refs: Sequence[tuple[int, int, in
             first = min(item[0] for item in positions)
             last = max(item[0] for item in positions) + 1
             width = max(0.0, x1 - x0)
-            rects.append((x0 + width * first / count, y0, x0 + width * last / count, y1))
+            metadata = row[6] if len(row) > 6 and isinstance(row[6], dict) else {}
+            if metadata.get('precision') == 'character':
+                boxes = [c['bbox'] for c in metadata.get('chars', []) for _ in normalize(c['text'])]
+                if len(boxes) != count:
+                    return []
+                selected = boxes[first:last]
+                if not selected or any(len(b) != 4 or not (0 <= b[0] < b[2] <= 1 and 0 <= b[1] < b[3] <= 1) for b in selected):
+                    return []
+                rects.append((min(b[0] for b in selected), min(b[1] for b in selected),
+                              max(b[2] for b in selected), max(b[3] for b in selected)))
+            elif metadata.get('precision') == 'line':
+                # Line OCR proves the line, not uniformly spaced character boxes.
+                rects.append((x0, y0, x1, y1))
+            else:
+                rects.append((x0 + width * first / count, y0, x0 + width * last / count, y1))
             if len(rects) >= max_rects:
                 return rects
     return rects
@@ -397,10 +422,11 @@ def locate_geometry_rects(
         if str(row[0]) != _current_corpus_hash(Path(corpus_db), source_file, pdf_page):
             return []
         rows = decode_rows(row[2])
+        exact_only = any(len(r) > 6 for r in rows)
         flat, refs = _flatten_rows(rows)
         if not flat:
             return []
-        spans = _match_spans(flat, query, max_occurrences=max_occurrences)
+        spans = _match_spans(flat, query, max_occurrences=max_occurrences, exact_only=exact_only)
         rects = _rects_for_spans(rows, refs, spans, max_rects=max_rects)
         if rects:
             return rects
@@ -408,7 +434,7 @@ def locate_geometry_rects(
         terms = [normalize(term) for term in str(query_text or "").split()]
         terms = [term for term in dict.fromkeys(terms) if len(term) >= MIN_EXACT_QUERY_CHARS]
         for term in terms:
-            spans = _match_spans(flat, term, max_occurrences=max_occurrences)
+            spans = _match_spans(flat, term, max_occurrences=max_occurrences, exact_only=exact_only)
             rects.extend(_rects_for_spans(rows, refs, spans, max_rects=max_rects - len(rects)))
             if len(rects) >= max_rects:
                 break

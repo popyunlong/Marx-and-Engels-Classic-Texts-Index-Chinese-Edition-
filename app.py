@@ -342,6 +342,7 @@ from broadcast_email import (
     resolve_recipients as resolve_broadcast_recipients,
     send_campaign as send_broadcast_campaign,
 )
+import corpus_release
 from runtime_env import (
     APP_TOKEN_HEADER,
     APP_VERSION,
@@ -7489,7 +7490,8 @@ def _page_image_cache_path(source_file: str, page_number: int, query_text: str, 
         )
         if query_text else ""
     )
-    cache_version = f"v8g:{geometry_token}" if query_text else "v6"
+    corpus_token = corpus_release.status()['sha256'] or 'legacy'
+    cache_version = f"v9g:{corpus_token}:{geometry_token}" if query_text else "v6"
     raw = f"{source_file}|{page_number}|{query_text}|{stamp}|{cache_version}{_render_profile(source_file)['tag']}"
     digest = sha256(raw.encode("utf-8")).hexdigest()
     # WebP 与 JPEG 同 digest、仅扩展名不同（同一页两变体各占一条缓存、互不覆盖）。
@@ -12340,6 +12342,7 @@ def api_runtime():
             "issues": state["issues"],
             "management_api_enabled": state["management_api_enabled"],
             "app_release": current_app_release(),
+            "corpus_release": corpus_release.status(),
             "catalog_release": catalog_status(),
             "layout_exact_ready": bool(layout_index and layout_index.enabled and
                                        not layout_index.error and layout_index.projections),

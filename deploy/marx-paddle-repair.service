@@ -1,0 +1,45 @@
+[Unit]
+Description=Isolated Paddle corpus repair (candidate data only)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/home/data
+ConditionPathIsMountPoint=/home/data
+ConditionPathExists=/home/data/marx-corpus-repair/scope.json
+ConditionPathExists=!/home/data/marx-corpus-repair/PAUSE
+
+[Service]
+Type=oneshot
+User=marx-paddle-repair
+Group=marx-paddle-repair
+WorkingDirectory=/home/data/marx-corpus-repair
+EnvironmentFile=/etc/marx-paddle-repair.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TMPDIR=/home/data/marx-corpus-repair/tmp
+ExecStart=/home/data/marx-corpus-repair/runtime-python /home/data/marx-corpus-repair/current/app/scripts/paddle_corpus_repair.py run --root /home/data/marx-corpus-repair --queue pilot.sqlite --max-pages 12 --concurrency 2 --daily-budget 18000
+CPUQuota=200%
+MemoryHigh=2G
+MemoryMax=3G
+TasksMax=64
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=infinity
+TimeoutStopSec=1200
+KillSignal=SIGTERM
+Restart=no
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=/home/data/marx-corpus-repair/jobs /home/data/marx-corpus-repair/raw /home/data/marx-corpus-repair/geometry /home/data/marx-corpus-repair/candidates /home/data/marx-corpus-repair/reports /home/data/marx-corpus-repair/tmp
+InaccessiblePaths=-/opt/mylib/data -/root -/etc/marx-search.env
+
+[Install]
+WantedBy=multi-user.target

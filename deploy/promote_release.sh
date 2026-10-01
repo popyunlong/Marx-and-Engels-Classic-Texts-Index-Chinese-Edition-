@@ -4,8 +4,8 @@
 set -Eeuo pipefail
 umask 027
 
-if [ "$#" -ne 6 ]; then
-  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID CATALOG_ARCHIVE REVIEW_NONCE" >&2
+if [ "$#" -ne 7 ]; then
+  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID CATALOG_ARCHIVE REVIEW_NONCE CORPUS_ARCHIVE" >&2
   exit 2
 fi
 
@@ -15,6 +15,7 @@ EXPECTED_LIVE="$3"
 RELEASE_ID="$4"
 CATALOG_ARCHIVE="${5:-}"
 REVIEW_NONCE="${6:-}"
+CORPUS_ARCHIVE="${7:-}"
 RELEASES="$APP_ROOT/releases"
 LOCK_FILE="/run/lock/marx-search-release.lock"
 LEDGER="$APP_ROOT/release-ledger.jsonl"
@@ -160,6 +161,10 @@ CATALOG_ARGS=()
 if [ -n "$CATALOG_ARCHIVE" ]; then CATALOG_ARGS=(--archive "$CATALOG_ARCHIVE"); fi
 python3 "$FINAL/app/scripts/catalog_deploy.py" preflight \
   --root "$APP_ROOT" --app "$FINAL/app" "${CATALOG_ARGS[@]}"
+CORPUS_ARGS=()
+if [ -n "$CORPUS_ARCHIVE" ]; then CORPUS_ARGS=(--archive "$CORPUS_ARCHIVE"); fi
+python3 "$FINAL/app/scripts/corpus_deploy.py" preflight \
+  --root "$APP_ROOT" --app "$FINAL/app" "${CORPUS_ARGS[@]}"
 
 RUNTIME_PYTHON="${MARX_RUNTIME_PYTHON:-}"
 if [ -z "$RUNTIME_PYTHON" ]; then

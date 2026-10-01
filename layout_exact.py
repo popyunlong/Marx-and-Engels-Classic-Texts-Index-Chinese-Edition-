@@ -135,6 +135,9 @@ class LayoutIndex:
         self.projections = {}
         self.error = ''
         self.revision = ''
+        if root is None:
+            from corpus_release import pinned_path
+            root = pinned_path('layout')
         # A release's checked-in pointer is authoritative. A host EnvironmentFile
         # can retain the prior release's path during a candidate cutover.
         if not root:

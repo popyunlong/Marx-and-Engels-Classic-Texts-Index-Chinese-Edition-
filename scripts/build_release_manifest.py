@@ -100,6 +100,11 @@ def create_manifest(args: argparse.Namespace) -> int:
     catalog_binding = source_dir / 'config/catalog_release.json'
     if catalog_binding.exists():
         payload['catalog_release'] = json.loads(catalog_binding.read_text(encoding='utf-8'))
+    if (source_dir / 'corpus_release.py').is_file():
+        payload['corpus_protocol'] = 1
+    corpus_binding = source_dir / 'config/corpus_release.json'
+    if corpus_binding.exists():
+        payload['corpus_release'] = json.loads(corpus_binding.read_text(encoding='utf-8'))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False))
@@ -112,6 +117,14 @@ def verify_manifest(args: argparse.Namespace) -> int:
     bound = json.loads(binding_path.read_text(encoding='utf-8')) if binding_path.exists() else None
     if payload.get('catalog_release') != bound:
         raise ValueError('catalogue binding differs from committed source')
+    corpus_path = args.source_dir / 'config/corpus_release.json'
+    corpus_bound = json.loads(corpus_path.read_text(encoding='utf-8')) if corpus_path.exists() else None
+    if payload.get('corpus_release') != corpus_bound:
+        raise ValueError('corpus binding differs from committed source')
+    if corpus_bound and (set(corpus_bound) != {'id','sha256'} or
+            not RELEASE_RE.fullmatch(str(corpus_bound.get('id',''))) or
+            not re.fullmatch('[0-9a-f]{64}',str(corpus_bound.get('sha256','')))):
+        raise ValueError('invalid corpus binding')
     if bound and (not RELEASE_RE.fullmatch(str(bound.get('id', ''))) or
                   not re.fullmatch('[0-9a-f]{64}', str(bound.get('sha256', '')))):
         raise ValueError('invalid catalogue release binding')

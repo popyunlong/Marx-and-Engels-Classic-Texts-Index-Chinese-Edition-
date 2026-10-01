@@ -25,6 +25,13 @@ $sshArgs = @('-p', "$SshPort", '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecki
 if ($IdentityFile) { $sshArgs += @('-i', [IO.Path]::GetFullPath($IdentityFile)) }
 $pipe = "/run/marx-search-candidate-$ReleaseId.fifo"
 $decision = if ($Reject) { 'FAIL' } else { 'PASS' }
+if (-not $Reject) {
+    # Validate on the immutable candidate itself; legacy checks cannot approve a
+    # new corpus unless every website flow, browser and rollback was exercised.
+    $validate = "python3 '/opt/marx-search/releases/$ReleaseId/app/scripts/corpus_deploy.py' review --app '/opt/marx-search/releases/$ReleaseId/app'"
+    Get-Content -LiteralPath $EvidenceFile -Raw -Encoding utf8 | & ssh @sshArgs "${ServerUser}@${ServerHost}" $validate
+    if ($LASTEXITCODE -ne 0) { throw "Corpus candidate functional evidence was rejected" }
+}
 $remote = "test -p '$pipe' && printf '%s\n' '$ReleaseId`:$Nonce`:$decision' > '$pipe'"
 & ssh @sshArgs "${ServerUser}@${ServerHost}" $remote
 if ($LASTEXITCODE -ne 0) { throw "Candidate transaction did not accept the review receipt" }

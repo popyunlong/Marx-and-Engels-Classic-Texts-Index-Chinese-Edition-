@@ -11,6 +11,7 @@ param(
     [string]$IdentityFile = $env:MARX_DEPLOY_KEY,
     [string]$ArtifactDirectory = "",
     [string]$CatalogArchive = "",
+    [string]$CorpusArchive = "",
     [switch]$DryRun,
     [switch]$KeepArtifact
 )
@@ -100,6 +101,7 @@ $artifactPath = $null
 $remoteArchive = $null
 $uploaded = $false
 $remoteCatalogArchive = ""
+$remoteCorpusArchive = ""
 try {
     $branch = Invoke-Checked -Label "Read current branch" -FilePath $git -ArgumentList @("symbolic-ref", "--quiet", "--short", "HEAD") -Capture
     if ($branch -ne "production") {
@@ -191,6 +193,12 @@ try {
         }
     }
 
+    if ($CorpusArchive) {
+        $CorpusArchive = (Resolve-Path -LiteralPath $CorpusArchive).Path
+        if (-not (Test-Path -LiteralPath (Join-Path $appDir "config/corpus_release.json"))) {
+            throw "Corpus artifacts require a committed config/corpus_release.json binding."
+        }
+    }
     if ($DryRun) {
         $KeepArtifact = $true
         Write-Host "Dry run complete; no server connection was made."
@@ -220,7 +228,11 @@ try {
     }
 
     $reviewNonce = [Guid]::NewGuid().ToString("N")
-    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce'"
+    if ($CorpusArchive) {
+        $remoteCorpusArchive = "/var/tmp/marx-corpus-$releaseId.tar.gz"
+        Invoke-Checked -Label "Upload bound corpus artifact" -FilePath $scp -ArgumentList @($scpCommon + @($CorpusArchive, "${remote}:$remoteCorpusArchive"))
+    }
+    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
     Write-Host "Candidate review nonce: $reviewNonce"
     Write-Host "The transaction will pause before cutover for candidate browser checks."
     Invoke-Checked -Label "Promote release transaction" -FilePath $ssh -ArgumentList @($sshCommon + @($remote, $remoteCommand))
@@ -236,6 +248,10 @@ try {
                 & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 if ($remoteCatalogArchive) {
                     $cleanupArgs[-1] = "rm -f -- '$remoteCatalogArchive'"
+                    & $ssh.Source @cleanupArgs 2>$null | Out-Null
+                }
+                if ($remoteCorpusArchive) {
+                    $cleanupArgs[-1] = "rm -f -- '$remoteCorpusArchive'"
                     & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 }
             }
