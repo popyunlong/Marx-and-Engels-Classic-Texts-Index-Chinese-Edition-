@@ -241,7 +241,7 @@ class Queue:
     def record_result(self, page_id, result_path, result):
         result_hash = write_evidence(result_path, result)
         with self.conn:
-            self.conn.execute("UPDATE pages SET state='awaiting_review',result_path=?,result_hash=? WHERE page_id=?", (str(result_path), result_hash, page_id))
+            self.conn.execute("UPDATE pages SET state='awaiting_review',result_path=?,result_hash=?,error='' WHERE page_id=?", (str(result_path), result_hash, page_id))
 
     def review(self, page_id, *, decision, reviewer, evidence):
         page = self.conn.execute('SELECT * FROM pages WHERE page_id=?', (page_id,)).fetchone()
@@ -262,7 +262,7 @@ class Queue:
                 'usage': [dict(r) for r in self.conn.execute('SELECT * FROM usage')], 'production_writes': 0}
 
 
-def parse_layout(raw):
+def parse_layout(raw, *, allow_blank=False):
     rows = [json.loads(line) for line in raw.decode('utf-8').splitlines() if line.strip()]
     pages = [p for row in rows for p in row.get('result', {}).get('layoutParsingResults', [])]
     if len(pages) != 1 or any(row.get('errorCode', 0) for row in rows):
@@ -283,12 +283,12 @@ def parse_layout(raw):
         blocks.append({'kind': str(block.get('block_label') or 'unknown'), 'text': text,
                        'box': [x0/width, y0/height, x1/width, y1/height],
                        'order': block.get('block_order', position), 'provider_position': position})
-    if not blocks:
+    if not blocks and not allow_blank:
         raise ValueError('empty layout result requires visual review')
     # Retain every block, including notes/furniture, for auditable reconstruction.
     text_blocks = [b for b in blocks if b['kind'] not in {'image', 'chart'}]
     text = '\n\n'.join(b['text'] for b in text_blocks if b['text'].strip())
-    if not visible(text):
+    if not visible(text) and not allow_blank:
         raise ValueError('no recognized text')
     return {'text': text, 'blocks': blocks, 'width': width, 'height': height,
             'geometry_precision': 'block', 'source_model': PRIMARY_MODEL}

@@ -270,12 +270,24 @@ def fetch_job(queue_path, root, page_id, image, pdf_sha, model, budget, stop=Non
 
 def process_page(queue_path, root, page, image, native, pdf_sha, old, budget, stop=None):
     primary = fetch_job(queue_path, root, page['page_id'], image, pdf_sha, PRIMARY_MODEL, budget, stop)
-    result = parse_layout(primary)
+    # Empty API output is valid only for an independently proven empty source.
+    # Exact white pixels avoid silently discarding faint text or scanned marks.
+    blank = False
+    if not visible(old) and not native:
+        from io import BytesIO
+        from PIL import Image
+        with Image.open(BytesIO(image)) as raster:
+            blank = all(lo == hi == 255 for lo,hi in raster.convert('RGB').getextrema())
+    result = parse_layout(primary,allow_blank=blank)
+    if blank and visible(result['text']):
+        raise ValueError('OCR predicted text on a verified blank source; isolate for review')
     result.update(page_id=page['page_id'], source_file=page['source_file'], pdf_page=page['pdf_page'],
         book=page['book'], volume=page['volume'], printed_page=page['printed_page'],
         baseline_hash=page['baseline_hash'], pdf_sha256=pdf_sha, image_sha256=digest(image),
         primary_raw_hash=digest(primary), change=assess_change(old, result['text']), geometry=[],
         processing_parameters={'dpi':200,'options_version':1,'orientation':False,'unwarping':False})
+    if blank:
+        result['verified_blank_source'] = True
     if visible(''.join(line['text'] for line in native)) == visible(result['text']):
         result['geometry'], result['geometry_precision'] = native, 'character'
     else:

@@ -61,8 +61,10 @@ def test_budget_persists_and_review_is_version_bound(source,tmp_path):
     q.prepare_job(2,'model','key2')
     with pytest.raises(ValueError,match='budget'):
         q.reserve(2,'model','2026-10-01',1)
+    q.conn.execute("UPDATE pages SET error='previous rejected request' WHERE page_id=1");q.conn.commit()
     q.record_result(1,tmp_path/'result.json',{'text':'人民是有力量的。'})
     assert q.status()['pages']=={'awaiting_review':1}
+    assert q.conn.execute('SELECT error FROM pages WHERE page_id=1').fetchone()[0]==''
     with pytest.raises(ValueError,match='match'):
         q.review(1,decision='accepted',reviewer='reviewer',evidence={'source_verified':True})
 
@@ -240,6 +242,29 @@ def test_block_geometry_cannot_masquerade_as_lines():
     with pytest.raises(ValueError):parse_layout(layout(box=[0,0,101,20]))
     with pytest.raises(ValueError):parse_lines(layout())
     assert 'negation' in assess_change('人民不是没有力量。','人民是没有力量。')['risks']
+
+
+def test_empty_ocr_is_accepted_only_for_verified_blank_original(tmp_path,monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from scripts.paddle_corpus_repair import process_page
+    blank_raw=canonical({'result':{'layoutParsingResults':[{'prunedResult':{'width':10,'height':10,'parsing_res_list':[]}}]}})
+    with pytest.raises(ValueError,match='empty layout'):parse_layout(blank_raw)
+    monkeypatch.setattr('scripts.paddle_corpus_repair.fetch_job',lambda *args:blank_raw)
+    image=Image.new('RGB',(10,10),'white');stream=BytesIO();image.save(stream,format='PNG')
+    page={'page_id':1,'source_file':'pdfs/one.pdf','pdf_page':1,'book':'文集','volume':1,'printed_page':'1','baseline_hash':digest('')}
+    result=process_page(tmp_path/'jobs/pilot.sqlite',tmp_path,page,stream.getvalue(),[],'pdfsha','',12)
+    assert result['verified_blank_source'] and result['geometry_aligned'] and not result['text'] and not result['geometry']
+    # Even a single faint pixel, existing text, or OCR hallucination prevents it.
+    image.putpixel((5,5),(254,254,254));stream=BytesIO();image.save(stream,format='PNG')
+    with pytest.raises(ValueError,match='empty layout'):
+        process_page(tmp_path/'jobs/pilot.sqlite',tmp_path,page,stream.getvalue(),[],'pdfsha','',12)
+    white=Image.new('RGB',(10,10),'white');stream=BytesIO();white.save(stream,format='PNG')
+    with pytest.raises(ValueError,match='empty layout'):
+        process_page(tmp_path/'jobs/pilot.sqlite',tmp_path,page,stream.getvalue(),[],'pdfsha','reliable old text',12)
+    monkeypatch.setattr('scripts.paddle_corpus_repair.fetch_job',lambda *args:layout('invented',box=[1,1,9,9]))
+    with pytest.raises(ValueError,match='predicted text'):
+        process_page(tmp_path/'jobs/pilot.sqlite',tmp_path,page,stream.getvalue(),[],'pdfsha','',12)
 
 
 def test_line_confidence_rejects_nonfinite_values():
