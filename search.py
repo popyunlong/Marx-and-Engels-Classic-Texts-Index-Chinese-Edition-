@@ -23,8 +23,9 @@ from pathlib import Path
 
 import fitz
 import yaml
-from rapidfuzz import fuzz
 from rapidfuzz.distance import Levenshtein
+
+from fuzzy_alignment import partial_ratio_alignment
 
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
@@ -2645,7 +2646,7 @@ class Corpus:
             if limit is not None and len(hits) >= limit:
                 truncated = True
                 break
-            res = fuzz.partial_ratio_alignment(
+            res = partial_ratio_alignment(
                 q_norm, vol.norm_full, score_cutoff=cutoff
             )
             if res is None:
