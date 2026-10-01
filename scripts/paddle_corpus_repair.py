@@ -6,6 +6,7 @@ import argparse
 import concurrent.futures
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -315,7 +316,19 @@ def run_worker(args):
     report = root/'reports'/('run-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
     report.mkdir()
     with (report/'health.jsonl').open('a', encoding='utf-8') as log:
-        while True:
+        baseline = None
+        if args.baseline_file:
+            path=args.baseline_file
+            if not path.resolve().is_relative_to((root/'source').resolve()):
+                raise ValueError('operator baseline must be in the protected source area')
+            baseline=operator_baseline(path,snapshot)
+            sample=probe(args.health_url,started)
+            if (sample.get('release')!=snapshot['app_release']['id'] or sample.get('catalog')!=snapshot['catalog_release']
+                    or any(not p.get('ok') for p in sample['probes'])):
+                raise RuntimeError('website changed or unavailable after the operator baseline')
+            log.write(canonical(sample).decode()+'\n');log.flush()
+            write_evidence(report/'reused-baseline.json',{'sha256':file_hash(path),'path':str(path)})
+        while baseline is None:
             if stop.is_set():
                 raise RuntimeError('stopped during baseline')
             resource_guard(root)
@@ -324,9 +337,9 @@ def run_worker(args):
                 raise RuntimeError('website baseline changed or unavailable')
             log.write(canonical(sample).decode()+'\n'); log.flush(); baseline_samples.append(sample)
             if sample['elapsed'] - baseline_samples[0]['elapsed'] >= 1800:
+                baseline = validate_baseline(baseline_samples)
                 break
             time.sleep(30)
-        baseline = validate_baseline(baseline_samples)
         write_evidence(report/'baseline.json', baseline)
         gate, last_probe = HealthGate(baseline), time.monotonic()
         pages = deque_rows(queue.conn.execute("SELECT * FROM (SELECT * FROM pages ORDER BY priority LIMIT ?) WHERE state IN ('planned','awaiting_retry') ORDER BY priority LIMIT ?", (scope['max_total_pages'],args.max_pages)))
@@ -387,6 +400,37 @@ def deque_rows(cursor):
     return deque(dict(r) for r in cursor)
 
 
+def operator_baseline(path, snapshot, now=None):
+    """Reuse a frozen operator observation, retaining the original stop limits."""
+    stat = path.stat()
+    if path.is_symlink() or stat.st_uid != 0 or stat.st_mode & 0o222:
+        raise ValueError('baseline must be root-owned and frozen')
+    payload = json.loads(path.read_text('utf-8'))
+    rows, original = payload['samples'], payload['original']
+    fresh = validate_baseline(rows)
+    now = now or datetime.now(timezone.utc)
+    # mtime and now are both on the receiving node; the operator records the
+    # observation's existing age plus a transfer allowance when publishing it.
+    published_age=payload['observation_age_at_publish_seconds']
+    if isinstance(published_age,bool) or not isinstance(published_age,(int,float)) or not math.isfinite(published_age) or published_age<0:
+        raise ValueError('invalid observation age')
+    age = now.timestamp()-stat.st_mtime+published_age
+    if not 0 <= age < 600:
+        raise ValueError('operator baseline expired')
+    if any(not 0 < b['elapsed']-a['elapsed'] <= 60 for a,b in zip(rows,rows[1:])):
+        raise ValueError('operator baseline monitoring gap')
+    if any(base.get('release') != snapshot['app_release']['id'] or base.get('catalog') != snapshot['catalog_release']
+           for base in (fresh,original)):
+        raise ValueError('operator baseline belongs to another production version')
+    if (set(original.get('p95',{}))!=set(fresh['p95']) or
+            any(not isinstance(v,(int,float)) or isinstance(v,bool) or not math.isfinite(v) or v<0 for v in original['p95'].values())):
+        raise ValueError('invalid original baseline thresholds')
+    if any(value>original['p95'][path]*1.2 and value>original['p95'][path]+.2
+           for path,value in fresh['p95'].items()):
+        raise ValueError('latency has not recovered within original thresholds')
+    return original
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['plan','run','status','review'])
@@ -398,6 +442,7 @@ def main(argv=None):
     parser.add_argument('--concurrency', type=int, choices=[2,4,8], default=2)
     parser.add_argument('--daily-budget', type=int, default=18000)
     parser.add_argument('--health-url', default='https://mazhuzuojiansuo.com')
+    parser.add_argument('--baseline-file', type=Path)
     parser.add_argument('--review-file', type=Path)
     args=parser.parse_args(argv)
     if Path(args.queue).name != args.queue or not 1 <= args.daily_budget <= 18000:

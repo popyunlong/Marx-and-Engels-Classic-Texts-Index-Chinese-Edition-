@@ -132,7 +132,9 @@ def test_frozen_wal_header_needs_no_source_sidecars(tmp_path):
 
 
 def test_worker_archive_validator_accepts_release_directories_and_rejects_links(tmp_path,monkeypatch):
-    import io,sys,tarfile
+    import io,sys,tarfile,shutil
+    from types import SimpleNamespace
+    monkeypatch.setattr(shutil,'disk_usage',lambda _:SimpleNamespace(total=100*1024**3,free=80*1024**3))
     from scripts.build_release_archive import build_archive
     app=tmp_path/'app';(app/'scripts').mkdir(parents=True)
     (app/'scripts/worker.py').write_text('pass\n')
@@ -167,6 +169,48 @@ def test_health_requires_full_baseline_and_two_failing_windows():
     assert 'sustained_latency_regression' in outcomes
     assert HealthGate(baseline).observe(sample(1800,release='b'))=='production_version_changed'
     with pytest.raises(ValueError):assert_capacity(100*1024**3,19*1024**3)
+
+
+def test_operator_baseline_reuse_keeps_duration_freshness_and_original_limits(tmp_path,monkeypatch):
+    from datetime import datetime,timezone
+    from types import SimpleNamespace
+    from scripts.paddle_corpus_repair import operator_baseline
+    now=datetime.now(timezone.utc);rows=[sample(t) for t in range(0,1801,30)]
+    # A remote timestamp can be ahead; receiver mtime and published age decide freshness.
+    for row in rows:row['observed_at']='2099-01-01T00:00:00+00:00'
+    original=validate_baseline(rows);snapshot={'app_release':{'id':'a'},'catalog_release':{'id':'catalog'}}
+    path=tmp_path/'proof.json';path.write_bytes(canonical({'samples':rows,'original':original,'observation_age_at_publish_seconds':60}))
+    path.chmod(0o444)
+    real_stat=Path.stat
+    def trusted_stat(self,*args,**kwargs):
+        stat=real_stat(self,*args,**kwargs)
+        if self==path:return SimpleNamespace(st_uid=0,st_mode=stat.st_mode,st_mtime=now.timestamp()-30)
+        return stat
+    monkeypatch.setattr(Path,'stat',trusted_stat)
+    assert operator_baseline(path,snapshot,now)==original
+    for bad in ({'samples':rows[:-1]}, {'observation_age_at_publish_seconds':650},
+                {'original':{**original,'release':'different'}},
+                {'original':{**original,'p95':{p:float('nan') for p in original['p95']}}}):
+        payload={'samples':rows,'original':original,'observation_age_at_publish_seconds':60,**bad}
+        path.chmod(0o644);path.write_bytes(canonical(payload));path.chmod(0o444)
+        with pytest.raises(ValueError):operator_baseline(path,snapshot,now)
+    regressed=[sample(t,latency=.4) for t in range(0,1801,30)]
+    path.chmod(0o644);path.write_bytes(canonical({'samples':regressed,'original':original,'observation_age_at_publish_seconds':60}));path.chmod(0o444)
+    with pytest.raises(ValueError,match='original thresholds'):operator_baseline(path,snapshot,now)
+    path.chmod(0o644)
+    with pytest.raises(ValueError,match='frozen'):operator_baseline(path,snapshot,now)
+
+
+def test_worker_python_wrapper_keeps_venv_entrypoint(tmp_path,monkeypatch):
+    import sys
+    root=tmp_path/'root';root.mkdir();entry=tmp_path/'venv with spaces/bin/python';entry.parent.mkdir(parents=True)
+    installer=(Path(__file__).resolve().parents[1]/'deploy/install_paddle_worker.sh').read_text('utf-8')
+    wrapper=installer.split('python3 - "$PYTHON" "$ROOT" <<\'PY\'\n',1)[1].split('\nPY\n',1)[0]
+    monkeypatch.setattr(sys,'argv',['wrapper',str(entry),str(root)])
+    exec(compile(wrapper,'venv-wrapper','exec'),{})
+    text=(root/'runtime-python').read_text()
+    assert "exec '"+str(entry)+"' \"$@\"" in text
+    assert not (root/'runtime-python').is_symlink()
 
 
 def quality():

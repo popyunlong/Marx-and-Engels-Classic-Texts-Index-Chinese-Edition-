@@ -47,7 +47,17 @@ find "$FINAL" -type d -exec chmod 0550 {} +
 find "$FINAL" -type f -exec chmod 0440 {} +
 ln -s "$FINAL" "$ROOT/current.pending"
 mv -Tf "$ROOT/current.pending" "$ROOT/current"
-ln -sfn "$PYTHON" "$ROOT/runtime-python"
+# A symlink outside a venv loses pyvenv.cfg discovery. Invoke its real entrypoint.
+python3 - "$PYTHON" "$ROOT" <<'PY'
+import pathlib,shlex,sys,os
+root=pathlib.Path(sys.argv[2]);pending=root/'runtime-python.pending'
+pending.write_text('#!/bin/sh\nexec '+shlex.quote(sys.argv[1])+' "$@"\n')
+os.chmod(pending,0o750)
+os.replace(pending,root/'runtime-python')
+PY
+chown root:marx-paddle-repair "$ROOT/runtime-python"
+chmod 0550 "$ROOT/runtime-python"
+runuser -u marx-paddle-repair -- "$ROOT/runtime-python" -c 'import fitz,sys; assert sys.version_info >= (3,10)'
 if [ ! -e "$ROOT/scope.json" ]; then
   printf '%s\n' '{"phase":"smoke","max_total_pages":12,"daily_budget":18000}' > "$ROOT/scope.json"
   chown root:marx-paddle-repair "$ROOT/scope.json"
