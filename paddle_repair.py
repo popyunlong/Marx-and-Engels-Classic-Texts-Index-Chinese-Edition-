@@ -62,7 +62,9 @@ def source_group(book):
 
 
 def readonly(path):
-    conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
+    # Repair inputs are verified, frozen standalone snapshots, never live databases.
+    # WAL-mode headers must not cause SQLite to create sidecars in the source area.
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA query_only=ON')
     return conn
@@ -301,6 +303,8 @@ def parse_lines(raw):
     texts, boxes, scores = pr.get('rec_texts', []), pr.get('rec_polys', []), pr.get('rec_scores', [])
     if not texts or not len(texts) == len(boxes) == len(scores):
         raise ValueError('incomplete line OCR arrays')
+    if any(not math.isfinite(float(s)) or not 0 <= float(s) <= 1 for s in scores):
+        raise ValueError('invalid line confidence')
     return [{'text': str(t), 'polygon': b, 'confidence': float(s)} for t,b,s in zip(texts,boxes,scores)]
 
 

@@ -26,9 +26,13 @@ with tarfile.open(sys.argv[2],'r:gz') as tar:
     names=set();size=0
     for member in tar.getmembers():
         p=pathlib.PurePosixPath(member.name)
-        if not member.isfile() or p.is_absolute() or '..' in p.parts or member.name in names:
-            raise SystemExit('worker archive must contain unique regular files')
-        names.add(member.name);size+=member.size
+        name=p.as_posix()
+        if (not (member.isfile() or member.isdir()) or p.is_absolute() or '..' in p.parts
+                or '\\' in member.name or ':' in member.name or name in names
+                or not (name=='release.json' and member.isfile() or p.parts and p.parts[0]=='app')):
+            raise SystemExit('worker archive must contain unique safe files and directories')
+        names.add(name)
+        if member.isfile():size+=member.size
     if disk.free-size<max(15*1024**3,disk.total*.2):raise SystemExit('insufficient disk reserve')
 PY
 install -d -o root -g marx-paddle-repair -m 0750 "$ROOT/releases"

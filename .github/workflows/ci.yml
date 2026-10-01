@@ -55,6 +55,7 @@ jobs:
           bash -n deploy/rollback_release.sh
           bash -n deploy/release_traffic.sh
           bash -n deploy/review_gate.sh
+          bash -n deploy/install_paddle_worker.sh
           bash -n deploy/promote_new_corpus_202609.sh
           bash -n deploy/promote_corpus_repair_candidate.sh
 

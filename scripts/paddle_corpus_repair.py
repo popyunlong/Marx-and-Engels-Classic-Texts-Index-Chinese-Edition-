@@ -203,13 +203,17 @@ def fetch_job(queue_path, root, page_id, image, pdf_sha, model, budget, stop=Non
                 job_id = client.submit(image, model)
             except ProviderError as exc:
                 queue.transition(page_id, model, 'uncertain' if exc.uncertain else 'failed', error=str(exc))
-                if exc.fatal and stop is not None:
+                if (exc.fatal or exc.uncertain) and stop is not None:
                     stop.set()
                 raise
             queue.transition(page_id, model, 'submitted', remote_id=job_id)
         elif job['state'] == 'submitted' and job['remote_id']:
             job_id = job['remote_id']
         else:
+            if job['state'] == 'uncertain':
+                if stop is not None:
+                    stop.set()
+                raise ProviderError('uncertain submission requires reconciliation', fatal=True)
             raise ValueError('job needs reconciliation: ' + job['state'])
         raw = client.finish(job_id)
         rel = 'raw/' + key + '.jsonl'
@@ -292,6 +296,8 @@ def run_worker(args):
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     queue = Queue(root/'jobs'/args.queue)
     queue.recover()
+    if queue.conn.execute("SELECT 1 FROM jobs WHERE state='uncertain' LIMIT 1").fetchone():
+        raise RuntimeError('uncertain submission requires reconciliation before any new jobs')
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
@@ -369,7 +375,7 @@ def run_worker(args):
                         message = str(exc) if isinstance(exc, (ProviderError, ValueError)) else type(exc).__name__
                         with queue.conn:
                             queue.conn.execute("UPDATE pages SET state='awaiting_retry',error=? WHERE page_id=?", (message, page['page_id']))
-                        if isinstance(exc, ProviderError) and exc.fatal:
+                        if isinstance(exc, ProviderError) and (exc.fatal or exc.uncertain):
                             stopped = message
                             stop.set()
                     print(json.dumps({'page_id': page['page_id'], 'status': queue.status(), 'paused_reason': stopped}, ensure_ascii=False),flush=True)

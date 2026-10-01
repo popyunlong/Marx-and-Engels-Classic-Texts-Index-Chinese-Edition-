@@ -76,6 +76,25 @@ def test_pause_prevents_new_provider_submission(source,tmp_path,monkeypatch):
     assert q.conn.execute('SELECT count(*) FROM usage').fetchone()[0]==0
 
 
+def test_unknown_submission_pauses_all_jobs_and_preserves_identity(source,tmp_path,monkeypatch):
+    from scripts.paddle_corpus_repair import Paddle
+    q=queue_for(source,tmp_path)
+    monkeypatch.setenv('PADDLEOCR_ACCESS_TOKEN','test-only')
+    calls=[]
+    def ambiguous(self,*args):
+        calls.append(1)
+        raise ProviderError('transport response unknown',uncertain=True)
+    monkeypatch.setattr(Paddle,'submit',ambiguous)
+    stop=threading.Event()
+    with pytest.raises(ProviderError,match='unknown'):
+        fetch_job(q.path,tmp_path,1,b'image','pdfsha','model',12,stop)
+    assert stop.is_set()
+    assert q.conn.execute('SELECT state FROM jobs').fetchone()[0]=='uncertain'
+    with pytest.raises(ProviderError,match='reconciliation'):
+        fetch_job(q.path,tmp_path,1,b'image','pdfsha','model',12,stop)
+    assert len(calls)==1
+
+
 def layout(text='人民不是没有力量。',box=None):
     return canonical({'result':{'layoutParsingResults':[{'prunedResult':{'width':100,'height':200,
         'parsing_res_list':[{'block_label':'text','block_content':text,'block_bbox':box or [10,20,90,80]}]}}]}})
@@ -88,6 +107,47 @@ def test_block_geometry_cannot_masquerade_as_lines():
     with pytest.raises(ValueError):parse_layout(layout(box=[0,0,101,20]))
     with pytest.raises(ValueError):parse_lines(layout())
     assert 'negation' in assess_change('人民不是没有力量。','人民是没有力量。')['risks']
+
+
+def test_line_confidence_rejects_nonfinite_values():
+    for score in (float('nan'),float('inf'),-0.1,1.1):
+        raw=canonical({'result':{'ocrResults':[{'prunedResult':{
+            'rec_texts':['原文'],'rec_polys':[[[0,0],[1,0],[1,1],[0,1]]],'rec_scores':[score]}}]}})
+        with pytest.raises(ValueError,match='confidence'):parse_lines(raw)
+
+
+def test_frozen_wal_header_needs_no_source_sidecars(tmp_path):
+    from paddle_repair import readonly
+    path=tmp_path/'wal.sqlite'
+    with sqlite3.connect(path) as c:
+        c.execute('PRAGMA journal_mode=WAL');c.execute('CREATE TABLE evidence(value TEXT)')
+        c.execute("INSERT INTO evidence VALUES('preserved')");c.commit()
+        c.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    c.close()
+    before=set(tmp_path.iterdir())
+    with readonly(path) as snapshot:
+        assert snapshot.execute('SELECT value FROM evidence').fetchone()[0]=='preserved'
+        with pytest.raises(sqlite3.OperationalError):snapshot.execute("DELETE FROM evidence")
+    assert set(tmp_path.iterdir())==before
+
+
+def test_worker_archive_validator_accepts_release_directories_and_rejects_links(tmp_path,monkeypatch):
+    import io,sys,tarfile
+    from scripts.build_release_archive import build_archive
+    app=tmp_path/'app';(app/'scripts').mkdir(parents=True)
+    (app/'scripts/worker.py').write_text('pass\n')
+    metadata=tmp_path/'release.json';metadata.write_text('{}')
+    archive=tmp_path/'worker.tar.gz';build_archive(app,metadata,archive)
+    installer=(Path(__file__).resolve().parents[1]/'deploy/install_paddle_worker.sh').read_text('utf-8')
+    validator=installer.split("<<'PY'\n",1)[1].split('\nPY\n',1)[0]
+    monkeypatch.setattr(sys,'argv',['validator',str(tmp_path),str(archive)])
+    exec(compile(validator,'archive-validator','exec'),{})
+    for name,kind in [('app/link',tarfile.SYMTYPE),('../escape',tarfile.REGTYPE),
+                      ('app/../escape',tarfile.DIRTYPE),('outside',tarfile.REGTYPE)]:
+        with tarfile.open(archive,'w:gz') as tar:
+            member=tarfile.TarInfo(name);member.type=kind;member.linkname='/etc/passwd'
+            tar.addfile(member,io.BytesIO(b''))
+        with pytest.raises(SystemExit,match='safe'):exec(compile(validator,'archive-validator','exec'),{})
 
 
 def sample(t,ok=True,latency=.1,release='a'):
