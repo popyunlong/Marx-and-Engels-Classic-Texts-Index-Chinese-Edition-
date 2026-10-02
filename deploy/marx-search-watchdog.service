@@ -7,7 +7,7 @@ After=marx-search.service
 Type=oneshot
 # 需要 systemctl restart 权限，以 root 运行；脚本短命（探测+至多一次重启）。
 User=root
-ExecStart=/usr/local/sbin/marx-search-watchdog.sh
+ExecStart=/bin/bash /opt/marx-search/current/app/deploy/health_watchdog.sh
 # 限制其自身可消耗的资源/权限面（oneshot 探测脚本不需要任何特殊能力）。
 NoNewPrivileges=true
 ProtectHome=true

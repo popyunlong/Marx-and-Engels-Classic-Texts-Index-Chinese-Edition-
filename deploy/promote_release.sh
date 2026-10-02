@@ -66,7 +66,7 @@ if ! [[ "$DRAIN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
-for command in flock python3 tar curl systemctl systemd-run caddy sha256sum ss; do
+for command in flock python3 tar curl systemctl systemd-run caddy sha256sum ss nice ionice; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 2; }
 done
 [ -f "$ARCHIVE" ] || { echo "release archive not found" >&2; exit 2; }
@@ -109,6 +109,9 @@ rm -rf -- "$STAGING"
 mkdir -p "$STAGING"
 KEEP_FINAL=0
 cleanup_incomplete() {
+  if declare -F resume_watchdog_after_release >/dev/null; then
+    resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
+  fi
   if [ "${REVIEW_OWNED:-0}" -eq 1 ]; then rm -f -- "$REVIEW_FIFO"; fi
   rm -rf -- "$STAGING"
   if [ "$KEEP_FINAL" -eq 0 ] && [ -d "$FINAL" ]; then
@@ -148,6 +151,9 @@ PY
 )"
 [ "$META_PARENT" = "$EXPECTED_LIVE" ] || { echo "archive parent_release_id mismatch" >&2; exit 73; }
 mv -- "$STAGING" "$FINAL"
+
+source "$FINAL/app/deploy/watchdog_release.sh"
+pause_watchdog_for_release
 
 # Runtime data and secrets stay outside the immutable source tree and are
 # injected through explicit environment paths. This keeps the verified source
@@ -197,7 +203,7 @@ chown -R root:www-data "$FINAL"
     MARX_AI_CONFIG_FILE="$APP_ROOT/config/ai.yaml" \
     MARX_ALIPAY_CONFIG_FILE="$APP_ROOT/config/alipay.yaml" \
     MARX_ZPAY_CONFIG_FILE="$APP_ROOT/config/zpay.yaml" \
-    "$RUNTIME_PYTHON" scripts/deployment_smoke.py --mode server
+    nice -n 15 ionice -c 3 "$RUNTIME_PYTHON" scripts/deployment_smoke.py --mode server
 )
 
 health() {
@@ -315,6 +321,7 @@ if ss -Hltn "( sport = :${CANDIDATE_PORT} )" | grep -q .; then
 fi
 systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1 || true
 systemd-run --unit="${CANDIDATE_UNIT%.service}" \
+  --property=Nice=10 --property=CPUWeight=20 --property=IOWeight=20 --property=IOSchedulingClass=idle \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
   --property="WorkingDirectory=$FINAL/app" --property=EnvironmentFile=-/etc/marx-search.env \
   --property="ReadOnlyPaths=$FINAL" \

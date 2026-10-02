@@ -42,6 +42,7 @@ done
 case "$APP_ROOT" in /) echo "APP_ROOT must not be the filesystem root" >&2; exit 2;; /*) ;; *) echo "APP_ROOT must be absolute" >&2; exit 2;; esac
 [ -f "$TARGET/release.json" ] || { echo "target release does not exist" >&2; exit 3; }
 [ -f "$TARGET/app/deploy/marx-search.service" ] || { echo "target canonical service is missing" >&2; exit 3; }
+[ -f "$TARGET/app/deploy/health_watchdog.sh" ] || { echo "target watchdog script is missing" >&2; exit 3; }
 for unit in "${MANAGED_SUPPORT_UNITS[@]}"; do
   [ -f "$TARGET/app/deploy/$unit" ] || { echo "target release missing managed unit $unit" >&2; exit 3; }
 done
@@ -93,7 +94,13 @@ python3 "$TARGET/app/scripts/build_release_manifest.py" verify \
 
 OLD_REAL="$(readlink -f "$APP_ROOT/current")"
 SERVICE_BACKUP="$(mktemp -d /run/marx-search-rollback.XXXXXX)"
-trap 'rm -rf -- "$SERVICE_BACKUP"' EXIT
+source "$TRANSACTION_APP/deploy/watchdog_release.sh"
+cleanup_rollback() {
+  resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
+  rm -rf -- "$SERVICE_BACKUP"
+}
+trap cleanup_rollback EXIT
+pause_watchdog_for_release
 tar -czf "$SERVICE_BACKUP/systemd.tar.gz" -C /etc/systemd/system \
   --ignore-failed-read marx-search.service marx-search.service.d \
   "${MANAGED_SUPPORT_UNITS[@]}" "${OPTIONAL_PRODUCTION_UNITS[@]}" 2>/dev/null || true
@@ -179,6 +186,7 @@ if ss -Hltn "( sport = :${CANDIDATE_PORT} )" | grep -q .; then
   exit 75
 fi
 systemd-run --unit="${CANDIDATE_UNIT%.service}" \
+  --property=Nice=10 --property=CPUWeight=20 --property=IOWeight=20 --property=IOSchedulingClass=idle \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
   --property="WorkingDirectory=$TARGET/app" --property=EnvironmentFile=-/etc/marx-search.env \
   --property="ReadOnlyPaths=$TARGET" \
@@ -214,7 +222,13 @@ mv -Tf -- "$APP_ROOT/.current-rollback-$TARGET_RELEASE" "$APP_ROOT/current"
 install -o root -g root -m 0644 "$TARGET/app/deploy/marx-search.service" /etc/systemd/system/marx-search.service
 rm -rf -- /etc/systemd/system/marx-search.service.d
 for unit in "${MANAGED_SUPPORT_UNITS[@]}"; do
-  install -o root -g root -m 0644 "$TARGET/app/deploy/$unit" "/etc/systemd/system/$unit"
+  unit_source="$TARGET/app/deploy/$unit"
+  # Keep the release-aware launcher when rolling back to a legacy unit that
+  # referenced an unmanaged /usr/local copy. The target owns its script.
+  if [ "$unit" = "marx-search-watchdog.service" ]; then
+    unit_source="$TRANSACTION_APP/deploy/$unit"
+  fi
+  install -o root -g root -m 0644 "$unit_source" "/etc/systemd/system/$unit"
 done
 for unit in "${OPTIONAL_UNITS_PRESENT[@]}"; do
   install -o root -g root -m 0644 "$TARGET/app/deploy/production_units/$unit" "/etc/systemd/system/$unit"

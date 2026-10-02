@@ -9,7 +9,7 @@
 # 响应）就强制重启，把宕机自愈窗口从 ~50 分钟压到 ~1-2 分钟。带重启限流，避免崩溃循环时反复抖动。
 #
 # 安全：本脚本以 root 运行（需 systemctl 权限），故应安装到 root 拥有、www-data 不可写的
-# 目录（如 /usr/local/sbin/marx-search-watchdog.sh），不要从 /opt/marx-search 直接跑。
+# 不可变发布目录；服务通过 current/app/deploy 路径执行已经校验的受控脚本。
 set -u
 
 URL="http://127.0.0.1:8000/api/runtime"
@@ -21,6 +21,14 @@ STAMP="/run/marx-search-watchdog.last-restart"
 MIN_RESTART_INTERVAL=120     # 两次自动重启的最小间隔（秒）：防崩溃循环里反复重启
 
 log() { logger -t marx-watchdog "$*" 2>/dev/null || true; echo "marx-watchdog: $*"; }
+
+# A release owns health decisions while its candidate warms and traffic drains.
+# Lock before probing or recording a restart timestamp, including legacy rollout.
+exec 9>"/run/lock/marx-search-release.lock"
+if ! flock -n 9; then
+  log "release/rollback transaction is active; deferring watchdog probe"
+  exit 0
+fi
 
 # 服务本就没在运行 → 交给 systemd 的 Restart=always，看门狗不插手。
 if ! systemctl is-active --quiet "$SERVICE"; then
@@ -51,11 +59,6 @@ if [ -f "$STAMP" ]; then
 fi
 
 echo "$now" > "$STAMP" 2>/dev/null || true
-exec 9>"/run/lock/marx-search-release.lock"
-if ! flock -n 9; then
-  log "release/rollback transaction is active; deferring watchdog restart"
-  exit 0
-fi
 log "health probe failed ${ATTEMPTS}x (service active but unresponsive) -> restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 log "restart issued for ${SERVICE}"
