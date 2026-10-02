@@ -29,6 +29,17 @@
   var scopeChips = $("#aipScopeChips");
   var bookScopeMount = $("#aipBookScopeMount");
   var bookScopeCtl = null;
+  var composerGrounding = $("#aipComposerGrounding");
+  var composerGroundingState = $("#aipComposerGroundingState");
+  var composerScopeChips = $("#aipComposerScopeChips");
+  var composerBookScopeMount = $("#aipComposerBookScopeMount");
+  var composerBookScopeCtl = null;
+  var syncingBookScope = false;
+  var scopeToggle = $("#aipScopeToggle");
+  var scopeSummary = $("#aipScopeSummary");
+  var scopePanel = $("#aipScopePanel");
+  var scopeClose = $("#aipScopeClose");
+  var scopeScrim = $("#aipScopeScrim");
   var storageWarningEl = $("#aipStorageWarning");
   var researchNote = $("#aipResearchNote");
   var researchQuotaEl = $("#aipResearchQuota");
@@ -2404,8 +2415,108 @@
         + '</div>' + (cloudBadge ? '<div class="aip-session-cloud-badge' + cloudBadgeKind + '">' + esc(cloudBadge) + '</div>' : '') + '</div></div>';
     }).join("");
   }
-  function openSessionsDrawer() { if (sessionsEl) sessionsEl.classList.add("open"); if (sessionsScrim) { sessionsScrim.hidden = false; sessionsScrim.classList.add("open"); } }
-  function closeSessionsDrawer() { if (sessionsEl) sessionsEl.classList.remove("open"); if (sessionsScrim) sessionsScrim.classList.remove("open"); }
+  var activeOverlay = null;
+  var overlayFocus = null;
+  var overlayBackground = [];
+  var drawerMedia = window.matchMedia("(max-width: 1180px)");
+  function focusWithoutScroll(el) { if (el && el.focus) el.focus({ preventScroll: true }); }
+  function openOverlay(panel, trigger) {
+    closeOverlay();
+    activeOverlay = panel;
+    overlayFocus = trigger || document.activeElement;
+    // Inert only siblings along the panel's ancestor path, never the panel itself.
+    var branch = panel;
+    while (branch && branch !== document.body) {
+      Array.prototype.forEach.call(branch.parentElement.children, function (sibling) {
+        if (sibling === branch || sibling === sessionsScrim || sibling === scopeScrim || sibling.inert) return;
+        sibling.inert = true;
+        overlayBackground.push(sibling);
+      });
+      branch = branch.parentElement;
+    }
+    document.documentElement.classList.add("aip-overlay-open");
+    if (panel === sessionsEl) {
+      sessionsEl.classList.add("open");
+      sessionsEl.setAttribute("role", "dialog");
+      sessionsEl.setAttribute("aria-modal", "true");
+      sessionsScrim.hidden = false;
+      sessionsScrim.classList.add("open");
+      sessionsToggle.setAttribute("aria-expanded", "true");
+      sessionsListEl.scrollTop = 0;
+      focusWithoutScroll(newChatBtn);
+    } else {
+      scopePanel.hidden = false;
+      scopeScrim.hidden = false;
+      scopeToggle.setAttribute("aria-expanded", "true");
+      positionScopePanel();
+      focusWithoutScroll(scopeClose);
+    }
+  }
+  function closeOverlay() {
+    if (!activeOverlay) return;
+    if (activeOverlay === sessionsEl) {
+      sessionsEl.classList.remove("open");
+      sessionsEl.removeAttribute("role");
+      sessionsEl.removeAttribute("aria-modal");
+      sessionsScrim.classList.remove("open");
+      sessionsScrim.hidden = true;
+      sessionsToggle.setAttribute("aria-expanded", "false");
+    } else {
+      scopePanel.hidden = true;
+      scopeScrim.hidden = true;
+      scopeToggle.setAttribute("aria-expanded", "false");
+    }
+    overlayBackground.forEach(function (el) { el.inert = false; });
+    overlayBackground = [];
+    document.documentElement.classList.remove("aip-overlay-open");
+    activeOverlay = null;
+    focusWithoutScroll(overlayFocus === sessionsToggle && !drawerMedia.matches ? newChatBtn : overlayFocus);
+    overlayFocus = null;
+  }
+  function openSessionsDrawer() {
+    if (sessionsEl && drawerMedia.matches) openOverlay(sessionsEl, sessionsToggle);
+  }
+  function closeSessionsDrawer() { if (activeOverlay === sessionsEl) closeOverlay(); }
+  function positionScopePanel() {
+    if (!scopePanel || scopePanel.hidden) return;
+    var viewport = window.visualViewport;
+    var left = viewport ? viewport.offsetLeft : 0;
+    var top = viewport ? viewport.offsetTop : 0;
+    var width = viewport ? viewport.width : document.documentElement.clientWidth;
+    var height = viewport ? viewport.height : window.innerHeight;
+    var gap = 12;
+    scopePanel.style.width = Math.min(520, width - gap * 2) + "px";
+    scopePanel.style.maxHeight = Math.min(680, height - gap * 2) + "px";
+    var anchor = scopeToggle.getBoundingClientRect();
+    var bounds = scopePanel.getBoundingClientRect();
+    var x = Math.max(left + gap, Math.min(anchor.left, left + width - bounds.width - gap));
+    var y = anchor.top - bounds.height - 8;
+    if (y < top + gap) y = anchor.bottom + 8;
+    y = Math.max(top + gap, Math.min(y, top + height - bounds.height - gap));
+    scopePanel.style.left = x + "px";
+    scopePanel.style.top = y + "px";
+  }
+  function updateShellOffsets() {
+    var header = document.querySelector("body.v2 .v2nav") || $(".aip-topbar");
+    var bottom = document.querySelector("body.v2 .v2tabbar");
+    root.style.setProperty("--aip-header-height", (header ? header.getBoundingClientRect().height : 0) + "px");
+    root.style.setProperty("--aip-bottom-height", (bottom ? bottom.getBoundingClientRect().height : 0) + "px");
+    if (!drawerMedia.matches) closeSessionsDrawer();
+    positionScopePanel();
+  }
+  window.addEventListener("resize", updateShellOffsets);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", positionScopePanel);
+    window.visualViewport.addEventListener("scroll", positionScopePanel);
+  }
+  if (window.ResizeObserver) {
+    var shellObserver = new ResizeObserver(updateShellOffsets);
+    [document.querySelector("body.v2 .v2nav") || $(".aip-topbar"), document.querySelector("body.v2 .v2tabbar")].forEach(function (el) {
+      if (el) shellObserver.observe(el);
+    });
+    if (scopePanel) new ResizeObserver(positionScopePanel).observe(scopePanel);
+  }
+  updateShellOffsets();
 
   // ===================== 额度 =====================
   function updateTokenQuota(quota) {
@@ -2524,13 +2635,27 @@
     if (bookScopeCtl || !bookScopeMount || !window.BookScope) return;
     if (!Array.isArray(tree) || !tree.length) return;
     bookScopeCtl = window.BookScope.mount(bookScopeMount, tree, {
-      onChange: paintScopeChips,
+      onChange: function () { syncBookScopes(bookScopeCtl); },
     });
+    if (composerBookScopeMount) composerBookScopeCtl = window.BookScope.mount(composerBookScopeMount, tree, {
+      inline: true,
+      onChange: function () { syncBookScopes(composerBookScopeCtl); },
+    });
+    paintScopeChips();
+  }
+  function syncBookScopes(source) {
+    if (syncingBookScope || !source) return;
+    syncingBookScope = true;
+    try {
+      var target = source === bookScopeCtl ? composerBookScopeCtl : bookScopeCtl;
+      if (target) target.setTokens(source.getTokens());
+    } finally { syncingBookScope = false; }
+    paintScopeChips();
   }
   function paintScopeChips() {
     if (!scopeChips) return;
     var exactBookSelection = !!(bookScopeCtl && bookScopeCtl.hasSelection());
-    Array.prototype.forEach.call(scopeChips.querySelectorAll(".aip-chip"), function (btn) {
+    Array.prototype.forEach.call(root.querySelectorAll(".aip-scope-chips .aip-chip"), function (btn) {
       var id = btn.getAttribute("data-scope");
       var on = !exactBookSelection && ((id === "auto" && scopeState.mode === "auto") ||
                (id === "all" && scopeState.mode === "all") ||
@@ -2538,6 +2663,7 @@
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     });
+    syncRetrievalUI();
   }
   function renderScopeChips(list) {
     if (!scopeChips) return;
@@ -2545,6 +2671,7 @@
     scopeChips.innerHTML = opts.map(function (o) {
       return '<button type="button" class="aip-chip" data-scope="' + escAttr(o.id) + '" aria-pressed="false">' + esc(o.label) + "</button>";
     }).join("");
+    if (composerScopeChips) composerScopeChips.innerHTML = scopeChips.innerHTML;
     var validIds = opts.map(function (o) { return o.id; });
     scopeState.selected = scopeState.selected.filter(function (x) { return validIds.indexOf(x) >= 0; });
     if (scopeState.mode === "custom" && !scopeState.selected.length) scopeState.mode = "auto";
@@ -2570,6 +2697,42 @@
     // 研究档：范围始终有意义；快速档：仅接地时有意义。
     return depth === "research" || currentGrounding();
   }
+  function syncRetrievalUI() {
+    var available = runtimeEnabled() && depthAllowed(depth);
+    var research = depth === "research";
+    var enabled = research || currentGrounding();
+    if (composerGrounding) {
+      composerGrounding.setAttribute("aria-pressed", enabled ? "true" : "false");
+      composerGrounding.disabled = !available || research;
+      composerGrounding.title = research ? "研究综述始终检索引文库" : "与页面上方的检索引文库选项同步；修改对下一次提问生效";
+    }
+    if (composerGroundingState) composerGroundingState.textContent = research ? "研究必选" : (enabled ? "开启" : "关闭");
+    if (scopeRow) scopeRow.hidden = !(available && enabled);
+    if (scopeToggle) {
+      scopeToggle.disabled = !(available && enabled);
+      scopeToggle.title = enabled ? "选择检索范围、著作和卷册" : "开启检索引文库后可选择范围与著作";
+    }
+    if (scopeSummary) {
+      var text = "自动";
+      if (bookScopeCtl && bookScopeCtl.hasSelection()) text = "已选 " + bookScopeCtl.count() + " 部著作";
+      else if (scopeState.mode === "all") text = "全部";
+      else if (scopeState.mode === "custom") {
+        text = Array.prototype.filter.call(scopeChips.querySelectorAll(".aip-chip"), function (btn) {
+          return scopeState.selected.indexOf(btn.getAttribute("data-scope")) >= 0;
+        }).map(function (btn) { return btn.textContent; }).join("、");
+      }
+      scopeSummary.textContent = text;
+      scopeSummary.title = text;
+    }
+    var empty = $("#aipBookScopeEmpty");
+    if (empty) empty.hidden = !!composerBookScopeCtl;
+    if ((!available || !enabled) && activeOverlay === scopePanel) closeOverlay();
+  }
+  function setGrounding(enabled) {
+    if (groundingToggle) groundingToggle.checked = !!enabled;
+    try { localStorage.setItem(AI_GROUNDING_KEY, enabled ? "1" : "0"); } catch (_) {}
+    syncRetrievalUI();
+  }
   function applyDepthUI(forceDefaultModel) {
     depthTabs.forEach(function (t) {
       var d = t.getAttribute("data-depth");
@@ -2587,6 +2750,7 @@
     if (researchNote) researchNote.hidden = !isResearch;
     if (scopeRow) scopeRow.hidden = !(runtimeEnabled() && hasAnyForDepth() && scopeRelevant());
     updateResearchQuota();
+    syncRetrievalUI();
     updateSendEnabled();
   }
   function hasAnyForDepth() { return depthAllowed(depth); }
@@ -2950,17 +3114,20 @@
       else groundingToggle.checked = true;   // 研究对话页默认开启接地，更贴「研究导向」
     } catch (_) { groundingToggle.checked = true; }
     groundingToggle.addEventListener("change", function () {
-      try { localStorage.setItem(AI_GROUNDING_KEY, groundingToggle.checked ? "1" : "0"); } catch (_) {}
-      if (scopeRow) scopeRow.hidden = !(runtimeEnabled() && depthAllowed(depth) && scopeRelevant());
+      setGrounding(groundingToggle.checked);
     });
   }
-  if (scopeChips) {
-    scopeChips.addEventListener("click", function (e) {
+  if (composerGrounding) composerGrounding.addEventListener("click", function () { setGrounding(!currentGrounding()); });
+  if (scopeToggle) scopeToggle.addEventListener("click", function () { openOverlay(scopePanel, scopeToggle); });
+  if (scopeClose) scopeClose.addEventListener("click", closeOverlay);
+  if (scopeScrim) scopeScrim.addEventListener("click", closeOverlay);
+  [scopeChips, composerScopeChips].forEach(function (chips) {
+    if (chips) chips.addEventListener("click", function (e) {
       var btn = (e.target && e.target.closest) ? e.target.closest(".aip-chip") : null;
       var id = btn && btn.getAttribute("data-scope");
       if (id) onScopeChip(id);
     });
-  }
+  });
 
   // ===================== 会话侧栏事件 =====================
   if (newChatBtn) newChatBtn.addEventListener("click", newSession);
@@ -2992,7 +3159,18 @@
     }
     switchSession(id);
   });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSessionsDrawer(); });
+  document.addEventListener("keydown", function (e) {
+    if (!activeOverlay) return;
+    if (e.key === "Escape") { e.preventDefault(); closeOverlay(); return; }
+    if (e.key !== "Tab") return;
+    var focusable = Array.prototype.filter.call(activeOverlay.querySelectorAll("button, input, select, textarea, a[href], [tabindex]"), function (el) {
+      return !el.disabled && el.tabIndex >= 0 && el.getClientRects().length;
+    });
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (!first) { e.preventDefault(); focusWithoutScroll(activeOverlay); }
+    else if (e.shiftKey && (document.activeElement === first || !activeOverlay.contains(document.activeElement))) { e.preventDefault(); focusWithoutScroll(last); }
+    else if (!e.shiftKey && (document.activeElement === last || !activeOverlay.contains(document.activeElement))) { e.preventDefault(); focusWithoutScroll(first); }
+  });
 
   // 供全站导航判断「本页是否有在飞的生成」：在飞时点其它标签会改为新标签打开，不打断本页生成。
   window.__marxBusy = function () { return streaming; };

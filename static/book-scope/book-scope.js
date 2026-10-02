@@ -4,7 +4,8 @@
  * 选择态 sel = { 书库键: "all" | [卷号...] }；导出 token：整套→"book:<键>"，单卷→"vol:<键>:<卷号>"。
  * 后端 _resolve_search_scope / _standard_search_scope 直接吃这个 token 列表。
  *
- * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey, initialTokens });
+ * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey, initialTokens, inline });
+ *   inline:true 在宿主面板内直接显示选择树；默认仍由「指定著作」按钮展开。
  *   默认「不跨访问记忆」：每次挂载都从空开始（= 全部著作）；仅当传 persist:true 时才读写 localStorage。
  *   ctl.getTokens() -> ["book:文集","vol:全集:5", ...]（无选择时为 []）
  *   ctl.count()     -> 已选著作数
@@ -45,6 +46,7 @@
     var onChange = typeof opts.onChange === 'function' ? opts.onChange : function () {};
     // 默认不跨访问记忆：每次挂载从空开始（= 全部著作）；仅显式 persist:true 才读写 localStorage。
     var persistOn = opts.persist === true;
+    var inline = opts.inline === true;
     // 书库键 → { label, volumes } 索引；顺带剔除 localStorage 里已不在库的键。
     var bookIndex = {};
     tree.forEach(function (g) { (g.books || []).forEach(function (b) { bookIndex[b.key] = b; }); });
@@ -225,14 +227,21 @@
     }
 
     function setOpen(open) {
+      if (inline) open = true;
       panel.hidden = !open;
       trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
       root.classList.toggle('bscope-open', open);
-      if (open) positionPanel();
+      if (open && !inline) positionPanel();
     }
-    trigger.addEventListener('click', function () { setOpen(panel.hidden); });
-    document.addEventListener('click', function (e) { if (!root.contains(e.target)) setOpen(false); });
-    window.addEventListener('resize', function () { if (!panel.hidden) positionPanel(); });
+    if (inline) {
+      root.classList.add('bscope-inline');
+      trigger.hidden = true;
+      setOpen(true);
+    } else {
+      trigger.addEventListener('click', function () { setOpen(panel.hidden); });
+      document.addEventListener('click', function (e) { if (!root.contains(e.target)) setOpen(false); });
+      window.addEventListener('resize', function () { if (!panel.hidden) positionPanel(); });
+    }
     clearBtn.addEventListener('click', function () { sel = {}; persist(); paint(); onChange(); });
 
     // 初始：对已选「部分卷」的书展开卷面板，便于用户直接看到已选卷。

@@ -23,6 +23,12 @@
   background: #fff; border: 1px solid #d9c689; border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 10px;
 }
+.bscope-inline { display: block; }
+.bscope-inline > .bscope-trigger { display: none; }
+.bscope-inline > .bscope-panel {
+  position: static; width: 100%; max-width: none; max-height: none;
+  overflow: visible; border: 0; border-radius: 0; box-shadow: none; padding: 0;
+}
 .bscope-panel-head { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
 .bscope-panel-hint { flex: 1; color: #8a7a4a; font-size: .76rem; line-height: 1.4; }
 .bscope-clear {
