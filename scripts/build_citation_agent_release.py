@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Build the network Agent bundle from an explicit two-file allow-list."""
+"""Build the network Agent bundle from an explicit source allow-list."""
 
 import argparse
 import hashlib
@@ -32,9 +32,9 @@ def _allowed_files() -> list[tuple[str, Path, bytes]]:
             raise ValueError(f"Agent 发布文件过大：{name}")
         seen.add(name)
         items.append((name, source, data))
-    expected = {"citation_agent_queue.py", "scripts/citation_agent_worker.py"}
+    expected = {"ai_models.py", "citation_agent_queue.py", "scripts/citation_agent_worker.py"}
     if seen != expected:
-        raise ValueError("Agent 发布白名单必须且只能包含队列协议与脱敏模型 worker。")
+        raise ValueError("Agent 发布白名单必须且只能包含模型名称、队列协议与脱敏模型 worker。")
     return items
 
 

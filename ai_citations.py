@@ -144,11 +144,18 @@ def units(text: str):
     audit = False
     lines = text.splitlines(keepends=True)
     grouped = []
+    grouping_fence = False
+    previous_prose = False
     for line in lines:
-        if line.lstrip().startswith(">") and grouped and grouped[-1].lstrip().startswith(">"):
+        if re.match(r'^\s*(?:```|~~~)', line):
+            grouping_fence = not grouping_fence
+        prose = (bool(line.strip()) and not grouping_fence
+                 and not re.match(r'^\s*(?:#{1,6}\s|>|```|~~~|[-+*]\s|\d+[.)、]\s|(?:参考文献|来源列表|来源清单|引文清单)[：:]?\s*$)', line))
+        if (not grouping_fence and line.lstrip().startswith(">") and grouped and grouped[-1].lstrip().startswith(">")) or (prose and previous_prose):
             grouped[-1] += line
         else:
             grouped.append(line)
+        previous_prose = prose
     for line in grouped:
         stripped = line.strip()
         if re.match(r"^(?:```|~~~)", stripped):
@@ -176,9 +183,32 @@ def units(text: str):
 
 
 def _matched_source(quote: str, passage: dict) -> str:
+    quote = re.sub(r"[*_]", "", quote)
     segments = passage.get("quote_segments") or clean_evidence(passage.get("text", ""), passage).quote_segments
     span = next((span for segment in segments if (span := exact_quote(quote, segment))), "")
     return span if span and exact_quote(span, passage.get("text", "")) else ""
+
+
+def _source_start_boundary(text: str, offset: int) -> bool:
+    """A numbered clause starts after its label, not just after punctuation.
+
+    Do not accept arbitrary closing parentheses: a parenthesized aside is not
+    a sentence boundary. NFKC has already folded fullwidth list numbers.
+    """
+    return (offset == 0 or text[offset - 1] in '，,。！？!?；;：:"'
+            or bool(re.search(r'(?:^|[，,。！？!?；;：:])\([0-9一二三四五六七八九十]+\)$', text[:offset])))
+
+
+def _source_for(value: str, passages: list[dict], preferred=()) -> int | None:
+    """Choose a fully verified source in the existing retrieval order.
+
+    Duplicate windows are not ambiguous evidence. Different editions remain
+    separate records; choosing an exact, admitted edition does not merge their
+    page identities. A writer's valid local reference always takes precedence.
+    """
+    evidence = {int(p['index']): p for p in passages}
+    order = list(dict.fromkeys([i for i in preferred if i in evidence] + list(evidence)))
+    return next((i for i in order if _matched_source(value, evidence[i])), None)
 
 
 def _repair_nested_source_spans(answer: str, passages: list[dict]) -> tuple[str, list[str]]:
@@ -242,8 +272,9 @@ def _repair_nested_source_spans(answer: str, passages: list[dict]) -> tuple[str,
                         if not _matched_source(value, p):
                             continue
                         matches = [q for q in pool if _matched_source(value, q)]
-                        if len(matches) != 1:
+                        if not matches:
                             continue
+                        p = matches[0]
                         if any(m.start() <= a and b <= m.close+1 for m in quoted):
                             continue
                         index = int(p['index'])
@@ -331,13 +362,7 @@ def repair_missing_references(answer: str, passages: list[dict]) -> tuple[str, l
         protected += [(m.start(), m.end()) for m in re.finditer(r"`[^`]*`|!?\[[^\]]*\]\([^)]*\)|\[\d+(?:\s*[,，、]\s*\d+)*\]", unit)]
 
         def source_for(value, preferred):
-            matches = [i for i in preferred if i in evidence and _matched_source(value, evidence[i])]
-            if len(matches) == 1:
-                return matches[0]
-            if matches:
-                return None
-            matches = [i for i, p in evidence.items() if _matched_source(value, p)]
-            return matches[0] if len(matches) == 1 else None
+            return _source_for(value, passages, preferred)
 
         if unit.lstrip().startswith(">"):
             value = _plain(unit).strip('“”「」『』"')
@@ -403,14 +428,19 @@ def repair_missing_references(answer: str, passages: list[dict]) -> tuple[str, l
 
         # Work on each unquoted run separately; never jump across a reference,
         # emphasis delimiter or quote and turn the intervening analysis into a quote.
-        protected += [(m.start(), m.end()) for m in re.finditer(r"\*+|_+|^\s*(?:[-+]|\d+[.)、])\s+", unit)]
+        protected += [(m.start(), m.end()) for m in re.finditer(r"^\s*(?:[-+]|\d+[.)、])\s+", unit)]
         cuts = sorted({0, len(unit), *(p for pair in protected for p in pair)})
         candidates = []
         for left, right in zip(cuts, cuts[1:]):
             if any(a <= left < b for a, b in protected):
                 continue
             run = unit[left:right]
-            norm, offsets = _quote_map(run)
+            # Formatting may occur inside a verbatim clause. Keep its offsets
+            # for the edit, but compare only the visible text to the source.
+            visible_positions = [i for i, ch in enumerate(run) if ch not in '*_']
+            visible = ''.join(run[i] for i in visible_positions)
+            norm, offsets = _quote_map(visible)
+            offsets = [visible_positions[i] for i in offsets]
             if len(key(run)) < 12:
                 continue
             for p in passages:
@@ -425,14 +455,14 @@ def repair_missing_references(answer: str, passages: list[dict]) -> tuple[str, l
                         while a < b and run[a] in ' \t，,。！？!?；;：:“”「」『』"':
                             a += 1
                         value = run[a:b]
-                        boundary = not a or run[a-1] in "，,。！？!?；;：: \t"
-                        end_boundary = b == len(run) or run[b] in "，,。！？!?；;：: \t"
-                        source_start = block.b + len(_quote_map(run[offsets[block.a]:a])[0])
+                        boundary = not a or run[a-1] in "，,。！？!?；;：: \t*_"
+                        end_boundary = b == len(run) or run[b] in "，,。！？!?；;：: \t*_" or run[b-1] in "，,。！？!?；;：:"
+                        source_start = block.b + len(_quote_map(re.sub(r'[*_]', '', run[offsets[block.a]:a]))[0])
                         source_end = block.b + block.size
                         source_quoted = source_start > 0 and source_end < len(source_norm) and source_norm[source_start-1] == source_norm[source_end] == '"'
                         if len(key(value)) < 12 or not (source_quoted or (boundary and end_boundary)):
                             continue
-                        if not (source_start == 0 or source_norm[source_start-1] in '，,。！？!?；;：:"'):
+                        if not _source_start_boundary(source_norm, source_start):
                             continue
                         if not (source_end == len(source_norm) or source_norm[source_end-1] in '，,。！？!?；;：:"' or source_norm[source_end] in '，,。！？!?；;：:"'):
                             continue
@@ -482,7 +512,7 @@ def ledger(answer: str, passages: list[dict]) -> dict:
             for quote in quotes + [plain.strip('“”「」『』"')]:
                 if len(key(quote)) < 4:
                     continue
-                span = next((s for segment in segments if (s := exact_quote(quote, segment))), "")
+                span = next((s for segment in segments if (s := exact_quote(re.sub(r'[*_]', '', quote), segment))), "")
                 if span and exact_quote(span, p.get("text", "")) and span not in matched:
                     matched.append(span)
             source_ranges = []

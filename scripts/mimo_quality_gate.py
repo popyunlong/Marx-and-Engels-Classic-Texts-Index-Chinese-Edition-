@@ -17,12 +17,16 @@ import os
 import random
 import re
 import statistics
+import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from ai_models import application_model, provider_model
 
 
 FEATURES = {"mascot", "research_chat", "ai_reader", "research_review", "structured_search"}
@@ -126,7 +130,13 @@ def _cost_micros(provider: str, model: str, usage: dict, occurred_at: str) -> in
             "deepseek-v4-flash": (100_000, 3_000_000, 9_000_000) if peak else (50_000, 1_500_000, 4_500_000),
             "deepseek-v4-pro": (300_000, 9_000_000, 27_000_000) if peak else (150_000, 4_500_000, 13_500_000),
         })
-    cache_price, input_price, output_price = prices[model]
+    if provider == "deepseek" and when >= datetime(2026, 9, 10, 4, tzinfo=timezone.utc):
+        # Share the application's official calendar without opening a wallet DB.
+        from membership import _deepseek_peak_time
+        peak = _deepseek_peak_time(when.astimezone(timezone(timedelta(hours=8))))
+        prices["deepseek-v4-flash"] = (40_000, 2_000_000, 8_000_000) if peak else (20_000, 1_000_000, 4_000_000)
+        prices["deepseek-v4-pro"] = (300_000, 9_000_000, 27_000_000) if peak else (150_000, 4_500_000, 13_500_000)
+    cache_price, input_price, output_price = prices[application_model(model)]
     prompt = max(0, int(usage.get("prompt_tokens") or 0))
     cached = min(prompt, max(0, int(usage.get("cached_prompt_tokens") or 0)))
     completion = max(0, int(usage.get("completion_tokens") or 0))
@@ -145,7 +155,7 @@ def _call(*, provider: str, model: str, messages: list[dict], max_tokens: int, e
         headers = {"Authorization": f"Bearer {key}"}
     if not key:
         raise RuntimeError(f"{provider} API key 未通过环境变量配置")
-    body: dict[str, Any] = {"model": model, "messages": messages, "stream": False, "temperature": 0.2}
+    body: dict[str, Any] = {"model": provider_model(model), "messages": messages, "stream": False, "temperature": 0.2}
     body["max_completion_tokens" if provider == "mimo" else "max_tokens"] = max_tokens
     body["thinking"] = {"type": "disabled" if effort == "off" else "enabled"}
     if provider == "deepseek" and effort in {"low", "high", "max"}:

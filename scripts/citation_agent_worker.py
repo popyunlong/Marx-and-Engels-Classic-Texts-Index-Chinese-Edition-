@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import citation_agent_queue as queue  # noqa: E402
+from ai_models import provider_model  # noqa: E402
 
 
 PROMPT_VERSION = "citation-agent-actions-v2-flash-thinking"
@@ -155,7 +156,7 @@ def _call_model(payload: dict, *, repair: bool = False) -> tuple[dict, str]:
     endpoint, api_key, model = _endpoint()
     thinking = _thinking_mode(payload, repair=repair)
     body = json.dumps({
-        "model": model,
+        "model": provider_model(model),
         "messages": _messages(payload, repair=repair),
         "temperature": 0,
         "max_tokens": 1800 if thinking == "enabled" else 1400,

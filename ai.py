@@ -23,6 +23,7 @@ from urllib import request as urllib_request
 import yaml
 
 from runtime_env import APPDATA_DIR
+from ai_models import application_model, provider_model
 from ai_evidence import clean_evidence, exact_quote, PDF_WATERMARK_RE
 
 
@@ -554,7 +555,7 @@ def load_ai_config(
     provider = _normalize_provider(
         _pick_str("APP_AI_PROVIDER", payload, "provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER
     )
-    model = _pick_str("APP_AI_MODEL", payload, "model", DEFAULT_MODEL) or DEFAULT_MODEL
+    model = application_model(_pick_str("APP_AI_MODEL", payload, "model", DEFAULT_MODEL) or DEFAULT_MODEL)
     # MiMo 入口总闸关闭时，即使旧环境仍残留 MiMo 主通道配置，也不能让它重新成为实际路由。
     if provider == "mimo" and not _MIMO_MODEL_ACCESS_ENABLED:
         provider = DEFAULT_PROVIDER
@@ -3285,7 +3286,7 @@ class ZAIClient:
             data: dict[str, Any] = {}
             for stage_index, tools in enumerate(tool_stages):
                 payload: dict[str, Any] = {
-                    "model": model_name,
+                    "model": provider_model(model_name),
                     "messages": messages,
                     "stream": False,
                     "temperature": self.config.temperature if temperature is None else temperature,
@@ -3430,7 +3431,7 @@ class ZAIClient:
         if normalized_effort == "medium":
             normalized_effort = "high"
         payload: dict[str, Any] = {
-            "model": model_name,
+            "model": provider_model(model_name),
             "messages": messages,
             "stream": True,
             "temperature": self.config.temperature,

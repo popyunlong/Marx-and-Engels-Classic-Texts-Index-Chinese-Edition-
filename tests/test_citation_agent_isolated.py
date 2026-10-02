@@ -1140,7 +1140,7 @@ def test_agent_release_bundle_is_strictly_allowlisted(tmp_path: Path) -> None:
     with tarfile.open(bundle, "r:gz") as archive:
         names = set(archive.getnames())
     assert names == {
-        "citation_agent_queue.py", "scripts/citation_agent_worker.py", "SHA256SUMS",
+        "ai_models.py", "citation_agent_queue.py", "scripts/citation_agent_worker.py", "SHA256SUMS",
     }
 
 

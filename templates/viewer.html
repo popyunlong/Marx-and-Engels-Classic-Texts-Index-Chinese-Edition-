@@ -1228,7 +1228,7 @@
     {% set reader_defaults = state.ai_entitlements.defaults if state.ai_entitlements and state.ai_entitlements.defaults else {} %}
     {% set reader_default = reader_defaults.reader if reader_defaults.reader else {} %}
     {% set reader_default_model = reader_default.model if reader_default.model else '' %}
-    {% set reader_default_label = 'MiMo V2.5 Pro' if reader_default_model == 'mimo-v2.5-pro' else 'MiMo V2.5' if reader_default_model == 'mimo-v2.5' else 'DeepSeek V4 Pro' if reader_default_model == 'deepseek-v4-pro' else 'DeepSeek V4 Flash' if reader_default_model == 'deepseek-v4-flash' else (ai_runtime.model or 'AI 导学') %}
+    {% set reader_default_label = 'MiMo V2.5 Pro' if reader_default_model == 'mimo-v2.5-pro' else 'MiMo V2.5' if reader_default_model == 'mimo-v2.5' else 'DeepSeek V4 Pro' if reader_default_model == 'deepseek-v4-pro' else 'DeepSeek V4.1 Flash' if reader_default_model == 'deepseek-v4-flash' else (ai_runtime.model or 'AI 导学') %}
     <aside class="ai-panel">
       <div class="ai-top-section">
         <div class="ai-head">

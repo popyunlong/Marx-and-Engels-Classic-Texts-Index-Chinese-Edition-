@@ -251,6 +251,99 @@ def final_stats(details, cards, progress=None):
     return stats
 
 
+def recover_answer_sources(A, answer, passages, bases, *, question, allowed_books,
+                           document_scopes=(), cancelled=lambda: False):
+    before = len(passages)
+    try:
+        return _recover_answer_sources(A, answer, passages, bases, question=question,
+            allowed_books=allowed_books, document_scopes=document_scopes, cancelled=cancelled)
+    except Exception:
+        A.LOGGER.exception('Bounded citation recovery unavailable; retaining completed answer')
+        return len(passages) - before
+
+
+def _recover_answer_sources(A, answer, passages, bases, *, question, allowed_books,
+                            document_scopes=(), cancelled=lambda: False):
+    """Bounded, exact-only recovery for quotations outside the injected window.
+
+    Scan already loaded, authorized normalized text in small chunks. This avoids
+    full-volume fuzzy matching, layout-index cold starts and orphaned timeout
+    threads. Every hit is rechecked against safe source text before admission.
+    """
+    from ai import _inline_quotations
+    deadline = time.monotonic() + 5.0
+    if not C.enabled() or not allowed_books or not getattr(A, 'corpus', None):
+        return 0
+    probes = []
+    for _, unit, excluded in C.units(answer):
+        if cancelled() or time.monotonic() >= deadline:
+            return 0
+        if excluded:
+            continue
+        explicit = [m.group('quote') for m in _inline_quotations(unit)]
+        plain = re.sub(r'[*_`]|^\s*>\s*', '', C.REF.sub('', unit))
+        for value in explicit + re.split(r'[；;\n]', plain):
+            value = value.strip().strip('“”「」『』"')
+            if not 24 <= len(C.key(value)) <= 512 or C._source_for(value, passages):
+                continue
+            if value not in probes:
+                probes.append(value)
+            if len(probes) >= 8:
+                break
+        if len(probes) >= 8:
+            break
+    if not probes:
+        return 0
+    volumes = [v for b in A.corpus._scoped_book_keys(allowed_books)
+               for v in A.corpus._scoped_volumes(b, allowed_books)]
+    added = 0
+    for value in probes:
+        needle = A.normalize(value)
+        if not needle:
+            continue
+        found = False
+        for volume in volumes:
+            bounds = [(s.norm_start, s.norm_end) for s in document_scopes
+                      if s.source_file == volume.source_file] if document_scopes else [(0, len(volume.norm_full))]
+            for left, right in bounds:
+                cursor = left
+                while cursor < right:
+                    if cancelled() or time.monotonic() >= deadline:
+                        return added
+                    end = min(right, cursor + 65536 + len(needle))
+                    at = volume.norm_full.find(needle, cursor, end)
+                    if at < 0:
+                        cursor += 65536
+                        continue
+                    cursor = at + max(1, len(needle))
+                    hit = A.corpus._make_hit(volume, at, at + len(needle), 'exact', 100, value)
+                    hit = A.corpus.enrich_hit_document(hit)
+                    base = hit.to_dict()
+                    text = A._research_review_passage_text(hit, base, question, required_quotes=[value])
+                    if cancelled() or time.monotonic() >= deadline:
+                        return added
+                    if not C.admissible(base, text, question):
+                        continue
+                    index = max((int(p['index']) for p in passages), default=0) + 1
+                    item = passage(A, hit, base, text, index)
+                    if cancelled() or time.monotonic() >= deadline:
+                        return added
+                    if not item.get('source_segments') or not C._matched_source(value, item):
+                        continue
+                    # Existing evidence may have been supplied by an earlier probe.
+                    if not C._source_for(value, passages):
+                        passages.append(item)
+                        bases[index] = base
+                        added += 1
+                    found = True
+                    break
+                if found:
+                    break
+            if found:
+                break
+    return added
+
+
 def run_augmentation(A, answer, passages, bases, *, question, target, deadline,
                      allowed_books, document_scopes, provider, model, reasoning, cancelled):
     """Runs inside the existing ai_call_context, preserving billing/provider."""

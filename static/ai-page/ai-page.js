@@ -570,12 +570,12 @@
     return '<div class="chat-empty">在下方输入你的问题，开始一段可连续追问的研究对话。' +
       '<span class="aip-eg">例如：「谈谈马克思对异化劳动的分析」，或切换「研究综述」深挖一个专题。</span></div>';
   }
-  function quoteDisplayMap(text) {
+  function quoteDisplayMap(text, markdown) {
     var normalized = "", starts = [], ends = [], offset = 0;
     Array.from(String(text || "")).forEach(function (ch) {
       var folded = ch.normalize("NFKC").replace(/[“”「」]/g, '"').replace(/[‘’『』]/g, "'");
       Array.from(folded).forEach(function (c) {
-        if (!/\s/.test(c)) { normalized += c; for (var j = 0; j < c.length; j++) { starts.push(offset); ends.push(offset + ch.length); } }
+        if (!/\s/.test(c) && !(markdown && /[*_]/.test(c))) { normalized += c; for (var j = 0; j < c.length; j++) { starts.push(offset); ends.push(offset + ch.length); } }
       });
       offset += ch.length;
     });
@@ -613,28 +613,64 @@
     return merged;
   }
   function quoteDisplayContent(message) {
-    // History is immutable: repair display/export boundaries only from saved
-    // verified evidence. Never infer an absent card or a new source number.
-    var fenced = false;
-    return String(message.content || "").split("\n").map(function (line) {
+    // Pure display projection: saved answers and cards are never modified.
+    // Only already verified quote evidence may restore a missing marker.
+    var fenced = false, groups = [];
+    String(message.content || "").split("\n").forEach(function (line) {
+      var barrier = !line.trim() || /^\s*(?:#|>|[-*+]\s|\d+[.)]\s|```|~~~)/.test(line);
+      if (/^\s*(?:```|~~~)/.test(line)) fenced = !fenced;
+      var last = groups[groups.length-1];
+      if (!barrier && !fenced && last && last.prose) last.text += "\n" + line;
+      else groups.push({text:line, prose:!barrier && !fenced});
+    });
+    fenced = false;
+    return groups.map(function (group) {
+      var line = group.text;
       if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return line; }
-      if (fenced || /^\s*(?:>|#)/.test(line)) return line;
-      var protectedRanges = [], stack = [], openAt = 0, pairs = {"“":"”", "「":"」", "『":"』", '"':'"'};
-      for (var i = 0; i < line.length; i++) {
-        var ch = line[i];
-        if (stack.length && ch === stack[stack.length-1]) {
-          stack.pop(); if (!stack.length) protectedRanges.push([openAt,i+1]);
-        } else if (pairs[ch]) { if (!stack.length) openAt=i; stack.push(pairs[ch]); }
-      }
-      var literalRanges = [];
-      line.replace(/`[^`]*`|!?\[[^\]]*\]\([^)]*\)/g,function (m,offset) { literalRanges.push([offset,offset+m.length]); return m; });
-      var ranges = verifiedQuoteRanges(line, message, false).filter(function (r) {
-        if (literalRanges.some(function (p) { return r[0] < p[1] && r[1] > p[0]; })) return false;
-        return !protectedRanges.some(function (p) {
-          return r[0] < p[1] && r[1] > p[0] && !(r[0] < p[0] && r[1] > p[1]);
+      if (fenced || /^\s*#/.test(line)) return line;
+      var map = quoteDisplayMap(line, true), candidates = [], protectedRanges = [];
+      line.replace(/`[^`]*`|!?\[[^\]]*\]\([^)]*\)/g, function (m, offset) {
+        protectedRanges.push([offset, offset + m.length]); return m;
+      });
+      (message.citations || []).forEach(function (card) {
+        var id = Number(card.grounding_index || card.review_index);
+        if (!id) return;
+        (card.evidence || []).forEach(function (ev) {
+          if (ev.kind !== "quote" || !ev.quote || !(ev.text_verified === true || ev.location_status === "verified")) return;
+          var needle = quoteDisplayMap(ev.quote).text;
+          if (needle.length < 4) return;
+          var at = map.text.indexOf(needle);
+          while (at >= 0) {
+            var left = map.starts[at], right = map.ends[at + needle.length - 1];
+            // Keep complete emphasis wrappers inside the quotation. Otherwise
+            // an already quoted bold span would acquire nested marks on reopen.
+            while (left > 0 && /[*_]/.test(line[left-1])) left--;
+            while (right < line.length && /[*_]/.test(line[right])) right++;
+            var quoted = /[“「『"']/.test(line.slice(left-1,left)) && /[”」』"']/.test(line.slice(right,right+1));
+            var block = /^\s*>/.test(line);
+            var boundary = (left === 0 || /[，,。！？!?；;：:\s>*_]/.test(line[left-1])) &&
+              (right === line.length || /[，,。！？!?；;：:\s[*_]/.test(line[right]) || /[，,。！？!?；;：:]/.test(line[right-1]));
+            if (quoted || block || (needle.length >= 12 && boundary)) {
+              if (quoted) { left--; right++; }
+              if (!protectedRanges.some(function (p) { return left < p[1] && right > p[0]; })) {
+                var tail = line.slice(right).match(/^[*_\s]*(?:[。；;][*_\s]*)?((?:\[\d+(?:\s*[,，、]\s*\d+)*\][*_\s]*)*)/);
+                var refs = tail && tail[1] ? tail[1].match(/\d+/g).map(Number) : [];
+                candidates.push({left:left, right:right, id:id, quoted:quoted || block, cited:refs.indexOf(id) >= 0});
+              }
+            }
+            at = map.text.indexOf(needle, at + needle.length);
+          }
         });
       });
-      for (var j=ranges.length-1;j>=0;j--) { var r=ranges[j]; line=line.slice(0,r[0])+"“"+line.slice(r[0],r[1])+"”"+line.slice(r[1]); }
+      candidates.sort(function (a, b) { return (b.right-b.left)-(a.right-a.left) || Number(b.cited)-Number(a.cited) || a.left-b.left; });
+      var selected = [];
+      candidates.forEach(function (c) {
+        if (!selected.some(function (p) { return c.left < p.right && c.right > p.left; })) selected.push(c);
+      });
+      selected.sort(function (a, b) { return b.left-a.left; }).forEach(function (c) {
+        var value = line.slice(c.left,c.right);
+        line = line.slice(0,c.left) + (c.quoted ? value : "“" + value + "”") + (c.cited ? "" : "["+c.id+"]") + line.slice(c.right);
+      });
       return line;
     }).join("\n");
   }
@@ -2590,7 +2626,7 @@
     var names = {
       "mimo-v2.5": "MiMo V2.5",
       "mimo-v2.5-pro": "MiMo V2.5 Pro",
-      "deepseek-v4-flash": "DeepSeek V4 Flash",
+      "deepseek-v4-flash": "DeepSeek V4.1 Flash",
       "deepseek-v4-pro": "DeepSeek V4 Pro"
     };
     var suffix = effort === "on" ? "（深度思考）"

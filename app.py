@@ -96,6 +96,7 @@ from ai import (
 
 from build_index import normalize
 from ai_evidence import clean_evidence, exact_quote
+from ai_models import application_model
 import ai_citations
 import ai_citation_runtime
 import ai_research_evidence
@@ -4503,7 +4504,7 @@ def _record_ai_usage(
 def _ai_provider_call_sink(event: dict) -> dict | None:
     """Bridge ai.py's per-upstream-call events to persistent preauthorization and actual-cost accounting."""
     provider = str(event.get("provider") or "").strip().lower()
-    model = str(event.get("model") or "").strip().lower()
+    model = application_model(event.get("model"))
     if provider not in {"mimo", "deepseek", "zhipu"} or model not in {
         "mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro", "glm-5.1",
     }:
@@ -17997,7 +17998,7 @@ _SELECTABLE_MIMO_MODELS = {"mimo-v2.5", "mimo-v2.5-pro"}
 def _resolve_selectable_model(payload: dict) -> str | None:
     """前端「模型选择」：仅允许白名单内的 DeepSeek 档位覆盖；非白名单/缺省 → None（用服务端默认模型）。
     智谱通道由 provider 单独处理，不经此（智谱选择时调用方应传 None）。"""
-    m = str((payload or {}).get("model") or "").strip()
+    m = application_model((payload or {}).get("model"))
     return m if m in _SELECTABLE_DEEPSEEK_MODELS else None
 
 
@@ -18057,7 +18058,7 @@ def _resolve_ai_selection_or_abort(payload: dict, *, feature: str) -> dict:
             "charge_user_wallet": False,
         }
     user = getattr(g, "current_user", None)
-    requested_model = str((payload or {}).get("model") or "").strip().lower()
+    requested_model = application_model((payload or {}).get("model"))
     requested_effort = str((payload or {}).get("reasoning_effort") or "").strip().lower()
 
     # MiMo 总闸关闭时只屏蔽 MiMo，不再强制把有钱包的会员按功能锁到单一
@@ -19317,10 +19318,10 @@ def api_ai_search_chat():
     # finalize（stream_with_context 保住 g/request）。
     answer_verification: dict = {"status": "not_applicable"}
     citation_bases = {int(c["grounding_index"]): c for c in grounding_citations}
-    citation_books, _, _ = _resolve_search_scope(grounding_scope_req, retrieval_question, {}) if citation_target else (None, "", False)
-    if citation_target and citation_books is None:
+    citation_books, _, _ = _resolve_search_scope(grounding_scope_req, retrieval_question, {}) if grounding_on else (None, "", False)
+    if grounding_on and citation_books is None:
         citation_books = grounding_public_keys_at_start
-    citation_documents = list(corpus.resolve_document_scopes(retrieval_question, book_scope=citation_books).get("scopes") or []) if citation_target and grounding_on and not grounding_scope_meta.get("personal_only") else []
+    citation_documents = list(corpus.resolve_document_scopes(retrieval_question, book_scope=citation_books).get("scopes") or []) if grounding_on and not grounding_scope_meta.get("personal_only") else []
     if grounding_scope_meta.get("personal_only"):
         citation_books = set()
     previous_citation_answer = ai_citation_runtime.restore_history(sys.modules[__name__], messages, question, CHAT_GROUNDING_TOP, citation_books, citation_documents) if citation_target and grounding_on and citation_books else None
@@ -19348,6 +19349,10 @@ def api_ai_search_chat():
                 reasoning_effort=ai_reasoning_effort,
             )
             if grounding_passages and _env_flag("AI_CITATION_GUARD_ENABLED", True) and not previous_citation_answer:
+                ai_citation_runtime.recover_answer_sources(
+                    sys.modules[__name__], answer.answer_markdown, grounding_passages, citation_bases,
+                    question=retrieval_question, allowed_books=citation_books,
+                    document_scopes=citation_documents, cancelled=cancel_event.is_set)
                 repair = AI_CLIENT.repair_grounded_answer(answer.answer_markdown, grounding_passages)
                 evidence_underused = _grounded_answer_underuses_evidence(
                     question, repair.get("answer_markdown") or answer.answer_markdown,
@@ -20845,6 +20850,10 @@ def _api_search_associative_impl(*, cancel_event=None):
                     history_issues = review_passages[0].get("_history_verification_issues", [])
                     repair.update(status="repaired" if history_issues else "verified", issues=history_issues)
                 if review_md and _env_flag("AI_CITATION_GUARD_ENABLED", True) and not previous_citation_answer:
+                    ai_citation_runtime.recover_answer_sources(
+                        sys.modules[__name__], review_md, review_passages, review_bases,
+                        question=retrieval_gist, allowed_books=citation_books,
+                        document_scopes=document_scopes, cancelled=review_cancel_event.is_set)
                     repair = timed_repair(review_md, review_passages)
                     evidence_underused = _grounded_answer_underuses_evidence(
                         retrieval_gist, repair.get("answer_markdown") or review_md,

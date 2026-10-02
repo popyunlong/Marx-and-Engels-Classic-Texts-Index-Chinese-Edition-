@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ai_models import application_model
+
 import json
 import hashlib
 import os
@@ -30,6 +32,7 @@ _UNSET = object()
 MEMBERSHIP_REFORM_CUTOFF = "2026-08-14T16:00:00+00:00"  # 北京时间 2026-08-15 00:00
 # DeepSeek 官网已公告：北京时间 2026-08-17 00:00 起采用峰谷新价。
 DEEPSEEK_PRICE_CHANGE_AT = "2026-08-16T16:00:00+00:00"
+FLASH_PRICE_CHANGE_AT = "2026-09-10T04:00:00+00:00"
 MICROYUAN_PER_YUAN = 1_000_000
 # “DeepSeek Flash 等值 token”使用 8·17 新价的高峰保底口径：缓存未命中输入¥3/M、
 # 输出¥9/M；按网页 80% 输入 + 20% 输出，混合价是¥4.2/M。空闲时段混合价¥2.1/M，
@@ -122,7 +125,7 @@ def _effective_model_policy(model_policy: str | dict) -> dict:
     policy = json.loads(json.dumps(policy))
     normalized_models: dict[str, list[str]] = {}
     for raw_model, raw_efforts in models.items():
-        model = str(raw_model)
+        model = application_model(raw_model)
         if model.startswith("glm-"):
             continue
         efforts = [str(effort).strip().lower() for effort in (raw_efforts or [])]
@@ -130,8 +133,11 @@ def _effective_model_policy(model_policy: str | dict) -> dict:
             efforts = [effort for effort in efforts if effort != "low"]
         efforts = list(dict.fromkeys(effort for effort in efforts if effort))
         if efforts:
-            normalized_models[model] = efforts
+            normalized_models[model] = list(dict.fromkeys(normalized_models.get(model, []) + efforts))
     policy["models"] = normalized_models
+    for selection in (policy.get("defaults") or {}).values():
+        if isinstance(selection, dict) and "model" in selection:
+            selection["model"] = application_model(selection["model"])
     models = policy["models"]
     if mimo_model_access_enabled():
         return policy
@@ -1027,13 +1033,17 @@ def init_membership_db() -> Path:
             ("mimo", "mimo-v2.5-pro", "1970-01-01T00:00:00+00:00", "", "all", 25_000, 3_000_000, 6_000_000),
             ("deepseek", "deepseek-v4-flash", "1970-01-01T00:00:00+00:00", DEEPSEEK_PRICE_CHANGE_AT, "all", 20_000, 1_000_000, 2_000_000),
             ("deepseek", "deepseek-v4-pro", "1970-01-01T00:00:00+00:00", DEEPSEEK_PRICE_CHANGE_AT, "all", 25_000, 3_000_000, 6_000_000),
-            ("deepseek", "deepseek-v4-flash", DEEPSEEK_PRICE_CHANGE_AT, "", "offpeak", 50_000, 1_500_000, 4_500_000),
-            ("deepseek", "deepseek-v4-flash", DEEPSEEK_PRICE_CHANGE_AT, "", "peak", 100_000, 3_000_000, 9_000_000),
+            ("deepseek", "deepseek-v4-flash", DEEPSEEK_PRICE_CHANGE_AT, FLASH_PRICE_CHANGE_AT, "offpeak", 50_000, 1_500_000, 4_500_000),
+            ("deepseek", "deepseek-v4-flash", DEEPSEEK_PRICE_CHANGE_AT, FLASH_PRICE_CHANGE_AT, "peak", 100_000, 3_000_000, 9_000_000),
             ("deepseek", "deepseek-v4-pro", DEEPSEEK_PRICE_CHANGE_AT, "", "offpeak", 150_000, 4_500_000, 13_500_000),
             ("deepseek", "deepseek-v4-pro", DEEPSEEK_PRICE_CHANGE_AT, "", "peak", 300_000, 9_000_000, 27_000_000),
             # GLM-5.1 官方价格以 32K 输入 token 为界；两档都作有效期价格版本入账。
             ("zhipu", "glm-5.1", "1970-01-01T00:00:00+00:00", "", "short_context", 1_300_000, 6_000_000, 24_000_000),
             ("zhipu", "glm-5.1", "1970-01-01T00:00:00+00:00", "", "long_context", 2_000_000, 8_000_000, 28_000_000),
+        )
+        price_rows += (
+            ("deepseek", "deepseek-v4-flash", FLASH_PRICE_CHANGE_AT, "", "offpeak", 20_000, 1_000_000, 4_000_000),
+            ("deepseek", "deepseek-v4-flash", FLASH_PRICE_CHANGE_AT, "", "peak", 40_000, 2_000_000, 8_000_000),
         )
         now_text = utc_now_text()
         conn.executemany(
@@ -4086,7 +4096,7 @@ def ai_cost_to_flash_equivalent_tokens(cost_micros: int) -> int:
 
 def _normalized_ai_selection(provider: str, model: str, reasoning_effort: str) -> tuple[str, str, str]:
     p = str(provider or "").strip().lower()
-    m = str(model or "").strip().lower()
+    m = application_model(model)
     if m.startswith("mimo-"):
         p = "mimo"
     elif m.startswith("deepseek-"):
@@ -4150,6 +4160,24 @@ def _policy_allows(model_policy: str | dict, model: str, effort: str, feature: s
     return effort in {str(item).strip().lower() for item in allowed}
 
 
+# Official 2026 holiday calendar (State Council notice 2025-7):
+# https://www.beijing.gov.cn/cs/gncs/zcwj/202603/t20260327_4568275.html
+# Refresh this table when the following year's official calendar is published.
+_DEEPSEEK_HOLIDAYS = (
+    ("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
+    ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
+    ("2026-06-19", "2026-06-21"), ("2026-09-25", "2026-09-27"),
+    ("2026-10-01", "2026-10-07"),
+)
+
+
+def _deepseek_peak_time(beijing: datetime) -> bool:
+    day = beijing.date().isoformat()
+    return (beijing.weekday() < 5
+            and not any(start <= day <= end for start, end in _DEEPSEEK_HOLIDAYS)
+            and (9 <= beijing.hour < 12 or 14 <= beijing.hour < 18))
+
+
 def resolve_ai_price(
     *, provider: str, model: str, occurred_at: str | datetime | None = None,
     prompt_tokens: int | None = None,
@@ -4163,7 +4191,10 @@ def resolve_ai_price(
         band = "long_context" if max(0, int(prompt_tokens or 0)) >= 32_000 else "short_context"
     else:
         beijing = when.astimezone(timezone(timedelta(hours=8)))
-        band = "peak" if (9 <= beijing.hour < 12 or 14 <= beijing.hour < 18) else "offpeak"
+        peak = (9 <= beijing.hour < 12 or 14 <= beijing.hour < 18)
+        if p == "deepseek" and when_text >= FLASH_PRICE_CHANGE_AT:
+            peak = _deepseek_peak_time(beijing)
+        band = "peak" if peak else "offpeak"
     owns_conn = conn is None
     db = conn or _connect()
     try:

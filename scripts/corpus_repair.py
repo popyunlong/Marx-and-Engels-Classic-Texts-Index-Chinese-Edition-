@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ai_models import provider_model
 from build_index import normalize as production_normalize  # noqa: E402
 from corpus_repair_store import (  # noqa: E402
     _connect,
@@ -478,7 +479,7 @@ class OpenAIJsonClient:
 
     def complete(self, messages: list[dict[str, Any]], *, max_tokens: int = 320) -> tuple[dict[str, Any], dict[str, Any]]:
         body: dict[str, Any] = {
-            "model": self.model,
+            "model": provider_model(self.model),
             "messages": messages,
             "temperature": 0.0,
             "thinking": {"type": "disabled"},
