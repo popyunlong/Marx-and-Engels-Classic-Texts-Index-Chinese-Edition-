@@ -8,9 +8,9 @@ from werkzeug.serving import make_server
 ROOT = Path(__file__).resolve().parents[2]
 app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
 TEXT = {
-    "index.hero_title": "马克思主义理论研究辅助平台",
+    "index.hero_title": "马克思主义理论研究辅助程序",
     "ai_page.title": "AI 研究对话",
-    "ai_page.subtitle": "连续对话，检索原著，辅助研究。",
+    "ai_page.subtitle": "可直接引用原著引文的AI研究问答会话。建议优先使用Deepseek模型，写作水平接近期刊要求。灵活切换“快速问答”和“研究级检索”，适时决定是否开启“引文检索”，根据不同任务需求选择不同档位的模型，将更好地辅助您的研究。",
     "ai_page.quick_title": "AI 随心问",
     "ai_page.quick_description": "连续对话 · 可检索引文库佐证",
     "ai_page.research_title": "研究级检索",
@@ -24,7 +24,7 @@ def ai_page():
     return render_template(
         "ai.html", layout_v2=request.path.startswith("/v2/"), layout_page="ai",
         app_name="AI controls browser fixture", csrf_token="fixture-csrf",
-        current_user=SimpleNamespace(id=90001, email="fixture@example.test", display_name="测试"),
+        current_user=None if request.args.get("guest") == "1" else SimpleNamespace(id=90001, email="fixture@example.test", display_name="测试"),
         search_chat_access_enabled=True, research_access_enabled=True,
         citation_style_groups=[], ai_web_access_enabled=False,
         site_text=lambda key: TEXT.get(key, key),

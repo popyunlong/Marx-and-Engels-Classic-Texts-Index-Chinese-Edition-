@@ -5,11 +5,11 @@
   <title>AI 研究对话 · {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261002-controls-1">
+  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261002-controls-2">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=20261002-inline-1">
   {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">{% endif %}
 </head>
-<body{% if layout_v2 %} class="v2"{% endif %}>
+<body class="aip-page{% if layout_v2 %} v2{% endif %}">
   {# 四页面布局：在原页面之上套统一导航外壳。页面自身结构（含 JS 引用的 #aipModelBadge）
      一律不动，仅用 CSS 隐去与导航重复的「← 返回首页」。 #}
   {% if layout_v2 %}{% include "_appnav.html" %}{% endif %}

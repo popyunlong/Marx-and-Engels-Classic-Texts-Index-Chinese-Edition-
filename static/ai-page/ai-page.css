@@ -31,6 +31,15 @@
 }
 #aip-root * { box-sizing: border-box; }
 
+/* Keep the guest account actions reachable when the real navigation labels are wider. */
+body.aip-page .v2brand { min-width: 0; flex-shrink: 1; }
+body.aip-page .v2tabs-top {
+  min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  padding-block: 12px; margin-block: -12px;
+}
+body.aip-page .v2tabs-top::-webkit-scrollbar { display: none; }
+body.aip-page .v2tab { flex-shrink: 0; }
+
 /* ---------- 顶栏 ---------- */
 .aip-topbar {
   flex: none;
@@ -520,7 +529,9 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
 #aip-root [hidden] { display: none !important; }
 
 @media (max-width: 640px) {
-  .aip-topbar { gap: 10px; padding: 10px 12px; }
+  .aip-topbar { gap: 10px; padding: 10px 12px; flex-wrap: wrap; }
+  .aip-title { flex: 1 1 100%; }
+  .aip-model { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .aip-title-text p { font-size: .76rem; }
   .aip-depth { grid-template-columns: 1fr; }
   .aip-main { padding: 10px 8px 12px; }

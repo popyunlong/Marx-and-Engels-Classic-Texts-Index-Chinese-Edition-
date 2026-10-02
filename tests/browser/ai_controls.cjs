@@ -34,7 +34,7 @@ before(async () => {
 });
 after(async () => { if(browser) await browser.close(); if(server) server.kill(); });
 
-async function setup(t, {width=768,height=800,legacy=false,access=true,seed=true}={}) {
+async function setup(t, {width=768,height=800,legacy=false,access=true,seed=true,guest=false}={}) {
   const context=await browser.newContext({viewport:{width,height}});
   const page=await context.newPage();
   const errors=[], requests=[];
@@ -60,7 +60,7 @@ async function setup(t, {width=768,height=800,legacy=false,access=true,seed=true
     localStorage.setItem('fixture-seeded','1');
   });
   t.after(async()=>{ if(pending) await pending.abort().catch(()=>{}); await context.close(); assert.deepEqual(errors,[]); });
-  await page.goto(base+(legacy?'/ai':'/v2/ai'));
+  await page.goto(base+(legacy?'/ai':'/v2/ai')+(guest?'?guest=1':''));
   if(access) await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
   else await page.locator('#aipLock').waitFor({state:'visible'});
   return {page,requests,hold:()=>{hold=true;},release:async()=>{hold=false;if(pending){await pending.fulfill({json:{ok:true,answer_markdown:'已完成'}}).catch(()=>{});pending=null;}}};
@@ -132,6 +132,13 @@ test('wide sidebar and breakpoint transitions preserve scroll and restore intera
   assert.equal(await page.locator('.aip-stage').evaluate(el=>el.inert),false);
   await visibleAndClickable(page,'#aipNewChat');
   await noOverflow(page);
+});
+for(const width of [390,960,1181]) test(`guest navigation and full production introduction fit at ${width}px`,async t=>{
+  const {page}=await setup(t,{width,height:844,guest:true});
+  await noOverflow(page);
+  if(width<=1180) await visibleAndClickable(page,'#aipSessionsToggle');
+  else await visibleAndClickable(page,'#aipNewChat');
+  await visibleAndClickable(page,'.v2acct');
 });
 for(const legacy of [false,true]) test(`retrieval controls synchronize and send exact scope (${legacy?'legacy':'v2'})`,async t=>{
   const {page,requests}=await setup(t,{legacy});
