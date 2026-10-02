@@ -95,3 +95,11 @@ def test_stream_flash_uses_current_model_and_keeps_reasoning_out_of_answer():
     assert payload['thinking'] == {'type': 'enabled'}
     assert payload['reasoning_effort'] == 'high'
     assert answer == 'answer'
+
+
+def test_live_quality_gate_cost_matches_flash_wallet_alias_and_calendar():
+    from scripts.mimo_quality_gate import _cost_micros
+    usage = {'prompt_tokens': 1_000_000, 'cached_prompt_tokens': 500_000, 'completion_tokens': 1_000_000}
+    for name in ('deepseek-v4-flash', 'deepseek-flash'):
+        assert _cost_micros('deepseek', name, usage, '2026-10-02T02:00:00Z') == 4_510_000
+        assert _cost_micros('deepseek', name, usage, '2026-10-08T02:00:00Z') == 9_020_000
