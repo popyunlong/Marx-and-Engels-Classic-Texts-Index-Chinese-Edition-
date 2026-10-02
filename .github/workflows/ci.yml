@@ -77,7 +77,17 @@ jobs:
           npm install --no-save --package-lock=false playwright@1.62.1
           npx playwright install --with-deps chromium
       - name: Check AI controls in a real browser without live API calls
-        run: node --test tests/browser/ai_controls.cjs
+        run: node --test --test-reporter=spec tests/browser/ai_controls.cjs 2>&1 | tee /tmp/ai-controls-browser.log
+      - name: Include browser failure details in check annotations
+        if: failure()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          log = Path('/tmp/ai-controls-browser.log')
+          if log.exists():
+              text = log.read_text()[-24000:]
+              print('::error title=AI browser regression::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PY
 
   integration-gate:
     name: Main integration gate (Python 3.10)
