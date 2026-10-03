@@ -109,8 +109,16 @@ rm -rf -- "$STAGING"
 mkdir -p "$STAGING"
 KEEP_FINAL=0
 cleanup_incomplete() {
+  trap - ERR
   if declare -F resume_watchdog_after_release >/dev/null; then
     resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
+  fi
+  if [ "$KEEP_FINAL" -eq 0 ] && systemctl is-active --quiet "$CANDIDATE_UNIT"; then
+    # Preserve source before any potentially interrupted/failed drain.
+    KEEP_FINAL=1
+    if declare -F retire_candidate_if_drained >/dev/null && retire_candidate_if_drained "interrupted candidate"; then
+      KEEP_FINAL=0
+    fi
   fi
   if [ "${REVIEW_OWNED:-0}" -eq 1 ]; then rm -f -- "$REVIEW_FIFO"; fi
   rm -rf -- "$STAGING"
@@ -119,6 +127,9 @@ cleanup_incomplete() {
   fi
 }
 trap cleanup_incomplete EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 python3 - "$ARCHIVE" <<'PY'
 import pathlib, sys, tarfile

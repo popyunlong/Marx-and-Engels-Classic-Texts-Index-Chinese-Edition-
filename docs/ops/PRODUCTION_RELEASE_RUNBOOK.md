@@ -29,6 +29,7 @@ The authoritative source baseline is the annotated tag `production-baseline-2026
 - The server holds `/run/lock/marx-search-release.lock` from the first live-version read through validation, cutover, marker update, and ledger append.
 - A changed live id causes an immediate compare-and-swap failure. An older queued session cannot overwrite a newer release.
 - A candidate is compiled, smoke-tested, started on port 8001, and checked on the runtime, home, pricing, AI, and reader endpoints before Caddy changes.
+- The immutable archive's `run_release_transaction.sh` starts the coordinator as a `marx-search-release-<id>` systemd service. SSH follows its journal and waits for its exit status; losing that observer leaves the locked transaction running through its bounded review and cleanup. Reconnect with `journalctl -u marx-search-release-<id>.service` and inspect the lock and runtime before attempting another release. Candidate failure or missing acceptance still prevents cutover. A signal to the transaction restores the watchdog and retains the source of any candidate that cannot drain.
 - `current` and `previous` are atomically replaced symlinks. A failed primary restart restores the direct predecessor and its service configuration.
 - The ledger is append-only at `/opt/marx-search/release-ledger.jsonl`. Release directories, catalogue versions and backups are retained; count-based deletion is disabled. Recoverable archival requires two newer releases each healthy for at least 30 days.
 

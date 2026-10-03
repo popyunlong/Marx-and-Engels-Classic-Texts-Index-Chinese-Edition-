@@ -69,7 +69,9 @@ def test_release_archive_and_remote_names_are_unique_and_commit_bound() -> None:
     assert '"marx-search-$releaseId.tar.gz"' in source
     assert '"/var/tmp/marx-search-$releaseId.tar.gz"' in source
     assert '"--parent-release-id", $ExpectedLive' in source
-    assert "app/deploy/promote_release.sh" in source
+    assert "app/deploy/run_release_transaction.sh" in source
+    supervisor = (ROOT / 'deploy/run_release_transaction.sh').read_text(encoding='utf-8')
+    assert "app/deploy/promote_release.sh" in supervisor
 
 
 def test_server_promotion_has_one_lock_and_compare_and_swap() -> None:

@@ -235,7 +235,7 @@ try {
         $uploadArgs += @("--file", $CorpusArchive, $remoteCorpusArchive)
     }
     Invoke-Python310 -Python $python -Label "Upload health-guarded release artifacts at up to 2 MiB/s" -Arguments $uploadArgs
-    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | nice -n 15 ionice -c 3 bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
+    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/run_release_transaction.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
     Write-Host "Candidate review nonce: $reviewNonce"
     Write-Host "The transaction will pause before cutover for candidate browser checks."
     Invoke-Checked -Label "Promote release transaction" -FilePath $ssh -ArgumentList @($sshCommon + @($remote, $remoteCommand))
