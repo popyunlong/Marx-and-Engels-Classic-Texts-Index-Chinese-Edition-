@@ -2,7 +2,7 @@
 
 ## Current state
 
-Normal production publication is frozen until the baseline and release transaction have passed the release-gate rehearsal. Development may continue in isolated feature worktrees. An emergency production change has one release coordinator and uses the same transaction described below.
+The initial baseline migration and release-transaction rehearsal have been completed. The live version must still be read for every new transaction; the historical migration freeze is not a recurring release gate. One designated coordinator uses the transaction below for every release.
 
 The authoritative source baseline is the annotated tag `production-baseline-20260921-140619Z`. The read-only capture and the original dirty-worktree archive are stored outside the repository. Neither archive contains production secrets, user databases, PDFs, logs, caches, or uploads.
 

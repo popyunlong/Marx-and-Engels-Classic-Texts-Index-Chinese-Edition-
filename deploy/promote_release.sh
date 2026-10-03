@@ -109,6 +109,10 @@ rm -rf -- "$STAGING"
 mkdir -p "$STAGING"
 KEEP_FINAL=0
 cleanup_incomplete() {
+  if [ -n "${CATALOG_OBSERVER_PID:-}" ]; then
+    kill "$CATALOG_OBSERVER_PID" 2>/dev/null || true
+    wait "$CATALOG_OBSERVER_PID" 2>/dev/null || true
+  fi
   trap - ERR
   if declare -F resume_watchdog_after_release >/dev/null; then
     resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
@@ -377,6 +381,15 @@ fi
 # tunnel while this release transaction continues to own the global lock. Only
 # a matching release id and one-use nonce lets new traffic cross the cutover.
 if [ -n "$REVIEW_NONCE" ]; then
+  # The server-owned transaction also owns the measured window. SSH is only
+  # a viewer; disconnecting it cannot destroy acceptance progress.
+  python3 "$FINAL/app/scripts/catalog_observe.py" --server-app "$FINAL/app" &
+  CATALOG_OBSERVER_PID=$!
+  for _ in $(seq 1 50); do
+    [ ! -f "$APP_ROOT/data/release-observations/$RELEASE_ID/report.json" ] || break
+    kill -0 "$CATALOG_OBSERVER_PID" 2>/dev/null || break
+    sleep 0.1
+  done
   source "$FINAL/app/deploy/review_gate.sh"
   if ! review_candidate; then
     retire_candidate_if_drained "rejected candidate" || KEEP_FINAL=1

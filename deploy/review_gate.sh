@@ -12,6 +12,12 @@ review_candidate() {
   exec 8<>"$fifo"
   local deadline=$((SECONDS + timeout)) remaining slice received=0 busy_samples=0 pressure
   while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -n "${CATALOG_OBSERVER_PID:-}" ]; then
+      if ! python3 "$FINAL/app/scripts/catalog_observe.py" --server-app "$FINAL/app" --server-status; then
+        echo "candidate review interrupted by server observation failure" >&2
+        break
+      fi
+    fi
     # The transaction owns the release lock and temporarily pauses watchdogs.
     # Keep checking both processes while browser review and paired observation run.
     if declare -F health >/dev/null; then
