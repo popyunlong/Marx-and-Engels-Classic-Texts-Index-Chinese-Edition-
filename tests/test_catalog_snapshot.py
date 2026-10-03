@@ -32,8 +32,11 @@ class FakeRemote:
     def json(self, action):
         if action == "metrics":
             self.counter += 1000
-            return {"p95": 0.01, "five_xx": 0,
-                    "probes": {"/": {"status": 200, "seconds": 0.01}},
+            return {"schema_version": 2, "at": self.counter, "ok": True,
+                    "app_release": "app1", "catalog_release": self.runtime['catalog_release'],
+                    "errors": {"five_xx": 0, "unclassified_5xx": 0, "core_5xx": 0},
+                    "probes": {route: {"status": 200, "seconds": 0.01}
+                               for route in ('/', '/api/runtime', '/v2/read')},
                     "cpu_total": self.counter, "cpu_iowait": self.counter // 100}
         database = {"sha256": "a" * 64, "toc_count": 1, "source_count": 1}
         common = {"runtime": self.runtime, "app": "/release/app",
@@ -58,11 +61,11 @@ class FakeRemote:
             target.write_bytes(self.payload)
 
 
-class SlowFinalRemote(FakeRemote):
+class FailedFinalRemote(FakeRemote):
     def json(self, action):
         value = super().json(action)
         if action == "metrics" and self.counter > 1000:
-            value["p95"] = 0.2
+            value['probes']['/']['status'] = 0
         return value
 
 
@@ -86,10 +89,10 @@ def test_failed_capture_removes_incomplete_output(tmp_path):
     assert not output.exists()
 
 
-def test_final_latency_regression_discards_capture(tmp_path):
+def test_final_core_failure_discards_capture(tmp_path):
     output = tmp_path / "capture"
-    with pytest.raises(RuntimeError, match="latency"):
-        capture(output, SlowFinalRemote(), baseline_seconds=0,
+    with pytest.raises(RuntimeError, match="probe failed"):
+        capture(output, FailedFinalRemote(), baseline_seconds=0,
                 sample_seconds=3600)
     assert not output.exists()
 

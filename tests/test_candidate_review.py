@@ -101,3 +101,24 @@ def test_all_release_exit_paths_restore_watchdog_and_use_managed_script():
     assert rollback.index('pause_watchdog_for_release') < rollback.index('systemd-run')
     assert 'trap cleanup_rollback EXIT' in rollback
     assert 'resume_watchdog_after_release' in rollback[rollback.index('cleanup_rollback()'):rollback.index('trap cleanup_rollback EXIT')]
+
+
+@pytest.mark.parametrize('failure', ['health', 'resources'])
+def test_candidate_review_stops_when_observation_fails(tmp_path, failure):
+    bash = os.environ.get('MARX_TEST_BASH') or shutil.which('bash')
+    if not bash: pytest.skip('bash unavailable')
+    target = str(tmp_path)
+    if os.name == 'nt':
+        target = subprocess.check_output([bash, '-c', 'cygpath -u "$1"', '--', target], text=True).strip()
+    script = f'''source "{(ROOT / 'deploy/review_gate.sh').as_posix()}"
+RELEASE_ID=release-a; REVIEW_NONCE=abcdef
+PRIMARY_PORT=8000; CANDIDATE_PORT=8001; EXPECTED_LIVE=old; FINAL=/isolated
+health() {{ return {'1' if failure == 'health' else '0'}; }}
+python3() {{ return 1; }}
+review_candidate
+'''
+    result = subprocess.run([bash, '--noprofile', '--norc', '-c', script],
+        env=dict(os.environ, MARX_REVIEW_FIFO_DIR=target, MARX_REVIEW_TIMEOUT_SECONDS='3'),
+        capture_output=True, text=True, timeout=5)
+    assert result.returncode != 0
+    assert ('health failure' if failure == 'health' else 'resource observation unavailable') in result.stderr

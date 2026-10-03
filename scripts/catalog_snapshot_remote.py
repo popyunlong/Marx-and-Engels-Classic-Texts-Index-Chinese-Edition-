@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -17,6 +18,8 @@ import tarfile
 import time
 import urllib.request
 from pathlib import Path, PurePosixPath
+
+from catalog_health import classify_errors, distribution
 
 BASE = Path('/opt/marx-search')
 ROOTS = ('static_library', 'stream_library')
@@ -181,7 +184,7 @@ def metrics():
                '--until', '@' + str(int(now)), '-o', 'cat', '--no-pager']
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True, errors='replace')
-    durations, errors = [], 0
+    routes, access = {}, []
     for line in proc.stdout:
         try:
             row = json.loads(line)
@@ -189,26 +192,49 @@ def metrics():
             continue
         if row.get('logger') != 'http.log.access':
             continue
-        status = int(row.get('status') or 0)
-        errors += status >= 500
+        access.append(row)
         uri = str(row.get('request', {}).get('uri') or '').split('?', 1)[0]
-        if uri in ('/', '/v2/read', '/reader', '/library', '/viewer') or uri.startswith('/api/library/'):
-            durations.append(float(row.get('duration') or 0))
+        if row.get('status') == 200 and uri in ('/', '/v2/read', '/reader', '/library', '/viewer', '/api/runtime', '/login'):
+            routes.setdefault(uri, []).append(float(row.get('duration') or 0))
     if proc.wait(timeout=10) != 0:
         raise RuntimeError('Caddy access metrics unavailable')
-    durations.sort()
-    p95 = durations[max(0, (95 * len(durations) + 99) // 100 - 1)] if durations else None
+    conflicts = []
+    if any(r.get('status') == 502 and r.get('request', {}).get('method') == 'PUT'
+           and r.get('request', {}).get('uri', '').startswith('/api/ai/conversations/') for r in access):
+        warnings = subprocess.run(
+            ['journalctl', '-u', 'marx-search', '--since', '@' + str(int(now - 90)),
+             '--until', '@' + str(int(now)), '-o', 'json', '--no-pager'],
+            capture_output=True, text=True, errors='replace', timeout=10, check=True)
+        for line in warnings.stdout.splitlines():
+            try:
+                entry = json.loads(line)
+                match = re.search(r'path=(/api/ai/conversations/[A-Za-z0-9_-]+):.*?409.*?(\{.*\})', entry.get('MESSAGE', ''))
+                if not match:
+                    continue
+                payload = json.loads(match.group(2))
+                if payload.get('deleted') is not True or payload.get('error') != 'conversation is in recovery bin':
+                    continue
+                conflicts.append({'path': match.group(1), 'status': 409,
+                                  'deleted': True, 'error': payload['error'],
+                                  'at': int(entry['__REALTIME_TIMESTAMP']) / 1e6})
+            except (ValueError, KeyError):
+                continue
     probes = {}
     for route in ('/api/runtime', '/', '/v2/read'):
         start = time.monotonic()
-        with urllib.request.urlopen('http://127.0.0.1:8000' + route, timeout=6) as response:
-            response.read(1)
-            probes[route] = {'status': response.status, 'seconds': time.monotonic() - start}
-    if not runtime().get('ok'):
-        raise RuntimeError('runtime health is not ok')
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8000' + route, timeout=6) as response:
+                response.read(1)
+                probes[route] = {'status': response.status, 'seconds': time.monotonic() - start}
+        except OSError:
+            probes[route] = {'status': 0, 'seconds': time.monotonic() - start}
+    state = runtime()
     cpu = (Path('/proc/stat').read_text().splitlines()[0]).split()[1:]
     counters = [int(value) for value in cpu]
-    return {'at': now, 'p95': p95, 'samples': len(durations), 'five_xx': errors,
+    return {'schema_version': 2, 'at': time.time(), 'ok': state.get('ok') is True,
+            'app_release': state['app_release']['id'], 'catalog_release': state['catalog_release'],
+            'routes': {route: distribution(values) for route, values in routes.items()},
+            'errors': classify_errors(access, conflicts),
             'probes': probes, 'cpu_total': sum(counters), 'cpu_iowait': counters[4]}
 
 

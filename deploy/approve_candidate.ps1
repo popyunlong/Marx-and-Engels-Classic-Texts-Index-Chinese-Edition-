@@ -31,6 +31,9 @@ if (-not $Reject) {
     $validate = "python3 '/opt/marx-search/releases/$ReleaseId/app/scripts/corpus_deploy.py' review --app '/opt/marx-search/releases/$ReleaseId/app'"
     Get-Content -LiteralPath $EvidenceFile -Raw -Encoding utf8 | & ssh @sshArgs "${ServerUser}@${ServerHost}" $validate
     if ($LASTEXITCODE -ne 0) { throw "Corpus candidate functional evidence was rejected" }
+    $validateCatalog = "python3 '/opt/marx-search/releases/$ReleaseId/app/scripts/catalog_review.py' --app '/opt/marx-search/releases/$ReleaseId/app'"
+    Get-Content -LiteralPath $EvidenceFile -Raw -Encoding utf8 | & ssh @sshArgs "${ServerUser}@${ServerHost}" $validateCatalog
+    if ($LASTEXITCODE -ne 0) { throw "Catalogue candidate observation evidence was rejected" }
 }
 $remote = "test -p '$pipe' && printf '%s\n' '$ReleaseId`:$Nonce`:$decision' > '$pipe'"
 & ssh @sshArgs "${ServerUser}@${ServerHost}" $remote

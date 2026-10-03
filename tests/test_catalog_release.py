@@ -37,6 +37,35 @@ def test_baseline_equivalent_and_complete(snapshot, tmp_path):
     assert len(catalog.manifest['files']) == 6
 
 
+def test_inverse_is_new_child_and_restores_only_reviewed_changes(snapshot, tmp_path):
+    from scripts.prepare_catalog_inverse import prepare
+    from scripts.catalog_deploy import install_archive
+    build(snapshot, tmp_path / 'v1', 'v1')
+    previous = Catalog(tmp_path / 'v1')
+    rows = copy.deepcopy(previous.rows)
+    rows[1]['level'] = 3
+    (snapshot / 'toc_entries.json').write_bytes(canonical(rows))
+    html = snapshot / 'static_library/b/next.html'
+    html.write_text('<h2 id="old">Title</h2><span id="new"></span>', encoding='utf-8')
+    approvals = {'toc': {'pdfs/b.pdf': {
+        'before': groups(previous.rows)['pdfs/b.pdf'], 'after': groups(rows)['pdfs/b.pdf'],
+        'evidence': [{'before': previous.rows[1], 'after': rows[1],
+                      'evidence': {'pdf_sha256': 'a' * 64, 'pdf_page': 1}}]}},
+        'files': {'static_library/b/next.html': {
+            'before': previous.manifest['files']['static_library/b/next.html'],
+            'after': file_digest(html), 'evidence': 'Reviewed original heading'}}}
+    build(snapshot, tmp_path / 'v2', 'v2', tmp_path / 'v1', approvals)
+    result = prepare(tmp_path / 'v2', tmp_path / 'v1', 'v3', tmp_path / 'v3.tar.gz')
+    inverse = install_archive(tmp_path / 'v3.tar.gz', tmp_path / 'v3', result)
+    assert inverse.manifest['parent']['id'] == 'v2'
+    assert inverse.rows == previous.rows
+    assert inverse.manifest['files'] == previous.manifest['files']
+    proof = inverse.manifest['approvals']['toc']['pdfs/b.pdf']['evidence'][0]
+    assert proof['before']['level'] == 3 and proof['after']['level'] == 2
+    with pytest.raises(ValueError, match='direct predecessor'):
+        prepare(tmp_path / 'v3', tmp_path / 'v1', 'v4', tmp_path / 'v4.tar.gz')
+
+
 def test_same_page_and_deep_numbering_allowed(snapshot, tmp_path):
     rows = json.loads((snapshot / 'toc_entries.json').read_text())
     rows[1]['level'] = 8

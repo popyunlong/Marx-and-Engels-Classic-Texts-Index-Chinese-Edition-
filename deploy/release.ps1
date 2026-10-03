@@ -206,33 +206,36 @@ try {
     }
 
     $ssh = Require-Command "ssh"
-    $scp = Require-Command "scp"
     $sshCommon = @("-p", "$SshPort", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes")
-    $scpCommon = @("-P", "$SshPort", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes")
     if ($IdentityFile) {
         $identity = [IO.Path]::GetFullPath($IdentityFile)
         if (-not (Test-Path -LiteralPath $identity -PathType Leaf)) {
             throw "Identity file does not exist: $identity"
         }
         $sshCommon += @("-i", $identity)
-        $scpCommon += @("-i", $identity)
     }
     $remoteArchive = "/var/tmp/marx-search-$releaseId.tar.gz"
     $remote = "${ServerUser}@${ServerHost}"
-    Invoke-Checked -Label "Upload unique release archive" -FilePath $scp -ArgumentList @($scpCommon + @($artifactPath, "${remote}:$remoteArchive"))
+    $uploadArgs = @((Join-Path $appDir "scripts/upload_release.py"), "--host", $remote,
+        "--port", "$SshPort", "--expected-live", $ExpectedLive,
+        "--report", (Join-Path $resolvedArtifactDirectory "upload-$releaseId.json"),
+        "--file", $artifactPath, $remoteArchive)
+    if ($IdentityFile) { $uploadArgs += @("--key", $identity) }
+    # Cleanup also covers a partially completed transfer; unique names are never reused.
     $uploaded = $true
 
     if ($CatalogArchive) {
         $remoteCatalogArchive = "/var/tmp/marx-catalog-$releaseId.tar.gz"
-        Invoke-Checked -Label "Upload bound catalogue artifact" -FilePath $scp -ArgumentList @($scpCommon + @($CatalogArchive, "${remote}:$remoteCatalogArchive"))
+        $uploadArgs += @("--file", $CatalogArchive, $remoteCatalogArchive)
     }
 
     $reviewNonce = [Guid]::NewGuid().ToString("N")
     if ($CorpusArchive) {
         $remoteCorpusArchive = "/var/tmp/marx-corpus-$releaseId.tar.gz"
-        Invoke-Checked -Label "Upload bound corpus artifact" -FilePath $scp -ArgumentList @($scpCommon + @($CorpusArchive, "${remote}:$remoteCorpusArchive"))
+        $uploadArgs += @("--file", $CorpusArchive, $remoteCorpusArchive)
     }
-    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
+    Invoke-Python310 -Python $python -Label "Upload health-guarded release artifacts at up to 2 MiB/s" -Arguments $uploadArgs
+    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/promote_release.sh | nice -n 15 ionice -c 3 bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
     Write-Host "Candidate review nonce: $reviewNonce"
     Write-Host "The transaction will pause before cutover for candidate browser checks."
     Invoke-Checked -Label "Promote release transaction" -FilePath $ssh -ArgumentList @($sshCommon + @($remote, $remoteCommand))
@@ -244,14 +247,14 @@ try {
             if ($ssh) {
                 $cleanupArgs = @("-p", "$SshPort", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes")
                 if ($IdentityFile) { $cleanupArgs += @("-i", [IO.Path]::GetFullPath($IdentityFile)) }
-                $cleanupArgs += @("${ServerUser}@${ServerHost}", "rm -f -- '$remoteArchive'")
+                $cleanupArgs += @("${ServerUser}@${ServerHost}", "flock -s -n /run/lock/marx-search-release.lock rm -f -- '$remoteArchive'")
                 & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 if ($remoteCatalogArchive) {
-                    $cleanupArgs[-1] = "rm -f -- '$remoteCatalogArchive'"
+                    $cleanupArgs[-1] = "flock -s -n /run/lock/marx-search-release.lock rm -f -- '$remoteCatalogArchive'"
                     & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 }
                 if ($remoteCorpusArchive) {
-                    $cleanupArgs[-1] = "rm -f -- '$remoteCorpusArchive'"
+                    $cleanupArgs[-1] = "flock -s -n /run/lock/marx-search-release.lock rm -f -- '$remoteCorpusArchive'"
                     & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 }
             }

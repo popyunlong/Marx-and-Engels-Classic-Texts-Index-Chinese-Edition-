@@ -59,7 +59,7 @@ def test_release_builder_fails_locally_before_server_contact() -> None:
     assert 'if ($DryRun)' in source
     dry_run_at = source.index('if ($DryRun)')
     assert source.index('Require-Command "ssh"') > dry_run_at
-    assert source.index('Require-Command "scp"') > dry_run_at
+    assert source.index('scripts/upload_release.py') > dry_run_at
 
 
 def test_release_archive_and_remote_names_are_unique_and_commit_bound() -> None:

@@ -11,7 +11,6 @@ import base64
 import hashlib
 import json
 import shutil
-import statistics
 import subprocess
 import tarfile
 import threading
@@ -19,7 +18,19 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REMOTE_SOURCE = (ROOT / "scripts/catalog_snapshot_remote.py").read_bytes()
+import sys
+sys.path.insert(0, str(ROOT))
+from catalog_health import HealthWindow, validate_sample, identity
+
+# Bundle the reviewed policy in memory; never install a helper on production.
+_POLICY = (ROOT / "catalog_health.py").read_bytes()
+REMOTE_SOURCE = (
+    "import sys, types\n"
+    "_policy = types.ModuleType('catalog_health')\n"
+    "sys.modules['catalog_health'] = _policy\n"
+    "exec(compile(" + repr(_POLICY) + ", 'catalog_health.py', 'exec'), _policy.__dict__)\n"
+).encode('utf-8') + (ROOT / 'scripts/catalog_snapshot_remote.py').read_bytes().replace(
+    b'from __future__ import annotations', b'')
 BATCH_FILES = 100
 BATCH_BYTES = 32 * 1024 * 1024
 SAMPLE_SECONDS = 30
@@ -47,21 +58,6 @@ def batches(files):
         yield current
 
 
-def percentile95(values):
-    values = sorted(values)
-    return values[max(0, (95 * len(values) + 99) // 100 - 1)]
-
-
-def observed_p95(sample):
-    probes = [item["seconds"] for item in sample["probes"].values()]
-    return max([sample["p95"] or 0, *probes])
-
-
-def iowait(previous, current):
-    total = current["cpu_total"] - previous["cpu_total"]
-    return max(0, current["cpu_iowait"] - previous["cpu_iowait"]) / total if total > 0 else 0
-
-
 class SnapshotMonitor:
     def __init__(self, remote, *, baseline_seconds=BASELINE_SECONDS,
                  sample_seconds=SAMPLE_SECONDS):
@@ -72,29 +68,25 @@ class SnapshotMonitor:
         self.alarm = threading.Event()
         self.reason = ""
         self.thread = None
-        self.baseline_p95 = 0.0
-        self.baseline_iowait = 0.0
+        self.policy = None
+        self.observations = []
 
     def measure_baseline(self):
-        samples = []
-        previous = self.remote.json("metrics")
-        if previous["five_xx"]:
-            raise RuntimeError("5xx already present before snapshot")
-        windows = max(1, self.baseline_seconds // self.sample_seconds)
-        if self.baseline_seconds <= 0:
-            samples.append((observed_p95(previous), 0.0))
-        for _ in range(windows if self.baseline_seconds > 0 else 0):
-            time.sleep(self.sample_seconds)
-            current = self.remote.json("metrics")
-            if current["five_xx"]:
-                raise RuntimeError("5xx present during snapshot baseline")
-            samples.append((observed_p95(current), iowait(previous, current)))
-            previous = current
-        self.baseline_p95 = statistics.median(item[0] for item in samples)
-        self.baseline_iowait = statistics.median(item[1] for item in samples)
-        return {"p95_seconds": self.baseline_p95,
-                "iowait_fraction": self.baseline_iowait,
-                "windows": len(samples)}
+        first = self.remote.json("metrics")
+        validate_sample(first)
+        samples = [first]
+        for _ in range(max(0, self.baseline_seconds // self.sample_seconds)):
+            if self.stopped.wait(self.sample_seconds):
+                raise RuntimeError("snapshot baseline interrupted")
+            sample = self.remote.json("metrics")
+            validate_sample(sample, identity(first))
+            samples.append(sample)
+        self.policy = HealthWindow(samples)
+        self.observations.extend(samples)
+        return {"routes": self.policy.baseline,
+                "iowait_fraction": self.policy.baseline_iowait,
+                "windows": len(samples), "sample_source": "server_loopback",
+                "policy_version": 2}
 
     def _fail(self, reason):
         self.reason = reason
@@ -102,27 +94,17 @@ class SnapshotMonitor:
         self.remote.terminate_active()
 
     def _run(self):
-        previous = None
-        slow_windows = busy_windows = 0
         while not self.stopped.wait(self.sample_seconds):
             try:
-                sample = self.remote.json("metrics")
+                self._observe()
             except Exception as exc:  # noqa: BLE001 - monitoring failure must abort capture
                 self._fail("production health metrics unavailable: " + str(exc))
                 return
-            if sample["five_xx"]:
-                self._fail("new production 5xx during snapshot")
-                return
-            p95 = observed_p95(sample)
-            limit = max(self.baseline_p95 * 1.2, self.baseline_p95 + 0.1)
-            slow_windows = slow_windows + 1 if p95 > limit else 0
-            if previous is not None:
-                wait = iowait(previous, sample)
-                busy_windows = busy_windows + 1 if wait > self.baseline_iowait + 0.05 else 0
-            previous = sample
-            if slow_windows >= 2 or busy_windows >= 2:
-                self._fail("production latency or disk wait exceeded snapshot limit")
-                return
+
+    def _observe(self):
+        sample = self.remote.json("metrics")
+        self.observations.append(sample)
+        self.policy.observe(sample)
 
     def start(self):
         self.thread = threading.Thread(target=self._run,
@@ -136,14 +118,11 @@ class SnapshotMonitor:
     def finish(self):
         self.stopped.set()
         if self.thread:
-            self.thread.join(timeout=self.sample_seconds + 10)
+            self.thread.join(timeout=self.sample_seconds + 50)
+            if self.thread.is_alive():
+                raise RuntimeError("health observation did not finish")
         self.check()
-        final = self.remote.json("metrics")
-        if final["five_xx"]:
-            raise RuntimeError("new production 5xx in final snapshot window")
-        limit = max(self.baseline_p95 * 1.2, self.baseline_p95 + 0.1)
-        if observed_p95(final) > limit:
-            raise RuntimeError("production latency rose in final snapshot window")
+        self._observe()
 
 
 class Remote:
@@ -157,8 +136,8 @@ class Remote:
         remote = ("flock -s -n /run/lock/marx-search-release.lock "
                   "timeout 30s ionice -c3 nice -n19 "
                   "/opt/marx-search/.venv/bin/python -B - " + encoded)
-        return ["ssh", "-i", str(self.key), "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=15", self.host, remote]
+        return ["ssh"] + (["-i", str(self.key)] if self.key else []) + ["-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=yes", self.host, remote]
 
     def terminate_active(self):
         with self.active_lock:
@@ -270,7 +249,8 @@ def capture(output, remote, *, baseline_seconds=BASELINE_SECONDS,
         (output / "snapshot_manifest.json").write_bytes(canonical({
             "baseline": baseline, "runtime": initial["runtime"],
             "database": final["database"], "files": hashes,
-            "ledger_bytes": initial["ledger_bytes"]}))
+            "ledger_bytes": initial["ledger_bytes"],
+            "health_observations": monitor.observations}))
         # Production monitoring is complete before local compression begins.
         with tarfile.open(output / "snapshot.tar.gz", "w:gz") as archive:
             archive.add(snapshot, arcname="snapshot")
@@ -294,6 +274,8 @@ def main():
     parser.add_argument("--sample-seconds", type=int, default=SAMPLE_SECONDS,
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.baseline_seconds < 300 or not 10 <= args.sample_seconds <= 30:
+        parser.error("production capture requires a >=300s baseline and 10-30s sampling")
     result = capture(args.output, Remote(args.host, args.key),
                      baseline_seconds=args.baseline_seconds,
                      sample_seconds=args.sample_seconds)
