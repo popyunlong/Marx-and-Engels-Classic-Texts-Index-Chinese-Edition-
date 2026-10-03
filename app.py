@@ -53,6 +53,7 @@ from flask import (
 from itsdangerous import BadData
 from markupsafe import Markup, escape
 from werkzeug.middleware.proxy_fix import ProxyFix
+from catalog_probe_timing import CatalogProbeTiming
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -482,6 +483,7 @@ def create_app() -> Flask:
         x_port=1,
         x_prefix=1,
     )
+    flask_app.wsgi_app = CatalogProbeTiming(flask_app.wsgi_app, LOGGER)
     flask_app.config.update(
         SECRET_KEY=load_session_secret(),
         APP_NAME=WEB_APP_NAME,

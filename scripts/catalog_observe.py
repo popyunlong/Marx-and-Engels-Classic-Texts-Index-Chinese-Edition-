@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,19 +30,26 @@ class ProbeFailure(RuntimeError):
                         'detail': detail, 'seconds': seconds, 'status': status}
 
 
-def probe(base, expected, catalog, side='unspecified'):
+def probe(base, expected, catalog, side='unspecified', evidence=None):
     result = {}
     for route in ROUTES:
         started = time.monotonic()
         category, status = 'invalid_response', None
+        record = dict(at=datetime.now(timezone.utc).isoformat(), side=side,
+                      route=route, probe=uuid.uuid4().hex, stage='response_headers')
         try:
-            with urllib.request.urlopen(base.rstrip('/') + route, timeout=6) as response:
+            request = urllib.request.Request(base.rstrip('/') + route,
+                                            headers={'X-Marx-Catalog-Probe': record['probe']})
+            with urllib.request.urlopen(request, timeout=6) as response:
                 status = response.status
+                record['headers_seconds'] = time.monotonic() - started
+                record['stage'] = 'response_body'
                 body = response.read() if route == '/api/runtime' else response.read(1)
                 if status != 200:
                     category = 'http_error'
                     raise RuntimeError('core endpoint failed')
                 result[route] = time.monotonic() - started
+                record['stage'] = 'validate_response'
             if route == '/api/runtime':
                 value = json.loads(body)
                 if value.get('ok') is not True:
@@ -58,7 +66,15 @@ def probe(base, expected, catalog, side='unspecified'):
                 category = 'timeout'
             elif isinstance(exc, (urllib.error.URLError, OSError)):
                 category = 'transport_error'
-            raise ProbeFailure(side, route, category, str(exc), time.monotonic() - started, status) from exc
+            failure = ProbeFailure(side, route, category, str(exc), time.monotonic() - started, status)
+            failure.failure.update(probe=record['probe'], stage=record['stage'], at=record['at'])
+            record.update(result='fail', category=category)
+            raise failure from exc
+        finally:
+            record.update(seconds=time.monotonic() - started, status=status)
+            record.setdefault('result', 'pass')
+            if evidence is not None:
+                evidence.write(json.dumps(record) + '\n'); evidence.flush()
     return result
 
 
@@ -81,11 +97,16 @@ def observe(args):
               'sample_source': 'same_client_ssh_forward', 'duration_required': args.seconds}
     report_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
     rows = []
+    with (args.output / 'probe-evidence.jsonl').open('x', encoding='utf-8') as evidence:
+        return _observe_measured(args, report, report_path, rows, evidence)
+
+
+def _observe_measured(args, report, report_path, rows, evidence):
     try:
         # Warm both versions before starting the measured interval.
         for _ in range(2):
-            probe(args.live, args.live_release, args.live_catalog, 'live')
-            probe(args.candidate, args.candidate_release, args.candidate_catalog, 'candidate')
+            probe(args.live, args.live_release, args.live_catalog, 'live', evidence)
+            probe(args.candidate, args.candidate_release, args.candidate_catalog, 'candidate', evidence)
         started = time.monotonic()
         with (args.output / 'samples.jsonl').open('x', encoding='utf-8') as out:
             while True:
@@ -94,7 +115,7 @@ def observe(args):
                 order = ('live', 'candidate') if len(rows) % 2 == 0 else ('candidate', 'live')
                 for side in order:
                     row[side] = probe(getattr(args, side), getattr(args, side + '_release'),
-                                      getattr(args, side + '_catalog'), side)
+                                      getattr(args, side + '_catalog'), side, evidence)
                     if sum(v >= 6 for v in row[side].values()) >= 2:
                         raise RuntimeError('multiple core routes stalled')
                 rows.append(row)
