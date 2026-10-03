@@ -217,10 +217,27 @@ chown -R root:www-data "$FINAL"
     nice -n 15 ionice -c 3 "$RUNTIME_PYTHON" scripts/deployment_smoke.py --mode server
 )
 
+record_health_probe() {
+  local port="$1" route="$2" timing="$3" exit_code="$4" side="candidate"
+  [ "$port" != "$PRIMARY_PORT" ] || side="live"
+  # Record only operational timing, never the response, cookies or query data.
+  if ! [[ "$timing" =~ ^[0-9]+(\.[0-9]+)?:[0-9]{3}$ ]]; then
+    printf 'RELEASE_HEALTH_OBSERVATION={"at":%s,"source":"server_loopback","side":"%s","port":%s,"route":"%s","seconds":null,"status":null,"curl_exit":%s,"category":"invalid_timing"}\n' \
+      "$(date +%s.%N)" "$side" "$port" "$route" "$exit_code" >&2
+    return 1
+  fi
+  printf 'RELEASE_HEALTH_OBSERVATION={"at":%s,"source":"server_loopback","side":"%s","port":%s,"route":"%s","seconds":%s,"status":"%s","curl_exit":%s}\n' \
+    "$(date +%s.%N)" "$side" "$port" "$route" "${timing%:*}" "${timing##*:}" "$exit_code" >&2
+}
+
 health() {
-  local port="$1" expected_release="${2:-}" runtime_json
-  runtime_json="$(curl -fsS --max-time 6 "http://127.0.0.1:${port}/api/runtime")" \
-    || return 1
+  local port="$1" expected_release="${2:-}" runtime_json response timing exit_code=0 route
+  response="$(curl -fsS --max-time 6 --write-out $'\n%{time_total}:%{http_code}' "http://127.0.0.1:${port}/api/runtime")" \
+    || exit_code=$?
+  timing="${response##*$'\n'}"
+  runtime_json="${response%$'\n'*}"
+  record_health_probe "$port" /api/runtime "$timing" "$exit_code" || return 1
+  [ "$exit_code" -eq 0 ] || return 1
   if [ -n "$expected_release" ]; then
     if [ -f "$RELEASES/$expected_release/release.json" ]; then
       printf '%s' "$runtime_json" | python3 "$FINAL/app/scripts/catalog_deploy.py" health \
@@ -235,11 +252,13 @@ layout_ready = payload.get("layout_exact_ready") is True
 raise SystemExit(0 if actual == expected and (expected != sys.argv[2] or layout_ready) else 1)
 ' "$expected_release" "$RELEASE_ID" || return 1
   fi
-  curl -fsS --max-time 10 "http://127.0.0.1:${port}/" >/dev/null \
-    && curl -fsS --max-time 10 "http://127.0.0.1:${port}/pricing" >/dev/null \
-    && curl -fsS --max-time 10 "http://127.0.0.1:${port}/ai" >/dev/null \
-    && curl -fsS --max-time 10 "http://127.0.0.1:${port}/v2/ai" >/dev/null \
-    && curl -fsS --max-time 10 "http://127.0.0.1:${port}/v2/read" >/dev/null
+  for route in / /pricing /ai /v2/ai /v2/read; do
+    exit_code=0
+    timing="$(curl -fsS --max-time 10 --output /dev/null --write-out '%{time_total}:%{http_code}' "http://127.0.0.1:${port}${route}")" \
+      || exit_code=$?
+    record_health_probe "$port" "$route" "$timing" "$exit_code" || return 1
+    [ "$exit_code" -eq 0 ] || return 1
+  done
 }
 
 wait_health() {
