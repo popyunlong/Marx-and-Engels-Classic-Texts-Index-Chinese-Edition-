@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,20 +22,43 @@ from catalog_health import distribution, slow_routes
 ROUTES = ('/api/runtime', '/', '/v2/read')
 
 
-def probe(base, expected, catalog):
+class ProbeFailure(RuntimeError):
+    def __init__(self, side, route, category, detail, seconds, status=None):
+        super().__init__(f'{side} {route}: {category}: {detail}')
+        self.failure = {'side': side, 'route': route, 'category': category,
+                        'detail': detail, 'seconds': seconds, 'status': status}
+
+
+def probe(base, expected, catalog, side='unspecified'):
     result = {}
     for route in ROUTES:
         started = time.monotonic()
-        with urllib.request.urlopen(base.rstrip('/') + route, timeout=6) as response:
-            body = response.read() if route == '/api/runtime' else response.read(1)
-            if response.status != 200:
-                raise RuntimeError('core endpoint failed: ' + route)
-            result[route] = time.monotonic() - started
-        if route == '/api/runtime':
-            value = json.loads(body)
-            if (value.get('ok') is not True or value['app_release']['id'] != expected
-                    or value['catalog_release'] != catalog):
-                raise RuntimeError('release or catalogue identity changed')
+        category, status = 'invalid_response', None
+        try:
+            with urllib.request.urlopen(base.rstrip('/') + route, timeout=6) as response:
+                status = response.status
+                body = response.read() if route == '/api/runtime' else response.read(1)
+                if status != 200:
+                    category = 'http_error'
+                    raise RuntimeError('core endpoint failed')
+                result[route] = time.monotonic() - started
+            if route == '/api/runtime':
+                value = json.loads(body)
+                if value.get('ok') is not True:
+                    category = 'core_not_ok'
+                    raise RuntimeError('runtime reports unhealthy')
+                if (value['app_release']['id'] != expected or value['catalog_release'] != catalog):
+                    category = 'identity_drift'
+                    raise RuntimeError('release or catalogue identity changed')
+        except Exception as exc:
+            reason = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            if isinstance(exc, urllib.error.HTTPError):
+                category, status = 'http_error', exc.code
+            elif isinstance(reason, (TimeoutError, socket.timeout)):
+                category = 'timeout'
+            elif isinstance(exc, (urllib.error.URLError, OSError)):
+                category = 'transport_error'
+            raise ProbeFailure(side, route, category, str(exc), time.monotonic() - started, status) from exc
     return result
 
 
@@ -59,8 +84,8 @@ def observe(args):
     try:
         # Warm both versions before starting the measured interval.
         for _ in range(2):
-            probe(args.live, args.live_release, args.live_catalog)
-            probe(args.candidate, args.candidate_release, args.candidate_catalog)
+            probe(args.live, args.live_release, args.live_catalog, 'live')
+            probe(args.candidate, args.candidate_release, args.candidate_catalog, 'candidate')
         started = time.monotonic()
         with (args.output / 'samples.jsonl').open('x', encoding='utf-8') as out:
             while True:
@@ -69,7 +94,7 @@ def observe(args):
                 order = ('live', 'candidate') if len(rows) % 2 == 0 else ('candidate', 'live')
                 for side in order:
                     row[side] = probe(getattr(args, side), getattr(args, side + '_release'),
-                                      getattr(args, side + '_catalog'))
+                                      getattr(args, side + '_catalog'), side)
                     if sum(v >= 6 for v in row[side].values()) >= 2:
                         raise RuntimeError('multiple core routes stalled')
                 rows.append(row)
@@ -82,6 +107,8 @@ def observe(args):
         report['pairs'] = len(rows)
     except Exception as exc:
         report.update(result='fail', reason=str(exc), pairs=len(rows))
+        if isinstance(exc, ProbeFailure):
+            report['failure'] = exc.failure
     finally:
         report['finished_at'] = datetime.now(timezone.utc).isoformat()
         report_path.write_text(json.dumps(report, indent=2), encoding='utf-8')

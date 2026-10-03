@@ -16,7 +16,7 @@
 - `scripts/catalog_bundle.py build --snapshot <snapshot> --output <new-version-directory> --version <id>` 固化基线。输出目录不能预先存在。
 - 第一批使用 `scripts/prepare_catalog_repairs.py`；第二批试点使用 `scripts/prepare_catalog_pilot.py`。两者必须传入正确的 `--parent`、全新 `--work`、`--output` 和 `--version`。
 - MEGA² IV/3 使用 `scripts/prepare_mega_iv3.py`，只能排在第二批之后作为独立候选。输入必须是指纹匹配的 1998 年 Text 卷原书 PDF；候选只允许修改 IV/3 目录首页和 9 个正文 HTML 的新增锚点，并保留旧分页链接。Text 卷没有的 Apparat、导论、缩略语和索引不得补成已上线内容；正文独立标题覆盖完成核验前仍标记为待核实。
-- 每个版本检查逐来源的前后指纹、确切原书证据及逐文件清单。第一批只允许 3 个来源的 6 条目录记录和 2 个 HTML 文件变化。试点只允许《文集》5 卷的 12 个层级值及 3 个 HTML 文件变化。IV/3 候选重基时，10 个父文件和审定结果文件的前后指纹必须全部逐字节匹配；任一不一致即重新按原书生成和核验，不能沿用旧包。
+- 每个版本检查逐来源的前后指纹、确切原书证据及逐文件清单。第一批只允许 3 个来源的 6 条目录记录和 2 个 HTML 文件变化。第二批修订版保留《文集》5 卷的 12 个层级值及原 3 个 HTML 差异，另允许 MEGA II/5 的 `sec-003.html#s26`、`sec-069.html#s422` 各一处 `data-page-label` 改为原书印本 17、413；共 5 个 HTML 文件，正文、PDF 页码及旧锚点不变。旧第二批候选已因真实会员验收发现错误而拒绝，修订包仍以实际在线第一批为父版本，必须重新制反向包、扫描和候选验收。IV/3 候选重基时，10 个父文件和审定结果文件的前后指纹必须全部逐字节匹配；任一不一致即重新按原书生成和核验，不能沿用旧包。
 - `scripts/scan_catalog_links.py --root <version> --output <report> --baseline <previous-report>` 扫描全部镜像，包括不在公开书单中的旧文件。不能将它的统计直接当作公开书目覆盖数；绝对 URL 和应用路由另做 HTTP 检查。
 - `scripts/catalog_deploy.py pack --root <version> --archive <artifact.tar.gz>` 打包已经校验的目录版本。大文件保存在独立审计产物目录，不能进入 Git。
 - 把绑定写入提交之前，必须审查包中 `catalog.json` 的全部差异与证据。绑定的 SHA-256 是该文件的文件哈希，不是目录 ID 或 TOC 哈希。
@@ -57,6 +57,8 @@ pwsh -File deploy/release.ps1 -ExpectedLive '<exact-live-release>' -CatalogArchi
 `deploy/release.ps1` 的上传统一通过 `scripts/upload_release.py`：先取得五分钟即时基线，核对期望线上应用，再在非阻塞共享锁内以低资源优先级接收唯一命名的新文件。每块传输最多 64 KiB，总速率不超过 2 MiB/s；每 30 秒监测，异常中止上传。接收端核对长度与 SHA-256，拒绝覆盖已有文件，失败只清理本次半成品。上传报告随发布包保留，正式事务仍须重新获取排他锁及比较线上父版本。
 
 `scripts/catalog_observe.py` 通过同一客户端的 SSH 转发对现网和候选使用相同路由、超时与交替顺序，预热后记录至少 30 分钟、至少 60 对请求。正式放行 JSON 必须包含完整 `catalog_observation` 报告，绑定当前与候选的应用和目录身份；`scripts/catalog_review.py` 在不可变候选端校验。候选等待预算为 90 分钟，等待期间发布事务每 30 秒复核两个进程；失效退出候选阶段、恢复原看门狗，不切流。
+
+对照探测失败时报告必须记录现网/候选、接口、HTTP 状态、耗时及超时/传输错误/HTTP 错误/健康或版本漂移分类。客户端超时本身不证明主站宕机，也不能视为通过；结合原实例、服务器日志与资源记录核查，之后完成新的完整窗口。旧报告缺少失败入口时明确保留未知结论，不补造原因，不复用不足三十分钟的记录放行。
 
 原书、来源、指纹、目录版本链、完整 CI、会员/旧链接验收及回退要求没有放宽。最新应用发布若未改动目录和来源，需重新验证兼容性和实时健康，不以旧时间戳机械阻止离线工作。
 

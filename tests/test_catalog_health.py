@@ -120,6 +120,32 @@ def test_candidate_compare_does_not_pass_sparse_observation():
                      'candidate': {r: .1 for r in ('/', '/api/runtime', '/v2/read')}}])['result'] == 'insufficient_samples'
 
 
+@pytest.mark.parametrize('kind', ['timeout', 'http', 'identity'])
+def test_observation_retains_failed_side_route_and_category(monkeypatch, kind):
+    import urllib.error
+    from scripts.catalog_observe import probe, ProbeFailure
+
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, *args):
+            return b'{"ok":true,"app_release":{"id":"other"},"catalog_release":{}}'
+
+    def request(url, **kwargs):
+        if kind == 'timeout': raise urllib.error.URLError(TimeoutError('timed out'))
+        if kind == 'http': raise urllib.error.HTTPError(url, 502, 'gateway', {}, None)
+        return Response()
+
+    monkeypatch.setattr('urllib.request.urlopen', request)
+    with pytest.raises(ProbeFailure) as caught:
+        probe('http://candidate', 'expected', {}, 'candidate')
+    failure = caught.value.failure
+    assert failure['side'] == 'candidate' and failure['route'] == '/api/runtime'
+    assert failure['category'] == {'timeout': 'timeout', 'http': 'http_error', 'identity': 'identity_drift'}[kind]
+    assert failure['status'] == (502 if kind == 'http' else 200 if kind == 'identity' else None)
+
+
 def test_candidate_resource_pressure_requires_real_counters(tmp_path):
     from catalog_health import resource_pressure
     (tmp_path / 'pressure').mkdir()
