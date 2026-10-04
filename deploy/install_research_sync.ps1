@@ -25,13 +25,17 @@ $lines = @(
     ('$secure = Get-Content -LiteralPath ' + (& $quote $credentialFile) + ' | ConvertTo-SecureString'),
     '$env:MARX_RESEARCH_IMPORT_TOKEN = [Net.NetworkCredential]::new('''',$secure).Password',
     '$env:PYTHONDONTWRITEBYTECODE = ''1''',
+    '$env:PYTHONUTF8 = ''1''',
     'try {',
     ('  & ' + (& $quote $Python) + ' ' + (& $quote (Join-Path $repo 'scripts\research_domestic_sync.py')) + ' --root ' + (& $quote $SourceDirectory) + ' --state ' + (& $quote (Join-Path $StateDirectory 'state.json')) + ' --server ' + (& $quote $Server)),
     '  if ($LASTEXITCODE -ne 0) { throw ''同步失败，下一轮重试'' }',
     '} finally { Remove-Item Env:MARX_RESEARCH_IMPORT_TOKEN -ErrorAction SilentlyContinue }'
 )
-$lines | Set-Content -LiteralPath $runner -Encoding utf8
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -File "' + $runner + '"')
+# Windows PowerShell 5.1 needs a BOM for Chinese text even when installation
+# runs in PowerShell 7. RemoteSigned applies only to this approved local runner;
+# do not change machine/user execution policy or bypass downloaded-script checks.
+[IO.File]::WriteAllText($runner, ($lines -join "`r`n"), [Text.UTF8Encoding]::new($true))
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $runner + '"')
 $timer = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15)
 $login = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
