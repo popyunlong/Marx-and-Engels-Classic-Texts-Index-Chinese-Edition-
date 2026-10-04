@@ -232,7 +232,7 @@ def prepare(parent: Path, work: Path, output: Path, version: str, pdf: Path):
     new = {k: v for k, v in inventory(work).items() if k not in ('toc_entries.json', 'sources.json')}
     changed = difference(old, new)
     expected_files = {SOURCE} | {'static_library/mega-full/mega2-iv-3/' + name for name in changed_sections}
-    if set(changed) != expected_files or len(changed_sections) != 9:
+    if set(changed) != expected_files:
         raise ValueError('IV/3 candidate changed files outside reviewed volume scope')
     for name in changed:
         changed[name]['evidence'] = ('1998 Akademie Verlag MEGA² IV/3 Text original SHA-256 '

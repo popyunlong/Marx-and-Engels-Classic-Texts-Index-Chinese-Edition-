@@ -23,7 +23,7 @@
 - `scripts/snapshot_catalog.py --output <new-artifact-directory>` 先采集五分钟线上时延与磁盘等待基线，再通过短只读事务和非阻塞共享发布锁提取最新目录。数据库事务在网页文件传输前结束；网页每批最多 100 个，服务器使用最低 I/O/CPU 优先级并限速 2 MiB/s，不压缩、不分析、不落地临时副本。采集中每 30 秒检查健康、代表页面、5xx、p95 和磁盘等待；越过门槛立即中止并删除本地半成品。发布锁忙时等待下一窗口，不阻塞发布。压缩和完整校验只在本地进行；不复制用户数据或秘密配置。
 - `scripts/catalog_bundle.py build --snapshot <snapshot> --output <new-version-directory> --version <id>` 固化基线。输出目录不能预先存在。
 - 第一批使用 `scripts/prepare_catalog_repairs.py`；第二批试点使用 `scripts/prepare_catalog_pilot.py`。两者必须传入正确的 `--parent`、全新 `--work`、`--output` 和 `--version`。
-- MEGA² IV/3 使用 `scripts/prepare_mega_iv3.py`，只能排在第二批之后作为独立候选。输入必须是指纹匹配的 1998 年 Text 卷原书 PDF；候选只允许修改 IV/3 目录首页和 9 个正文 HTML 的新增锚点，并保留旧分页链接。Text 卷没有的 Apparat、导论、缩略语和索引不得补成已上线内容；正文独立标题覆盖完成核验前仍标记为待核实。
+- MEGA² IV/3 已核实部分使用 `scripts/prepare_mega_iv3_verified.py`，排在第二批 r2 之后作为独立候选。传入 r2 父包、已审定主目录草案、v7 逐文件证据及指纹匹配的 1998 年 Text 卷原书 PDF；构建器以实际文件差异和前后指纹核对批准清单，保留正文、旧分页链接和既有锚点。50 项印刷主目录及172个已核实正文细目可以独立交付；有证据的部分、章、节层级接入导航，其余细目保留在已确认著作下。Text 卷没有的 Apparat、导论、缩略语和索引不得补成已上线内容；未核实正文范围单列，整卷完整性不阻塞本批。
 - 每个版本检查逐来源的前后指纹、确切原书证据及逐文件清单。第一批只允许 3 个来源的 6 条目录记录和 2 个 HTML 文件变化。第二批修订版保留《文集》5 卷的 12 个层级值及原 3 个 HTML 差异，另允许 MEGA II/5 的 `sec-003.html#s26`、`sec-069.html#s422` 各一处 `data-page-label` 改为原书印本 17、413；共 5 个 HTML 文件，正文、PDF 页码及旧锚点不变。旧第二批候选已因真实会员验收发现错误而拒绝，修订包仍以实际在线第一批为父版本，必须重新制反向包、扫描和候选验收。IV/3 候选重基时，10 个父文件和审定结果文件的前后指纹必须全部逐字节匹配；任一不一致即重新按原书生成和核验，不能沿用旧包。
 - `scripts/scan_catalog_links.py --root <version> --output <report> --baseline <previous-report>` 扫描全部镜像，包括不在公开书单中的旧文件。不能将它的统计直接当作公开书目覆盖数；绝对 URL 和应用路由另做 HTTP 检查。
 - `scripts/catalog_deploy.py pack --root <version> --archive <artifact.tar.gz>` 打包已经校验的目录版本。大文件保存在独立审计产物目录，不能进入 Git。
