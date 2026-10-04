@@ -15,6 +15,7 @@ from scripts import research_domestic_sync as sync
 def database(tmp_path, monkeypatch):
     monkeypatch.setattr(r, "DB_PATH", tmp_path / "journal.sqlite3")
     r.init_db()
+    monkeypatch.setattr(r, "now_text", lambda: "2026-10-04T12:00:00+00:00")
 
 
 def article(**kw):
@@ -141,27 +142,30 @@ def test_correction_updates_web_without_requeueing_email():
     r.review(updated["issue_id"], [a["entry_id"]], "approved", "admin")
     r.publish(updated["issue_id"], r.preview_hash(updated["issue_id"]), "admin", [{"email": "b@example.org"}])
     with r.connect() as c:
-        rows = c.execute("SELECT * FROM research_deliveries").fetchall()
+        rows = c.execute("SELECT * FROM research_mail_schedules").fetchall()
         assert len(rows) == 1
         assert json.loads(rows[0]["snapshot"])["revision"] == 1
+        assert c.execute("SELECT count(*) FROM research_deliveries").fetchone()[0] == 0
     assert json.loads(r.get_issue(i["id"])["snapshot"])["revision"] == 2
 
 
-def test_mail_revalidates_membership_and_deduplicates():
+def test_mail_revalidates_membership_and_deduplicates(monkeypatch):
     i, _ = ready()
     recipients = [{"email": "a@example.org"}, {"email": "b@example.org"}]
     r.publish(i["id"], r.preview_hash(i["id"]), "admin", recipients)
+    monkeypatch.setattr(r, "now_text", lambda: "2026-10-05T01:00:00+00:00")
     send = Mock()
     result = r.deliver("https://example.org", sender=send, recipients=recipients[:1], smtp=object())
-    assert result["sent"] == 1 and result["skipped"] == 1
+    assert result["sent"] == 1 and result["skipped"] == 0
     r.deliver("https://example.org", sender=send, recipients=recipients, smtp=object())
     assert send.call_count == 1
 
 
-def test_ambiguous_delivery_is_never_automatically_retried():
+def test_ambiguous_delivery_is_never_automatically_retried(monkeypatch):
     i, _ = ready()
     recipient = [{"email": "a@example.org"}]
     r.publish(i["id"], r.preview_hash(i["id"]), "admin", recipient)
+    monkeypatch.setattr(r, "now_text", lambda: "2026-10-05T01:00:00+00:00")
     send = Mock(side_effect=TimeoutError("lost connection"))
     assert r.deliver("https://example.org", sender=send, recipients=recipient, smtp=object())["uncertain"] == 1
     r.deliver("https://example.org", sender=send, recipients=recipient, smtp=object())
@@ -506,8 +510,9 @@ def test_unsubscribe_during_batch_is_rechecked(monkeypatch):
     first = {"email":"a@example.org", "_subscription":{"is_active":1}}
     second = {"email":"b@example.org", "_subscription":{"is_active":1}}
     r.publish(i["id"], r.preview_hash(i["id"]), "admin", [first, second])
-    monkeypatch.setattr(ja, "resolve_recipients", Mock(side_effect=[([first, second], True), ([first], True)]))
+    monkeypatch.setattr(ja, "resolve_recipients", Mock(side_effect=[([first, second], True), ([first, second], True), ([first], True)]))
     monkeypatch.setattr(ja, "subscription_is_deliverable", lambda s: bool(s["is_active"]))
+    monkeypatch.setattr(r, "now_text", lambda: "2026-10-05T01:00:00+00:00")
     sender = Mock()
     assert r.deliver("https://example.org", sender=sender, smtp=object()) == {"sent":1, "failed":0, "uncertain":0, "skipped":1}
     assert sender.call_count == 1

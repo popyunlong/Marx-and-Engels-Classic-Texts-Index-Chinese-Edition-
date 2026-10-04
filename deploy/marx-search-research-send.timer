@@ -2,8 +2,10 @@
 Description=Research bulletin send
 
 [Timer]
-OnBootSec=2min
-OnUnitInactiveSec=2min
+OnCalendar=*-*-* *:*:00 UTC
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
 Unit=marx-search-research-send.service
 
 [Install]

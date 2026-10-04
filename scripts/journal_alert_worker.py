@@ -40,6 +40,9 @@ def _send_time_reached(settings: dict) -> bool:
 
 
 def main() -> None:
+    if (ROOT / "research_delivery.py").exists():
+        print("Legacy journal worker retired; use research update workers.")
+        return
     parser = argparse.ArgumentParser(
         description="Journal alerts worker: collect a batch (T-2 19:00) and send the digest on the send day."
     )

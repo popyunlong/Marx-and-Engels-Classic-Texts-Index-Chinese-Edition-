@@ -4,11 +4,20 @@ from __future__ import annotations
 import json
 from flask import Blueprint, Response, abort, flash, g, jsonify, redirect, render_template, request, url_for
 import research_updates as r
+import research_delivery as mail
 
 
 def register(app, host):
     bp = Blueprint("research_updates", __name__)
     r.init_db()
+
+    @app.before_request
+    def retired_journal_writes():
+        if request.method == "POST" and (request.path.startswith("/admin/journal-alerts/") or
+                                         request.path.startswith("/control/journal-alerts/")):
+            host["_require_admin"]()
+            host["_require_management_csrf"]()
+            abort(409, description="原全文周刊流程已停用，请使用国内外研究动态管理中心。历史资料仍可阅读。")
 
     @bp.before_request
     def reader_limit():
@@ -94,14 +103,25 @@ def register(app, host):
         with r.connect() as c:
             imports = [dict(x) for x in c.execute("SELECT id,source_id,result,created_at FROM research_imports ORDER BY id DESC LIMIT 50")]
             tokens = [dict(x) for x in c.execute("SELECT id,label,active,created_at FROM research_tokens ORDER BY id DESC")]
-            runs = [dict(x) for x in c.execute("SELECT * FROM research_runs WHERE issue_id=? ORDER BY id DESC LIMIT 135", (selected,))]
+            runs = [dict(x) for x in c.execute("SELECT * FROM research_runs WHERE id IN (SELECT max(id) FROM research_runs WHERE issue_id=? GROUP BY source_id) ORDER BY source_id", (selected,))]
             deliveries = [dict(x) for x in c.execute("SELECT id,email,status,error,attempts FROM research_deliveries WHERE issue_id=? ORDER BY id", (selected,))]
             jobs = [dict(x) for x in c.execute("SELECT * FROM research_jobs ORDER BY id DESC LIMIT 15")]
+            events = [dict(x) for x in c.execute("SELECT * FROM research_mail_events WHERE issue_id=? ORDER BY id DESC LIMIT 30", (selected,))]
         for x in runs:
             x["details"] = json.loads(x["report"])
+        recipients, _ = host.get("resolve_journal_recipients", lambda mode: ([], True))("subscribers")
+        import journal_alerts as ja
+        rows = r.items(selected) if issue else []
         return render_template("research_admin.html", issues=issue_list, issue=issue,
-                               rows=r.items(selected) if issue else [], imports=imports, tokens=tokens,
+                               rows=rows, imports=imports, tokens=tokens,
                                runs=runs, deliveries=deliveries, jobs=jobs, token=issued_token,
+                               schedule=mail.get(selected), mail_labels=mail.LABELS, local_time=mail.local_time,
+                               default_send=mail.local_time(mail.default_time(issue)) if issue else '',
+                               recipient_count=sum(ja.subscription_is_deliverable(x.get('_subscription') or {}) for x in recipients),
+                               smtp_enabled=ja.load_smtp_config().enabled, smtp_config=ja.load_smtp_config(), events=events,
+                               subscriptions=host.get("list_recent_journal_subscriptions", lambda **kw: [])(limit=200),
+                               pending_count=sum(x['review']=='pending' for x in rows),
+                               published_hash=r.digest(json.loads(issue['snapshot'])) if issue and issue['status']=='published' else '',
                                csrf_token=host["_ensure_csrf_token"](), preview_hash=r.preview_hash(selected) if issue else "",
                                citation=r.citation)
 
@@ -127,6 +147,10 @@ def register(app, host):
             abort(404)
         snapshot = {**issue, "articles": [{**x["article"], "entry_id": x["entry_id"], "section": x["section"]}
                                          for x in r.items(issue_id) if x["review"] != "excluded"]}
+        if issue['status'] == 'published':
+            snapshot = json.loads(issue['snapshot'])
+        if request.args.get('reserved') and mail.get(issue_id):
+            snapshot = json.loads(mail.get(issue_id)['snapshot'])
         if request.args.get("email"):
             _, rich = r.render_email(snapshot, {}, host["journal_alert_public_base_url"](host["DEPLOYMENT"]))
             return Response(rich, content_type="text/html; charset=utf-8")
@@ -171,21 +195,43 @@ def register(app, host):
             elif action == "publish":
                 if request.form.get("confirm") != "yes":
                     raise ValueError("请确认发布当前预览并向有效订阅者发送")
-                recipients, _ = host["resolve_journal_recipients"]("subscribers")
-                snapshot = r.publish(issue_id, request.form.get("preview_hash", ""), actor, recipients)
+                snapshot = r.publish(issue_id, request.form.get("preview_hash", ""), actor,
+                                     scheduled_at=request.form.get("scheduled_at") or None)
                 issue_id = snapshot["id"]
-                flash("网页已发布；邮件已排队。更正版本不会自动重发邮件。", "success")
-            elif action == "retry_mail":
+                flash("网页已发布；邮件按确认的预约时间发送。更正不会替换已预约邮件或重发。", "success")
+            elif action in {'pause', 'cancel', 'reschedule'}:
+                if action == 'reschedule' and request.form.get('confirm') != 'yes':
+                    raise ValueError('请确认预约时间及邮件快照')
+                mail.change(issue_id, action, actor, request.form.get('scheduled_at', ''),
+                            request.form.get('published_hash', ''), request.form.get('replace_snapshot') == 'yes')
+                flash('邮件预约已更新。', 'success')
+            elif action == 'test_mail':
+                user = g.current_user or {}
+                if not user.get('email_verified_at') or not user.get('email'):
+                    raise ValueError('当前管理员尚无已验证邮箱，请先完成邮箱验证')
+                issue = r.get_issue(issue_id)
+                if not issue or request.form.get('preview_hash') != r.preview_hash(issue_id):
+                    raise ValueError('预览已变化，请刷新后再发测试邮件')
+                snapshot = json.loads(issue['snapshot']) if issue['status']=='published' else {
+                    **issue, 'articles': [{**x['article'], 'entry_id':x['entry_id'], 'section':x['section']}
+                                         for x in r.items(issue_id) if x['review']!='excluded']}
+                import journal_alerts as ja
+                smtp = ja.load_smtp_config()
+                if not smtp.enabled:
+                    raise ValueError('SMTP尚未配置')
+                plain, rich = r.render_email(snapshot, {}, host['journal_alert_public_base_url'](host['DEPLOYMENT']))
+                ja.send_email(smtp, user['email'], '【测试预览】' + r.TITLE, plain, rich)
                 with r.connect(True) as c:
-                    c.execute("UPDATE research_deliveries SET status='queued',updated_at=? WHERE id=? AND status='failed'",
-                              (r.now_text(), request.form.get("delivery_id", type=int)))
+                    mail.event(c, issue_id, 'test_mail', actor, '管理员已验证邮箱；不计入正式投递')
+                flash('测试预览已交给邮件服务器；请检查管理员邮箱。', 'success')
+            elif action == "retry_mail":
+                mail.resolve(issue_id, request.form.get('delivery_id', type=int), actor, 'queued')
+                flash('已准备单封重试，请为本期另约发送时间。', 'success')
             elif action == "resolve_mail":
                 resolution = request.form.get("resolution")
                 if resolution not in {"sent", "queued"} or request.form.get("verified") != "yes":
                     raise ValueError("请先人工核查实际收信情况")
-                with r.connect(True) as c:
-                    c.execute("UPDATE research_deliveries SET status=?,error=?,updated_at=? WHERE id=? AND status='uncertain'",
-                              (resolution, "人工核查：" + actor, r.now_text(), request.form.get("delivery_id", type=int)))
+                mail.resolve(issue_id, request.form.get('delivery_id', type=int), actor, resolution)
             else:
                 raise ValueError("未知操作")
         except (ValueError, TypeError, KeyError) as exc:

@@ -842,7 +842,7 @@ ADMIN_MODULES = {
     "content": "内容运营",
     "ai": "智能服务",
     "members": "会员与权限",
-    "journal": "期刊订阅",
+    "journal": "国内外研究动态",
 }
 _rate_buckets: dict[str, list[float]] = {}
 _rate_buckets_lock = threading.Lock()
@@ -9425,6 +9425,8 @@ def admin_2fa():
 @app.route("/admin/<module>")
 def admin(module: str = "overview"):
     _require_admin()
+    if module == "journal" and request.args.get("history") != "1":
+        return redirect(url_for("research_updates.admin"))
     if module not in ADMIN_MODULES:
         abort(404, description="管理模块不存在。")
     return render_template("control.html", **_management_console_context(remote_admin=True, admin_module=module))

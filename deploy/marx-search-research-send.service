@@ -6,8 +6,10 @@ RequiresMountsFor=/var/www/.marx_search_full/journal
 
 [Service]
 Type=oneshot
-User=www-data
-Group=www-data
+# The coordinator lock is root:root 0640. Only flock runs as root;
+# runuser drops privileges before importing application code or opening SMTP.
+User=root
+Group=root
 WorkingDirectory=/opt/marx-search/current/app
 EnvironmentFile=/etc/marx-search.env
 Environment=PYTHONUNBUFFERED=1
@@ -17,7 +19,7 @@ Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
 Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
 Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
 Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
-ExecStart=/opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/research_update_worker.py --stage=send
+ExecStart=/usr/bin/flock -n /run/lock/marx-search-release.lock /usr/sbin/runuser -u www-data -- /opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/research_update_worker.py --stage=send
 TimeoutStartSec=600
 PrivateTmp=true
 NoNewPrivileges=true

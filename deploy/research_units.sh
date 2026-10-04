@@ -42,5 +42,8 @@ activate_research_units() {
   else
     for timer in "${RESEARCH_TIMERS[@]}"; do systemctl disable --now "$timer" >/dev/null 2>&1 || true; done
     restore_research_units "$old_state"
+    # A rollback must not release a pending legacy issue beside the new bulletin.
+    systemctl disable --now marx-search-journal-send.timer >/dev/null 2>&1 || true
+    echo "Legacy mail remains paused after rollback; coordinator must review unsent issues before enabling." >&2
   fi
 }

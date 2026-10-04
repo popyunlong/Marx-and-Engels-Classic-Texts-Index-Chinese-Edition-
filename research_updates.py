@@ -106,6 +106,8 @@ def init_db() -> None:
           id INTEGER PRIMARY KEY, kind TEXT NOT NULL, args TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
           error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
         """)
+        from research_delivery import init as init_mail
+        init_mail(c)
 
 
 def parse_time(value: str) -> datetime:
@@ -658,7 +660,11 @@ def content_confirmed(a: dict) -> bool:
                 digest([a["title"], a.get("section_name"), a.get("authors", []), a.get("type")]))
 
 
-def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict]) -> dict:
+def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict] | None = None,
+            scheduled_at: str | None = None) -> dict:
+    # recipients is retained for callers upgrading from the draft implementation.
+    # Resolve the actual audience only when the confirmed schedule starts.
+    import research_delivery as mail
     with connect(True) as c:
         issue = c.execute("SELECT * FROM research_issues WHERE id=?", (issue_id,)).fetchone()
         if not issue or issue["status"] != "draft" or preview_hash(issue_id, c) != expected_hash:
@@ -689,11 +695,7 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
         if issue["parent_id"]:
             c.execute("UPDATE research_issues SET status='applied' WHERE id=?", (issue_id,))
         else:
-            for recipient in recipients:
-                email = clean(recipient.get("email")).lower()
-                if email:
-                    c.execute("INSERT OR IGNORE INTO research_deliveries(issue_id,email,recipient,snapshot,updated_at) VALUES(?,?,?,?,?)",
-                              (target, email, dumps(recipient), encoded, now_text()))
+            mail.reserve(c, target, snapshot, scheduled_at or mail.default_time(issue), actor)
         return snapshot
 
 
@@ -862,41 +864,8 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
 
 
 def deliver(base_url: str, limit: int = 100, sender=None, recipients=None, smtp=None) -> dict:
-    import journal_alerts as ja
-    sender = sender or ja.send_email
-    smtp = smtp or ja.load_smtp_config()
-    result = {"sent": 0, "failed": 0, "uncertain": 0, "skipped": 0}
-    with connect(True) as c:
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
-        c.execute("UPDATE research_deliveries SET status='uncertain',error='发送进程中断，需核查邮箱后处理' WHERE status='sending' AND updated_at<?", (cutoff,))
-    for _ in range(limit):
-        with connect(True) as c:
-            row = c.execute("SELECT * FROM research_deliveries WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
-            if not row:
-                break
-            c.execute("UPDATE research_deliveries SET status='sending',attempts=attempts+1,updated_at=? WHERE id=?", (now_text(), row["id"]))
-        status, error = "sent", ""
-        # Re-read subscription and access policy for each claimed recipient;
-        # unsubscribe or expiry during a long batch takes effect immediately.
-        current = recipients if recipients is not None else ja.resolve_recipients("subscribers")[0]
-        eligible = {r["email"].lower(): r for r in current
-                    if recipients is not None or ja.subscription_is_deliverable(r.get("_subscription") or {})}
-        if row["email"] not in eligible:
-            status, error = "skipped", "已退订或会员资格失效"
-        else:
-            try:
-                snap = json.loads(row["snapshot"])
-                recipient = eligible[row["email"]]
-                plain, rich = render_email(snap, recipient, base_url)
-                sender(smtp, row["email"], TITLE + " · " + snap["period_end"][:10], plain, rich)
-            except (ConnectionError, TimeoutError, OSError) as exc:
-                status, error = "uncertain", type(exc).__name__ + ": " + str(exc)[:300]
-            except Exception as exc:
-                status, error = "failed", type(exc).__name__ + ": " + str(exc)[:300]
-        with connect(True) as c:
-            c.execute("UPDATE research_deliveries SET status=?,error=?,updated_at=? WHERE id=?", (status, error, now_text(), row["id"]))
-        result[status] += 1
-    return result
+    from research_delivery import deliver as scheduled_deliver
+    return scheduled_deliver(base_url, limit=limit, sender=sender, recipients=recipients, smtp=smtp)
 
 
 def enqueue(kind: str, args: dict) -> int:

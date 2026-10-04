@@ -80,7 +80,11 @@ class AiTokenQuotaResetTests(unittest.TestCase):
             model="deepseek-v4-pro",
             total_tokens=tokens,
         )
-        earlier = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+        now = datetime.now(timezone.utc)
+        local = now.astimezone(timezone(timedelta(hours=8)))
+        week_start = (local - timedelta(days=local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Monday's first hour must not backdate a weekly usage fixture into Sunday.
+        earlier = max(now - timedelta(hours=1), week_start.astimezone(timezone.utc)).isoformat(timespec="seconds")
         with sqlite3.connect(app_module.MEMBERSHIP_DB_PATH) as conn:
             conn.execute(
                 "UPDATE ai_usage SET created_at=? WHERE user_id=? AND created_at > ?",
