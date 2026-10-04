@@ -1,7 +1,8 @@
 from lxml import html
 import pytest
 
-from scripts.prepare_mega_iv3_verified import align_verified_anchors, connect_navigation, preserve_body
+from scripts.prepare_mega_iv3_verified import (PREFIX, align_verified_anchors, connect_navigation,
+    correct_verified_page_label, preserve_body, validate_display_labels)
 
 
 def fixture():
@@ -72,3 +73,23 @@ def test_alignment_keeps_other_existing_anchor_style_rules():
     after = align_verified_anchors(before)
     assert html.fromstring(after).get_element_by_id('iv3-detail').get('style') == 'color:red;scroll-margin-top:96px'
     preserve_body(before, after)
+
+
+def test_reviewed_pdf72_label_keeps_old_link_and_physical_position():
+    before = b'<html><a id="s72" class="pgmark" data-page-label="72" data-pdf-page="72"></a><span id="iv3-factum"></span>Factum<a href="#s72">Old</a></html>'
+    after = correct_verified_page_label(PREFIX + 'sec-007.html', before)
+    preserve_body(before, after)
+    assert html.fromstring(after).get_element_by_id('s72').get('data-page-label') == '65'
+    assert correct_verified_page_label(PREFIX + 'sec-007.html', after) == after
+    assert correct_verified_page_label(PREFIX + 'sec-008.html', before) == before
+    with pytest.raises(ValueError, match='source differs'):
+        correct_verified_page_label(PREFIX + 'sec-007.html', before.replace(b'page-label="72"', b'page-label="73"'))
+
+
+def test_directory_page_validation_rejects_reader_using_pdf_number():
+    name = PREFIX + 'sec-007.html'
+    body = b'<html><a id="s72" data-page-label="72" data-pdf-page="72"></a><span id="iv3-factum"></span>Factum</html>'
+    entries = [dict(file=name, anchor='iv3-factum', printed_page=65)]
+    with pytest.raises(ValueError, match='reader printed page'):
+        validate_display_labels({name: body}, entries)
+    validate_display_labels({name: correct_verified_page_label(name, body)}, entries)
