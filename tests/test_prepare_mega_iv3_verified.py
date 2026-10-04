@@ -1,7 +1,7 @@
 from lxml import html
 import pytest
 
-from scripts.prepare_mega_iv3_verified import connect_navigation, preserve_body
+from scripts.prepare_mega_iv3_verified import align_verified_anchors, connect_navigation, preserve_body
 
 
 def fixture():
@@ -55,3 +55,20 @@ def test_only_anchor_and_reviewed_heading_tag_changes_preserve_body():
     for changed in [after.replace(b'Body', b'Other'), after.replace(b'id="old"', b'id="lost"'),
                     after.replace(b'old.html', b'other.html'), after.replace(b'page="3"', b'page="4"')]:
         with pytest.raises(ValueError): preserve_body(before, changed)
+
+
+def test_alignment_preserves_body_and_old_pagination_and_is_idempotent():
+    before = b'<html><a id="s29" data-pdf-page="29" data-page-label="21"></a><p>Old text<span id="iv3-detail"></span>11) Body<a href="old.html#s29">Old link</a></p></html>'
+    after = align_verified_anchors(before)
+    preserve_body(before, after)
+    tree = html.fromstring(after)
+    assert tree.get_element_by_id('s29').attrib == html.fromstring(before).get_element_by_id('s29').attrib
+    assert tree.get_element_by_id('iv3-detail').get('style') == 'scroll-margin-top:96px'
+    assert align_verified_anchors(after) == after
+
+
+def test_alignment_keeps_other_existing_anchor_style_rules():
+    before = b'<html><span id="iv3-detail" style="color:red">Body</span></html>'
+    after = align_verified_anchors(before)
+    assert html.fromstring(after).get_element_by_id('iv3-detail').get('style') == 'color:red;scroll-margin-top:96px'
+    preserve_body(before, after)

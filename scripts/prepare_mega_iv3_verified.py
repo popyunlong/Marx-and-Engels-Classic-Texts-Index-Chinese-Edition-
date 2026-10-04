@@ -34,6 +34,22 @@ def digest_bytes(body):
     return hashlib.sha256(body).hexdigest()
 
 
+def align_verified_anchors(body):
+    """Keep a selected body heading at the reader's 96px page-detection line."""
+    def align(match):
+        opening = match[1]
+        style = re.search(rb'\bstyle="([^"]*)"', opening)
+        if style and b'scroll-margin-top:96px' in style[1]: return match[0]
+        if style:
+            opening = opening[:style.start(1)] + style[1] + b';scroll-margin-top:96px' + opening[style.end(1):]
+        else:
+            opening += b' style="scroll-margin-top:96px"'
+        return opening + b'>'
+    result = re.sub(rb'(<[a-z][a-z0-9]*\b[^>]*\bid="iv3-[^"]+"[^>]*)(>)', align, body)
+    preserve_body(body, result)
+    return result
+
+
 def preserve_body(before, after):
     a, b = html.fromstring(before), html.fromstring(after)
     ids = lambda tree: Counter(tree.xpath('//*[@id]/@id'))
@@ -225,6 +241,7 @@ def prepare(parent, draft_parent, composed, evidence_roots, pdf, output, version
     replacements[PREFIX + 'index.html'] = index
     for name, after in replacements.items():
         if not name.endswith('/index.html'):
+            replacements[name] = after = align_verified_anchors(after)
             preserve_body(safe_file(prior.root, name).read_bytes(), after)
     new_files = dict(prior.manifest['files'])
     new_files.update({name: digest_bytes(body) for name, body in replacements.items()})
@@ -236,6 +253,7 @@ def prepare(parent, draft_parent, composed, evidence_roots, pdf, output, version
         'pdf_sha256': PDF_SHA256, 'printed_contents': 'original PDF5-7',
         'body_evidence_groups': sorted({e['evidence_group'] for e in entries if e['file'] == name}),
         'preserves': 'body text, prior IDs, hrefs, images and PDF positions',
+        'navigation_alignment': 'new IV/3 anchors align with the existing reader detection line at 96px',
         'scope': 'reviewed printed navigation and bounded verified body headings'}) for name, change in changes.items()}}
     validated = validate_changes(prior.rows, prior.rows, old_files, after_files, approvals)
     manifest = dict(schema_version=1, id=version, parent={'id': prior.version, 'sha256': prior.sha256},
