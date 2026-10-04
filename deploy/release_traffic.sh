@@ -2,11 +2,12 @@
 # Shared rollback traffic helpers; caller owns the release lock.
 switch_caddy() {
   local from_port="$1" to_port="$2" temp backup
-  grep -Eq "reverse_proxy[[:space:]]+127\\.0\\.0\\.1:${from_port}([[:space:]]|$)" "$CADDYFILE" || return 1
+  # Named stream matchers must follow the same cutover as the default route.
+  grep -Eq "^[[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:${from_port}([[:space:]]|$)" "$CADDYFILE" || return 1
   temp="$(mktemp /etc/caddy/Caddyfile.release.XXXXXX)"
   backup="$(mktemp /etc/caddy/Caddyfile.backup.XXXXXX)"
   cp -a "$CADDYFILE" "$backup"
-  sed -E "s#(reverse_proxy[[:space:]]+127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\2#g" "$CADDYFILE" > "$temp"
+  sed -E "s#^([[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\3#" "$CADDYFILE" > "$temp"
   caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
   install -o root -g root -m 0644 "$temp" "$CADDYFILE"
   rm -f "$temp"

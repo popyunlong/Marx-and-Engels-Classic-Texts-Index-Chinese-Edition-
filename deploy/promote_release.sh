@@ -276,11 +276,12 @@ wait_health() {
 
 switch_caddy() {
   local from_port="$1" to_port="$2" temp backup
-  grep -Eq "reverse_proxy[[:space:]]+127\\.0\\.0\\.1:${from_port}([[:space:]]|$)" "$CADDYFILE" || return 1
+  # Named stream matchers must follow the same cutover as the default route.
+  grep -Eq "^[[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:${from_port}([[:space:]]|$)" "$CADDYFILE" || return 1
   temp="$(mktemp /etc/caddy/Caddyfile.release.XXXXXX)"
   backup="$(mktemp /etc/caddy/Caddyfile.backup.XXXXXX)"
   cp -a "$CADDYFILE" "$backup"
-  sed -E "s#(reverse_proxy[[:space:]]+127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\2#g" "$CADDYFILE" > "$temp"
+  sed -E "s#^([[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\3#" "$CADDYFILE" > "$temp"
   caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
   install -o root -g root -m 0644 "$temp" "$CADDYFILE"
   rm -f "$temp"
@@ -461,7 +462,7 @@ rollback_primary() {
   set +e
   # A post-cutover health failure can occur while the primary still has live
   # requests. Keep the healthy candidate until this check and drain both hops.
-  if grep -Eq "reverse_proxy[[:space:]]+127\\.0\\.0\\.1:${PRIMARY_PORT}([[:space:]]|$)" "$CADDYFILE"; then
+  if grep -Eq "^[[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:${PRIMARY_PORT}([[:space:]]|$)" "$CADDYFILE"; then
     if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT" || ! drain_port "$PRIMARY_PORT" "failed primary"; then
       echo "CRITICAL: cannot safely drain the failed primary; preserving both instances" >&2
       return 1

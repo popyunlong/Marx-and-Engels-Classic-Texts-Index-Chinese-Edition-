@@ -130,7 +130,7 @@ restore_predecessor() {
   set +e
   # After a failed primary restart, send new traffic to the healthy rollback
   # candidate and wait for every accepted primary request to finish first.
-  if grep -Eq "reverse_proxy[[:space:]]+127\\.0\\.0\\.1:${PRIMARY_PORT}([[:space:]]|$)" "$CADDYFILE"; then
+  if grep -Eq "^[[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:${PRIMARY_PORT}([[:space:]]|$)" "$CADDYFILE"; then
     if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT" || ! drain_port "$PRIMARY_PORT" "failed rollback primary"; then
       echo "CRITICAL: cannot safely drain failed rollback primary; preserving both instances" >&2
       return 1
