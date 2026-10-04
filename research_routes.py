@@ -32,6 +32,7 @@ def register(app, host):
         articles = snapshot.get("articles", []) if snapshot else []
         for a in articles:
             a["issue_label"] = r.issue_label(a)
+            a["display_pages"] = r.display_pages(a)
         journals = sorted({a["journal"] for a in articles})
         fields = sorted({a.get("discipline", "") for a in articles if a.get("discipline")})
         q = request.args.get("q", "").strip().casefold()
@@ -155,7 +156,10 @@ def register(app, host):
                 edits = None
                 if request.form.get("edit"):
                     edits = {k: request.form.get(k, "") for k in ("title", "title_zh", "abstract", "abstract_zh", "authors", "keywords", "keywords_zh", "volume", "issue", "year", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type")}
-                r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None, request.form.get("pagination_decision"))
+                r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None, request.form.get("pagination_decision"), request.form.get("content_override_reason", ""))
+            elif action == "screen_content":
+                result = r.screen_issue(issue_id, actor)
+                flash(f"本次排除 {result['excluded']} 条，纠正类型 {result['retyped']} 条，另有 {result['content_review']} 条需核对内容；保留原目录与筛选依据。", "success")
             elif action == "infer_pages":
                 count = r.infer_issue_pages(issue_id, actor)
                 flash(f"已生成 {count} 条页码推断；请查看相邻目录依据并确认。", "success")

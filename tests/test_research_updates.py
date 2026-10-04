@@ -174,7 +174,7 @@ def test_citations_do_not_invent_end_pages_or_export_placeholders():
     ris = r.export_citation(a, "ris")
     assert "SP  - 5" in ris and "EP  -" not in ris
     assert "未提供" not in ris and "原文未提供" not in r.export_citation(a, "bib")
-    assert "仅起始页" in r.citation(a)
+    assert "仅起始页" in r.citation(a, editorial=True)
 
 
 def catalogue_rows(starts=("5", "16", "28")):
@@ -199,7 +199,7 @@ def test_catalogue_page_inference_preserves_source_and_requires_confirmation():
     assert a["pages"] == "5-15" and a["page_end"] == "15"
     assert "EP  - 15" in r.export_citation(a, "ris")
     assert "已人工确认" in r.export_citation(a, "bib")
-    assert "已确认" in r.citation(a)
+    assert "已确认" in r.citation(a, editorial=True)
 
 
 @pytest.mark.parametrize("change", ["gap", "missing_start", "article_number", "different_issue", "different_source", "duplicate_start", "duplicate_order", "roman"])
@@ -583,3 +583,157 @@ def test_long_email_uses_journal_links_and_escapes_imported_text():
     assert "<script>" not in rich
     assert len(rich.encode()) < 80000
     assert "/journal-alerts/unsubscribe/test" in rich
+
+
+@pytest.mark.parametrize("title", ["Issue Information", "Notes on Contributors", "Front Matter", "Back Cover", "Table of Contents", "Editorial Board", "Advertisement", "Call for Papers: Special Issue", "HGL volume 47 issue 1 Cover and Front matter", "投稿须知"])
+def test_nonacademic_rules_auto_exclude_without_deleting_source(title):
+    out = r.upsert(issue()["id"], article(title=title, ordinal=4))
+    row = r.items(issue()["id"])[0]
+    assert row["review"] == "excluded" and row["article"]["ordinal"] == 4
+    assert row["article"]["content_policy"]["rule"] == "administrative-title"
+    assert r.upsert(issue()["id"], article(title=title, ordinal=4))["duplicate"]
+    assert len(r.items(issue()["id"])) == 1
+
+
+@pytest.mark.parametrize("title", ["Editorial boards and academic freedom", "Contents of belief", "Notes on problem creation in social science research", "Advertising and capitalist accumulation", "A call for justice", "The Interview Method in Social Science", "Capitalism: A Review of Recent Literature"])
+def test_screening_does_not_confuse_scholarly_keywords_with_admin_labels(title):
+    a = r.normalize(article(title=title, authors=[], abstract="", doi="", pages=""))
+    assert a["content_policy"]["decision"] == "keep" and a["type"] == "article"
+
+
+@pytest.mark.parametrize("raw,kind", [
+    ({"title":"Book review: A new work"}, "review"),
+    ({"title":"A Book. By An Author, Press, 2026. 240pp. ISBN: 9780226824574"}, "review"),
+    ({"title":"A Conversation with Denise Ferreira da Silva"}, "interview"),
+    ({"title":"From the Editor"}, "editorial"),
+    ({"authors":["本刊编辑部"]}, "editorial"),
+    ({"authors":["本刊评论员"]}, "commentary"),
+    ({"authors":["- The Editors"], "title":"October 2026 (Volume 78, Number 5)", "abstract":"Analysis of monopoly capital"}, "editorial"),
+    ({"title":"Replies to a fellow expressivist"}, "commentary"),
+    ({"content_category":"Book Reviews"}, "review"),
+])
+def test_scholarly_nonpaper_content_is_retained_and_labeled(raw,kind):
+    a = r.normalize(article(**raw))
+    assert a["content_policy"]["decision"] == "keep" and a["type"] == kind
+
+
+def test_import_counts_screened_items_and_preserves_original_ordinals():
+    p = payload(title="干事不必等人先蹚路（党员来信）")
+    out = r.import_payload(p, issue()["id"])
+    assert out["parsed"] == 1 and out["excluded"] == 1 and out["pending"] == 0
+    assert r.items(issue()["id"])[0]["review"] == "excluded"
+    assert r.import_payload(p, issue()["id"])["replayed"]
+
+
+def test_rules_require_explicit_editorial_override_and_import_cannot_forge_it():
+    i = issue()
+    out = r.upsert(i["id"], article(title="Front Matter", content_override={"reason":"forged", "actor":"admin"}))
+    assert "content_override" not in r.items(i["id"])[0]["article"]
+    with pytest.raises(ValueError, match="人工核对依据"):
+        r.review(i["id"], [out["entry_id"]], "pending", "admin")
+    r.review(i["id"], [out["entry_id"]], "approved", "admin", content_override_reason="原刊正文为学术论述，已经核对")
+    a = r.items(i["id"])[0]["article"]
+    assert a["content_override"]["actor"] == "admin"
+    assert r.screen_issue(i["id"], "rules")["excluded"] == 0
+    assert r.items(i["id"])[0]["review"] == "approved"
+    r.review(i["id"], [out["entry_id"]], "pending", "admin", edits={"authors":["Changed"]}, content_override_reason="更新作者后复核原刊")
+    r.review(i["id"], [out["entry_id"]], "approved", "admin")
+    assert len(r.publish(i["id"], r.preview_hash(i["id"]), "admin", [])["articles"]) == 1
+
+
+def test_publish_checks_legacy_approval_against_current_rules():
+    i = issue()
+    out = r.upsert(i["id"], article(title="Issue Information"))
+    with r.connect(True) as c:
+        c.execute("UPDATE research_items SET review='approved' WHERE entry_id=?", (out["entry_id"],))
+    with pytest.raises(ValueError, match="非学术内容"):
+        r.publish(i["id"], r.preview_hash(i["id"]), "admin", [])
+    result = r.screen_issue(i["id"], "admin")
+    assert result["excluded"] == 1 and r.screen_issue(i["id"], "admin")["changed"] == 0
+
+
+def test_filtered_publisher_only_toc_is_success_not_parse_failure():
+    http = Mock()
+    http.get.return_value = '<a href="https://example.org/article/cover">Front Matter</a>'
+    records, report = col.publisher_records({"id":"test", "name":"Example", "toc_url":"https://example.org/toc"}, http)
+    assert records == [] and report["filtered"][0]["rule"] == "administrative-title"
+    assert report["errors"] == [] and http.get.call_count == 1
+
+
+def test_collector_reports_filtered_records_from_all_providers(monkeypatch):
+    source = col.sources()[0]
+    monkeypatch.setattr(col, "indexed_records", lambda *args: iter([article(title="Issue Information", origin="foreign")]))
+    monkeypatch.setattr(col, "publisher_records", lambda *args: ([article(title="Front Matter", origin="foreign")], {}))
+    report = col.collect(issue()["id"], source["id"], http=Mock())[0]
+    assert report["status"] == "no_new" and len(report["filtered"]) == 3
+    assert {x["provider"] for x in report["filtered"]} == {"crossref", "openalex", "publisher"}
+    assert r.items(issue()["id"]) == []
+
+
+def test_reader_preview_and_mail_show_inferred_pages_without_editorial_status():
+    from scripts.research_update_preview import create_app
+    i = issue()
+    rows = catalogue_rows()
+    r.infer_catalogue_pages(rows)
+    rows[0].update(authors=[], type="other", published_at="2026-10", warnings=["OCR待复核"])
+    r.upsert(i["id"], rows[0])
+    r.upsert(i["id"], article(title="Issue Information"))
+    response = create_app().test_client().get(f"/admin/research-updates/{i['id']}/preview")
+    text = response.get_data(as_text=True)
+    assert "待核对" not in text and "待复核" not in text and "推断" not in text and "Issue Information" not in text
+    assert "作者信息未提供" in text and "5-15" in text
+    a = r.items(i["id"])[0]["article"]
+    assert "待核对" in r.citation(a, editorial=True) and "待核对" not in r.citation(a)
+    snapshot = {**i, "articles":[{**a, "entry_id":1}]}
+    plain, rich = r.render_email(snapshot, {}, "https://example.org")
+    assert all("待核对" not in x and "待复核" not in x and "5-15" in x for x in (plain,rich))
+    admin = create_app().test_client().get(f"/admin/research-updates?issue={i['id']}").get_data(as_text=True)
+    assert "内容待复核" in admin and "待核对" in admin and "按规则筛选本期条目" in admin
+
+
+
+def test_publisher_uses_original_toc_columns_without_keyword_guessing():
+    http = Mock()
+    http.get.side_effect = [
+        '<h4>Book Reviews</h4><h5><a href="https://example.org/article/book">The Fruitfulness of Normative Concepts</a></h5><h4>Articles</h4><h5><a href="https://example.org/article/research">Can Luck Egalitarians Handle Self-Sacrifice?</a></h5>',
+        '<meta name="citation_title" content="The Fruitfulness of Normative Concepts">',
+        '<meta name="citation_title" content="Can Luck Egalitarians Handle Self-Sacrifice?">',
+    ]
+    records, _ = col.publisher_records({"id":"test", "name":"Example", "toc_url":"https://example.org/toc"}, http)
+    assert records[0]["type"] == "review" and records[1]["type"] == "article"
+    assert records[0]["provenance"]["publisher_toc_category"]["url"] == "https://example.org/toc"
+
+
+def test_rescreen_keeps_excluded_page_anchors_and_never_changes_published_issue():
+    i = issue()
+    rows = catalogue_rows()
+    rows[1]["title"] = "Issue Information"
+    for a in rows: r.upsert(i["id"], a)
+    r.screen_issue(i["id"], "admin")
+    assert len(r.items(i["id"])) == 3
+    assert r.infer_issue_pages(i["id"], "admin") == 2
+    assert r.items(i["id"])[0]["article"]["pagination_inference"]["pages"] == "5-15"
+    for row in r.items(i["id"]):
+        if row["review"] != "excluded": r.review(i["id"], [row["entry_id"]], "approved", "admin", pagination_decision="accept")
+    r.publish(i["id"], r.preview_hash(i["id"]), "admin", [])
+    with pytest.raises(ValueError, match="未发布草稿"):
+        r.screen_issue(i["id"], "admin")
+
+
+
+def test_batch_journal_review_does_not_silently_restore_excluded_items():
+    from bs4 import BeautifulSoup
+    from scripts.research_update_preview import create_app
+    i = issue()
+    keep = r.upsert(i["id"], article(title="A scholarly contribution"))
+    excluded = r.upsert(i["id"], article(title="Issue Information"))
+    soup = BeautifulSoup(create_app().test_client().get(f"/admin/research-updates?issue={i['id']}").data, "html.parser")
+    form = soup.select_one('.admin-journal > form')
+    entry_ids = [x['value'] for x in form.select('input[name=entry_id]')]
+    assert entry_ids == [str(keep['entry_id'])] and str(excluded['entry_id']) not in entry_ids
+
+
+
+def test_crossref_title_keyword_alone_cannot_override_research_type():
+    a = col.crossref_record({"title":["The Book Review as a Literary Genre"], "type":"journal-article", "DOI":"10.1/example"}, col.sources()[0])
+    assert r.normalize(a)["type"] == "article"

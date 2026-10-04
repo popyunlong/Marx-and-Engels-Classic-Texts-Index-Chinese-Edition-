@@ -18,10 +18,11 @@ from typing import Any
 from urllib.parse import unquote, urlencode, urlsplit, urlunsplit
 
 from journal_storage import JOURNAL_DB_PATH, ensure_journal_storage
+import research_content as content
 
 DB_PATH = JOURNAL_DB_PATH
 TITLE = "本周国内外研究动态"
-TYPE_LABELS = {"article": "研究论文", "journal-article": "研究论文", "review": "书评", "editorial": "编者按／评论", "interview": "访谈", "letter": "通信", "erratum": "更正", "peer-review": "评议", "other": "其他学术内容"}
+TYPE_LABELS = {"article": "研究论文", "journal-article": "研究论文", "review": "书评", "editorial": "编者按／评论", "commentary": "评论／回应", "interview": "访谈", "letter": "学术通信", "erratum": "更正", "peer-review": "评议", "other": "资料与其他内容"}
 TZ = timezone(timedelta(hours=8))
 SCHEMA_VERSION = 1
 MISSING = {"原文未提供", "未提供", "暂无", "无", "待补充", "null", "None"}
@@ -177,13 +178,7 @@ def normalize(raw: dict) -> dict:
     a["url"] = safe_url(a.get("url"))
     a["origin"] = a.get("origin") if a.get("origin") in {"domestic", "foreign"} else "foreign"
     a["type"] = clean(a.get("type")) or "article"
-    if a["type"] == "journal-article":
-        a["type"] = "article"
-    if a["type"] == "article":
-        for label, pattern in (("review", r"^(book review|review essay)\b"), ("editorial", r"^(editorial|preface|foreword)\b"), ("interview", r"\binterview\b")):
-            if re.search(pattern, a["title"], re.I):
-                a["type"] = label
-                break
+    content.apply(a)
     if "ordinal" not in a:
         m = re.match(r"\d+", a["page_start"] or a["pages"])
         a["ordinal"] = int(m[0]) if m else 999999
@@ -265,7 +260,7 @@ def infer_issue_pages(issue_id: int, actor: str) -> int:
         changed = infer_catalogue_pages(articles)
         for row, a in zip(rows, articles):
             if dumps(a) != row["data"]:
-                c.execute("UPDATE research_items SET data=?,review='pending',actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
+                c.execute("UPDATE research_items SET data=?,review=CASE WHEN review='excluded' THEN 'excluded' ELSE 'pending' END,actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
                           (dumps(a), actor, now_text(), issue_id, row["entry_id"]))
         return changed
 
@@ -321,6 +316,8 @@ def _editable_issue(c, issue_id: int) -> int:
 
 def _upsert(c, issue_id: int, raw: dict) -> dict:
     a = normalize(raw)
+    # Import/collector credentials cannot supply an editorial override.
+    a.pop("content_override", None)
     key = identity(a)
     old = c.execute("SELECT e.* FROM research_aliases a JOIN research_entries e ON e.id=a.entry_id WHERE a.identity=?", (key,)).fetchone()
     if not old:
@@ -375,8 +372,9 @@ def _upsert(c, issue_id: int, raw: dict) -> dict:
         if last:
             issue_id = last["id"]
         evidence_only = {"provenance", "field_sources", "collected_at", "index_topics"}
-        content = lambda value: {k: v for k, v in value.items() if k not in evidence_only}
-        if digest(content(previous)) == digest(content(a)):
+        substantive = lambda value: {k: v for k, v in value.items() if k not in evidence_only}
+        content.apply(a)
+        if digest(substantive(previous)) == digest(substantive(a)):
             c.execute("UPDATE research_entries SET data=?,updated_at=? WHERE id=?", (dumps(a), now_text(), eid))
             return {"entry_id": eid, "issue_id": issue_id, "duplicate": True}
         c.execute("UPDATE research_entries SET data=?,updated_at=? WHERE id=?", (dumps(a), now_text(), eid))
@@ -385,14 +383,16 @@ def _upsert(c, issue_id: int, raw: dict) -> dict:
         cur = c.execute("INSERT INTO research_entries(identity,data,first_seen_at,updated_at) VALUES(?,?,?,?)",
                         (key, dumps(a), now_text(), now_text()))
         eid = cur.lastrowid
+    content.apply(a)
     target = _editable_issue(c, issue_id)
     issue = dict(c.execute("SELECT * FROM research_issues WHERE id=?", (target,)).fetchone())
     section = "correction" if issue["parent_id"] else period_section(a, issue)
     if section == "future":
         section = "date_review"
+    screening = "excluded" if a["content_policy"]["decision"] == "exclude" else "pending"
     c.execute("INSERT INTO research_items VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,entry_id) DO UPDATE SET "
-              "data=excluded.data,review='pending',section=excluded.section,updated_at=excluded.updated_at",
-              (target, eid, dumps(a), "pending", section, "", now_text()))
+              "data=excluded.data,review=excluded.review,section=excluded.section,actor=excluded.actor,updated_at=excluded.updated_at",
+              (target, eid, dumps(a), screening, section, "content-rules" if screening == "excluded" else "", now_text()))
     return {"entry_id": eid, "issue_id": target, "duplicate": False}
 
 
@@ -492,7 +492,7 @@ def import_payload(payload: dict, issue_id: int | None = None) -> dict:
                            (payload["source_id"], expected)).fetchone()
         if prior:
             return {**json.loads(prior["result"]), "import_id": prior["id"], "replayed": True}
-        result = {"parsed": len(articles), "duplicates": 0, "pending": 0, "conflicts": [], "warnings": warnings, "issues": [], "inferred_pages": inferred_pages}
+        result = {"parsed": len(articles), "duplicates": 0, "pending": 0, "excluded": 0, "content_review": 0, "conflicts": [], "warnings": warnings, "issues": [], "inferred_pages": inferred_pages}
         for a in articles:
             # OCR corrections without a stable paper identifier require a human merge.
             candidates = c.execute("SELECT id,data FROM research_entries WHERE json_extract(data,'$.source_id')=? AND json_extract(data,'$.ordinal')=?",
@@ -502,7 +502,8 @@ def import_payload(payload: dict, issue_id: int | None = None) -> dict:
                     a["warnings"].append(f"可能是条目 {old['id']} 的修订，请合并或排除重复项")
                     result["conflicts"].append(old["id"])
             r = _upsert(c, target["id"], a)
-            result["duplicates" if r["duplicate"] else "pending"] += 1
+            result["duplicates" if r["duplicate"] else "excluded" if a["content_policy"]["decision"] == "exclude" else "pending"] += 1
+            result["content_review"] += int(a["content_policy"]["decision"] == "review")
             if r["issue_id"] not in result["issues"]:
                 result["issues"].append(r["issue_id"])
         cur = c.execute("INSERT INTO research_imports(source_id,content_hash,payload,result,created_at) VALUES(?,?,?,?,?)",
@@ -524,8 +525,9 @@ def move_items(issue_id: int, entry_ids: list[int], target_id: int) -> None:
                 raise ValueError("条目不属于草稿")
             section = "correction" if target["parent_id"] else period_section(json.loads(row["data"]), target)
             section = "date_review" if section == "future" else section
-            c.execute("INSERT INTO research_items VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,entry_id) DO UPDATE SET data=excluded.data,review='pending'",
-                      (target_id, eid, row["data"], "pending", section, "", now_text()))
+            screening = "excluded" if row["review"] == "excluded" else "pending"
+            c.execute("INSERT INTO research_items VALUES(?,?,?,?,?,?,?) ON CONFLICT(issue_id,entry_id) DO UPDATE SET data=excluded.data,review=excluded.review",
+                      (target_id, eid, row["data"], screening, section, "", now_text()))
             c.execute("DELETE FROM research_items WHERE issue_id=? AND entry_id=?", (issue_id, eid))
 
 
@@ -547,8 +549,38 @@ def merge_items(issue_id: int, entry_id: int, into_id: int, actor: str) -> None:
         c.execute("UPDATE research_items SET review='excluded',actor=? WHERE issue_id=? AND entry_id=?", (actor, issue_id, entry_id))
 
 
+def screen_issue(issue_id: int, actor: str) -> dict:
+    """Re-screen drafts without deleting catalogue anchors or existing exclusions."""
+    result = {"excluded": 0, "retyped": 0, "content_review": 0, "changed": 0}
+    with connect(True) as c:
+        issue = c.execute("SELECT status FROM research_issues WHERE id=?", (issue_id,)).fetchone()
+        if not issue or issue["status"] != "draft":
+            raise ValueError("只能筛选未发布草稿")
+        for row in c.execute("SELECT * FROM research_items WHERE issue_id=?", (issue_id,)).fetchall():
+            a = json.loads(row["data"])
+            previous_type = a.get("type")
+            content.apply(a)
+            selected = row["review"]
+            decision = a["content_policy"]["decision"]
+            overridden = content_confirmed(a)
+            if decision == "exclude" and not overridden:
+                result["excluded"] += int(selected != "excluded")
+                selected = "excluded"
+            if selected != "excluded":
+                result["retyped"] += int(previous_type != a["type"])
+                result["content_review"] += int(decision == "review" and not overridden)
+                if (previous_type != a["type"] or decision == "review") and not overridden:
+                    selected = "pending"
+            if dumps(a) != row["data"] or selected != row["review"]:
+                result["changed"] += 1
+                c.execute("UPDATE research_items SET data=?,review=?,actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
+                          (dumps(a), selected, actor, now_text(), issue_id, row["entry_id"]))
+    return result
+
+
 def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: dict | None = None,
-           section: str | None = None, pagination_decision: str | None = None) -> None:
+           section: str | None = None, pagination_decision: str | None = None,
+           content_override_reason: str = "") -> None:
     if action not in {"approved", "pending", "excluded"}:
         raise ValueError("无效审核操作")
     with connect(True) as c:
@@ -565,6 +597,13 @@ def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: 
                 allowed = {"title", "title_zh", "authors", "abstract", "abstract_zh", "keywords", "keywords_zh",
                            "year", "volume", "issue", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type"}
                 a = normalize({**a, **{k: v for k, v in edits.items() if k in allowed}})
+            content.apply(a)
+            if clean(content_override_reason):
+                a["content_override"] = {"reason": clean(content_override_reason), "actor": actor,
+                                         "rule": a["content_policy"]["rule"], "at": now_text(),
+                                         "fingerprint": digest([a["title"], a.get("section_name"), a["authors"], a["type"]])}
+            if a["content_policy"]["decision"] == "exclude" and action != "excluded" and not content_confirmed(a):
+                raise ValueError("此条命中非学术内容规则；恢复前请填写人工核对依据")
             inferred = a.get("pagination_inference", {})
             if inferred and previous_pages != (a.get("pages"), a.get("page_start"), a.get("page_end")):
                 inferred.update(status="overridden", actor=actor)
@@ -582,6 +621,8 @@ def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: 
             if selected not in {"new", "supplement", "correction", "date_review"}:
                 raise ValueError("无效归属")
             if action == "approved":
+                if a["content_policy"]["decision"] == "review" and not content_confirmed(a):
+                    raise ValueError("内容类型待核对；请填写人工确认学术内容的依据")
                 if selected == "date_review":
                     raise ValueError("请先确认日期，将条目归为本周新文或补录")
                 if a["origin"] == "foreign" and (not a["title_zh"] or (a["abstract"] and not a["abstract_zh"])):
@@ -602,6 +643,12 @@ def preview_hash(issue_id: int, c=None) -> str:
     return digest(rows)
 
 
+def content_confirmed(a: dict) -> bool:
+    override = a.get("content_override", {})
+    return bool(override.get("reason") and override.get("fingerprint") ==
+                digest([a["title"], a.get("section_name"), a.get("authors", []), a.get("type")]))
+
+
 def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict]) -> dict:
     with connect(True) as c:
         issue = c.execute("SELECT * FROM research_issues WHERE id=?", (issue_id,)).fetchone()
@@ -614,6 +661,9 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
                     for r in rows if r["review"] == "approved"]
         if not articles:
             raise ValueError("没有已确认条目")
+        for a in articles:
+            if content.assess(a)["decision"] != "keep" and not content_confirmed(a):
+                raise ValueError("存在尚未确认的非学术内容筛选结果，请重新核对")
         articles.sort(key=lambda a: (a["origin"], a["journal"], a.get("year", ""), a.get("issue", ""), a.get("ordinal", 999999), a["entry_id"]))
         target = issue["parent_id"] or issue_id
         parent = c.execute("SELECT * FROM research_issues WHERE id=?", (target,)).fetchone()
@@ -640,17 +690,24 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
 
 def issue_label(a: dict) -> str:
     return " · ".join(filter(None, (a.get("year"), ("第 " + a["volume"] + " 卷") if a.get("volume") else "",
-                                    ("第 " + a["issue"] + " 期") if a.get("issue") else ""))) or "在线优先／刊期待定"
+                                    ("第 " + a["issue"] + " 期") if a.get("issue") else ""))) or "在线发表／暂无卷期信息"
 
 
-def citation(a: dict) -> str:
+def display_pages(a: dict) -> str:
+    inference = a.get("pagination_inference", {})
+    if inference.get("status") in {"pending", "confirmed"}:
+        return inference["pages"]
+    return a.get("pages") or (f"{a['page_start']}-{a['page_end']}" if a.get("page_start") and a.get("page_end") else "")
+
+
+def citation(a: dict, editorial: bool = False) -> str:
     authors = ", ".join(a.get("authors") or [])
     place = str(a.get("year") or "")
     if a.get("volume"):
         place += ", " + a["volume"]
     if a.get("issue"):
         place += "(" + a["issue"] + ")"
-    pages = a.get("pages") or (f"{a['page_start']}-{a['page_end']}" if a.get("page_start") and a.get("page_end") else "")
+    pages = display_pages(a)
     if pages:
         place += ": " + pages
     elif a.get("article_number"):
@@ -658,12 +715,12 @@ def citation(a: dict) -> str:
     result = ". ".join(x for x in (authors, a.get("title", "") + "[J]", a.get("journal", ""), place) if x) + "."
     if a.get("doi"):
         result += " DOI: " + a["doi"] + "."
-    if a.get("page_start") and not a.get("page_end"):
-        result += " [仅起始页已知：" + a["page_start"] + "]"
     inference = a.get("pagination_inference", {})
-    if inference.get("status") == "pending":
+    if editorial and a.get("page_start") and not a.get("page_end") and inference.get("status") not in {"pending", "confirmed"}:
+        result += " [仅起始页已知：" + a["page_start"] + "]"
+    if inference.get("status") == "pending" and editorial:
         result += " [推断页码：" + inference["pages"] + "；待核对]"
-    elif inference.get("status") == "confirmed":
+    elif inference.get("status") == "confirmed" and editorial:
         result += " [页码据相邻目录推断，已确认]"
     return result
 
@@ -741,16 +798,11 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
                     title = a.get("title_zh") or a["title"]
                     detail = url + "/articles/" + str(a["entry_id"])
                     summary = a.get("abstract_zh") or a.get("abstract") or ""
-                    inference = a.get("pagination_inference", {})
-                    pages = a.get("pages") or ((a["page_start"] + ("—" + a["page_end"] if a.get("page_end") else " 起")) if a.get("page_start") else "")
-                    pages = pages or a.get("article_number") or "页码待补"
+                    pages = display_pages(a) or ((a["page_start"] + ("—" + a["page_end"] if a.get("page_end") else " 起")) if a.get("page_start") else "")
+                    pages = pages or a.get("article_number") or "来源未提供页码"
                     if pages == a.get("page_start") and not a.get("page_end"):
-                        pages += " 起 · 终页待补"
-                    if inference.get("status") == "pending":
-                        pages = inference["pages"] + "（推断待核对）"
-                    elif inference.get("status") == "confirmed":
-                        pages += "（推断已确认）"
-                    meta = " · ".join(("、".join(a.get("authors", [])) or "作者待核对", pages, "含摘要" if summary else "仅题录"))
+                        pages += " 起 · 仅列起始页"
+                    meta = " · ".join(("、".join(a.get("authors", [])) or "作者信息未提供", TYPE_LABELS.get(a.get("type"), "资料与其他内容"), pages, "含摘要" if summary else "仅题录"))
                     text.extend([str(n) + ". " + title, meta, summary[:180], detail, ""])
                     body.append('<div style="padding:15px 0;border-bottom:1px solid #e6e0d5"><p style="font-size:16px;line-height:1.65;margin:0 0 6px"><span style="color:#a99e90">' + str(n).zfill(2) + '.</span> <a style="color:#292622;text-decoration:none" href="' + esc(detail) + '">' + esc(title) + '</a></p>')
                     if a.get("title_zh"):

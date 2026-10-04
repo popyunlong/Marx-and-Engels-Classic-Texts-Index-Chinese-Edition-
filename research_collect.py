@@ -69,7 +69,7 @@ PUBLISHERS = {
 EXTRA_HOSTS = {"api.crossref.org", "api.openalex.org", "doi.org", "www.doi.org", "muse.jhu.edu",
                "journalofphilosophy.org", "www.journalofphilosophy.org", "monthlyreview.org", "newleftreview.org", "link.springer.com", "link.springernature.com", "idp.springer.com"}
 ALLOWED_HOSTS = {urlsplit(u).hostname for u in PUBLISHERS.values()} | EXTRA_HOSTS
-EXCLUDED = re.compile(r"^(?:front\s*cover|back\s*cover|cover\s*image|table of contents|contents|advertisement|call for papers|index to volume)\b|^editorial board$|\bcover and (?:front|back) matter\b", re.I)
+EXCLUDED = store.content.ADMIN_TITLE
 
 
 class PartialSourceError(RuntimeError):
@@ -204,7 +204,7 @@ def crossref_record(x: dict, source: dict) -> dict:
             "year": (printed or online or date_parts(x.get("published")))[:4], "published_at": online or printed or date_parts(x.get("published")),
             "published_online": online, "published_print": printed, "volume": x.get("volume"), "issue": x.get("issue"),
             "pages": x.get("page"), "article_number": x.get("article-number"), "issn": source["id"], "origin": "foreign",
-            "type": "review" if re.search(r"\bbook review\b", title, re.I) else x.get("type", "article"),
+            "type": x.get("type", "article"),
             "resource_url": ((x.get("resource") or {}).get("primary") or {}).get("URL", ""),
             "provenance": {"crossref": {"doi": doi, "indexed": x.get("indexed"), "deposited": x.get("deposited"), "issns": x.get("ISSN", [])}}}
 
@@ -264,7 +264,7 @@ def _indexed_records(source: dict, issue: dict, provider: str, http: HTTP):
                 rows, nxt = data.get("results", []), (data.get("meta") or {}).get("next_cursor")
                 records = [openalex_record(x, source) for x in rows if x.get("type") in {"article", "review", "editorial", "letter", "erratum", "other"}]
             for a in records:
-                if a.get("title") and not EXCLUDED.search(a["title"]):
+                if a.get("title"):
                     yield a
             if len(rows) < 100 or not nxt or nxt == cursor:
                 set_state(key, {"cursor": "*", "complete": True})
@@ -288,6 +288,7 @@ def detail_metadata(body: str, url: str) -> dict:
          "issue": first("citation_issue"), "page_start": first("citation_firstpage"), "page_end": first("citation_lastpage"),
          "published_at": first("citation_publication_date", "dc.date", "article:published_time").replace("/", "-"),
          "published_online": first("citation_online_date").replace("/", "-"),
+         "content_category": first("citation_article_type", "prism.section", "article:section"),
          "keywords": [x.strip() for x in re.split(r"[;,]", first("citation_keywords", "keywords")) if x.strip()], "url": url}
     abstract = soup.select_one(".abstractSection, .abstract-content, section.abstract, #abstract, .article-abstract")
     if abstract:
@@ -303,6 +304,17 @@ def publisher_records(source: dict, http: HTTP) -> tuple[list[dict], dict]:
     if any(x in soup.get_text(" ", strip=True)[:1500].lower() for x in ("verify you are human", "just a moment", "access denied", "captcha")):
         raise RuntimeError("出版社访问验证，目录未完成核对")
     links = []
+    link_categories = {}
+    def catalogue_category(anchor):
+        # Only recognized TOC headings convey type; never infer it from book-like
+        # titles or page count. Stop at unrelated page/sidebar headings.
+        for heading in list(anchor.find_all_previous(["h1", "h2", "h3", "h4"]))[:10]:
+            label = heading.get_text(" ", strip=True)
+            if label.lower() in {"articles", "research articles", "book reviews", "discussion", "editorial", "interview", "commentary"}:
+                return label
+            if heading.name in {"h1", "h2"} or label.lower() in {"most read", "most cited", "about the journal", "recent issues"}:
+                break
+        return ""
     # NLR exposes issue article cards even where no DOI has been assigned.
     online = None
     online_error = ""
@@ -317,9 +329,10 @@ def publisher_records(source: dict, http: HTTP) -> tuple[list[dict], dict]:
         title = anchor.get_text(" ", strip=True)
         match = ("/issues/ii" in path and path.count("/") >= 4) if source["id"] == "0028-6060" else (
             "/doi/" in path or "/article/" in path or "/articles/" in path or "/article/view/" in path or bool(re.search(r"/\d{4}/\d{2}/\d{2}/[^/]+", path)))
-        if match and len(title) > 12 and not path.endswith(".pdf") and not re.search(r"(?:requires subscription|download|\bPDF\b)", title, re.I) and not EXCLUDED.search(title):
+        if match and (len(title) > 12 or EXCLUDED.fullmatch(title)) and not path.endswith(".pdf") and not re.search(r"(?:requires subscription|download|\bPDF\b)", title, re.I):
             if href not in [x[0] for x in links]:
                 links.append((href, title))
+                link_categories[href] = catalogue_category(anchor)
     report = {"toc_url": url, "online_url": source.get("online_url", ""), "links": len(links), "rss": [urljoin(url, l.get("href", "")) for l in soup.select('link[type="application/rss+xml"],link[type="application/atom+xml"]') if "comment" not in l.get("href", "").lower()]}
     # Feed links are discovered from the actual publisher page, never guessed.
     for feed in report["rss"][:2]:
@@ -336,7 +349,7 @@ def publisher_records(source: dict, http: HTTP) -> tuple[list[dict], dict]:
                     link_node = node.find('{http://www.w3.org/2005/Atom}link')
                     href = link_node.get('href', '') if link_node is not None else ''
                 journal_link = source["id"] != "0027-0520" or "/articles/" in urlsplit(href or "").path
-                if href and journal_link and len(title) > 12 and not EXCLUDED.search(title) and href not in [x[0] for x in links]:
+                if href and journal_link and (len(title) > 12 or EXCLUDED.fullmatch(title)) and href not in [x[0] for x in links]:
                     links.append((href, title))
         except Exception as exc:
             report.setdefault('feed_errors', []).append(str(exc)[:180])
@@ -344,15 +357,27 @@ def publisher_records(source: dict, http: HTTP) -> tuple[list[dict], dict]:
     if not links:
         raise RuntimeError("已访问出版社页面，但未识别可核对的新文目录；不可判定无新增")
     records = []
+    report["filtered"] = []
     errors = ([online_error] if online_error else []) + report.get("feed_errors", [])
     if len(links) > 100:
         errors.append("目录超过本次 100 条详情预算，请分期核对；本次来源不标记为完整")
     for ordinal, (href, title) in enumerate(links[:100]):
+        policy = store.content.assess({"title": title})
+        if policy["decision"] == "exclude":
+            report["filtered"].append({"title": title, "url": href, **policy})
+            continue
         try:
             a = detail_metadata(http.get(href), href)
             if not a.get("title"):
                 a["title"] = title
             a.update(journal=source["name"], issn=source["id"], origin="foreign", ordinal=ordinal)
+            if not a.get("content_category") and link_categories.get(href):
+                a["content_category"] = link_categories[href]
+                a["provenance"]["publisher_toc_category"] = {"category": link_categories[href], "url": url}
+            store.content.apply(a)
+            if a["content_policy"]["decision"] == "exclude":
+                report["filtered"].append({"title": a["title"], "url": href, **a["content_policy"]})
+                continue
             if not a.get("published_at"):
                 a["warnings"] = ["出版社目录无精确发表日期，请核对刊期"]
             records.append(a)
@@ -361,7 +386,7 @@ def publisher_records(source: dict, http: HTTP) -> tuple[list[dict], dict]:
     report["errors"] = errors
     if len(links) > 100:
         report["errors"].append("目录超过100条，需追加核对")
-    if not records:
+    if not records and (errors or not report["filtered"]):
         raise RuntimeError("目录详情无法解析：" + "; ".join(errors[:2]))
     return records, report
 
@@ -377,7 +402,7 @@ def collect(issue_id: int, source_id: str = "", http: HTTP | None = None, backfi
     if not registry:
         raise ValueError("未知期刊")
     for source in registry:
-        report = {"name": source["name"], "id": source["id"], "toc_url": source["toc_url"], "providers": {}, "inserted": 0, "duplicates": 0, "historical_skipped": 0}
+        report = {"name": source["name"], "id": source["id"], "toc_url": source["toc_url"], "providers": {}, "inserted": 0, "duplicates": 0, "historical_skipped": 0, "filtered": []}
         merged = {}
         for provider in ("crossref", "openalex", "publisher"):
             count = 0
@@ -385,11 +410,15 @@ def collect(issue_id: int, source_id: str = "", http: HTTP | None = None, backfi
                 if provider == "publisher":
                     records, detail = publisher_records(source, http)
                     report["publisher_details"] = detail
+                    report["filtered"].extend({"provider": provider, **x} for x in detail.get("filtered", []))
                 else:
                     records = indexed_records(source, issue, provider, http)
                 for raw in records:
                     count += 1
                     a = store.normalize(raw)
+                    if a["content_policy"]["decision"] == "exclude":
+                        report["filtered"].append({"provider": provider, "title": a["title"], "url": a["url"], **a["content_policy"]})
+                        continue
                     a["field_sources"] = {k: [{"provider": provider, "url": a["url"]}] for k in
                         ("title", "authors", "abstract", "keywords", "year", "volume", "issue", "pages", "page_start", "page_end", "article_number", "doi", "published_at", "published_online", "published_print") if a.get(k)}
                     key = store.identity(a)
