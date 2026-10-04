@@ -44,6 +44,7 @@ def register(app, host):
                                articles=filtered, all_articles=articles, journals=journals, fields=fields,
                                archives=r.issues(True) if member() else [], citation=r.citation, preview=preview,
                                is_member=member(), type_labels=r.TYPE_LABELS, legacy_url=url_for("journal_alerts_latest"),
+                               journal_chinese_name=r.journal_chinese_name, journal_display_name=r.journal_display_name,
                                journal_ids={j: "journal-" + str(n) for n, j in enumerate(journals)},
                                main_journals={a["journal"] for a in articles if a.get("section") not in {"supplement", "correction"}})
 

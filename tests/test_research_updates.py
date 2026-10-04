@@ -805,3 +805,45 @@ def test_bilingual_authors_appear_in_web_mail_search_while_citations_keep_origin
     for fmt in ("ris","bib"):
         exported=r.export_citation(a,fmt)
         assert "John Bellamy Foster" in exported and "约翰·贝拉米·福斯特" not in exported
+
+
+def test_target_journal_translations_cover_catalogue_without_changing_citations():
+    from research_journals import chinese_name
+    assert len(col.sources()) == 45
+    assert all(chinese_name(s['name']) for s in col.sources())
+    assert chinese_name('Nous') == chinese_name('Noûs') == '努斯'
+    assert chinese_name('Theory, Culture and Society') == '理论、文化与社会'
+    a = r.normalize(article(journal='Ethics'))
+    assert a['journal'] == 'Ethics' and '伦理学' not in r.citation(a)
+
+
+def test_issue_fold_headers_group_counts_and_filtered_first_group():
+    from bs4 import BeautifulSoup
+    from scripts.research_update_preview import create_app
+    i=issue()
+    for n,(journal,number) in enumerate([('Ethics','1'),('Ethics','1'),('Ethics','2'),('Mind','3')]):
+        r.upsert(i['id'],article(title=f'Paper {n}',url=f'https://example.org/article/{n}',origin='foreign',journal=journal,volume='137',issue=number))
+    client=create_app().test_client()
+    soup=BeautifulSoup(client.get(f"/admin/research-updates/{i['id']}/preview").data,'html.parser')
+    groups=soup.select('.journal-issue')
+    assert len(groups)==3 and [g.has_attr('open') for g in groups]==[True,False,False]
+    assert [len(g.select('.catalogue-entry')) for g in groups]==[2,1,1]
+    headers=[g.select_one('summary').get_text(' ',strip=True) for g in groups]
+    assert '伦理学' in headers[0] and 'Ethics' in headers[0] and '2026 年' in headers[0] and '第 1 期' in headers[0] and '2 篇' in headers[0]
+    assert '第 2 期' in headers[1] and '1 篇' in headers[1]
+    option=soup.select_one('option[value="Ethics"]')
+    assert '伦理学' in option.get_text()
+    filtered=BeautifulSoup(client.get(f"/admin/research-updates/{i['id']}/preview?journal=Mind").data,'html.parser')
+    assert len(filtered.select('.journal-issue'))==1 and filtered.select_one('.journal-issue').has_attr('open')
+
+
+def test_compact_email_preserves_group_counts_and_links_without_hidden_content():
+    entries=[{**r.normalize(article(title=f'Paper {n}',journal=journal,origin='foreign',abstract=f'Abstract {n}',issue=number)), 'entry_id':n,'section':section}
+             for n,(journal,number,section) in enumerate([('Ethics','1','new'),('Ethics','2','new'),('Mind','3','supplement')])]
+    plain,rich=r.render_email({**issue(),'articles':entries},{'unsubscribe_token':'token'},'https://example.org')
+    assert '伦理学 · Ethics · 2026 年 · 第 1 期 · 1 篇' in plain
+    assert '第 2 期 · 1 篇' in plain and '心灵 · Mind' in plain and '补录与更正' in plain
+    assert 'Abstract 0' in rich and 'Abstract 1' not in rich and 'Abstract 2' not in rich
+    assert all(f'Paper {n}' in rich for n in range(3))
+    assert '?journal=Mind' in plain and '/journal-alerts/unsubscribe/token' in rich
+    assert '<details' not in rich and 'display:none' not in rich

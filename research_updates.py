@@ -19,6 +19,7 @@ from urllib.parse import unquote, urlencode, urlsplit, urlunsplit
 
 from journal_storage import JOURNAL_DB_PATH, ensure_journal_storage
 import research_content as content
+from research_journals import chinese_name as journal_chinese_name, display_name as journal_display_name
 
 DB_PATH = JOURNAL_DB_PATH
 TITLE = "本周国内外研究动态"
@@ -697,7 +698,7 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
 
 
 def issue_label(a: dict) -> str:
-    return " · ".join(filter(None, (a.get("year"), ("第 " + a["volume"] + " 卷") if a.get("volume") else "",
+    return " · ".join(filter(None, ((str(a["year"]) + " 年") if a.get("year") else "", ("第 " + a["volume"] + " 卷") if a.get("volume") else "",
                                     ("第 " + a["issue"] + " 期") if a.get("issue") else ""))) or "在线发表／暂无卷期信息"
 
 
@@ -785,8 +786,11 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
     text = [TITLE, snapshot["period_start"] + " — " + snapshot["period_end"], "完整目录与摘要：" + url, ""]
     body = ['<div style="max-width:740px;margin:auto;background:#fffdf8;color:#211b16;padding:24px;font-family:serif">',
             "<h1>" + TITLE + "</h1><p>" + esc(text[1]) + "</p><p>共 " + str(len(snapshot["articles"])) + ' 篇。<a href="' + esc(url) + '">阅读完整周报</a></p>']
-    for origin, label in (("domestic", "国内研究动态"), ("foreign", "国外研究动态")):
-        selected = [a for a in snapshot["articles"] if a["origin"] == origin]
+    first_group = True
+    for origin, label in (("domestic", "国内研究动态"), ("foreign", "国外研究动态"), ("supplement", "补录与更正")):
+        selected = [a for a in snapshot["articles"] if
+                    (origin == "supplement" and a.get("section") in {"supplement", "correction"}) or
+                    (a["origin"] == origin and a.get("section") not in {"supplement", "correction"})]
         if not selected:
             continue
         body.append('<h2 style="font-size:21px;color:#7c3433;border-bottom:2px solid #7c3433;padding-bottom:8px;margin-top:30px">' + label + '</h2>')
@@ -794,15 +798,25 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
         journals = sorted({a["journal"] for a in selected})
         for journal in journals:
             group = [a for a in selected if a["journal"] == journal]
-            body.append('<h3 style="font-size:17px;background:#f4f0e7;padding:10px 12px;margin:20px 0 0">' + esc(journal) + ' · ' + str(len(group)) + ' 篇</h3>')
-            text.append(journal)
             issue_groups = {}
             for a in group:
                 issue_groups.setdefault(issue_label(a), []).append(a)
-            for label_issue, entries in issue_groups.items():
-                body.append('<p style="font:12px/1.8 sans-serif;color:#7c766e;border-bottom:1px solid #e6e0d5;padding-bottom:8px">' + esc(label_issue) + '</p>')
-                text.append(label_issue)
-                for n, a in enumerate(sorted(entries, key=lambda x: x.get("ordinal", 999999)), 1):
+            for label_issue, entries in sorted(issue_groups.items()):
+                heading = journal_display_name(journal) + ' · ' + label_issue + ' · ' + str(len(entries)) + ' 篇'
+                link = url + '?' + urlencode({'journal': journal})
+                body.append('<h3 style="font-size:16px;line-height:1.8;background:#f4f0e7;padding:10px 12px;margin:18px 0 0">' + esc(heading) + '</h3>')
+                text.append(heading)
+                ordered = sorted(entries, key=lambda x: x.get("ordinal", 999999))
+                if not first_group:
+                    titles = [a.get('title_zh') or a['title'] for a in ordered[:3]]
+                    preview = '；'.join(t[:90] + ('…' if len(t) > 90 else '') for t in titles)
+                    if len(entries) > 3:
+                        preview += '；另 ' + str(len(entries) - 3) + ' 篇'
+                    text.extend([preview, '查看本刊目录：' + link, ''])
+                    body.append('<p style="font-size:13px;line-height:1.85;margin:9px 0">' + esc(preview) + '</p><p style="font:12px/1.8 sans-serif;margin:6px 0 16px"><a style="color:#7c3433" href="' + esc(link) + '">查看本刊目录与摘要 →</a></p>')
+                    continue
+                first_group = False
+                for n, a in enumerate(ordered[:5], 1):
                     title = a.get("title_zh") or a["title"]
                     detail = url + "/articles/" + str(a["entry_id"])
                     summary = a.get("abstract_zh") or a.get("abstract") or ""
@@ -822,6 +836,8 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
                     if summary:
                         body.append('<p style="font-size:13px;line-height:1.85;margin:8px 0">' + esc(summary[:180]) + ('…' if len(summary) > 180 else '') + '</p>')
                     body.append('</div>')
+                text.extend(['查看本刊全部 ' + str(len(entries)) + ' 篇：' + link, ''])
+                body.append('<p style="font:12px/1.8 sans-serif;margin:10px 0 18px"><a style="color:#7c3433" href="' + esc(link) + '">查看本刊全部 ' + str(len(entries)) + ' 篇 →</a></p>')
     if len("".join(body).encode()) > 80000:
         text = text[:4] + ["本期目录较长，请在网页查看全部条目。"]
         body = body[:2] + ['<p>本期目录较长，请从以下期刊入口查看全部条目。</p>']
@@ -831,8 +847,10 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
             body.append("<h2>" + label + "</h2><ul>")
             for journal in journals:
                 link = url + "?" + urlencode({"journal": journal})
-                text.append(journal + "：" + link)
-                body.append('<li><a href="' + esc(link) + '">' + esc(journal) + '</a></li>')
+                group = [a for a in snapshot["articles"] if a["origin"] == origin and a["journal"] == journal]
+                heading = journal_display_name(journal) + ' · ' + ' / '.join(sorted({issue_label(a) for a in group})) + ' · ' + str(len(group)) + ' 篇'
+                text.append(heading + "：" + link)
+                body.append('<li><a href="' + esc(link) + '">' + esc(heading) + '</a></li>')
             body.append("</ul>")
     unsubscribe = recipient.get("unsubscribe_token")
     if unsubscribe:
