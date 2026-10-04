@@ -2,7 +2,7 @@ from lxml import html
 import pytest
 
 from scripts.prepare_mega_iv3_verified import (PREFIX, align_verified_anchors, connect_navigation,
-    correct_verified_page_label, preserve_body, validate_display_labels)
+    correct_verified_page_label, preserve_body, validate_display_labels, validate_navigation_page_labels)
 
 
 def fixture():
@@ -93,3 +93,15 @@ def test_directory_page_validation_rejects_reader_using_pdf_number():
     with pytest.raises(ValueError, match='reader printed page'):
         validate_display_labels({name: body}, entries)
     validate_display_labels({name: correct_verified_page_label(name, body)}, entries)
+
+
+@pytest.mark.parametrize('section,pdf_page,printed_page', [('sec-024.html', '278', '272'), ('sec-028.html', '322', '317')])
+def test_printed_main_contents_targets_use_the_original_page_label(section, pdf_page, printed_page):
+    name = PREFIX + section
+    body = ('<html><a id="s' + pdf_page + '" data-page-label="' + pdf_page + '" data-pdf-page="' + pdf_page + '"></a>Body</html>').encode()
+    index = ('<html><nav class="reviewed-toc"><li><a href="' + section + '#s' + pdf_page + '">Work</a><span class="pages">' + printed_page + '</span></li></nav></html>').encode()
+    with pytest.raises(ValueError, match='reader printed page'):
+        validate_navigation_page_labels(index, {name: body})
+    after = correct_verified_page_label(name, body)
+    preserve_body(body, after)
+    validate_navigation_page_labels(index, {name: after})

@@ -61,15 +61,19 @@ def preserve_body(before, after):
 
 
 def correct_verified_page_label(name, body):
-    """Original PDF72 prints page65; keep s72 and the PDF position intact."""
-    if name != PREFIX + 'sec-007.html': return body
-    matches = list(re.finditer(rb'<a\b[^>]*\bid="s72"[^>]*>', body))
-    if len(matches) != 1: raise ValueError('verified PDF72 marker missing or duplicated')
+    """Visually verified original page labels; retain IDs and PDF positions."""
+    correction = {'sec-007.html': ('72', '65'), 'sec-024.html': ('278', '272'),
+                  'sec-028.html': ('322', '317')}.get(name.removeprefix(PREFIX))
+    if not name.startswith(PREFIX) or not correction: return body
+    pdf_page, printed_page = correction
+    matches = list(re.finditer(rb'<a\b[^>]*\bid="s' + pdf_page.encode() + rb'"[^>]*>', body))
+    if len(matches) != 1: raise ValueError('verified page marker missing or duplicated')
     match = matches[0]
     marker = html.fromstring(match[0] + b'</a>')
-    if marker.get('data-pdf-page') != '72' or marker.get('data-page-label') not in ('72', '65'):
-        raise ValueError('verified PDF72 page-label source differs')
-    opening = match[0].replace(b'data-page-label="72"', b'data-page-label="65"')
+    if marker.get('data-pdf-page') != pdf_page or marker.get('data-page-label') not in (pdf_page, printed_page):
+        raise ValueError('verified page-label source differs')
+    opening = match[0].replace(('data-page-label="' + pdf_page + '"').encode(),
+                              ('data-page-label="' + printed_page + '"').encode())
     after = body[:match.start()] + opening + body[match.end():]
     preserve_body(body, after)
     return after
@@ -79,9 +83,19 @@ def validate_display_labels(bodies, entries):
     """A new directory's printed page must agree with its reader page marker."""
     for entry in entries:
         target = html.fromstring(bodies[entry['file']]).get_element_by_id(entry['anchor'])
-        markers = target.xpath('preceding::*[@data-pdf-page][1]')
+        markers = [target] if target.get('data-pdf-page') else target.xpath('preceding::*[@data-pdf-page][1]')
         if not markers or markers[0].get('data-page-label') != str(entry['printed_page']):
             raise ValueError('reader printed page differs for ' + entry['anchor'])
+
+
+def validate_navigation_page_labels(index, bodies):
+    entries = []
+    for link in html.fromstring(index).xpath('//nav[contains(@class,"reviewed-toc")]//a'):
+        labels = link.getparent().xpath('./*[contains(@class,"pages")]/text()')
+        if not labels: continue
+        name, anchor = link.get('href').split('#', 1)
+        entries.append(dict(file=PREFIX + name, anchor=anchor, printed_page=''.join(labels).strip()))
+    validate_display_labels(bodies, entries)
 
 
 def load_entries(composed, evidence_roots):
@@ -268,6 +282,7 @@ def prepare(parent, draft_parent, composed, evidence_roots, pdf, output, version
             replacements[name] = after = correct_verified_page_label(name, align_verified_anchors(after))
             preserve_body(safe_file(prior.root, name).read_bytes(), after)
     validate_display_labels({**bodies, **replacements}, accepted)
+    validate_navigation_page_labels(index, {**bodies, **replacements})
     new_files = dict(prior.manifest['files'])
     new_files.update({name: digest_bytes(body) for name, body in replacements.items()})
     old_files = {k: v for k, v in prior.manifest['files'].items() if k not in ('toc.json', 'sources.json')}
@@ -279,7 +294,7 @@ def prepare(parent, draft_parent, composed, evidence_roots, pdf, output, version
         'body_evidence_groups': sorted({e['evidence_group'] for e in entries if e['file'] == name}),
         'preserves': 'body text, prior IDs, hrefs, images and PDF positions',
         'navigation_alignment': 'new IV/3 anchors align with the existing reader detection line at 96px',
-        'additional_page_label_evidence': 'original PDF72 visibly prints65; s72 and data-pdf-page72 preserved',
+        'additional_page_label_evidence': 'original PDF72/278/322 visibly print65/272/317; existing marker IDs and PDF positions preserved',
         'scope': 'reviewed printed navigation and bounded verified body headings'}) for name, change in changes.items()}}
     validated = validate_changes(prior.rows, prior.rows, old_files, after_files, approvals)
     manifest = dict(schema_version=1, id=version, parent={'id': prior.version, 'sha256': prior.sha256},
@@ -294,7 +309,7 @@ def prepare(parent, draft_parent, composed, evidence_roots, pdf, output, version
     final = Catalog(output)
     report = dict(binding={'id': version, 'sha256': final.sha256}, parent=manifest['parent'],
         changed_files=changes, entries=accepted, printed_entries=50,
-        new_body_anchors=len(accepted), page_label_corrections=summary['page_label_corrections'] + 1,
+        new_body_anchors=len(accepted), page_label_corrections=summary['page_label_corrections'] + 3,
         prose_tags_corrected=summary['prose_tags_corrected'], original_pdf_sha256=PDF_SHA256,
         remaining=['unreviewed body headings', 'ordinal glyphs on PDF163/169',
                    'unprinted page label at PDF118', 'unproven finer grouping retained under confirmed work'],
