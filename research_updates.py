@@ -170,7 +170,7 @@ def normalize(raw: dict) -> dict:
               "published_at", "published_online", "published_print", "source_published_at", "discipline"):
         a[k] = clean(a.get(k))
     a["doi"] = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", unquote(a["doi"]), flags=re.I).lower()
-    for k in ("authors", "keywords", "keywords_zh", "affiliations"):
+    for k in ("authors", "authors_zh", "keywords", "keywords_zh", "affiliations"):
         value = a.get(k) or []
         if isinstance(value, str):
             value = re.split(r"[、;；]", value)
@@ -189,6 +189,8 @@ def normalize(raw: dict) -> dict:
         raise ValueError("条目必须有题名、期刊和有效来源链接")
     a.setdefault("warnings", [])
     a.setdefault("provenance", {})
+    if a["authors_zh"] and len(a["authors_zh"]) != len(a["authors"]):
+        a["authors_zh"] = []
     return a
 
 
@@ -365,6 +367,8 @@ def _upsert(c, issue_id: int, raw: dict) -> dict:
         for original, translated in (("title", "title_zh"), ("abstract", "abstract_zh"), ("keywords", "keywords_zh")):
             if a.get(original) != previous.get(original):
                 a[translated] = [] if translated == "keywords_zh" else ""
+        if a["authors"] != previous.get("authors", []):
+            a["authors_zh"] = []
         a["collected_at"] = previous.get("collected_at") or old["first_seen_at"]
         eid = old["id"]
         last = c.execute("SELECT i.* FROM research_items m JOIN research_issues i ON i.id=m.issue_id "
@@ -594,9 +598,13 @@ def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: 
             a = json.loads(row["data"])
             previous_pages = (a.get("pages"), a.get("page_start"), a.get("page_end"))
             if edits:
-                allowed = {"title", "title_zh", "authors", "abstract", "abstract_zh", "keywords", "keywords_zh",
+                allowed = {"title", "title_zh", "authors", "authors_zh", "abstract", "abstract_zh", "keywords", "keywords_zh",
                            "year", "volume", "issue", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type"}
+                old_authors = a.get("authors", [])
+                old_author_translations = a.get("authors_zh", [])
                 a = normalize({**a, **{k: v for k, v in edits.items() if k in allowed}})
+                if a["authors"] != old_authors and ("authors_zh" not in edits or a["authors_zh"] == old_author_translations):
+                    a["authors_zh"] = []
             content.apply(a)
             if clean(content_override_reason):
                 a["content_override"] = {"reason": clean(content_override_reason), "actor": actor,
@@ -802,7 +810,10 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
                     pages = pages or a.get("article_number") or "来源未提供页码"
                     if pages == a.get("page_start") and not a.get("page_end"):
                         pages += " 起 · 仅列起始页"
-                    meta = " · ".join(("、".join(a.get("authors", [])) or "作者信息未提供", TYPE_LABELS.get(a.get("type"), "资料与其他内容"), pages, "含摘要" if summary else "仅题录"))
+                    names = "、".join(a.get("authors", [])) or "作者信息未提供"
+                    if a.get("authors_zh"):
+                        names = "、".join(a["authors_zh"]) + " / " + names
+                    meta = " · ".join((names, TYPE_LABELS.get(a.get("type"), "资料与其他内容"), pages, "含摘要" if summary else "仅题录"))
                     text.extend([str(n) + ". " + title, meta, summary[:180], detail, ""])
                     body.append('<div style="padding:15px 0;border-bottom:1px solid #e6e0d5"><p style="font-size:16px;line-height:1.65;margin:0 0 6px"><span style="color:#a99e90">' + str(n).zfill(2) + '.</span> <a style="color:#292622;text-decoration:none" href="' + esc(detail) + '">' + esc(title) + '</a></p>')
                     if a.get("title_zh"):

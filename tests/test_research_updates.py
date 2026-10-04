@@ -737,3 +737,71 @@ def test_batch_journal_review_does_not_silently_restore_excluded_items():
 def test_crossref_title_keyword_alone_cannot_override_research_type():
     a = col.crossref_record({"title":["The Book Review as a Literary Genre"], "type":"journal-article", "DOI":"10.1/example"}, col.sources()[0])
     assert r.normalize(a)["type"] == "article"
+
+
+
+def test_author_translation_preserves_order_and_reuses_unique_name_cache():
+    i = issue()
+    r.upsert(i["id"], article(origin="foreign", authors=["John Bellamy Foster", "Lisa Herzog"]))
+    client = Mock()
+    client.chat_complete.return_value = r.dumps({"names":{"0":"约翰·贝拉米·福斯特", "1":"丽莎·赫尔佐格"}})
+    assert col.translate_authors(i["id"],client) == {"translated":1,"failed":0}
+    a = r.items(i["id"])[0]["article"]
+    assert a["authors"] == ["John Bellamy Foster", "Lisa Herzog"]
+    assert a["authors_zh"] == ["约翰·贝拉米·福斯特", "丽莎·赫尔佐格"]
+    assert client.chat_complete.call_count == 1
+    r.upsert(i["id"], article(title="Another contribution", url="https://example.org/article/another", origin="foreign", authors=["Lisa Herzog", "John Bellamy Foster"]))
+    assert col.translate_authors(i["id"],client)["translated"] == 1
+    assert client.chat_complete.call_count == 1
+    assert r.items(i["id"])[1]["article"]["authors_zh"] == ["丽莎·赫尔佐格", "约翰·贝拉米·福斯特"]
+
+
+@pytest.mark.parametrize("response", [{"names":{"0":"中文名"}}, {"names":{"0":"Foster","1":"Herzog"}}, {"names":{"0":"","1":"丽莎"}}])
+def test_invalid_author_translations_never_replace_original_names(response):
+    i=issue()
+    r.upsert(i["id"],article(origin="foreign",authors=["John Bellamy Foster", "Lisa Herzog"]))
+    client=Mock()
+    client.chat_complete.return_value=r.dumps(response)
+    assert col.translate_authors(i["id"],client)["failed"] == 1
+    a=r.items(i["id"])[0]["article"]
+    assert a["authors"] == ["John Bellamy Foster", "Lisa Herzog"] and not a["authors_zh"]
+
+
+def test_author_changes_invalidate_old_translations_in_import_and_admin_review():
+    i=issue()
+    raw=article(origin="foreign",authors=["John Bellamy Foster"],authors_zh=["约翰·贝拉米·福斯特"])
+    result=r.upsert(i["id"],raw)
+    r.review(i["id"],[result["entry_id"]],"pending","admin",edits={"authors":["Lisa Herzog"],"authors_zh":["约翰·贝拉米·福斯特"]})
+    assert r.items(i["id"])[0]["article"]["authors_zh"] == []
+    r.upsert(i["id"],{**raw,"authors":["Lisa Herzog"]})
+    rows=r.items(i["id"])
+    assert rows[-1]["article"]["authors"] == ["Lisa Herzog"] and rows[-1]["article"]["authors_zh"] == []
+
+
+def test_author_translation_cannot_overwrite_edit_or_published_snapshot():
+    i=issue()
+    result=r.upsert(i["id"],article(origin="foreign",authors=["John Bellamy Foster"]))
+    client=Mock()
+    def answer(*args,**kwargs):
+        r.review(i["id"],[result["entry_id"]],"pending","admin",edits={"authors":["Lisa Herzog"]})
+        return r.dumps({"names":{"0":"约翰·贝拉米·福斯特"}})
+    client.chat_complete.side_effect=answer
+    assert col.translate_authors(i["id"],client)["translated"] == 0
+    a=r.items(i["id"])[0]["article"]
+    assert a["authors"] == ["Lisa Herzog"] and not a["authors_zh"]
+
+
+def test_bilingual_authors_appear_in_web_mail_search_while_citations_keep_originals():
+    from scripts.research_update_preview import create_app
+    i=issue()
+    result=r.upsert(i["id"],article(origin="foreign",authors=["John Bellamy Foster"],authors_zh=["约翰·贝拉米·福斯特"],title_zh="中文题名"))
+    a=r.items(i["id"])[0]["article"]
+    a["verified_fields"]=["title","authors","journal","year"]
+    web=create_app().test_client().get(f"/admin/research-updates/{i['id']}/preview?q=福斯特").get_data(as_text=True)
+    assert "约翰·贝拉米·福斯特" in web and "John Bellamy Foster" in web
+    assert 'class="author-original"' in web and 'id="article-' in web
+    plain,rich=r.render_email({**i,"articles":[{**a,"entry_id":result['entry_id']}]},{},"https://example.org")
+    assert all("约翰·贝拉米·福斯特" in s and "John Bellamy Foster" in s for s in (plain,rich))
+    for fmt in ("ris","bib"):
+        exported=r.export_citation(a,fmt)
+        assert "John Bellamy Foster" in exported and "约翰·贝拉米·福斯特" not in exported

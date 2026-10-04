@@ -36,7 +36,7 @@ def register(app, host):
         journals = sorted({a["journal"] for a in articles})
         fields = sorted({a.get("discipline", "") for a in articles if a.get("discipline")})
         q = request.args.get("q", "").strip().casefold()
-        filtered = [a for a in articles if (not q or q in " ".join([a["title"], a.get("title_zh", ""), " ".join(a.get("authors", []))]).casefold())
+        filtered = [a for a in articles if (not q or q in " ".join([a["title"], a.get("title_zh", ""), " ".join(a.get("authors", [])), " ".join(a.get("authors_zh", []))]).casefold())
                     and (not request.args.get("journal") or a["journal"] == request.args["journal"])
                     and (not request.args.get("type") or a["type"] == request.args["type"])
                     and (not request.args.get("discipline") or a.get("discipline") == request.args["discipline"])]
@@ -155,7 +155,7 @@ def register(app, host):
             elif action == "review":
                 edits = None
                 if request.form.get("edit"):
-                    edits = {k: request.form.get(k, "") for k in ("title", "title_zh", "abstract", "abstract_zh", "authors", "keywords", "keywords_zh", "volume", "issue", "year", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type")}
+                    edits = {k: request.form.get(k, "") for k in ("title", "title_zh", "abstract", "abstract_zh", "authors", "authors_zh", "keywords", "keywords_zh", "volume", "issue", "year", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type")}
                 r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None, request.form.get("pagination_decision"), request.form.get("content_override_reason", ""))
             elif action == "screen_content":
                 result = r.screen_issue(issue_id, actor)
