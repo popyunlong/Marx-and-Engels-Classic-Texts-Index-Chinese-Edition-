@@ -28,6 +28,9 @@ MANAGED_SUPPORT_UNITS=(
   marx-search-journal-alerts.service marx-search-journal-alerts.timer
   marx-search-journal-process.service marx-search-journal-process.timer
   marx-search-journal-send.service marx-search-journal-send.timer
+  marx-search-research-collect.service marx-search-research-collect.timer
+  marx-search-research-work.service marx-search-research-work.timer
+  marx-search-research-send.service marx-search-research-send.timer
   marx-search-watchdog.service marx-search-watchdog.timer
 )
 OPTIONAL_PRODUCTION_UNITS=(
@@ -44,6 +47,9 @@ case "$APP_ROOT" in /) echo "APP_ROOT must not be the filesystem root" >&2; exit
 [ -f "$TARGET/app/deploy/marx-search.service" ] || { echo "target canonical service is missing" >&2; exit 3; }
 [ -f "$TARGET/app/deploy/health_watchdog.sh" ] || { echo "target watchdog script is missing" >&2; exit 3; }
 for unit in "${MANAGED_SUPPORT_UNITS[@]}"; do
+  if [[ "$unit" == marx-search-research-* ]] && [ ! -f "$TARGET/app/scripts/research_update_worker.py" ]; then
+    continue
+  fi
   [ -f "$TARGET/app/deploy/$unit" ] || { echo "target release missing managed unit $unit" >&2; exit 3; }
 done
 for unit in "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
@@ -125,6 +131,9 @@ restart_active_citation_workers() {
   done
 }
 
+source "$TRANSACTION_APP/deploy/research_units.sh"
+capture_research_units "$SERVICE_BACKUP/research-timers-before.tsv"
+
 restore_predecessor() {
   trap - ERR
   set +e
@@ -147,6 +156,7 @@ restore_predecessor() {
     tar -xzf "$SERVICE_BACKUP/systemd.tar.gz" -C /etc/systemd/system
   fi
   systemctl daemon-reload
+  restore_research_units "$SERVICE_BACKUP/research-timers-before.tsv" || true
   systemctl restart "$MAIN_SERVICE" || true
   restart_active_citation_workers || true
   if wait_runtime "$PRIMARY_PORT" "$OLD_REAL/release.json" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
@@ -217,6 +227,7 @@ if ! drain_port "$PRIMARY_PORT" "pre-rollback primary"; then
 fi
 
 trap 'restore_predecessor; exit 4' ERR
+pause_research_units
 ln -s -- "$TARGET" "$APP_ROOT/.current-rollback-$TARGET_RELEASE"
 mv -Tf -- "$APP_ROOT/.current-rollback-$TARGET_RELEASE" "$APP_ROOT/current"
 install -o root -g root -m 0644 "$TARGET/app/deploy/marx-search.service" /etc/systemd/system/marx-search.service
@@ -227,6 +238,11 @@ for unit in "${MANAGED_SUPPORT_UNITS[@]}"; do
   # referenced an unmanaged /usr/local copy. The target owns its script.
   if [ "$unit" = "marx-search-watchdog.service" ]; then
     unit_source="$TRANSACTION_APP/deploy/$unit"
+  fi
+  if [[ "$unit" == marx-search-research-* ]] && [ ! -f "$unit_source" ]; then
+    systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    rm -f -- "/etc/systemd/system/$unit"
+    continue
   fi
   install -o root -g root -m 0644 "$unit_source" "/etc/systemd/system/$unit"
 done
@@ -265,6 +281,7 @@ fi
 retire_candidate_if_drained "completed rollback candidate" || true
 systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true
 systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
+activate_research_units "$TARGET/app" "$OLD_REAL/research-legacy-timers.tsv"
 ln -sfn -- "$OLD_REAL" "$APP_ROOT/previous"
 printf '%s\n' "$TARGET_RELEASE" > "$APP_ROOT/DEPLOYED_SHA.tmp"
 mv -f -- "$APP_ROOT/DEPLOYED_SHA.tmp" "$APP_ROOT/DEPLOYED_SHA"

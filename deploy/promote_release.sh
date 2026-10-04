@@ -38,6 +38,9 @@ MANAGED_SUPPORT_UNITS=(
   marx-search-journal-alerts.service marx-search-journal-alerts.timer
   marx-search-journal-process.service marx-search-journal-process.timer
   marx-search-journal-send.service marx-search-journal-send.timer
+  marx-search-research-collect.service marx-search-research-collect.timer
+  marx-search-research-work.service marx-search-research-work.timer
+  marx-search-research-send.service marx-search-research-send.timer
   marx-search-watchdog.service marx-search-watchdog.timer
 )
 OPTIONAL_PRODUCTION_UNITS=(
@@ -457,6 +460,14 @@ restart_active_citation_workers() {
   done
 }
 
+source "$FINAL/app/deploy/research_units.sh"
+capture_research_units "$FINAL/research-timers-before.tsv"
+if [ -n "$OLD_CURRENT" ] && [ -f "$OLD_CURRENT/research-legacy-timers.tsv" ]; then
+  cp -- "$OLD_CURRENT/research-legacy-timers.tsv" "$FINAL/research-legacy-timers.tsv"
+else
+  cp -- "$FINAL/research-timers-before.tsv" "$FINAL/research-legacy-timers.tsv"
+fi
+
 rollback_primary() {
   trap - ERR
   set +e
@@ -484,6 +495,7 @@ rollback_primary() {
     rm -f -- "$APP_ROOT/current"
   fi
   systemctl daemon-reload
+  restore_research_units "$FINAL/research-timers-before.tsv" || true
   systemctl restart "$MAIN_SERVICE" || true
   restart_active_citation_workers || true
   if wait_health "$PRIMARY_PORT" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
@@ -498,6 +510,7 @@ rollback_primary() {
 # Any unexpected failure after traffic moves to the candidate must restore the
 # previous service files, current link and primary route.
 trap 'rollback_primary; exit 6' ERR
+pause_research_units
 ln -s -- "$FINAL" "$APP_ROOT/.current-$RELEASE_ID"
 mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"
 if [ -n "$OLD_CURRENT" ]; then
@@ -535,6 +548,8 @@ retire_candidate_if_drained "promoted release candidate" || true
 # never leave its old timer armed after the first immutable promotion.
 systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true
 systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
+
+activate_research_units "$FINAL/app" "$FINAL/research-timers-before.tsv"
 
 printf '%s\n' "$RELEASE_ID" > "$APP_ROOT/DEPLOYED_SHA.tmp"
 mv -f -- "$APP_ROOT/DEPLOYED_SHA.tmp" "$APP_ROOT/DEPLOYED_SHA"

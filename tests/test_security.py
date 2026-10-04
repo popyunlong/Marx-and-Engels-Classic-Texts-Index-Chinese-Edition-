@@ -105,6 +105,23 @@ class SecurityRegressionTests(unittest.TestCase):
             conn.commit()
         return user
 
+    def test_research_admin_inherits_login_and_csrf(self) -> None:
+        import research_updates as research
+        token = research.create_token("security-test-draft-only")
+        unauthorized = self.client.post("/api/research-updates/imports", json={})
+        self.assertEqual(unauthorized.status_code, 401)
+        scoped = self.client.post("/api/research-updates/imports", json={}, headers={"Authorization": "Bearer " + token})
+        self.assertEqual(scoped.status_code, 400)  # Parses bearer request without cookie CSRF.
+        admin = self._create_admin("research-admin-csrf@example.test")
+        self._force_login_user_id(int(admin["id"]))
+        page = self.client.get("/admin/research-updates")
+        self.assertEqual(page.status_code, 200)
+        denied = self.client.post("/admin/research-updates", data={"action":"open"})
+        self.assertIn(denied.status_code, (400,403))
+        token = self._csrf_from("/admin/research-updates")
+        accepted = self.client.post("/admin/research-updates", data={"action":"open", "csrf_token":token})
+        self.assertEqual(accepted.status_code, 302)
+
     def test_admin_2fa_skipped_when_email_unconfigured(self) -> None:
         # 安全底线：发信邮箱未配置时管理员二次验证必须自动跳过，绝不把管理员锁在门外。
         admin = self._create_admin("admin-2fa-off@example.test")
@@ -655,7 +672,7 @@ class SecurityRegressionTests(unittest.TestCase):
         page = self.client.get("/account/journal-alerts")
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn("国外文献精选周刊", html)
+        self.assertIn("国内外研究动态", html)
         self.assertNotIn("仅供有效会员使用", html)
 
         token = self._csrf_from("/account")
@@ -2223,7 +2240,8 @@ class SecurityRegressionTests(unittest.TestCase):
         journal = self.client.get("/admin/journal")
         self.assertEqual(journal.status_code, 200)
         journal_html = journal.get_data(as_text=True)
-        self.assertIn("国外文献精选周刊自动化", journal_html)
+        self.assertIn("国内外研究动态", journal_html)
+        self.assertIn("/admin/research-updates", journal_html)
         self.assertIn("保存周刊设置", journal_html)
         self.assertIn("抓取时间范围", journal_html)
         self.assertIn("采集英文题录", journal_html)

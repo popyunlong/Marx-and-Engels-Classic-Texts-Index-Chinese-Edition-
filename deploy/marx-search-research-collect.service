@@ -1,0 +1,23 @@
+[Unit]
+Description=Marx Search Research Bulletin collect
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/var/www/.marx_search_full/journal
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/marx-search/current/app
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/marx-search/current/app:/opt/marx-search/current/.deps
+Environment=PYTHONPYCACHEPREFIX=/opt/marx-search/runtime-cache
+Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
+Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
+Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
+Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
+ExecStart=/opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/research_update_worker.py --stage=schedule
+TimeoutStartSec=60
+PrivateTmp=true
+NoNewPrivileges=true

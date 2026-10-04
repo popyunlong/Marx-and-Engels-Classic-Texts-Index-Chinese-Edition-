@@ -1,0 +1,10 @@
+[Unit]
+Description=Research bulletin work
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=marx-search-research-work.service
+
+[Install]
+WantedBy=timers.target

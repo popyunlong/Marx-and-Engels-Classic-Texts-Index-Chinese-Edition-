@@ -3832,10 +3832,11 @@ def send_confirmation_email(subscription: dict, base_url: str, smtp_config: SMTP
     if not base_url:
         raise RuntimeError("JOURNAL_ALERT_BASE_URL 或 PUBLIC_BASE_URL 未配置。")
     confirm_url = f"{base_url}/journal-alerts/confirm/{subscription['confirm_token']}" if base_url else ""
-    subject = f"请确认{JOURNAL_WEEKLY_TITLE}邮件订阅"
+    subscription_title = "本周国内外研究动态"
+    subject = f"请确认{subscription_title}邮件订阅"
     body = (
         "您好：\n\n"
-        f"请点击下面的链接确认{JOURNAL_WEEKLY_TITLE}邮件订阅：\n"
+        f"请点击下面的链接确认{subscription_title}邮件订阅：\n"
         f"{confirm_url}\n\n"
         "如果这不是您本人操作，可以忽略本邮件。"
     )

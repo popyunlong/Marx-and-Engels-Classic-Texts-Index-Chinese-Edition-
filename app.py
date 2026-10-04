@@ -9110,7 +9110,7 @@ def account_journal_alerts():
     journal_alerts_allowed = bool(_feature_effective_for_user("journal_alerts"))
     return render_template(
         "journal_alerts.html",
-        title="国外文献精选周刊",
+        title="国内外研究动态",
         app_name=WEB_APP_NAME,
         state=current_view_state(),
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
@@ -9124,7 +9124,7 @@ def account_journal_alerts():
 def account_journal_alerts_subscribe():
     _require_login_page()
     if not _feature_effective_for_user("journal_alerts"):
-        abort(403, description="国外文献精选周刊仅供有效会员使用。")
+        abort(403, description="国内外研究动态仅供有效会员使用。")
     smtp_config = load_smtp_config()
     if not smtp_config.enabled:
         flash(render_site_text("journal.email_unavailable"), "warning")
@@ -9157,7 +9157,7 @@ def account_journal_alerts_unsubscribe():
     subscription_id = request.form.get("subscription_id", type=int) or 0
     if not journal_unsubscribe_by_id(int(g.current_user["id"]), subscription_id):
         abort(404, description="未找到对应订阅。")
-    flash("国外文献精选周刊邮件已退订。", "success")
+    flash("国内外研究动态邮件已退订。", "success")
     return redirect(url_for("account_journal_alerts"))
 
 
@@ -9166,7 +9166,7 @@ def journal_alerts_confirm(token: str):
     subscription = confirm_subscription(token)
     if not subscription:
         abort(404, description="确认链接无效或已过期。")
-    flash("国外文献精选周刊邮件订阅已确认，后续每期内容会发送到该邮箱。", "success")
+    flash("国内外研究动态邮件订阅已确认，后续每期内容会发送到该邮箱。", "success")
     return redirect(url_for("login"))
 
 
@@ -9175,7 +9175,7 @@ def journal_alerts_unsubscribe_token(token: str):
     subscription = journal_unsubscribe_by_token(token)
     if not subscription:
         abort(404, description="退订链接无效。")
-    flash("国外文献精选周刊邮件已退订。", "success")
+    flash("国内外研究动态邮件已退订。", "success")
     return redirect(url_for("index"))
 
 
@@ -21949,6 +21949,11 @@ def main() -> None:
         run_waitress()
         return
     run_desktop()
+
+
+# Metadata research bulletin; legacy journal routes remain available.
+from research_routes import register as register_research_updates
+register_research_updates(app, globals())
 
 
 if __name__ == "__main__":

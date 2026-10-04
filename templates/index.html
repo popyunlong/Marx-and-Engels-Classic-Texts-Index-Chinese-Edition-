@@ -3047,7 +3047,7 @@
         </script>
         {% endif %}
 
-        {# 功能卡：四页面布局下仅「会员功能」页渲染流式阅读；国外文献精选周刊已抽为顶级栏目；
+        {# 功能卡：四页面布局下仅「会员功能」页渲染流式阅读；国内外研究动态已抽为顶级栏目；
            全文阅读 / AI 导学阅读器已由上面的书目网格取代，不再作为中转卡出现。
            旧首页 legacy（not v2）照常渲染全部卡片。 #}
         {% if (not v2) or _pg == 'more' %}
@@ -3072,7 +3072,7 @@
             <a class="feature-action {% if entry.disabled %}disabled{% endif %}" {% if entry.disabled %}aria-disabled="true"{% endif %} href="{{ entry.href }}">{{ site_text(entry.action_key) }}</a>
           </section>
           {% elif card.type == 'journal' %}
-          <section class="journal-bar" aria-label="国外文献精选周刊">
+          <section class="journal-bar" aria-label="国内外研究动态">
             <div class="feature-copy">
               <div class="feature-kicker">{{ site_text("index.journal_kicker") }}</div>
               <div class="reader-status-row">
@@ -3087,7 +3087,7 @@
             {% if state.feature_access.journal_alerts %}
             {# 仅保留「查看本周新文」入口：按设定频率收集的期刊、标题、作者、摘要、引文都在这里浏览。
                邮箱确认/订阅按钮已去除——是否收到综述邮件由控制台受众/权限决定，无需用户确认邮箱。 #}
-            <a class="feature-action" href="{{ url_for('journal_alerts_latest') }}">查看本周新文</a>
+            <a class="feature-action" href="{{ url_for('research_updates.latest') }}">查看本周新文</a>
             {% else %}
             {# 无期刊权限（访客/未开通会员）时，此处即首页第二个会员套餐入口：跟随控制台
                「会员与权限」的 journal_alerts 实际授权动态切换，开通/勾选后自动变回周报入口。

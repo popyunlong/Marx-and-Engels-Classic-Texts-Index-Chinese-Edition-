@@ -12,7 +12,7 @@ FEATURE_ACCESS_LABELS = {
     "dictionary": "马克思主义大辞典",
     "static_library": "原文文库",
     "stream_reading": "流式阅读",
-    "journal_alerts": "国外文献精选周刊",
+    "journal_alerts": "国内外研究动态",
     "notes": "笔记与知识库",
     "personal_library": "个人文库",
     "citation_assistant": "论文引文助手",
@@ -184,7 +184,7 @@ def feature_allowed_by_policy(policy: dict, feature: str, user: dict | None = No
     if not user:
         return bool((policy.get("audience") or {}).get("guest", {}).get(feature, False))
 
-    # 「国外文献精选周刊」是独立的会员栏目，不再随某个套餐功能矩阵开关。
+    # 「国内外研究动态」是独立的会员栏目，不再随某个套餐功能矩阵开关。
     # 旧版会员与新版会员都由 membership snapshot 归一为有效 plan_code；
     # 普通注册用户、已过期会员仍会得到空值。管理员保留运营预览权限。
     if feature == "journal_alerts":

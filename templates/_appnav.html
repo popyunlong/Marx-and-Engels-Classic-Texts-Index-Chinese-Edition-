@@ -27,8 +27,8 @@
     <a class="v2tab {% if _p == 'citation' %}active{% endif %}" href="{{ _citation_href }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>{{ site_text("citation.nav_label") }}</a>
     {% endif %}
-    <a class="v2tab {% if _p == 'journal' %}active{% endif %}" href="{{ url_for('journal_alerts_latest') }}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M8 17h8"/></svg>国外文献精选周刊</a>
+    <a class="v2tab {% if _p == 'journal' %}active{% endif %}" href="{{ url_for('research_updates.latest') }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M8 17h8"/></svg>国内外研究动态</a>
     <a class="v2tab {% if _p == 'more' %}active{% endif %}" href="{{ url_for('layout_more') }}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>会员功能</a>
   </nav>
@@ -84,7 +84,7 @@
   <a class="{% if _p == 'citation' %}active{% endif %}" href="{{ _citation_href }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5M8 12h8M8 16h6"/></svg>{{ site_text("citation.nav_mobile_label") }}</a>
   {% endif %}
-  <a class="{% if _p == 'journal' %}active{% endif %}" href="{{ url_for('journal_alerts_latest') }}">
+  <a class="{% if _p == 'journal' %}active{% endif %}" href="{{ url_for('research_updates.latest') }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h5M8 17h8"/></svg>精选周刊</a>
   <a class="{% if _p == 'more' %}active{% endif %}" href="{{ url_for('layout_more') }}">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>会员</a>

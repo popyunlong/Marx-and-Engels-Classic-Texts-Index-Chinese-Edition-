@@ -1,0 +1,10 @@
+[Unit]
+Description=Research bulletin collect
+
+[Timer]
+OnCalendar=Sat *-*-* 22:00:00 Asia/Shanghai
+Persistent=true
+Unit=marx-search-research-collect.service
+
+[Install]
+WantedBy=timers.target

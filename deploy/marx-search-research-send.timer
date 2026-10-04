@@ -1,0 +1,10 @@
+[Unit]
+Description=Research bulletin send
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Unit=marx-search-research-send.service
+
+[Install]
+WantedBy=timers.target
