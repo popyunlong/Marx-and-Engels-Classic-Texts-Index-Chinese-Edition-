@@ -51,6 +51,12 @@ def test_week_window_is_saturday_22_and_half_open():
     assert r.period_section(article(published_at=end), i) == "future"
     assert r.period_section(article(published_at="2026-10-03"), i) == "date_review"
     assert r.period_section(article(published_at="2026-09"), i) == "date_review"
+    assert r.period_section(article(published_at="2026-01"), i) == "supplement"
+    assert r.period_section(article(published_at="2026-04"), i) == "supplement"
+    assert r.period_section(article(published_at="2026-10"), i) == "date_review"
+    assert r.period_section(article(published_at="2026-11"), i) == "future"
+    assert r.period_section(article(published_at="2025"), i) == "supplement"
+    assert r.period_section(article(published_at="2026"), i) == "date_review"
 
 
 def test_sources_match_existing_45_and_have_publishers():
@@ -169,6 +175,91 @@ def test_citations_do_not_invent_end_pages_or_export_placeholders():
     assert "SP  - 5" in ris and "EP  -" not in ris
     assert "未提供" not in ris and "原文未提供" not in r.export_citation(a, "bib")
     assert "仅起始页" in r.citation(a)
+
+
+def catalogue_rows(starts=("5", "16", "28")):
+    return [r.normalize(article(title=f"Paper {n}", source_id="catalogue-one", ordinal=n,
+                                page_start=start)) for n, start in enumerate(starts)]
+
+
+def test_catalogue_page_inference_preserves_source_and_requires_confirmation():
+    rows = catalogue_rows()
+    assert r.infer_catalogue_pages(rows) == 2
+    assert rows[0]["pagination_inference"]["pages"] == "5-15"
+    assert rows[1]["pagination_inference"]["pages"] == "16-27"
+    assert rows[0]["page_end"] == rows[0]["pages"] == ""
+    assert "pagination_inference" not in rows[-1]
+    assert r.infer_catalogue_pages(rows) == 0
+    i = issue()
+    out = r.upsert(i["id"], rows[0])
+    with pytest.raises(ValueError, match="页码推断"):
+        r.review(i["id"], [out["entry_id"]], "approved", "admin")
+    r.review(i["id"], [out["entry_id"]], "approved", "admin", pagination_decision="accept")
+    a = r.publish(i["id"], r.preview_hash(i["id"]), "admin", [])["articles"][0]
+    assert a["pages"] == "5-15" and a["page_end"] == "15"
+    assert "EP  - 15" in r.export_citation(a, "ris")
+    assert "已人工确认" in r.export_citation(a, "bib")
+    assert "已确认" in r.citation(a)
+
+
+@pytest.mark.parametrize("change", ["gap", "missing_start", "article_number", "different_issue", "different_source", "duplicate_start", "duplicate_order", "roman"])
+def test_page_inference_cannot_cross_uncertain_neighbours(change):
+    rows = catalogue_rows()
+    if change == "gap": rows[1]["ordinal"] = 7
+    if change == "missing_start": rows[1]["page_start"] = ""
+    if change == "article_number": rows[1]["article_number"] = "e16"
+    if change == "different_issue": rows[1]["issue"] = "10"
+    if change == "different_source": rows[1]["source_id"] = "another"
+    if change == "duplicate_start": rows[2]["page_start"] = "16"
+    if change == "duplicate_order": rows[2]["ordinal"] = 1
+    if change == "roman": rows[1]["page_start"] = "xvi"
+    r.infer_catalogue_pages(rows)
+    assert "pagination_inference" not in rows[0]
+
+
+def test_page_inference_preserves_explicit_end_and_can_be_rejected():
+    rows = catalogue_rows()
+    rows[0].update(page_end="14", pages="5-14")
+    assert r.infer_catalogue_pages(rows) == 1
+    assert "pagination_inference" not in rows[0]
+    i = issue()
+    out = r.upsert(i["id"], rows[1])
+    r.review(i["id"], [out["entry_id"]], "approved", "admin", pagination_decision="reject")
+    a = r.publish(i["id"], r.preview_hash(i["id"]), "admin", [])["articles"][0]
+    assert a["page_end"] == "" and "EP  -" not in r.export_citation(a, "ris")
+
+
+def test_import_infers_pages_and_replay_does_not_duplicate():
+    p = payload()
+    p["metadata"]["papers"] += [{"title": "第二篇", "journal": "教学与研究", "authors": ["丙"], "year": 2026, "issue": "9", "page_start": "18"}]
+    p["content_hash"] = r.digest({"markdown": p["markdown"], "metadata": p["metadata"]})
+    result = r.import_payload(p, issue()["id"])
+    assert result["inferred_pages"] == 1
+    assert r.items(issue()["id"])[0]["article"]["pagination_inference"]["pages"] == "5-17"
+    assert r.import_payload(p, issue()["id"])["replayed"]
+    assert len(r.items(issue()["id"])) == 2
+
+
+def test_mixed_abstract_catalogue_has_one_issue_header_and_collapsed_details():
+    from bs4 import BeautifulSoup
+    from scripts.research_update_preview import create_app
+    i = issue()
+    r.upsert(i["id"], article(title="仅题录篇", page_start="5", ordinal=0))
+    r.upsert(i["id"], article(title="摘要篇", abstract="已有摘要", page_start="18", ordinal=1))
+    app = create_app()
+    res = app.test_client().get(f"/admin/research-updates/{i['id']}/preview")
+    assert res.status_code == 200
+    soup = BeautifulSoup(res.data, "html.parser")
+    assert len(soup.select(".journal-block")) == len(soup.select(".issue-heading")) == 1
+    assert len(soup.select(".catalogue-entry")) == len(soup.select(".article-details:not([open])")) == 2
+    assert "仅题录" in soup.select(".entry-labels")[0].get_text()
+    assert "含摘要" in soup.select(".entry-labels")[1].get_text()
+    assert soup.select_one(".abstract").get_text().endswith("已有摘要")
+    text, rich = r.render_email({"id": i["id"], "period_start": i["period_start"], "period_end": i["period_end"],
+                                "articles": [{**x["article"], "entry_id": x["entry_id"]} for x in r.items(i["id"])]}, {}, "https://example.org")
+    assert rich.count("Example Journal") == 1
+    assert "原刊未提供摘要" not in rich and "仅题录" in rich and "已有摘要" in rich
+    assert "5 起" in text
 
 
 def test_crossref_cursor_does_not_truncate_at_50():
@@ -326,6 +417,43 @@ def test_rate_limit_retry_and_cooldown(monkeypatch):
     with pytest.raises(RuntimeError, match="冷却"):
         http.get("https://api.crossref.org/works")
     assert http.session.get.call_count == 2
+
+
+def test_budget_exhaustion_does_not_retry_as_a_short_rate_limit(monkeypatch):
+    monkeypatch.setattr(col, "validate_url", lambda url: None)
+    m = Mock(status_code=429, headers={"Retry-After": "43000", "X-RateLimit-Reset": "43000", "X-RateLimit-Remaining": "0"})
+    m.__enter__ = Mock(return_value=m); m.__exit__ = Mock(return_value=False)
+    m.iter_content.return_value = [b'{"message":"Insufficient budget"}']
+    http = col.HTTP(retries=3, delay=0)
+    http.session.get = Mock(return_value=m)
+    with pytest.raises(RuntimeError, match="预算不足"):
+        http.get("https://api.openalex.org/works")
+    assert http.session.get.call_count == 1
+    with pytest.raises(RuntimeError, match="预算不足"):
+        http.get("https://api.openalex.org/works")
+    assert http.session.get.call_count == 1
+
+
+def test_publisher_preserves_online_date_and_excludes_covers():
+    a = col.detail_metadata('<meta name="citation_title" content="Paper"><meta name="citation_publication_date" content="2026/04"><meta name="citation_online_date" content="2025/08/12">', "https://www.cambridge.org/article/test")
+    assert a["published_online"] == "2025-08-12" and a["published_at"] == "2026-04"
+    assert r.period_section(a, issue()) == "supplement"
+    assert col.EXCLUDED.search("HGL volume 47 issue 1 Cover and Front matter")
+    assert col.EXCLUDED.search("HGL volume 47 issue 1 Cover and Back matter")
+    assert col.EXCLUDED.search("Editorial Board")
+    assert not col.EXCLUDED.search("The Method of Hegel’s Philosophy of Right")
+
+
+def test_alternate_issn_empty_success_is_partial_not_total_failure(monkeypatch):
+    source = col.sources()[-1]
+    monkeypatch.setattr(col, "sources", lambda: [source])
+    monkeypatch.setattr(col, "publisher_records", Mock(side_effect=RuntimeError("verification")))
+    def indexed(s, i, provider, http):
+        if provider == "openalex": raise RuntimeError("budget")
+        raise col.PartialSourceError("paper ISSN 404; electronic ISSN checked, zero records")
+    monkeypatch.setattr(col, "indexed_records", indexed)
+    result = col.collect(issue()["id"], http=Mock())[0]
+    assert result["status"] == "partial" and result["providers"]["crossref"]["status"] == "partial"
 
 
 def test_publisher_rss_and_author_keywords():

@@ -67,9 +67,13 @@ PUBLISHERS = {
     "0022-5053": "https://muse.jhu.edu/journal/76",
 }
 EXTRA_HOSTS = {"api.crossref.org", "api.openalex.org", "doi.org", "www.doi.org", "muse.jhu.edu",
-               "journalofphilosophy.org", "www.journalofphilosophy.org", "monthlyreview.org", "newleftreview.org", "link.springer.com", "link.springernature.com"}
+               "journalofphilosophy.org", "www.journalofphilosophy.org", "monthlyreview.org", "newleftreview.org", "link.springer.com", "link.springernature.com", "idp.springer.com"}
 ALLOWED_HOSTS = {urlsplit(u).hostname for u in PUBLISHERS.values()} | EXTRA_HOSTS
-EXCLUDED = re.compile(r"^(?:front\s*cover|back\s*cover|cover\s*image|table of contents|contents|advertisement|call for papers|index to volume)\b", re.I)
+EXCLUDED = re.compile(r"^(?:front\s*cover|back\s*cover|cover\s*image|table of contents|contents|advertisement|call for papers|index to volume)\b|^editorial board$|\bcover and (?:front|back) matter\b", re.I)
+
+
+class PartialSourceError(RuntimeError):
+    """At least one ISSN was checked successfully; preserve failed alternatives."""
 
 
 def sources() -> list[dict]:
@@ -115,6 +119,7 @@ class HTTP:
         self.session = requests.Session()
         self.retries, self.delay, self.last = retries, delay, {}
         self.blocked_until = {}
+        self.blocked_reasons = {}
 
     def get(self, url: str) -> str:
         cache_key = "http:" + store.digest(url)
@@ -128,7 +133,7 @@ class HTTP:
             validate_url(url)
             host = urlsplit(url).hostname
             if self.blocked_until.get(host, 0) > time.monotonic():
-                raise RuntimeError(f"来源限流冷却中 ({host})，稍后可单刊重试")
+                raise RuntimeError(f"来源限流冷却中 ({host})：" + self.blocked_reasons.get(host, "稍后可单刊重试"))
             for attempt in range(self.retries + 1):
                 time.sleep(max(0, self.delay - (time.monotonic() - self.last.get(host, 0))))
                 self.last[host] = time.monotonic()
@@ -145,6 +150,18 @@ class HTTP:
                         headers.pop("If-Modified-Since", None)
                         break
                     if r.status_code == 429 or r.status_code >= 500:
+                        if r.status_code == 429:
+                            diagnostic = next(iter(r.iter_content(4096)), b"").decode("utf-8", "replace")
+                            reset = r.headers.get("X-RateLimit-Reset", "")
+                            wait = r.headers.get("Retry-After", "")
+                            if "insufficient budget" in diagnostic.lower():
+                                self.blocked_until[host] = time.monotonic() + (int(reset) if reset.isdigit() else 3600)
+                                self.blocked_reasons[host] = f"接口预算不足，剩余额度 {r.headers.get('X-RateLimit-Remaining', '未知')}，重置等待 {reset or '未知'} 秒；请核对账号额度"
+                                raise RuntimeError(f"HTTP 429 ({host})：" + self.blocked_reasons[host])
+                            if wait.isdigit() and int(wait) > 60:
+                                self.blocked_until[host] = time.monotonic() + int(wait)
+                                self.blocked_reasons[host] = f"来源要求等待 {wait} 秒后重试"
+                                raise RuntimeError(f"HTTP 429 ({host})：" + self.blocked_reasons[host])
                         if attempt < self.retries:
                             wait = r.headers.get("Retry-After", "")
                             time.sleep(min(60, int(wait) if wait.isdigit() else 5 * 2**attempt))
@@ -206,13 +223,18 @@ def openalex_record(x: dict, source: dict) -> dict:
 
 def indexed_records(source: dict, issue: dict, provider: str, http: HTTP):
     failures = []
+    successful = []
     for issn in source["issns"]:
         try:
             yield from _indexed_records({**source, "issns": [issn]}, issue, provider, http)
+            successful.append(issn)
         except Exception as exc:
             failures.append(issn + ": " + str(exc)[:180])
     if failures:
-        raise RuntimeError("; ".join(failures))
+        message = "; ".join(failures)
+        if successful:
+            raise PartialSourceError("已成功检查 " + ", ".join(successful) + "；部分 ISSN 未覆盖：" + message)
+        raise RuntimeError(message)
 
 
 def _indexed_records(source: dict, issue: dict, provider: str, http: HTTP):
@@ -265,6 +287,7 @@ def detail_metadata(body: str, url: str) -> dict:
          "authors": values("citation_author", "dc.creator"), "doi": first("citation_doi"), "volume": first("citation_volume"),
          "issue": first("citation_issue"), "page_start": first("citation_firstpage"), "page_end": first("citation_lastpage"),
          "published_at": first("citation_publication_date", "dc.date", "article:published_time").replace("/", "-"),
+         "published_online": first("citation_online_date").replace("/", "-"),
          "keywords": [x.strip() for x in re.split(r"[;,]", first("citation_keywords", "keywords")) if x.strip()], "url": url}
     abstract = soup.select_one(".abstractSection, .abstract-content, section.abstract, #abstract, .article-abstract")
     if abstract:
@@ -396,7 +419,7 @@ def collect(issue_id: int, source_id: str = "", http: HTTP | None = None, backfi
                 if provider == "publisher" and report.get("publisher_details", {}).get("errors"):
                     report["providers"][provider]["status"] = "partial"
             except Exception as exc:
-                report["providers"][provider] = {"status": "failed", "records": count, "error": type(exc).__name__ + ": " + str(exc)[:250]}
+                report["providers"][provider] = {"status": "partial" if isinstance(exc, PartialSourceError) else "failed", "records": count, "error": type(exc).__name__ + ": " + str(exc)[:250]}
         statuses = [x["status"] for x in report["providers"].values()]
         report["status"] = "failed" if all(x == "failed" for x in statuses) and not merged else "partial" if any(x != "ok" for x in statuses) else "new" if merged else "no_new"
         with store.connect(True) as c:

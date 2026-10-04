@@ -31,7 +31,7 @@ def register(app, host):
     def page(snapshot=None, article=None, preview=False):
         articles = snapshot.get("articles", []) if snapshot else []
         for a in articles:
-            a["issue_label"] = " · ".join(filter(None, (a.get("year"), ("第" + a["volume"] + "卷") if a.get("volume") else "", ("第" + a["issue"] + "期") if a.get("issue") else ""))) or "在线优先／刊期待定"
+            a["issue_label"] = r.issue_label(a)
         journals = sorted({a["journal"] for a in articles})
         fields = sorted({a.get("discipline", "") for a in articles if a.get("discipline")})
         q = request.args.get("q", "").strip().casefold()
@@ -42,7 +42,9 @@ def register(app, host):
         return render_template("research_updates.html", title=r.TITLE, snapshot=snapshot, article=article,
                                articles=filtered, all_articles=articles, journals=journals, fields=fields,
                                archives=r.issues(True) if member() else [], citation=r.citation, preview=preview,
-                               is_member=member(), type_labels=r.TYPE_LABELS, legacy_url=url_for("journal_alerts_latest"))
+                               is_member=member(), type_labels=r.TYPE_LABELS, legacy_url=url_for("journal_alerts_latest"),
+                               journal_ids={j: "journal-" + str(n) for n, j in enumerate(journals)},
+                               main_journals={a["journal"] for a in articles if a.get("section") not in {"supplement", "correction"}})
 
     @bp.get("/research-updates")
     def latest():
@@ -153,7 +155,10 @@ def register(app, host):
                 edits = None
                 if request.form.get("edit"):
                     edits = {k: request.form.get(k, "") for k in ("title", "title_zh", "abstract", "abstract_zh", "authors", "keywords", "keywords_zh", "volume", "issue", "year", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type")}
-                r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None)
+                r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None, request.form.get("pagination_decision"))
+            elif action == "infer_pages":
+                count = r.infer_issue_pages(issue_id, actor)
+                flash(f"已生成 {count} 条页码推断；请查看相邻目录依据并确认。", "success")
             elif action == "move":
                 r.move_items(issue_id, request.form.getlist("entry_id", type=int), request.form.get("target_id", type=int))
             elif action == "merge":

@@ -205,12 +205,90 @@ def identity(a: dict) -> str:
                               [norm(x) for x in a.get("authors", [])], a.get("year", "")])
 
 
+def infer_catalogue_pages(articles: list[dict]) -> int:
+    """Suggest contiguous print pages from consecutive entries in ONE catalogue.
+
+    Never treats a weekly selection as a complete TOC, crosses an unknown entry,
+    or replaces source-supplied end pages. Suggestions need explicit review.
+    """
+    groups = {}
+    for a in articles:
+        provenance = a.get("provenance", {})
+        source = a.get("source_id") or provenance.get("import_source")
+        if a.get("origin") != "domestic" or not source or not a.get("year") or not (a.get("issue") or a.get("total_issue")):
+            continue
+        key = (source, a["journal"], a["year"], a.get("volume", ""), a.get("issue", ""), a.get("total_issue", ""))
+        groups.setdefault(key, []).append(a)
+    changed = 0
+    for group in groups.values():
+        group.sort(key=lambda a: a.get("ordinal") if isinstance(a.get("ordinal"), int) else 999999)
+        for a, nxt in zip(group, group[1:]):
+            start, following = a.get("page_start", ""), nxt.get("page_start", "")
+            if not start and re.fullmatch(r"[0-9]+", a.get("pages", "")):
+                start = a["pages"]
+            if not following and re.fullmatch(r"[0-9]+", nxt.get("pages", "")):
+                following = nxt["pages"]
+            if (not isinstance(a.get("ordinal"), int) or nxt.get("ordinal") != a["ordinal"] + 1
+                    or a.get("article_number") or nxt.get("article_number") or a.get("page_end")
+                    or (a.get("pages") and a["pages"] != start)
+                    or not re.fullmatch(r"[0-9]+", start) or not re.fullmatch(r"[0-9]+", following)
+                    or int(following) <= int(start)):
+                continue
+            # Ambiguous duplicate starts in this issue cannot establish adjacency.
+            if sum((x.get("page_start") or x.get("pages")) == start for x in group) != 1:
+                continue
+            if sum((x.get("page_start") or x.get("pages")) == following for x in group) != 1:
+                continue
+            if any(sum(x.get("ordinal") == y["ordinal"] for x in group) != 1 for y in (a, nxt)):
+                continue
+            proposal = {"method": "next_start_minus_one", "status": "pending", "page_start": start,
+                        "page_end": str(int(following) - 1), "pages": f"{start}-{int(following) - 1}",
+                        "next_title": nxt["title"], "next_page_start": following, "next_url": nxt["url"],
+                        "next_ordinal": nxt["ordinal"], "source_url": a.get("provenance", {}).get("import_source") or a["url"],
+                        "evidence_ids": nxt.get("provenance", {}).get("field_evidence", {}).get("page_start", []),
+                        "assumption": "同一期原目录相邻条目连续编页，下一篇起始页减一；空白页、插页或漏项须人工核对"}
+            previous = a.get("pagination_inference", {})
+            if {k: v for k, v in previous.items() if k not in {"status", "actor"}} == {k: v for k, v in proposal.items() if k != "status"}:
+                continue
+            a["pagination_inference"] = proposal
+            changed += 1
+    return changed
+
+
+def infer_issue_pages(issue_id: int, actor: str) -> int:
+    with connect(True) as c:
+        issue = c.execute("SELECT status FROM research_issues WHERE id=?", (issue_id,)).fetchone()
+        if not issue or issue[0] != "draft":
+            raise ValueError("只能为草稿推断页码")
+        rows = c.execute("SELECT entry_id,data FROM research_items WHERE issue_id=?", (issue_id,)).fetchall()
+        articles = [json.loads(x["data"]) for x in rows]
+        changed = infer_catalogue_pages(articles)
+        for row, a in zip(rows, articles):
+            if dumps(a) != row["data"]:
+                c.execute("UPDATE research_items SET data=?,review='pending',actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
+                          (dumps(a), actor, now_text(), issue_id, row["entry_id"]))
+        return changed
+
+
 def period_section(a: dict, issue: dict) -> str:
     value = a.get("source_published_at") if a.get("origin") == "domestic" else (a.get("published_online") or a.get("published_at"))
     value = value or a.get("published_at") or ""
-    if len(value) < 10:
-        return "date_review"
     start, end = parse_time(issue["period_start"]), parse_time(issue["period_end"])
+    if len(value) < 10:
+        # A coarse date wholly outside the week is not ambiguous about this week.
+        try:
+            if re.fullmatch(r"\d{4}(?:-\d{2})?", value):
+                year, month = int(value[:4]), int(value[5:7]) if len(value) == 7 else 1
+                lower = datetime(year, month, 1, tzinfo=TZ)
+                upper = (datetime(year + 1, 1, 1, tzinfo=TZ) if len(value) == 4 or month == 12
+                         else datetime(year, month + 1, 1, tzinfo=TZ))
+                if upper <= start:
+                    return "supplement"
+                if lower >= end:
+                    return "future"
+        except ValueError:
+            pass
+        return "date_review"
     try:
         dt = parse_time(value)
     except (ValueError, TypeError):
@@ -396,6 +474,7 @@ def import_payload(payload: dict, issue_id: int | None = None) -> dict:
     if payload.get("content_hash") != expected:
         raise ValueError("文件哈希不匹配")
     articles, warnings = parse_import(payload)
+    inferred_pages = infer_catalogue_pages(articles)
     target = get_issue(issue_id) if issue_id else issue_for()
     if not issue_id and articles:
         published = articles[0].get("source_published_at", "")
@@ -413,7 +492,7 @@ def import_payload(payload: dict, issue_id: int | None = None) -> dict:
                            (payload["source_id"], expected)).fetchone()
         if prior:
             return {**json.loads(prior["result"]), "import_id": prior["id"], "replayed": True}
-        result = {"parsed": len(articles), "duplicates": 0, "pending": 0, "conflicts": [], "warnings": warnings, "issues": []}
+        result = {"parsed": len(articles), "duplicates": 0, "pending": 0, "conflicts": [], "warnings": warnings, "issues": [], "inferred_pages": inferred_pages}
         for a in articles:
             # OCR corrections without a stable paper identifier require a human merge.
             candidates = c.execute("SELECT id,data FROM research_entries WHERE json_extract(data,'$.source_id')=? AND json_extract(data,'$.ordinal')=?",
@@ -469,7 +548,7 @@ def merge_items(issue_id: int, entry_id: int, into_id: int, actor: str) -> None:
 
 
 def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: dict | None = None,
-           section: str | None = None) -> None:
+           section: str | None = None, pagination_decision: str | None = None) -> None:
     if action not in {"approved", "pending", "excluded"}:
         raise ValueError("无效审核操作")
     with connect(True) as c:
@@ -481,10 +560,24 @@ def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: 
             if not row:
                 raise ValueError("条目不属于该期")
             a = json.loads(row["data"])
+            previous_pages = (a.get("pages"), a.get("page_start"), a.get("page_end"))
             if edits:
                 allowed = {"title", "title_zh", "authors", "abstract", "abstract_zh", "keywords", "keywords_zh",
                            "year", "volume", "issue", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type"}
                 a = normalize({**a, **{k: v for k, v in edits.items() if k in allowed}})
+            inferred = a.get("pagination_inference", {})
+            if inferred and previous_pages != (a.get("pages"), a.get("page_start"), a.get("page_end")):
+                inferred.update(status="overridden", actor=actor)
+            if inferred.get("status") == "pending":
+                if pagination_decision == "accept":
+                    a.update({k: inferred[k] for k in ("pages", "page_start", "page_end")})
+                    inferred.update(status="confirmed", actor=actor)
+                    for field in ("pages", "page_end"):
+                        a.setdefault("field_sources", {})[field] = [{"provider": "inferred", "url": inferred["source_url"], "verified_by": actor}]
+                elif pagination_decision == "reject":
+                    inferred.update(status="rejected", actor=actor)
+                elif action == "approved":
+                    raise ValueError("请先确认或放弃页码推断，再确认条目")
             selected = section or row["section"]
             if selected not in {"new", "supplement", "correction", "date_review"}:
                 raise ValueError("无效归属")
@@ -545,6 +638,11 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
         return snapshot
 
 
+def issue_label(a: dict) -> str:
+    return " · ".join(filter(None, (a.get("year"), ("第 " + a["volume"] + " 卷") if a.get("volume") else "",
+                                    ("第 " + a["issue"] + " 期") if a.get("issue") else ""))) or "在线优先／刊期待定"
+
+
 def citation(a: dict) -> str:
     authors = ", ".join(a.get("authors") or [])
     place = str(a.get("year") or "")
@@ -562,6 +660,11 @@ def citation(a: dict) -> str:
         result += " DOI: " + a["doi"] + "."
     if a.get("page_start") and not a.get("page_end"):
         result += " [仅起始页已知：" + a["page_start"] + "]"
+    inference = a.get("pagination_inference", {})
+    if inference.get("status") == "pending":
+        result += " [推断页码：" + inference["pages"] + "；待核对]"
+    elif inference.get("status") == "confirmed":
+        result += " [页码据相邻目录推断，已确认]"
     return result
 
 
@@ -582,6 +685,8 @@ def export_citation(a: dict, fmt: str) -> str:
             out.append("SP  - " + line(parts[0]))
             if len(parts) == 2:
                 out.append("EP  - " + line(parts[1]))
+        if a.get("pagination_inference", {}).get("status") == "confirmed":
+            out.append("N1  - 页码据同一期相邻目录推断，已人工确认")
         return "\r\n".join(out + ["ER  -", ""])
     if fmt != "bib":
         raise ValueError("不支持的引文格式")
@@ -590,6 +695,8 @@ def export_citation(a: dict, fmt: str) -> str:
     fields = {"title": v.get("title"), "author": " and ".join(v.get("authors") or []), "journal": v.get("journal"),
               "year": v.get("year"), "volume": v.get("volume"), "number": v.get("issue"), "pages": v.get("pages"),
               "doi": v.get("doi"), "url": v.get("url")}
+    if a.get("pagination_inference", {}).get("status") == "confirmed":
+        fields["note"] = "页码据同一期相邻目录推断，已人工确认"
     return "@article{research" + str(a.get("entry_id", "")) + ",\n" + ",\n".join("  " + k + " = {" + escape(x) + "}" for k, x in fields.items() if x) + "\n}\n"
 
 
@@ -614,16 +721,44 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
     body = ['<div style="max-width:740px;margin:auto;background:#fffdf8;color:#211b16;padding:24px;font-family:serif">',
             "<h1>" + TITLE + "</h1><p>" + esc(text[1]) + "</p><p>共 " + str(len(snapshot["articles"])) + ' 篇。<a href="' + esc(url) + '">阅读完整周报</a></p>']
     for origin, label in (("domestic", "国内研究动态"), ("foreign", "国外研究动态")):
-        body.append("<h2>" + label + "</h2>")
+        selected = [a for a in snapshot["articles"] if a["origin"] == origin]
+        if not selected:
+            continue
+        body.append('<h2 style="font-size:21px;color:#7c3433;border-bottom:2px solid #7c3433;padding-bottom:8px;margin-top:30px">' + label + '</h2>')
         text.append(label)
-        for a in snapshot["articles"]:
-            if a["origin"] != origin:
-                continue
-            title = a.get("title_zh") or a["title"]
-            detail = url + "/articles/" + str(a["entry_id"])
-            summary = a.get("abstract_zh") or a.get("abstract") or "原刊未提供摘要"
-            text.extend([title, citation(a), summary[:180], detail, ""])
-            body.append('<h3><a href="' + esc(detail) + '">' + esc(title) + '</a></h3><p>' + esc(citation(a)) + '</p><p>' + esc(summary[:180]) + ('…' if len(summary) > 180 else '') + '</p>')
+        journals = sorted({a["journal"] for a in selected})
+        for journal in journals:
+            group = [a for a in selected if a["journal"] == journal]
+            body.append('<h3 style="font-size:17px;background:#f4f0e7;padding:10px 12px;margin:20px 0 0">' + esc(journal) + ' · ' + str(len(group)) + ' 篇</h3>')
+            text.append(journal)
+            issue_groups = {}
+            for a in group:
+                issue_groups.setdefault(issue_label(a), []).append(a)
+            for label_issue, entries in issue_groups.items():
+                body.append('<p style="font:12px/1.8 sans-serif;color:#7c766e;border-bottom:1px solid #e6e0d5;padding-bottom:8px">' + esc(label_issue) + '</p>')
+                text.append(label_issue)
+                for n, a in enumerate(sorted(entries, key=lambda x: x.get("ordinal", 999999)), 1):
+                    title = a.get("title_zh") or a["title"]
+                    detail = url + "/articles/" + str(a["entry_id"])
+                    summary = a.get("abstract_zh") or a.get("abstract") or ""
+                    inference = a.get("pagination_inference", {})
+                    pages = a.get("pages") or ((a["page_start"] + ("—" + a["page_end"] if a.get("page_end") else " 起")) if a.get("page_start") else "")
+                    pages = pages or a.get("article_number") or "页码待补"
+                    if pages == a.get("page_start") and not a.get("page_end"):
+                        pages += " 起 · 终页待补"
+                    if inference.get("status") == "pending":
+                        pages = inference["pages"] + "（推断待核对）"
+                    elif inference.get("status") == "confirmed":
+                        pages += "（推断已确认）"
+                    meta = " · ".join(("、".join(a.get("authors", [])) or "作者待核对", pages, "含摘要" if summary else "仅题录"))
+                    text.extend([str(n) + ". " + title, meta, summary[:180], detail, ""])
+                    body.append('<div style="padding:15px 0;border-bottom:1px solid #e6e0d5"><p style="font-size:16px;line-height:1.65;margin:0 0 6px"><span style="color:#a99e90">' + str(n).zfill(2) + '.</span> <a style="color:#292622;text-decoration:none" href="' + esc(detail) + '">' + esc(title) + '</a></p>')
+                    if a.get("title_zh"):
+                        body.append('<p style="font:13px/1.65 Georgia;color:#7c766e;margin:3px 0">' + esc(a["title"]) + '</p>')
+                    body.append('<p style="font:12px/1.8 sans-serif;color:#7c766e;margin:6px 0">' + esc(meta) + '</p>')
+                    if summary:
+                        body.append('<p style="font-size:13px;line-height:1.85;margin:8px 0">' + esc(summary[:180]) + ('…' if len(summary) > 180 else '') + '</p>')
+                    body.append('</div>')
     if len("".join(body).encode()) > 80000:
         text = text[:4] + ["本期目录较长，请在网页查看全部条目。"]
         body = body[:2] + ['<p>本期目录较长，请从以下期刊入口查看全部条目。</p>']
