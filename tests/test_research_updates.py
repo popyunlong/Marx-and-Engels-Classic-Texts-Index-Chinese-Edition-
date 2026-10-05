@@ -60,6 +60,47 @@ def test_week_window_is_saturday_22_and_half_open():
     assert r.period_section(article(published_at="2026"), i) == "date_review"
 
 
+def test_admin_defaults_to_closed_issue_instead_of_future_deferred_draft(monkeypatch):
+    from scripts.research_update_preview import create_app
+    import research_delivery as m
+    from bs4 import BeautifulSoup
+    monkeypatch.setattr(m, '_eligible', lambda *args: {})
+    current = issue()
+    future = r.issue_for('2026-10-10T22:00:00+08:00')
+    client = create_app().test_client()
+    soup = BeautifulSoup(client.get('/admin/research-updates').data, 'html.parser')
+    assert soup.select_one('select[name=issue] option[selected]')['value'] == str(current['id'])
+    soup = BeautifulSoup(client.get(f"/admin/research-updates?issue={future['id']}").data, 'html.parser')
+    assert soup.select_one('select[name=issue] option[selected]')['value'] == str(future['id'])
+    assert f"打开本期 {current['period_end'][:10]}" in soup.get_text()
+
+
+def test_issue_confirmation_rejects_stale_preview_and_rolls_back_invalid_items():
+    i = issue()
+    first = r.upsert(i['id'], article())
+    old = r.preview_hash(i['id'])
+    second = r.upsert(i['id'], article(title='Second', url='https://example.org/two', published_at='2026-10'))
+    ids = [first['entry_id'], second['entry_id']]
+    with pytest.raises(ValueError, match='预览已变化'):
+        r.review(i['id'], ids, 'approved', 'admin', expected_hash=old)
+    with pytest.raises(ValueError, match='日期'):
+        r.review(i['id'], ids, 'approved', 'admin', expected_hash=r.preview_hash(i['id']))
+    assert all(x['review']=='pending' for x in r.items(i['id']))
+
+
+def test_admin_correction_keeps_reserved_mail_and_reuses_draft():
+    import research_delivery as m
+    i, a = ready()
+    r.publish(i['id'], r.preview_hash(i['id']), 'admin')
+    frozen = m.get(i['id'])['snapshot']
+    cid = r.correction_for(i['id'])
+    assert r.correction_for(i['id']) == cid
+    r.review(cid, [a['entry_id']], 'approved', 'admin', edits={'title':'校订题名'})
+    r.publish(cid, r.preview_hash(cid), 'admin')
+    assert json.loads(r.get_issue(i['id'])['snapshot'])['articles'][0]['title']=='校订题名'
+    assert m.get(i['id'])['snapshot'] == frozen
+
+
 def test_sources_match_existing_45_and_have_publishers():
     assert len(col.sources()) == 45
     assert len({x["id"] for x in col.sources()}) == 45

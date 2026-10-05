@@ -64,6 +64,12 @@ def register(app, host):
             return page(json.loads(public[0]["snapshot"]))
         return page()
 
+    @bp.get('/research-updates/unsubscribe/<token>')
+    def unsubscribe(token):
+        if not mail.unsubscribe(token):
+            abort(404)
+        return Response('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>退订研究动态</title><h1>已退订研究动态邮件</h1><p>您仍可在会员网页阅读研究动态。</p><a href="/research-updates">返回栏目</a></html>', content_type='text/html; charset=utf-8')
+
     @bp.get("/research-updates/<int:issue_id>")
     def issue(issue_id):
         return page(checked_snapshot(issue_id))
@@ -98,7 +104,9 @@ def register(app, host):
 
     def admin_data(selected=None, issued_token=""):
         issue_list = r.issues()
-        selected = selected or (issue_list[0]["id"] if issue_list else None)
+        cutoff = r.parse_time(r.weekly_window(r.parse_time(r.now_text()))[1])
+        current_issue = next((i for i in issue_list if not i['parent_id'] and r.parse_time(i['period_end']) <= cutoff), None)
+        selected = selected or (current_issue['id'] if current_issue else (issue_list[0]['id'] if issue_list else None))
         issue = r.get_issue(selected) if selected else None
         with r.connect() as c:
             imports = [dict(x) for x in c.execute("SELECT id,source_id,result,created_at FROM research_imports ORDER BY id DESC LIMIT 50")]
@@ -109,15 +117,17 @@ def register(app, host):
             events = [dict(x) for x in c.execute("SELECT * FROM research_mail_events WHERE issue_id=? ORDER BY id DESC LIMIT 30", (selected,))]
         for x in runs:
             x["details"] = json.loads(x["report"])
-        recipients, _ = host.get("resolve_journal_recipients", lambda mode: ([], True))("subscribers")
+        schedule = mail.get(selected)
+        audience = schedule['audience'] if schedule else 'members'
         import journal_alerts as ja
         rows = r.items(selected) if issue else []
         return render_template("research_admin.html", issues=issue_list, issue=issue,
+                               current_issue=current_issue,
                                rows=rows, imports=imports, tokens=tokens,
                                runs=runs, deliveries=deliveries, jobs=jobs, token=issued_token,
-                               schedule=mail.get(selected), mail_labels=mail.LABELS, local_time=mail.local_time,
+                               schedule=schedule, audience=audience, mail_labels=mail.LABELS, local_time=mail.local_time,
                                default_send=mail.local_time(mail.default_time(issue)) if issue else '',
-                               recipient_count=sum(ja.subscription_is_deliverable(x.get('_subscription') or {}) for x in recipients),
+                               recipient_count=host.get('research_recipient_count', lambda mode: len(mail._eligible(None, mode)))(audience),
                                smtp_enabled=ja.load_smtp_config().enabled, smtp_config=ja.load_smtp_config(), events=events,
                                subscriptions=host.get("list_recent_journal_subscriptions", lambda **kw: [])(limit=200),
                                pending_count=sum(x['review']=='pending' for x in rows),
@@ -182,6 +192,17 @@ def register(app, host):
                 if request.form.get("edit"):
                     edits = {k: request.form.get(k, "") for k in ("title", "title_zh", "abstract", "abstract_zh", "authors", "authors_zh", "keywords", "keywords_zh", "volume", "issue", "year", "pages", "page_start", "page_end", "article_number", "doi", "discipline", "type")}
                 r.review(issue_id, request.form.getlist("entry_id", type=int), request.form.get("review", "pending"), actor, edits, request.form.get("section") or None, request.form.get("pagination_decision"), request.form.get("content_override_reason", ""))
+            elif action == 'review_issue':
+                if request.form.get('confirm') != 'yes' or not request.form.get('preview_hash'):
+                    raise ValueError('请核对本期所有条目并勾选确认')
+                ids = [x['entry_id'] for x in r.items(issue_id) if x['review'] != 'excluded']
+                r.review(issue_id, ids, 'approved', actor,
+                         pagination_decision=request.form.get('pagination_decision'),
+                         expected_hash=request.form['preview_hash'])
+                flash('本期审核已确认；请核对预览后发布网页并预约邮件。', 'success')
+            elif action == 'correction':
+                issue_id = r.correction_for(issue_id)
+                flash('已打开更正草稿。发布更正不会替换预约邮件；替换邮件须另行预览确认。', 'success')
             elif action == "screen_content":
                 result = r.screen_issue(issue_id, actor)
                 flash(f"本次排除 {result['excluded']} 条，纠正类型 {result['retyped']} 条，另有 {result['content_review']} 条需核对内容；保留原目录与筛选依据。", "success")

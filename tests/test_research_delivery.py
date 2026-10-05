@@ -39,6 +39,37 @@ def test_web_public_before_mail_and_exact_window(setup):
     assert sender.call_count == 1
 
 
+def test_all_members_includes_unsubscribed_from_signup_but_honors_optouts_and_expiry(setup, monkeypatch):
+    import journal_alerts as ja
+    iid, clock = setup
+    assert m.get(iid)['audience']=='members'
+    members=[{'email':'new@example.org','user_id':2}, {'email':'out@example.org','user_id':3}, {'email':'expires@example.org','user_id':4}]
+    monkeypatch.setattr(ja, 'resolve_recipients', lambda mode: (list(members), False))
+    monkeypatch.setattr(ja, 'list_subscriptions_for_user', lambda uid: [{'status':'unsubscribed'}] if uid==3 else [])
+    assert set(m._eligible(None,'members'))=={'new@example.org','expires@example.org'}
+    clock[0]='2026-10-05T01:00:00+00:00'
+    def accepted(*args):
+        assert '/research-updates/unsubscribe/' in args[3] and '/research-updates/unsubscribe/' in args[4]
+        members[:]=[x for x in members if x['user_id']!=4]
+    sender=Mock(side_effect=accepted)
+    result=m.deliver('https://example.org',sender=sender,smtp=object())
+    assert result==dict(sent=1,failed=0,uncertain=0,skipped=1)
+    assert sender.call_count==1
+    recipient=m.with_unsubscribe({'email':'new@example.org','user_id':2})
+    assert recipient==m.with_unsubscribe({'email':'new@example.org','user_id':2})
+    assert m.unsubscribe(recipient['research_unsubscribe_token'])
+    assert 'new@example.org' not in m._eligible(None,'members')
+    assert not m.unsubscribe('invalid')
+
+
+def test_upgrade_preserves_existing_subscriber_reservation_mode(setup):
+    iid, _ = setup
+    with r.connect(True) as c:
+        c.execute('ALTER TABLE research_mail_schedules DROP COLUMN audience')
+    r.init_db()
+    assert m.get(iid)['audience']=='subscribers'
+
+
 def test_missed_never_catches_up_until_rescheduled(setup):
     iid, clock = setup
     clock[0] = '2026-10-05T01:01:00+00:00'

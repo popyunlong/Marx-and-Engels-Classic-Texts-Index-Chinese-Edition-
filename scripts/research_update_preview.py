@@ -21,6 +21,7 @@ def create_app(port=8879):
         app.add_url_rule(path, name, lambda: "本地只读预览；此入口上线后连接现有网站。")
     register(app, {"_feature_effective_for_user": lambda name: True, "_require_admin": lambda: None,
                    "_ensure_csrf_token": lambda: "preview", "CSRF_EXEMPT_ENDPOINTS": set(),
+                   "research_recipient_count": lambda mode: 0,
                    "journal_alert_public_base_url": lambda dep: f"http://127.0.0.1:{port}", "DEPLOYMENT": None})
     return app
 

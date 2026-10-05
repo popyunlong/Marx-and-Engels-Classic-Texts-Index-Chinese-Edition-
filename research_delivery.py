@@ -23,7 +23,12 @@ def init(c):
     CREATE TABLE IF NOT EXISTS research_mail_events (
       id INTEGER PRIMARY KEY, issue_id INTEGER NOT NULL, action TEXT NOT NULL,
       actor TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS research_mail_preferences (
+      user_id INTEGER NOT NULL, email TEXT NOT NULL, token TEXT NOT NULL UNIQUE,
+      opted_out INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id,email));
     """)
+    if 'audience' not in {x[1] for x in c.execute('PRAGMA table_info(research_mail_schedules)')}:
+        c.execute("ALTER TABLE research_mail_schedules ADD COLUMN audience TEXT NOT NULL DEFAULT 'subscribers'")
 
 
 def utc(value):
@@ -54,7 +59,7 @@ def event(c, issue_id, action, actor, detail=""):
 
 def reserve(c, issue_id, snapshot, when, actor):
     when = future(when)
-    c.execute("INSERT INTO research_mail_schedules(issue_id,snapshot,scheduled_at,status,actor,updated_at) VALUES(?,?,?,'scheduled',?,?)",
+    c.execute("INSERT INTO research_mail_schedules(issue_id,snapshot,scheduled_at,status,actor,updated_at,audience) VALUES(?,?,?,'scheduled',?,?,'members')",
               (issue_id, r.dumps(snapshot), when, actor, r.now_text()))
     event(c, issue_id, "schedule", actor, when)
 
@@ -111,11 +116,43 @@ def resolve(issue_id, delivery_id, actor, resolution):
         event(c, issue_id, "resolve", actor, f"{delivery_id}: {resolution}")
 
 
-def _eligible(recipients):
+def _eligible(recipients, mode='members'):
     import journal_alerts as ja
-    current = recipients if recipients is not None else ja.resolve_recipients("subscribers")[0]
-    return {r.clean(x["email"]).lower(): x for x in current
-            if recipients is not None or ja.subscription_is_deliverable(x.get("_subscription") or {})}
+    if recipients is not None:
+        return {r.clean(x['email']).lower(): x for x in recipients}
+    if mode not in {'members', 'subscribers'}:
+        raise ValueError('无效收件范围，需人工检查')
+    current = ja.resolve_recipients(mode)[0]
+    with r.connect() as c:
+        optouts = {(x['user_id'], x['email']) for x in c.execute('SELECT user_id,email FROM research_mail_preferences WHERE opted_out=1')}
+    result = {}
+    for x in current:
+        email = r.clean(x['email']).lower()
+        if (x.get('user_id'), email) in optouts:
+            continue
+        if x.get('user_id') and any(s['status']=='unsubscribed' for s in ja.list_subscriptions_for_user(x['user_id'])):
+            continue
+        if mode=='subscribers' and not ja.subscription_is_deliverable(x.get('_subscription') or {}):
+            continue
+        result[email] = x
+    return result
+
+
+def with_unsubscribe(recipient):
+    if recipient.get('unsubscribe_token') or not recipient.get('user_id'):
+        return recipient
+    email = r.clean(recipient['email']).lower()
+    with r.connect(True) as c:
+        c.execute('INSERT OR IGNORE INTO research_mail_preferences(user_id,email,token) VALUES(?,?,?)',
+                  (recipient['user_id'], email, secrets.token_urlsafe(32)))
+        row = c.execute('SELECT token FROM research_mail_preferences WHERE user_id=? AND email=?',
+                        (recipient['user_id'], email)).fetchone()
+    return {**recipient, 'research_unsubscribe_token': row['token']}
+
+
+def unsubscribe(token):
+    with r.connect(True) as c:
+        return bool(c.execute('UPDATE research_mail_preferences SET opted_out=1 WHERE token=?', (token,)).rowcount)
 
 
 def deliver(base_url, limit=100, sender=None, recipients=None, smtp=None):
@@ -155,7 +192,7 @@ def deliver(base_url, limit=100, sender=None, recipients=None, smtp=None):
     try:
         if hasattr(smtp, "enabled") and not smtp.enabled:
             raise ValueError("SMTP尚未配置，需修复后另约")
-        audience = _eligible(recipients) if not selected["audience_initialized"] else None
+        audience = _eligible(recipients, selected['audience']) if not selected["audience_initialized"] else None
         with r.connect(True) as c:
             live = c.execute("SELECT * FROM research_mail_schedules WHERE issue_id=?", (iid,)).fetchone()
             if live["status"] != "sending" or live["worker"] != worker:
@@ -178,12 +215,12 @@ def deliver(base_url, limit=100, sender=None, recipients=None, smtp=None):
                 c.execute("UPDATE research_mail_schedules SET heartbeat=? WHERE issue_id=?", (utc(r.now_text()), iid))
             status, error = "sent", ""
             try:
-                eligible = _eligible(recipients)
+                eligible = _eligible(recipients, selected['audience'])
                 if row["email"] not in eligible:
                     status, error = "skipped", "已退订或会员资格失效"
                 else:
                     snapshot = json.loads(row["snapshot"])
-                    plain, rich = r.render_email(snapshot, eligible[row["email"]], base_url)
+                    plain, rich = r.render_email(snapshot, with_unsubscribe(eligible[row["email"]]), base_url)
                     sender(smtp, row["email"], r.TITLE + " · " + snapshot["period_end"][:10], plain, rich)
             except (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused) as exc:
                 status, error = "failed", type(exc).__name__ + ": " + str(exc)[:200]

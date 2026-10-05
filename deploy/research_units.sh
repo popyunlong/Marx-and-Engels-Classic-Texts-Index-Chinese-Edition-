@@ -39,6 +39,10 @@ activate_research_units() {
       systemctl disable --now "$timer" >/dev/null 2>&1 || true
     done
     for timer in "${RESEARCH_TIMERS[@]}"; do systemctl enable --now "$timer"; done
+    if ! grep -q 'def with_unsubscribe' "$app/research_delivery.py"; then
+      systemctl disable --now marx-search-research-send.timer >/dev/null 2>&1 || true
+      echo "Research mail paused: target lacks the confirmed member audience and opt-out support; coordinator must review before enabling." >&2
+    fi
   else
     for timer in "${RESEARCH_TIMERS[@]}"; do systemctl disable --now "$timer" >/dev/null 2>&1 || true; done
     restore_research_units "$old_state"

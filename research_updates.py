@@ -319,6 +319,14 @@ def _editable_issue(c, issue_id: int) -> int:
     return new_id
 
 
+def correction_for(issue_id: int) -> int:
+    with connect(True) as c:
+        issue = c.execute("SELECT status FROM research_issues WHERE id=?", (issue_id,)).fetchone()
+        if not issue or issue['status'] != 'published':
+            raise ValueError('请选择已发布期次建立更正稿')
+        return _editable_issue(c, issue_id)
+
+
 def _upsert(c, issue_id: int, raw: dict) -> dict:
     a = normalize(raw)
     # Import/collector credentials cannot supply an editorial override.
@@ -587,10 +595,12 @@ def screen_issue(issue_id: int, actor: str) -> dict:
 
 def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: dict | None = None,
            section: str | None = None, pagination_decision: str | None = None,
-           content_override_reason: str = "") -> None:
+           content_override_reason: str = "", expected_hash: str | None = None) -> None:
     if action not in {"approved", "pending", "excluded"}:
         raise ValueError("无效审核操作")
     with connect(True) as c:
+        if expected_hash is not None and preview_hash(issue_id, c) != expected_hash:
+            raise ValueError('预览已变化，请刷新并重新核对后确认')
         issue = c.execute("SELECT * FROM research_issues WHERE id=?", (issue_id,)).fetchone()
         if not issue or issue["status"] != "draft":
             raise ValueError("只能修改草稿")
@@ -855,6 +865,11 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
                 body.append('<li><a href="' + esc(link) + '">' + esc(heading) + '</a></li>')
             body.append("</ul>")
     unsubscribe = recipient.get("unsubscribe_token")
+    research_unsubscribe = recipient.get('research_unsubscribe_token')
+    if research_unsubscribe:
+        link = base_url.rstrip('/') + '/research-updates/unsubscribe/' + research_unsubscribe
+        text.append('退订邮件：' + link)
+        body.append('<p><a href="' + esc(link) + '">退订研究动态邮件</a></p>')
     if unsubscribe:
         link = base_url.rstrip("/") + "/journal-alerts/unsubscribe/" + unsubscribe
         text.append("退订：" + link)
