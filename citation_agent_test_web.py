@@ -61,6 +61,8 @@ def register_routes(app, web: dict) -> None:
             raise tasks.CitationAssistantError(
                 "请先指定至少一部站内著作、卷册或个人文库资料。"
             )
+        if len(cleaned) > 500:
+            raise tasks.CitationAssistantError("所选范围超过 500 项，请减少著作或卷册后重试。")
         web["_citation_personal_scope_rows"](user_id, cleaned)
         for token in cleaned:
             if mylib_corpus.submission_id_from_scope_token(token):
@@ -78,7 +80,7 @@ def register_routes(app, web: dict) -> None:
             raise tasks.CitationAssistantError(
                 "所选著作或卷册已不在当前支持文库中，请重新指定。"
             )
-        return cleaned[:500]
+        return cleaned
 
     def job_payload(job: dict) -> dict:
         public = {
@@ -207,7 +209,7 @@ def register_routes(app, web: dict) -> None:
         if not isinstance(scope, list):
             scope = []
         try:
-            scope = validated_scope(user_id, [str(value) for value in scope[:500]])
+            scope = validated_scope(user_id, [str(value) for value in scope])
             job = tasks.create_job(
                 user_id, upload.filename or "论文.docx", data,
                 mode=str(request.form.get("mode") or "both"),
@@ -243,7 +245,7 @@ def register_routes(app, web: dict) -> None:
         if not isinstance(sections, list) or not isinstance(scope, list):
             abort(400, description="分析范围格式无效。")
         try:
-            scope = validated_scope(user_id, [str(value) for value in scope[:500]])
+            scope = validated_scope(user_id, [str(value) for value in scope])
             job = tasks.set_analysis_config(
                 job_id, user_id, section_ids=[str(value) for value in sections[:1000]],
                 scope_tokens=scope,
