@@ -132,6 +132,7 @@
   var researchQuota = {};
   var streaming = false;
   var currentAbort = null;      // 当前在飞请求的 AbortController；「停止回答」即中断它
+  var currentPendingAssistant = null;
   var depth = "quick";
 
   // ===================== 工具 =====================
@@ -2945,6 +2946,7 @@
     // 中止控制：持有本次请求的 AbortController，「停止回答」按钮即中断这条在飞的 fetch。
     var abort = (typeof AbortController !== "undefined") ? new AbortController() : null;
     currentAbort = abort;
+    currentPendingAssistant = assistant;
     updateSendEnabled();
 
     var req = isResearch
@@ -2965,6 +2967,7 @@
       var ctype = (resp.headers.get("content-type") || "").toLowerCase();
       if (ctype.indexOf("text/event-stream") >= 0) {
         return readSseResultStream(resp, function (progress) {
+          if (abort && abort.signal.aborted) return;
           var elapsed = Number(progress.elapsed_seconds || 0);
           assistant.progress = String(progress.message || "AI 正在生成") + (elapsed ? "（" + elapsed + "秒）" : "");
           renderMessages();
@@ -2972,6 +2975,7 @@
       }
       return parseJsonResponse(resp);
     }).then(function (data) {
+      if (abort && abort.signal.aborted) return;
       if (data.ai_credits) aiCredits = data.ai_credits;
       if (data.ai_token_quota) updateTokenQuota(data.ai_token_quota);
       if (data.research_quota) updateResearchQuota(data.research_quota);
@@ -2995,7 +2999,7 @@
       renderMessages();
     }).catch(function (error) {
       // 用户主动「停止回答」：撤下这条待答气泡、保留提问，不显示报错，随即可开启新回答。
-      if (error && error.name === "AbortError") {
+      if ((abort && abort.signal.aborted) || (error && error.name === "AbortError")) {
         var idx = messages.indexOf(assistant);
         if (idx >= 0) messages.splice(idx, 1);
         saveMessages();
@@ -3008,7 +3012,10 @@
       saveMessages();
       renderMessages();
     }).then(function () {
-      if (currentAbort === abort) currentAbort = null;
+      // A stopped request may finish after a new one; it must not clear that UI.
+      if (currentAbort !== abort) return;
+      currentAbort = null;
+      currentPendingAssistant = null;
       streaming = false;
       updateSendEnabled();
       if (sessionRefreshPending) {
@@ -3023,6 +3030,14 @@
   function stopStreaming() {
     if (!streaming || !currentAbort) return;
     try { currentAbort.abort(); } catch (_) {}
+    var idx = messages.indexOf(currentPendingAssistant);
+    if (idx >= 0) messages.splice(idx, 1);
+    currentAbort = null;
+    currentPendingAssistant = null;
+    streaming = false;
+    saveMessages();
+    renderMessages();
+    updateSendEnabled();
   }
 
   // ===================== 事件绑定 =====================

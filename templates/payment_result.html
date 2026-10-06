@@ -136,6 +136,8 @@
       <div class="status {% if order.status == 'paid' %}paid{% endif %}">
         {% if order.status == "paid" %}
         {% if is_donation %}打赏成功{% else %}{{ site_text("payment_result.status_paid") }}{% endif %}
+        {% elif order.status in ['expired','cancelled','failed','refunded'] %}
+        {{ {'expired':'订单已过期','cancelled':'订单已取消','failed':'支付未完成','refunded':'订单已退款'}[order.status] }}
         {% else %}
         {{ site_text("payment_result.status_pending") }}
         {% endif %}
@@ -144,6 +146,8 @@
       <p class="muted">
         {% if order.status == "paid" %}
         {% if is_donation %}衷心感谢您对本站的支持！您的这笔打赏将用于文献整理维护与服务器运营。{% else %}{{ site_text("payment_result.intro_paid") }}{% endif %}
+        {% elif order.status in ['expired','cancelled','failed','refunded'] %}
+        {{ {'expired':'此订单已过期，请从套餐页面重新下单。','cancelled':'此订单已取消，请从套餐页面重新下单。','failed':'此订单支付未完成，请查看订单状态后重新下单。','refunded':'该订单已记录退款，请在会员中心查看最新权益。'}[order.status] }}
         {% else %}
         {{ site_text("payment_result.intro_pending") }}
         {% endif %}
@@ -154,8 +158,8 @@
         <div>{% if is_donation %}项目：打赏 / 捐赠{% else %}套餐：{{ order.plan_name }}{% endif %}</div>
         <div>金额：{{ format_price(order.amount_cents, order.currency) }}</div>
         {% include "_order_purchase_summary.html" %}
-        <div>订单状态：{{ format_order_status(order.status) }}</div>
-        <div>支付方式：{{ format_payment_provider(order.payment_provider) }}</div>
+        <div>订单状态：{{ '已退款' if order.status == 'refunded' else format_order_status(order.status) }}</div>
+        <div>支付方式：{{ '未支付' if order.status in ['expired','cancelled','failed'] and not order.payment_provider else format_payment_provider(order.payment_provider) }}</div>
         {% if not is_donation %}
         <div>当前会员：{{ membership_snapshot.plan_name or format_membership_status(membership_snapshot.status) }}</div>
         <div>会员到期时间：{{ format_datetime(membership_snapshot.expires_at) if membership_snapshot.expires_at else "暂无" }}</div>
