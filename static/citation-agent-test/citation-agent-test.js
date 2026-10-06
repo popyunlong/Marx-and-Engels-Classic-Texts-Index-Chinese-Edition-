@@ -31,7 +31,7 @@
 
   function setupUpload(){
     const form=$('#catUploadForm');if(!form)return;
-    const holder=$('#catBookScope');if(holder&&window.BookScope)scopeCtl=BookScope.mount(holder,tree,{persist:false});
+    const holder=$('#catBookScope');if(holder&&window.BookScope)scopeCtl=BookScope.mount(holder,tree,{categoryShortcuts:true,persist:false});
     const modeSelect=$('#catModeSelect'),noteKindField=$('#catNoteKindField');
     const syncMode=()=>{if(noteKindField)noteKindField.hidden=modeSelect&&modeSelect.value==='audit'};
     if(modeSelect){modeSelect.addEventListener('change',syncMode);syncMode()}
@@ -44,6 +44,7 @@
       event.preventDefault();const chosen=file.files[0];if(!chosen){notice('请先选择 .docx 文件。',true);return}
       if(!chosen.name.toLowerCase().endsWith('.docx')){notice('目前只接收 .docx 文件。',true);return}
       if(!scopeCtl||!scopeCtl.hasSelection()){notice('请先完成“指定著作”；未选范围的任务不会默认扫描全库。',true);return}
+      if(scopeCtl.getTokens().length>500){notice('所选范围超过 500 项，请减少著作或卷册后重试。',true);return}
       const button=form.querySelector('button[type=submit]');button.disabled=true;button.textContent='正在安全上传…';
       const data=new FormData(form);data.set('scope',JSON.stringify(scopeCtl?scopeCtl.getTokens():[]));
       try{const out=await api(apiBase+'/jobs',{method:'POST',body:data});location.href=withPreviewIdentity(out.job.page_url)}
@@ -65,11 +66,12 @@
     const box=$('#catSectionsPanel');if(!box)return;box.hidden=false;
     const selected=new Set(job.selected_sections||[]),sections=job.sections||[];
     box.innerHTML='<div class="ca-status"><h3>冻结核验范围</h3><p>确认章节和指定著作后，Agent 不能扩大范围。</p></div><div class="ca-section-list">'+sections.map(section=>'<label class="ca-section"><input type="checkbox" value="'+esc(section.id)+'" '+(selected.has(section.id)?'checked':'')+'><span>'+esc(section.title||'未命名章节')+'</span><small>段落 '+(Number(section.start||0)+1)+'—'+(Number(section.end||0)+1)+'</small></label>').join('')+'</div><div class="ca-scope-block"><span>必选步骤：指定著作</span><div id="catAnalysisScope"></div><small>已载入上传时的选择；可在开始前调整，开始后立即冻结。</small></div><button type="button" class="ca-primary" id="catStartAnalysis">开始证据核验</button>';
-    const holder=$('#catAnalysisScope');if(holder&&window.BookScope)scopeCtl=BookScope.mount(holder,tree,{persist:false,initialTokens:job.scope||[]});
+    const holder=$('#catAnalysisScope');if(holder&&window.BookScope)scopeCtl=BookScope.mount(holder,tree,{categoryShortcuts:true,persist:false,initialTokens:job.scope||[]});
     $('#catStartAnalysis').addEventListener('click',async()=>{
       const sections=[...box.querySelectorAll('.ca-section input:checked')].map(input=>input.value);if(!sections.length){notice('请至少选择一个章节。',true);return}
       const scope=scopeCtl&&scopeCtl.hasSelection()?scopeCtl.getTokens():[];
       if(!scope.length){notice('请先指定至少一部著作、卷册或个人文库资料。',true);return}
+      if(scope.length>500){notice('所选范围超过 500 项，请减少著作或卷册后重试。',true);return}
       const button=$('#catStartAnalysis');button.disabled=true;button.textContent='正在加入核验队列…';
       try{await api(apiBase+'/jobs/'+job.id+'/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sections:sections,scope:scope})});job.status='queued';job.analysis_stage='deterministic';renderJob();startPolling()}
       catch(error){notice(error.message,true);button.disabled=false;button.textContent='开始证据核验'}

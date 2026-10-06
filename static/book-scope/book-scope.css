@@ -23,6 +23,17 @@
   background: #fff; border: 1px solid #d9c689; border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 10px;
 }
+.bscope-with-categories { display: block; }
+.bscope-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.bscope-category, .bscope-shortcuts-clear {
+  font: inherit; font-size: 14px; line-height: 1.5; cursor: pointer;
+  padding: 7px 13px; border: 1px solid #cbb777; border-radius: 999px;
+  background: #fffdf7; color: #665222; max-width: 100%; white-space: normal;
+}
+.bscope-category[aria-pressed="true"] { background: #70581c; border-color: #70581c; color: white; }
+.bscope-category[aria-pressed="mixed"] { background: #f8edc9; border-style: dashed; }
+.bscope-category:focus-visible, .bscope-shortcuts-clear:focus-visible { outline: 3px solid #236b4f; outline-offset: 2px; }
+.bscope-shortcuts-clear { border-color: #ccc; color: #555; background: transparent; }
 .bscope-inline { display: block; }
 .bscope-inline > .bscope-trigger { display: none; }
 .bscope-inline > .bscope-panel {

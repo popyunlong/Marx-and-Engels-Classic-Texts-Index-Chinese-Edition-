@@ -4,7 +4,8 @@
  * 选择态 sel = { 书库键: "all" | [卷号...] }；导出 token：整套→"book:<键>"，单卷→"vol:<键>:<卷号>"。
  * 后端 _resolve_search_scope / _standard_search_scope 直接吃这个 token 列表。
  *
- * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey, initialTokens, inline });
+ * 用法：const ctl = BookScope.mount(container, tree, { onChange, dark, persist, storageKey, initialTokens, inline, categoryShortcuts });
+ *   categoryShortcuts:true 显示类别多选及公开文库全选，仍导出具体书卷 token；默认关闭。
  *   inline:true 在宿主面板内直接显示选择树；默认仍由「指定著作」按钮展开。
  *   默认「不跨访问记忆」：每次挂载都从空开始（= 全部著作）；仅当传 persist:true 时才读写 localStorage。
  *   ctl.getTokens() -> ["book:文集","vol:全集:5", ...]（无选择时为 []）
@@ -47,6 +48,7 @@
     // 默认不跨访问记忆：每次挂载从空开始（= 全部著作）；仅显式 persist:true 才读写 localStorage。
     var persistOn = opts.persist === true;
     var inline = opts.inline === true;
+    var categoryShortcuts = opts.categoryShortcuts === true;
     // 书库键 → { label, volumes } 索引；顺带剔除 localStorage 里已不在库的键。
     var bookIndex = {};
     tree.forEach(function (g) { (g.books || []).forEach(function (b) { bookIndex[b.key] = b; }); });
@@ -97,6 +99,48 @@
         '<div class="bscope-groups"></div>' +
       '</div>';
     container.appendChild(root);
+
+    // Shortcuts edit the same book/volume selection; never submit group ids.
+    var shortcuts = null, categoryEntries = [];
+    if (categoryShortcuts) {
+      root.classList.add('bscope-with-categories');
+      shortcuts = document.createElement('div');
+      shortcuts.className = 'bscope-shortcuts';
+      shortcuts.setAttribute('role', 'group');
+      shortcuts.setAttribute('aria-label', '按类别快速选择核验文库');
+      var publicKeys = Object.keys(bookIndex).filter(function (key) {
+        return !bookIndex[key].personal && !tree.some(function (g) {
+          return g.id === 'mylib' && (g.books || []).some(function (b) { return b.key === key; });
+        });
+      });
+      function addCategory(id, label, keys) {
+        if (!keys.length) return;
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'bscope-category';
+        button.dataset.category = id;
+        button.textContent = label;
+        button.setAttribute('aria-pressed', 'false');
+        shortcuts.appendChild(button);
+        categoryEntries.push({button: button, keys: keys, label: label});
+        button.addEventListener('click', function () {
+          var complete = keys.every(function (key) { return sel[key] === 'all'; });
+          keys.forEach(function (key) { if (complete) delete sel[key]; else sel[key] = 'all'; });
+          persist(); paint(); onChange();
+        });
+      }
+      addCategory('all-public', '全部公开文库', publicKeys);
+      tree.forEach(function (g) {
+        addCategory(g.id, g.label, (g.books || []).map(function (b) { return b.key; }));
+      });
+      var clearCategories = document.createElement('button');
+      clearCategories.type = 'button';
+      clearCategories.className = 'bscope-shortcuts-clear';
+      clearCategories.textContent = '清空选择';
+      clearCategories.addEventListener('click', function () { sel = {}; persist(); paint(); onChange(); });
+      shortcuts.appendChild(clearCategories);
+      root.insertBefore(shortcuts, root.firstChild);
+    }
 
     var trigger = root.querySelector('.bscope-trigger');
     var panel = root.querySelector('.bscope-panel');
@@ -150,6 +194,12 @@
     }
 
     function paint() {
+      categoryEntries.forEach(function (entry) {
+        var complete = entry.keys.every(function (key) { return sel[key] === 'all'; });
+        var partial = !complete && entry.keys.some(function (key) { return sel[key] !== undefined; });
+        entry.button.setAttribute('aria-pressed', complete ? 'true' : (partial ? 'mixed' : 'false'));
+        entry.button.textContent = entry.label + (partial ? '（部分选中）' : '');
+      });
       root.querySelectorAll('.bscope-book').forEach(function (row) {
         var key = row.dataset.key;
         var v = sel[key];

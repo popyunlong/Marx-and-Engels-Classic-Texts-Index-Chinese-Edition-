@@ -181,7 +181,9 @@ def _required_scope_tokens(values: object) -> list[str]:
     ))
     if not tokens:
         raise CitationAssistantError("请先指定至少一部站内著作、卷册或个人文库资料。")
-    return tokens[:500]
+    if len(tokens) > 500:
+        raise CitationAssistantError("所选范围超过 500 项，请减少著作或卷册后重试。")
+    return tokens
 
 
 def create_job(*args, recognition_depth: str = "direct_only", **kwargs) -> dict:

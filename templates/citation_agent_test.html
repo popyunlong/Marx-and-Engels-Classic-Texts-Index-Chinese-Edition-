@@ -8,7 +8,7 @@
   <meta name="description" content="以站内原文证据为边界的论文插注与引文校注 Agent。">
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=25">
-  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=3">
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=4">
   <link rel="stylesheet" href="/static/citation-assistant/citation-assistant.css?v=4">
   <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=6">
 </head>
@@ -88,7 +88,7 @@
         <div class="ca-scope-block cat-scope-block">
           <div class="cat-scope-title"><span>指定核验文库</span><em>必选</em></div>
           <div id="catBookScope"></div>
-          <small>至少选择一部著作、卷册或个人文库资料。系统不会把空选择解释成扫描全库，Agent 也无权扩大范围。</small>
+          <small>可按类别快速多选，也可指定著作或卷册；全部公开文库不包含个人文库。至少选择一项。系统不会把空选择解释成扫描全库，Agent 也无权扩大范围。</small>
         </div>
         {% if citation_access %}
         <button class="ca-primary cat-primary" type="submit"><span>开始读取论文</span><small>下一步确认章节与范围</small></button>
@@ -159,7 +159,7 @@
     {% endif %}
   </main>
 
-  <script src="/static/book-scope/book-scope.js?v=5"></script>
-  <script src="/static/citation-agent-test/citation-agent-test.js?v=11"></script>
+  <script src="/static/book-scope/book-scope.js?v=6"></script>
+  <script src="/static/citation-agent-test/citation-agent-test.js?v=12"></script>
 </body>
 </html>
