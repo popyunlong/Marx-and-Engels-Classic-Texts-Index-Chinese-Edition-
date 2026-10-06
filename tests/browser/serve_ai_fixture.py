@@ -28,8 +28,18 @@ def ai_page():
         search_chat_access_enabled=True, research_access_enabled=True,
         citation_style_groups=[], ai_web_access_enabled=False,
         site_text=lambda key: TEXT.get(key, key),
-        url_for=lambda endpoint, **kwargs: "/" + endpoint,
+        url_for=lambda endpoint, **kwargs: ("/static/" + kwargs["filename"]) if endpoint == "static" else "/" + endpoint,
     )
+
+
+@app.get("/refined-fixture")
+def refined_fixture():
+    return """<!doctype html><html><head><link rel="stylesheet" href="/static/layout-v2/layout-v2.css">
+    <link rel="stylesheet" href="/static/refined-ui/refined.css">
+    <script defer src="/static/refined-ui/refined.js"></script></head><body class="v2">
+    <div class="refined-portrait"><button class="refined-motion">暂停动态</button></div>
+    <a class="v2book" href="/reader"><span class="v2book-cover"><img src="/missing-cover.png" alt="测试书封面">
+    <span class="v2book-cover-fallback">封面暂不可用</span></span>测试书</a></body></html>"""
 
 
 if __name__ == "__main__":

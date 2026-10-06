@@ -107,7 +107,7 @@ for(const [width,height] of [[390,844],[640,460],[768,700],[960,900],[1180,800]]
       await page.keyboard.press('Escape');
       await page.locator('#aipSessions').evaluate(el=>el.getAnimations().forEach(a=>a.finish()));
       assert.equal(await page.locator('#aipSessionsToggle').getAttribute('aria-expanded'),'false');
-      assert.ok(Math.abs(await page.evaluate(()=>scrollY)-scroll)<2,'closing changed page position');
+      assert.ok(Math.abs(await page.evaluate(()=>scrollY)-scroll)<2,`closing changed page position: width=${width}, fraction=${fraction}, before=${scroll}, after=${await page.evaluate(()=>scrollY)}`);
       assert.equal(await page.evaluate(()=>document.activeElement.id),'aipSessionsToggle');
     }
     await noOverflow(page);
@@ -249,4 +249,25 @@ test('shared book selector keeps its default popup behavior alongside an inline 
   await page.locator('#aipScopeToggle').click();
   assert.equal(await page.locator('#otherBookScope .bscope-panel').isVisible(),false);
   assert.equal(await page.locator('#aipComposerBookScopeMount .bscope-panel').isVisible(),true);
+});
+
+
+test('refined cover failure remains visible and storage denial does not break controls', {skip:!!process.env.AI_CONTROLS_BASE_URL}, async () => {
+  const context = await browser.newContext({reducedMotion:'reduce'});
+  try {
+    await context.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', {get(){throw new Error('storage denied');}});
+    });
+    const page = await context.newPage();
+    const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(base+'/refined-fixture');
+    await page.locator('.is-cover-unavailable').waitFor();
+    assert.equal(await page.locator('.v2book-cover img').count(),1);
+    assert.equal(await page.getByText('封面暂不可用').isVisible(),true);
+    assert.equal(await page.locator('.v2book').getAttribute('href'),'/reader');
+    assert.equal(await page.locator('.refined-motion').getAttribute('aria-pressed'),'true');
+    await page.locator('.refined-motion').click();
+    assert.equal(await page.locator('.refined-motion').getAttribute('aria-pressed'),'false');
+    assert.deepEqual(errors,[]);
+  } finally {await context.close();}
 });
