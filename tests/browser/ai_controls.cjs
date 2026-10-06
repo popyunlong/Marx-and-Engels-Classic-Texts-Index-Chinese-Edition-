@@ -271,3 +271,33 @@ test('refined cover failure remains visible and storage denial does not break co
     assert.deepEqual(errors,[]);
   } finally {await context.close();}
 });
+
+test('production navigation labels never overlap account controls at responsive boundaries', {skip:!!process.env.AI_CONTROLS_BASE_URL}, async () => {
+  const context=await browser.newContext();
+  try {
+    const page=await context.newPage();
+    for(const guest of [true,false]) {
+      await page.goto(base+'/navigation-fixture?guest='+(guest?'1':'0'));
+      for(const width of [390,820,821,900,1000,1024,1100,1140,1180,1200,1201,1280,1400,1401,1440,1600]) {
+        await page.setViewportSize({width,height:900});
+        const issues=await page.locator('header').evaluate(header=>{
+          const rects=[...header.querySelectorAll('a,button')].map(el=>({el,r:el.getBoundingClientRect()})).filter(x=>x.r.width&&x.r.height);
+          const problems=[];
+          for(let i=0;i<rects.length;i++) {
+            const {el,r}=rects[i];
+            if(r.left<0||r.right>innerWidth+1||r.bottom>header.getBoundingClientRect().bottom+1) problems.push('outside: '+el.textContent.trim());
+            const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+            if(hit!==el&&!el.contains(hit)) problems.push('blocked: '+el.textContent.trim());
+            for(let j=i+1;j<rects.length;j++) {
+              const b=rects[j].r;
+              if(Math.min(r.right,b.right)>Math.max(r.left,b.left)+1&&Math.min(r.bottom,b.bottom)>Math.max(r.top,b.top)+1)
+                problems.push('overlap: '+el.textContent.trim()+' / '+rects[j].el.textContent.trim());
+            }
+          }
+          return problems;
+        });
+        assert.deepEqual(issues,[],`guest=${guest}, width=${width}`);
+      }
+    }
+  } finally {await context.close();}
+});

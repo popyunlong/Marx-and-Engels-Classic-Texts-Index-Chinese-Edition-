@@ -8,6 +8,8 @@ from werkzeug.serving import make_server
 ROOT = Path(__file__).resolve().parents[2]
 app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
 TEXT = {
+    "citation.nav_label": "论文插注校注agent",
+    "citation.nav_mobile_label": "论文校注",
     "index.hero_title": "马克思主义理论研究辅助程序",
     "ai_page.title": "AI 研究对话",
     "ai_page.subtitle": "可直接引用原著引文的AI研究问答会话。建议优先使用Deepseek模型，写作水平接近期刊要求。灵活切换“快速问答”和“研究级检索”，适时决定是否开启“引文检索”，根据不同任务需求选择不同档位的模型，将更好地辅助您的研究。",
@@ -40,6 +42,24 @@ def refined_fixture():
     <div class="refined-portrait"><button class="refined-motion">暂停动态</button></div>
     <a class="v2book" href="/reader"><span class="v2book-cover"><img src="/missing-cover.png" alt="测试书封面">
     <span class="v2book-cover-fallback">封面暂不可用</span></span>测试书</a></body></html>"""
+
+
+@app.get("/navigation-fixture")
+def navigation_fixture():
+    # Exercise the actual shell with the long, effective production labels and
+    # both account variants, including the optional sponsor control.
+    nav = render_template(
+        "_appnav.html", layout_page="search", citation_assistant_available=True,
+        sponsor_enabled=True,
+        current_user=None if request.args.get("guest") == "1" else SimpleNamespace(
+            display_name="用于检验较长会员昵称的测试账户", email="fixture@example.test"),
+        site_text=lambda key: TEXT.get(key, key),
+        url_for=lambda endpoint, **kwargs: "/" + endpoint,
+    ).replace("会员功能</a>", "其它会员功能</a>")
+    return ('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<link rel="stylesheet" href="/static/layout-v2/layout-v2.css">'
+            '<link rel="stylesheet" href="/static/refined-ui/refined.css">'
+            '<style>body{margin:0}</style></head><body class="v2">' + nav + '</body></html>')
 
 
 if __name__ == "__main__":
