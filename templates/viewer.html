@@ -1050,6 +1050,7 @@
     })();
   </script>
   {% endif %}
+  {% include '_refined_assets.html' %}
 </head>
 <body class="mode-{{ render_mode | default('image') }}{% if basic_reader_mode %} reader-basic{% endif %}">
 {% if layout_warning %}<div role="status" style="padding:12px;background:#fff2ce;color:#743b00">{{ layout_warning }}</div>{% endif %}

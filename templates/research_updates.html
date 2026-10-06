@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ title }}</title><link rel="stylesheet" href="{{ url_for('static',filename='research_updates.css') }}"></head>
+<title>{{ title }}</title><link rel="stylesheet" href="{{ url_for('static',filename='research_updates.css') }}">  {% include '_refined_assets.html' %}
+</head>
 <body class="bulletin"><div class="paper">
 <header class="masthead"><p class="kicker">马克思主义 · 哲学 · 政治经济学</p><h1>本周国内外研究动态</h1><p class="english">Weekly Research Bulletin</p>
 {% if snapshot %}<p class="period">第 {{ snapshot.period_end[:10]|replace('-','') }} 期 <span>｜</span> {{ snapshot.period_start[:16]|replace('T',' ') }} — {{ snapshot.period_end[:16]|replace('T',' ') }}<small>北京时间</small></p>

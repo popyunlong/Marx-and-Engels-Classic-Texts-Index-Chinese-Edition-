@@ -2486,6 +2486,7 @@
     }
   </style>
   {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=30">{% endif %}
+  {% include '_refined_assets.html' %}
 </head>
 <body{% if layout_v2 %} class="v2"{% endif %}>
   {# 四页面布局（layout_v2）：同一模板按 layout_page 分区渲染。
@@ -2542,7 +2543,11 @@
     </div>
     {% endif %}
     {% endwith %}
-    <section class="hero">
+    <section class="hero{% if v2 and _pg == 'search' %} refined-hero{% endif %}">
+      {% if v2 and _pg == 'search' %}
+      <div class="refined-portrait"><img src="{{ url_for('static',filename='refined-ui/theorists-panorama-v2.png') }}" alt="马克思、恩格斯居中的十位理论家油画"><div class="refined-light" aria-hidden="true"></div>{% for i in range(6) %}<span class="refined-mote" style="--i:{{ i }}" aria-hidden="true"></span>{% endfor %}<button type="button" class="refined-motion" aria-pressed="false">暂停动态</button></div>
+      {% endif %}
+      <div{% if v2 and _pg == "search" %} class="refined-hero-copy"{% endif %}>
       <h1>{{ site_text("index.hero_title") }}</h1>
       <p>{{ site_text("index.hero_intro") }}</p>
       {# 收录文献清单先算好，供 meta 行「联系方式」旁的折叠按钮显示总数 #}
@@ -2568,6 +2573,7 @@
           <span class="hcc-caret" aria-hidden="true">▸</span>收录文献 · 共 {{ corpus_items|length }} 种<span class="hcc-hint">展开</span>
         </button>
         {% endif %}
+      </div>
       </div>
       {% if corpus_items %}
       <div class="hero-corpus collapsed" id="heroCorpus">
@@ -2655,7 +2661,7 @@
               <div class="search-help-head">{{ site_text('index.search_help_title') }}</div>
               <div id="searchHelpBody"></div>
             </div>
-            <textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea>
+            <div class="refined-query-layout"><textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea><aside class="refined-query-help"><strong>{{ site_text('index.search_help_title') }}</strong><p>{{ site_text('index.search_help_body') }}</p></aside></div>
             <div class="cooc-scope-row">
               <label class="cooc-toggle" id="coocToggle">
                 <input type="checkbox" id="coocCheckbox"> {{ site_text('index.search_cooc_label') }}
@@ -2865,7 +2871,7 @@
               {% if book.key in ['smith_collected_2014', 'ricardo_collected_2013'] %}
               {% for volume in book.volumes %}
               <a class="v2book" data-bk="{{ book.key }}" data-volume-index="{{ loop.index0 }}" href="{{ volume.viewer_url }}&from=v2read">
-                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=volume.source_file) }}" alt="{{ volume.display_title }} 封面" onerror="this.remove()"></span>
+                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=volume.source_file) }}" alt="{{ volume.display_title }} 封面"><span class="v2book-cover-fallback">封面暂不可用</span></span>
                 <span class="v2book-body">
                   <span class="v2book-title">{{ volume.display_title }}</span>
                   <span class="v2book-meta">{{ volume.volume_heading }}{% if volume.page_count %} · {{ volume.page_count }} 页{% endif %}</span>
@@ -2875,7 +2881,7 @@
               {% endfor %}
               {% else %}
               <a class="v2book" data-bk="{{ book.key }}" href="{% if book.entry_volume.viewer_url %}{{ book.entry_volume.viewer_url }}&from=v2read{% else %}#{% endif %}">
-                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=book.volumes[0].source_file) }}" alt="{{ book.title }} 封面" onerror="this.remove()"></span>
+                <span class="v2book-cover"><img loading="lazy" src="{{ url_for('reader_cover', file=book.volumes[0].source_file) }}" alt="{{ book.title }} 封面"><span class="v2book-cover-fallback">封面暂不可用</span></span>
                 <span class="v2book-body">
                   <span class="v2book-title">{{ book.title }}</span>
                   <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>

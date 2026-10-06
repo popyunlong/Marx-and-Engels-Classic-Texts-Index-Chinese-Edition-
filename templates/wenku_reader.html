@@ -128,6 +128,7 @@
     .warn{display:none;background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:8px 12px;font-size:.82em;margin-bottom:12px;}
     .modal .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px;}
   </style>
+  {% include '_refined_assets.html' %}
 </head>
 <body>
   {% set research_toc_enabled = volume.get('single_document') and (volume.get('source_id') == 'mega2-research-editing-history-zh' or book.get('key') == 'mega2-research-editing-history-zh') %}
