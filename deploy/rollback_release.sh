@@ -213,6 +213,7 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --setenv="MARX_AI_CONFIG_FILE=$APP_ROOT/config/ai.yaml" \
   --setenv="MARX_ALIPAY_CONFIG_FILE=$APP_ROOT/config/alipay.yaml" \
   --setenv="MARX_ZPAY_CONFIG_FILE=$APP_ROOT/config/zpay.yaml" \
+  /usr/bin/env MARX_SKIP_STARTUP_MAINTENANCE=1 MARX_SKIP_SEARCH_WARM=1 \
   "$APP_ROOT/runtime-python" -m ingestion.runtime --port "$CANDIDATE_PORT" >/dev/null
 if ! wait_runtime "$CANDIDATE_PORT" "$TARGET/release.json"; then
   retire_candidate_if_drained "unhealthy rollback candidate" || true

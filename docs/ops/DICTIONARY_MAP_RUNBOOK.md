@@ -57,7 +57,7 @@ node --test tests/browser/ai_controls.cjs tests/browser/citation_scope.cjs tests
 
 ## 受控切换与独立关闭
 
-协调者从干净、已推送、HEAD 等于 origin/production 的 production 执行 `deploy/release.ps1`，地图版本额外传 `-DictionaryGraphArchive`。整个远端事务持有 `/run/lock/marx-search-release.lock`，沿用低优先级候选实例。候选启动命令不带 `--with-worker`；浏览器验收不得提交邮件、支付或收费模型任务。
+协调者从干净、已推送、HEAD 等于 origin/production 的 production 执行 `deploy/release.ps1`，地图版本额外传 `-DictionaryGraphArchive`。整个远端事务持有 `/run/lock/marx-search-release.lock`，沿用低优先级候选实例。候选启动命令不带 `--with-worker`，并在启动命令中强制 `MARX_SKIP_STARTUP_MAINTENANCE=1` 和 `MARX_SKIP_SEARCH_WARM=1`，防止环境文件重新启用上传续跑；回退候选和部署冒烟也适用。正式实例保留正常维护行为。浏览器验收不得提交邮件、支付或收费模型任务。
 
 新旧实例并行至少 30 分钟，至少 60 组配对样本；地图绑定变化与目录绑定变化一样必须通过服务器保存的观测证据。资源压力、健康失败或核心接口变慢时拒绝候选并保留原服务。导航的独立发布也须完成相同观察，不因没有地图绑定而缩短窗口。候选验收涵盖检索、阅读、账户会员、AI 流式导航保护、校注、研究动态、上传导出；正式站仅低频只读检查，收费或写入场景在本地隔离环境验收。
 

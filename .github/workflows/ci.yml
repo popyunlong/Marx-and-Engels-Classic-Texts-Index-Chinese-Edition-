@@ -53,7 +53,7 @@ jobs:
         run: python -m pytest tests/test_catalog_server_observation.py tests/test_catalog_browser_review.py tests/test_prepare_mega_iv3_verified.py -q
 
       - name: Check isolated dictionary graph and budget controls
-        run: python -m pytest tests/test_dictionary_feature.py tests/test_dictionary_graph.py tests/test_dictionary_graph_release.py -q
+        run: python -m pytest tests/test_dictionary_feature.py tests/test_dictionary_graph.py tests/test_dictionary_graph_release.py tests/test_dictionary_candidate_isolation.py -q
 
       - name: Check release shell syntax
         run: |

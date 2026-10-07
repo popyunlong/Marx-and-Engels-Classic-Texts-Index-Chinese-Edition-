@@ -61,6 +61,10 @@ def check_inline_javascript(root: Path) -> None:
 
 def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
     os.environ["APP_MODE"] = mode
+    # Importing a candidate must not resume uploads, expire jobs or run paid work.
+    os.environ["MARX_SKIP_STARTUP_MAINTENANCE"] = "1"
+    os.environ["MARX_SKIP_SEARCH_WARM"] = "1"
+    os.environ["CITATION_ASSISTANT_INLINE_WORKER"] = "0"
     sys.path.insert(0, str(root))
 
     import app as app_module  # noqa: PLC0415
