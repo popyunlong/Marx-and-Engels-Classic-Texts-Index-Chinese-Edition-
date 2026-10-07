@@ -2,7 +2,7 @@
 # SSH observes the coordinator. systemd owns it, so losing the observer cannot
 # interrupt candidate cleanup or leave the watchdog paused.
 set -Eeuo pipefail
-[ "$#" -eq 7 ] || { echo 'expected seven release arguments' >&2; exit 2; }
+[ "$#" -eq 7 ] || [ "$#" -eq 8 ] || { echo 'expected seven or eight release arguments' >&2; exit 2; }
 [[ "$4" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || exit 2
 UNIT="marx-search-release-$4"
 command -v systemd-run >/dev/null

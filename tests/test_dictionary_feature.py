@@ -59,6 +59,9 @@ class DictionaryFeatureTests(unittest.TestCase):
         guest_response = self.client.get("/dictionary")
         self.assertEqual(guest_response.status_code, 302)
         self.assertIn("/login", guest_response.headers.get("Location", ""))
+        self.assertEqual(self.client.get('/dictionary/map').status_code, 302)
+        self.assertIn(self.client.get('/api/dictionary/graph').status_code, (401,403))
+        self.assertIn(self.client.get('/api/dictionary/path').status_code, (401,403))
 
         self._login_registered()
         response = self.client.get("/dictionary")

@@ -78,6 +78,9 @@ PY
 TRANSACTION_APP="$(readlink -f "$APP_ROOT/current/app")"
 source "$TRANSACTION_APP/deploy/release_traffic.sh"
 python3 "$TRANSACTION_APP/scripts/catalog_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
+if [ -f "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" ]; then
+  python3 "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
+fi
 [ "$TARGET_RELEASE" != "$CURRENT" ] || { echo "target is already current" >&2; exit 3; }
 TARGET_META_ID="$(python3 - "$TARGET/release.json" <<'PY'
 import json, pathlib, re, sys

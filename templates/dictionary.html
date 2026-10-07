@@ -268,6 +268,7 @@
       <span>{{ app_name }} · {{ app_version_display }}</span>
     </div>
     <nav class="dict-nav">
+      {% if dictionary_map_ready %}<a href="{{ url_for('dictionary_map.page', center=entry.slug) if entry is defined else url_for('dictionary_map.page') }}">概念地图</a>{% endif %}
       <a href="/?restore=1">返回检索</a>
       {% if groups and groups[0].entries %}
       <a class="primary" href="{{ url_for('dictionary_entry_page', slug=groups[0].entries[0].slug) }}">开始浏览</a>

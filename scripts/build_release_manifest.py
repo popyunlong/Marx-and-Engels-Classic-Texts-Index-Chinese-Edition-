@@ -105,6 +105,9 @@ def create_manifest(args: argparse.Namespace) -> int:
     corpus_binding = source_dir / 'config/corpus_release.json'
     if corpus_binding.exists():
         payload['corpus_release'] = json.loads(corpus_binding.read_text(encoding='utf-8'))
+    graph_binding = source_dir / 'config/dictionary_graph_release.json'
+    if graph_binding.exists():
+        payload['dictionary_graph_release'] = json.loads(graph_binding.read_text(encoding='utf-8'))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False))
@@ -128,6 +131,14 @@ def verify_manifest(args: argparse.Namespace) -> int:
     if bound and (not RELEASE_RE.fullmatch(str(bound.get('id', ''))) or
                   not re.fullmatch('[0-9a-f]{64}', str(bound.get('sha256', '')))):
         raise ValueError('invalid catalogue release binding')
+    graph_path = args.source_dir / 'config/dictionary_graph_release.json'
+    graph_bound = json.loads(graph_path.read_text(encoding='utf-8')) if graph_path.exists() else None
+    if payload.get('dictionary_graph_release') != graph_bound:
+        raise ValueError('dictionary graph binding differs from committed source')
+    if graph_bound and (set(graph_bound) != {'id', 'sha256', 'source_sha256'} or
+            not RELEASE_RE.fullmatch(str(graph_bound.get('id', ''))) or
+            any(not re.fullmatch('[0-9a-f]{64}', str(graph_bound.get(k, ''))) for k in ('sha256','source_sha256'))):
+        raise ValueError('invalid dictionary graph binding')
     actual = source_tree_sha256(args.source_dir.resolve())
     if actual != payload["source_tree_sha256"]:
         raise ValueError(
