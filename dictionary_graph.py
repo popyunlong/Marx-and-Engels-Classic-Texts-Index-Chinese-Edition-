@@ -18,6 +18,46 @@ KINDS = {
     "related": "概念联系", "background": "背景联系", "work": "著作联系",
 }
 THEMES = ("哲学与方法论", "政治经济学", "科学社会主义", "人物与著作", "历史事件与组织", "中国马克思主义", "其他词条")
+RELATION_GROUPS = {
+    "reference": "原文参见", "outgoing": "本词条提到", "incoming": "哪些词条提到它",
+    **{"inference_" + key: "AI 推断 · " + label for key, label in KINDS.items()},
+}
+
+
+def page_bounds(total, limit, offset):
+    limit = max(1, min(60, limit))
+    offset = min(max(0, offset), ((total - 1) // limit) * limit if total else 0)
+    return limit, offset
+
+
+def balanced_focus(items, sources, references, center, limit=12):
+    """A navigation sample, never a relevance or accuracy score.
+
+    Prefer up to two explicit references, then interleave two outgoing neighbours
+    with one incoming neighbour. Rotate existing themes within each direction.
+    """
+    selected = [item for item in items if any(eid in references for eid in item["edge_ids"])][:2]
+    chosen = {item["node"]["slug"] for item in selected}
+    remaining = [item for item in items if item["node"]["slug"] not in chosen]
+
+    def rotate_theme(values):
+        themes = {theme: deque() for theme in THEMES}
+        for item in values:
+            themes.setdefault(item["node"]["theme"], deque()).append(item)
+        result = deque()
+        while any(themes.values()):
+            for queue in themes.values():
+                if queue:
+                    result.append(queue.popleft())
+        return result
+
+    outgoing = rotate_theme([item for item in remaining if any(sources[eid] == center for eid in item["edge_ids"])])
+    incoming = rotate_theme([item for item in remaining if all(sources[eid] != center for eid in item["edge_ids"])])
+    while len(selected) < limit and (outgoing or incoming):
+        for queue in (outgoing, outgoing, incoming):
+            if queue and len(selected) < limit:
+                selected.append(queue.popleft())
+    return selected
 
 
 def file_hash(path: Path) -> str:
@@ -93,9 +133,89 @@ class Graph:
 
     def browse(self, query="", theme="", limit=60, offset=0):
         with readonly(self.path) as c:
-            rows = c.execute("SELECT * FROM nodes WHERE instr(title,?)>0 AND (?='' OR theme=?) ORDER BY title,slug LIMIT ? OFFSET ?",
+            rows = c.execute("SELECT * FROM nodes WHERE instr(title,?)>0 AND (?='' OR theme=?) ORDER BY title,start_page,slug LIMIT ? OFFSET ?",
                              (query[:100], theme, theme, min(60, max(1, limit)), max(0, offset)))
             return [dict(r) for r in rows]
+
+    def browse_page(self, query="", theme="", limit=30, offset=0):
+        with readonly(self.path) as c:
+            total = c.execute("SELECT count(*) FROM nodes WHERE instr(title,?)>0 AND (?='' OR theme=?)",
+                              (query[:100], theme, theme)).fetchone()[0]
+        limit, offset = page_bounds(total, limit, offset)
+        return {"nodes": self.browse(query, theme, limit, offset), "edges": [],
+                "total": total, "limit": limit, "offset": offset}
+
+    def relations(self, slug, *, group="", query="", limit=20, offset=0, inference=False, kind="", picks=()):
+        """Page distinct neighbours within a reading group, independent of graph caps.
+
+        Count lightweight incident rows first; decode evidence for the page and focus sample.
+        Group counts reflect the current query, kind and inference filters.
+        """
+        node = self.node(slug)
+        if not node:
+            raise KeyError(slug)
+        if group and group not in RELATION_GROUPS and group != "all":
+            raise ValueError("unknown relation group")
+        grouped = {key: {} for key in RELATION_GROUPS if inference or not key.startswith("inference_")}
+        combined = {}
+        sources, references = {}, set()
+        with readonly(self.path) as c:
+            rows = c.execute("""SELECT e.id, e.source, e.kind AS relation_kind, e.layer, n.*
+                FROM edges e JOIN nodes n ON n.slug=CASE WHEN e.source=? THEN e.target ELSE e.source END
+                WHERE (e.source=? OR e.target=?) AND (? OR e.layer='evidence')
+                AND (?='' OR e.kind=?) AND instr(n.title,?)>0
+                ORDER BY n.title,n.start_page,n.slug,e.id""",
+                (slug, slug, slug, inference, kind, kind, query[:100]))
+            for row in rows:
+                sources[row["id"]] = row["source"]
+                if row["relation_kind"] == "reference" and row["layer"] == "evidence":
+                    references.add(row["id"])
+                key = ("inference_" + row["relation_kind"] if row["layer"] == "inference" else
+                       "reference" if row["relation_kind"] == "reference" else
+                       "outgoing" if row["source"] == slug else "incoming")
+                item = grouped[key].setdefault(row["slug"], {"node": {
+                    field: row[field] for field in node}, "edge_ids": []})
+                item["edge_ids"].append(row["id"])
+                combined_item = combined.setdefault(row["slug"], {"node": item["node"], "edge_ids": []})
+                combined_item["edge_ids"].append(row["id"])
+            groups = [{"id": key, "label": RELATION_GROUPS[key], "count": len(items),
+                       "relations": sum(len(item["edge_ids"]) for item in items.values())}
+                      for key, items in grouped.items()]
+            # An explicit empty group remains selected so filtering never silently changes meaning.
+            selected = group if group == "all" or group in grouped else next((g["id"] for g in groups if g["count"]), "outgoing")
+            total_relations = sum(len(item["edge_ids"]) for item in combined.values())
+            groups.insert(0, {"id": "all", "label": "全部联系", "count": len(combined), "relations": total_relations})
+            items = list((combined if selected == "all" else grouped[selected]).values())
+            recommended = balanced_focus(items, sources, references, slug)
+            focus_items = {item["node"]["slug"]: item for item in recommended}
+            by_slug = {item["node"]["slug"]: item for item in items}
+            for pick in picks[:20]:
+                if pick in by_slug:
+                    focus_items[pick] = by_slug[pick]
+            focus_items = list(focus_items.values())
+            total = len(items)
+            limit, offset = page_bounds(total, limit, offset)
+            items = items[offset:offset + limit]
+            page_ids = {eid for item in items for eid in item["edge_ids"]}
+            focus_ids = {eid for item in focus_items for eid in item["edge_ids"]}
+            ids = sorted(page_ids | focus_ids)
+            # Bounded neighbour pages may still contain many evidence records. Chunk for SQLite limits.
+            edges = []
+            for start in range(0, len(ids), 400):
+                batch = ids[start:start + 400]
+                edges.extend(self.edge(row) for row in c.execute(
+                    "SELECT * FROM edges WHERE id IN (" + ",".join("?" for _ in batch) + ")", batch))
+            edges.sort(key=lambda edge: edge["id"])
+        return {"nodes": [node] + [item["node"] for item in items if item["node"]["slug"] != slug],
+                "items": [{"slug": item["node"]["slug"], "edge_ids": item["edge_ids"]} for item in items],
+                "edges": [edge for edge in edges if edge["id"] in page_ids],
+                "focus": {"nodes": [node] + [item["node"] for item in focus_items if item["node"]["slug"] != slug],
+                          "items": [{"slug": item["node"]["slug"], "edge_ids": item["edge_ids"]} for item in focus_items],
+                          "edges": [edge for edge in edges if edge["id"] in focus_ids],
+                          "recommended": [item["node"]["slug"] for item in recommended]},
+                "groups": groups, "group": selected, "total": total,
+                "limit": limit, "offset": offset,
+                "total_relations": total_relations}
 
     @staticmethod
     def edge(row):
@@ -142,15 +262,20 @@ class Graph:
                 here, steps = queue.popleft()
                 if here == end:
                     edges = [self.edge(c.execute("SELECT * FROM edges WHERE id=?", (eid,)).fetchone()) for eid in steps]
-                    ids = {start, end} | {e[k] for e in edges for k in ("source", "target")}
-                    return {"nodes": [self.node(s) for s in sorted(ids)], "edges": edges, "found": True}
+                    ordered, path_steps = [start], []
+                    for edge in edges:
+                        next_slug = edge["target"] if edge["source"] == ordered[-1] else edge["source"]
+                        path_steps.append({"from": ordered[-1], "to": next_slug, "edge_id": edge["id"]})
+                        ordered.append(next_slug)
+                    return {"nodes": [self.node(s) for s in ordered], "edges": edges,
+                            "steps": path_steps, "found": True}
                 if len(steps) == 4:
                     continue
                 for other, eid in adjacency.get(here, []):
                     if other not in seen:
                         seen.add(other)
                         queue.append((other, steps + [eid]))
-            return {"nodes": [self.node(start), self.node(end)], "edges": [], "found": False}
+            return {"nodes": [self.node(start), self.node(end)], "edges": [], "steps": [], "found": False}
 
 
 def current_graph():

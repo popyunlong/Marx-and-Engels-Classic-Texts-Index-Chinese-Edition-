@@ -27,17 +27,18 @@ def context():
     return dict(layout_v2=True,layout_page='dictionary',app_name='马克思主义理论研究辅助程序',
                 app_version_display='本地验收',site_text=lambda key:TEXT.get(key,key),
                 current_user=None if request.args.get('guest') else SimpleNamespace(display_name='地图验收用户',email='fixture@example.test'),
-                citation_assistant_available=True,sponsor_enabled=False,csrf_token='fixture',account_center_label='会员中心')
+                citation_assistant_available=True,sponsor_enabled=False,csrf_token='fixture',account_center_label='会员中心',
+                dictionary_map_ready=dictionary_map_web.current_graph() is not None)
 
 
 @app.get('/dictionary')
 def dictionary():
-    return render_template('dictionary.html',**context(),groups=dictionary_groups(),stats=dictionary_stats(),dictionary_map_ready=True)
+    return render_template('dictionary.html',**context(),groups=dictionary_groups(),stats=dictionary_stats())
 
 
 @app.get('/dictionary/entry/<path:slug>')
 def dictionary_entry_page(slug):
-    return render_template('dictionary_entry.html',**context(),entry=dictionary_entry(slug),dictionary_map_ready=True,related_dictionary=[])
+    return render_template('dictionary_entry.html',**context(),entry=dictionary_entry(slug),related_dictionary=[])
 
 
 @app.get('/api/dictionary/suggest')
@@ -59,11 +60,18 @@ def fake_graph():
     for i in range(75):
         slug=capital['slug'] if i==0 else 'fixture-'+str(i)
         title='资本' if i==0 else '关联概念 '+str(i)
+        if i==2:
+            title='《在省部级主要领导干部学习贯彻党的十八届四中全会精神全面推进依法治国专题研讨班上的讲话》'
         c.execute('INSERT INTO nodes VALUES (?,?,?,?,?,?,?)',(slug,title,'concept','政治经济学',121,122,0))
-        if i:
+        if i and i != 74:
             ev=[{'slug':capital['slug'],'paragraph':1,'quote':'在资本的词条中理解这些联系。','citation':'测试来源，第121–122页','start_page':121,'end_page':122}]
             c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',(str(i),capital['slug'],slug,'related' if i==1 else 'mention','inference' if i==1 else 'evidence','测试关系',json.dumps(ev),'fixture','fixture'))
-    meta={'id':'fixture-v1','schema_version':1,'source_sha256':file_hash(source),'coverage':{'entries':75,'analyzed_entries':75,'relations':74,'inferred_relations':1}}
+    c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',('reverse', 'fixture-1', capital['slug'], 'related', 'inference', '反向测试关系', json.dumps(ev), 'fixture', 'fixture'))
+    c.execute('INSERT INTO nodes VALUES (?,?,?,?,?,?,?)',('fixture-small','8条关系词条','concept','政治经济学',120,120,0))
+    for i in range(3,11):
+        source_slug,target_slug=('fixture-small','fixture-'+str(i)) if i<7 else ('fixture-'+str(i),'fixture-small')
+        c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',('small-'+str(i),source_slug,target_slug,'mention','evidence','小规模双向图测试',json.dumps(ev),'fixture','fixture'))
+    meta={'id':'fixture-v1','schema_version':1,'source_sha256':file_hash(source),'coverage':{'entries':76,'analyzed_entries':76,'relations':82,'inferred_relations':2}}
     c.execute('INSERT INTO metadata VALUES (?,?)',('manifest',json.dumps(meta)))
     c.commit();c.close()
     return Graph(database,dict(id='fixture-v1',sha256=file_hash(database),source_sha256=file_hash(source)),source)

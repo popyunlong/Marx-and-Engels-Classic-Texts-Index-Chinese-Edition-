@@ -256,7 +256,7 @@
       .entry-grid { grid-template-columns: 1fr; }
     }
   </style>
-  <link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=25">
+  <link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=31">
   {% include '_refined_assets.html' %}
   <style>.dict-page main{padding-bottom:88px}.dict-page .letter-section{scroll-margin-top:150px}</style>
 </head>
@@ -268,7 +268,6 @@
       <span>{{ app_name }} · {{ app_version_display }}</span>
     </div>
     <nav class="dict-nav">
-      {% if dictionary_map_ready %}<a href="{{ url_for('dictionary_map.page', center=entry.slug) if entry is defined else url_for('dictionary_map.page') }}">概念地图</a>{% endif %}
       <a href="/?restore=1">返回检索</a>
       {% if groups and groups[0].entries %}
       <a class="primary" href="{{ url_for('dictionary_entry_page', slug=groups[0].entries[0].slug) }}">开始浏览</a>

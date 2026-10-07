@@ -28,7 +28,7 @@ def ai_page():
         app_name="AI controls browser fixture", csrf_token="fixture-csrf",
         current_user=None if request.args.get("guest") == "1" else SimpleNamespace(id=90001, email="fixture@example.test", display_name="测试"),
         search_chat_access_enabled=True, research_access_enabled=True,
-        citation_style_groups=[], ai_web_access_enabled=False,
+        citation_style_groups=[], ai_web_access_enabled=False, dictionary_map_ready=True,
         site_text=lambda key: TEXT.get(key, key),
         url_for=lambda endpoint, **kwargs: ("/static/" + kwargs["filename"]) if endpoint == "static" else "/" + endpoint,
     )
@@ -50,7 +50,7 @@ def navigation_fixture():
     # both account variants, including the optional sponsor control.
     nav = render_template(
         "_appnav.html", layout_page="search", citation_assistant_available=True,
-        sponsor_enabled=True,
+        sponsor_enabled=True, dictionary_map_ready=True,
         current_user=None if request.args.get("guest") == "1" else SimpleNamespace(
             display_name="用于检验较长会员昵称的测试账户", email="fixture@example.test"),
         site_text=lambda key: TEXT.get(key, key),

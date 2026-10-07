@@ -41,7 +41,7 @@ except BaseException:
 
 
 def receive_command(destination, size, digest):
-    if not re.fullmatch(r'/var/tmp/marx-(?:search|catalog|corpus)-[A-Za-z0-9._-]+\.tar\.gz', destination):
+    if not re.fullmatch(r'/var/tmp/marx-(?:search|catalog|corpus|dictionary-graph)-[A-Za-z0-9._-]+\.tar\.gz', destination):
         raise ValueError('upload destination must be a unique release archive')
     source = base64.b64encode(RECEIVER.encode()).decode()
     code = "import base64; exec(compile(base64.b64decode('" + source + "'), '<receiver>', 'exec'))"

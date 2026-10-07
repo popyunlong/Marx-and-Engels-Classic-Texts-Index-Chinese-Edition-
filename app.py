@@ -8468,6 +8468,7 @@ def inject_auth_context():
         "csrf_token": _ensure_csrf_token(),
         "local_console_available": _is_local_console_request(),
         "citation_assistant_available": _citation_assistant_entry_visible(),
+        "dictionary_map_ready": _dictionary_current_graph() is not None,
         # 全站引文格式的唯一清单：模板与静态 JS 均从这组数据渲染。
         "citation_style_groups": citation_groups,
         "citation_style_options": citation_flat,

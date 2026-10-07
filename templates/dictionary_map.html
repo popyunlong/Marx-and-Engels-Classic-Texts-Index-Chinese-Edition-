@@ -3,42 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>概念地图 · {{ site_text('dictionary.heading') }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=25">
+  <title>概念地图 · {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=31">
   {% include '_refined_assets.html' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='dictionary/map.css') }}?v=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='dictionary/map.css') }}?v=4">
 </head>
 <body class="v2 dict-map-page">
 {% include '_appnav.html' %}
 <main class="dm-main">
   <header class="dm-heading">
-    <div><p class="dm-eyebrow">马克思主义大辞典 · 知识探索</p><h1>概念之间，也有路径。</h1>
-      <p>从一个词条出发，沿着原文与线索，理解概念、人物、著作和历史背景的联系。</p></div>
-    <a class="dm-button" href="{{ url_for('dictionary') }}">词条目录</a>
+    <div><p class="dm-eyebrow">沿着原文，探索联系</p><h1>概念地图</h1>
+      <p>从一个词条出发，看见相互联系，回到原文理解。</p></div>
+    <a class="dm-button" href="{{ url_for('dictionary') }}">查阅大辞典 <span aria-hidden="true">↗</span></a>
   </header>
   {% if not graph_ready %}
   <section class="dm-card"><h2>概念地图暂不可用</h2><p>词条目录、搜索和正文仍可正常阅读。</p><a href="{{ url_for('dictionary') }}">返回词条目录</a></section>
   {% else %}
-  <section class="dm-card dm-controls" aria-label="地图探索条件">
-    <form id="dmSearch" class="dm-search"><label for="dmTerm">中心词条</label><input id="dmTerm" list="dmTerms" placeholder="例如：资本、劳动、矛盾" autocomplete="off"><datalist id="dmTerms"></datalist><button type="submit">探索</button></form>
-    <form id="dmPath" class="dm-search"><label for="dmTarget">联系到</label><input id="dmTarget" list="dmTargets" placeholder="选择另一个词条" autocomplete="off"><datalist id="dmTargets"></datalist><button type="submit">查找路径</button></form>
-    <div class="dm-filters"><label>关系类型 <select id="dmKind"><option value="">全部关系</option>{% for value,label in kinds.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
-      <label><input type="checkbox" id="dmInference"> 显示 AI 推断</label><span class="dm-legend">实线：原文依据 · 虚线：AI 推断</span></div>
+  <section class="dm-controls dm-card" aria-label="词条探索条件">
+    <details id="dmSearchDisclosure" class="dm-search-disclosure" open><summary>查找词条或两词路径</summary><div class="dm-search-forms">
+    <form id="dmSearch" class="dm-search"><label for="dmTerm">探索词条</label><input id="dmTerm" list="dmTerms" placeholder="例如：资本、劳动、矛盾" autocomplete="off"><datalist id="dmTerms"></datalist><button type="submit">打开地图</button></form>
+    <form id="dmPath" class="dm-search" hidden><label for="dmTarget">联系到</label><input id="dmTarget" list="dmTargets" placeholder="选择另一个词条" autocomplete="off"><datalist id="dmTargets"></datalist><button type="submit">查找路径</button></form>
+    </div></details>
+    <div id="dmFilters" class="dm-filters" hidden><label>关系类型 <select id="dmKind"><option value="">全部关系</option>{% for value,label in kinds.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+      <label><input type="checkbox" id="dmInference"> 显示 AI 推断</label><span class="dm-muted">默认只读原文关系；AI 推断可供探索。</span></div>
   </section>
-  <p id="dmStatus" role="status" aria-live="polite">正在读取地图…</p>
-  <button id="dmLatest" class="dm-button" hidden>打开最新地图</button>
-  <div class="dm-layout">
-    <aside class="dm-card dm-sidebar"><h2>主题总览</h2><div id="dmThemes"></div><h3 id="dmListTitle">词条</h3><div id="dmNodes" class="dm-node-list"></div><button id="dmNext" hidden>更多词条</button></aside>
-    <section class="dm-card dm-stage" aria-label="概念关系地图">
-      <div class="dm-toolbar"><button id="dmHome">主题总览</button><button id="dmReset">回到中心</button><button id="dmExpand" hidden>展开更多</button><button id="dmShare">分享</button><button id="dmPng">导出图片</button><button id="dmCsv">导出关系</button></div>
-      <div id="dmCanvas" role="img" aria-label="概念地图；可使用下方关系列表完成相同操作"></div>
-      <div class="dm-relation-area"><h2>关系列表</h2><p class="dm-muted">路径表示可供探索的联系，不代表论证、因果链或概念等同。</p><div id="dmEdges"></div></div>
+  <p id="dmStatus" role="status" aria-live="polite">正在读取主题…</p>
+  <button id="dmLatest" hidden>打开最新地图</button><button id="dmRetry" hidden>重试</button>
+  <div id="dmWorkspace" class="dm-layout">
+    <aside class="dm-sidebar"><details id="dmThemeDisclosure" open><summary>主题总览</summary><nav id="dmThemes" aria-label="辞典主题"></nav><p class="dm-muted">沿用现有分类。目录顺序不表示学术重要性。</p></details></aside>
+    <section class="dm-card dm-stage" aria-label="词条与关系阅读">
+      <div class="dm-toolbar"><button id="dmHome" hidden>返回主题</button><button id="dmRelations" hidden>返回词条联系</button><button id="dmShare">分享当前页面</button><button id="dmCsv" hidden>导出本页关系</button><button id="dmPng" hidden>导出局部图片</button></div>
+      <header class="dm-section-heading"><div><p id="dmContext" class="dm-eyebrow">主题目录</p><h2 id="dmTitle">全部主题</h2><a id="dmReadCenter" class="dm-primary-link dm-read-center" hidden>阅读词条内容 <span aria-hidden="true">↗</span></a><p id="dmSummary" class="dm-muted"></p></div></header>
+      <div id="dmGroups" class="dm-groups" aria-label="关系分组" hidden></div>
+      <form id="dmQueryForm" class="dm-search dm-query"><label id="dmQueryLabel" for="dmQuery">筛选词目</label><input id="dmQuery" maxlength="100" type="search" placeholder="在当前主题内查找"><button type="submit">筛选</button></form>
+      <div id="dmViewControls" class="dm-view-controls" hidden><div class="dm-switch" aria-label="呈现方式"><button id="dmGraphView" aria-pressed="true">概念地图</button><button id="dmListView" aria-pressed="false">关系列表</button></div><span class="dm-muted">沿着连线查看原文与出处。</span></div>
+      <div id="dmGraphPanel" hidden>
+        <div class="dm-graph-header"><div><p class="dm-eyebrow">概念地图</p><p id="dmGraphNote" role="status"></p></div><div class="dm-graph-actions"><button id="dmGraphBalance" hidden>恢复均衡选取</button><button id="dmGraphAll">显示本页全部</button></div></div>
+        <p id="dmGraphSelection" class="dm-selection-note" hidden>联系较多时，优先参见，兼顾本词条提到的对象、其他词条的提及和已有主题。此为浏览选取，不表示学术重要性。</p>
+        <div class="dm-graph-legend" aria-label="联系方向"><span data-role="outgoing">从中心词出发</span><span data-role="incoming">指向中心词</span><span data-role="both">双向联系</span></div>
+        <div id="dmCanvas" role="img" aria-label="局部关系小图；下方列表提供完整文字与依据"></div>
+        <details id="dmGraphIndex" class="dm-graph-index"><summary id="dmGraphIndexSummary">图中词条</summary><div id="dmGraphNodes" class="dm-node-index" aria-label="图中词条与原文依据"></div></details>
+        <div id="dmGraphDetail" class="dm-graph-detail" hidden></div>
+        <p class="dm-muted">点击词条或连线查看依据。箭头保留原始方向；实线为原文关系，虚线为 AI 推断。布局不表示概念层级。</p>
+      </div>
+      <div id="dmDirectory" class="dm-directory"></div>
+      <details id="dmReadingPanel" open hidden><summary id="dmReadingSummary">关系依据与更多词条</summary><div id="dmEdges" class="dm-relation-list"></div></details>
+      <nav id="dmPagination" class="dm-pagination" aria-label="结果分页"><button id="dmPrev">上一页</button><span id="dmPageLabel"></span><button id="dmNext">下一页</button></nav>
+      <p id="dmRelationNote" class="dm-muted" hidden>正文提及只表示词目出现在原文；联系路径不代表论证、因果链或概念等同。</p>
+      <div id="dmShareFallback" hidden></div>
     </section>
-    <aside class="dm-card dm-detail" aria-label="关系依据"><h2>关系依据</h2><div id="dmDetail"><p>点击连线或关系列表，查看为什么有关联及其出处。</p></div></aside>
   </div>
-  <footer class="dm-footer"><p id="dmCoverage"></p><p>依据页码为原书词条页码范围。推断由 AI 辅助生成，原句校验不等于关系已经人工确认。</p></footer>
-  <script src="{{ url_for('static', filename='vendor/cytoscape/cytoscape.min.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='dictionary/map.js') }}?v=1" defer></script>
+  <footer class="dm-footer"><p id="dmCoverage"></p><p>依据页码为原书词条页码范围。AI 推断的原句校验不等于关系已经人工确认。</p></footer>
+  <script src="{{ url_for('static', filename='dictionary/map.js') }}?v=4" defer></script>
   {% endif %}
 </main>
 </body>
