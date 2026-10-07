@@ -11547,6 +11547,7 @@ def dictionary():
     stats = dictionary_stats()
     return render_template(
         "dictionary.html",
+        layout_v2=True, layout_page="dictionary",
         app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),
@@ -11563,6 +11564,7 @@ def dictionary_entry_page(slug: str):
         abort(404, description="未找到对应的大辞典词条。")
     return render_template(
         "dictionary_entry.html",
+        layout_v2=True, layout_page="dictionary",
         app_name=WEB_APP_NAME,
         app_version=APP_VERSION,
         state=current_view_state(),

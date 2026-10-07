@@ -66,6 +66,9 @@ class DictionaryFeatureTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("马克思主义大辞典", html)
         self.assertIn("/api/dictionary/suggest", html)
+        self.assertIn('class="v2nav"', html)
+        self.assertIn('aria-current="page"', html)
+        self.assertIn('/?restore=1', html)
 
     def test_homepage_contains_dictionary_navigation(self) -> None:
         self._login_registered()
@@ -88,6 +91,8 @@ class DictionaryFeatureTests(unittest.TestCase):
         self.assertEqual(entry_response.status_code, 200)
         html = entry_response.get_data(as_text=True)
         self.assertIn("对应书籍页码引文", html)
+        self.assertIn('class="v2nav"', html)
+        self.assertIn('aria-current="page"', html)
         self.assertIn("徐光春主编：《马克思主义大辞典》", html)
 
     def test_dictionary_data_is_grouped_and_polished(self) -> None:
