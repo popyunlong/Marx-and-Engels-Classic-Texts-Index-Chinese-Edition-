@@ -5,6 +5,7 @@ import re
 import sys
 import unittest
 import warnings
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -80,6 +81,33 @@ class DictionaryFeatureTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
         self.assertIn("/dictionary", html)
+
+    def test_map_navigation_tracks_availability_on_other_columns(self) -> None:
+        self._login_registered()
+        for available in (True, False, True):
+            with self.subTest(available=available), patch.object(
+                app_module, "_dictionary_current_graph", return_value=object() if available else None
+            ):
+                for route in ("/", "/v2/read", "/v2/ai"):
+                    response = self.client.get(route)
+                    self.assertEqual(response.status_code, 200)
+                    html = response.get_data(as_text=True)
+                    self.assertEqual('href="/concept-map"' in html, available)
+
+    def test_unavailable_map_preserves_dictionary_and_legacy_links(self) -> None:
+        self._login_registered()
+        with patch.object(app_module, "_dictionary_current_graph", return_value=None), patch(
+            "dictionary_map_web.current_graph", return_value=None
+        ):
+            slug = dictionary_suggest("资本")[0]["slug"]
+            for route in ("/dictionary", f"/dictionary/entry/{slug}", "/concept-map", "/dictionary/map"):
+                response = self.client.get(route)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertNotIn('href="/concept-map"', html)
+                if route in ("/concept-map", "/dictionary/map"):
+                    self.assertIn("概念地图暂不可用", html)
+                    self.assertIn('href="/dictionary"', html)
 
     def test_dictionary_suggest_and_entry_page(self) -> None:
         self._login_registered()

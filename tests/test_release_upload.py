@@ -57,3 +57,12 @@ def test_transfer_paces_every_chunk_and_stops_on_health_alarm():
     with pytest.raises(RuntimeError, match='health alarm'):
         stream(io.BytesIO(b'x' * CHUNK * 4), sink, Monitor(), clock=lambda: clock[0], sleep=sleep)
     assert len(sink.getvalue()) == CHUNK * 2
+
+
+def test_dictionary_graph_archive_uses_the_guarded_release_uploader():
+    command = receive_command('/var/tmp/marx-dictionary-graph-release-v1.tar.gz', 7, 'a' * 64)
+    assert 'flock -s -n /run/lock/marx-search-release.lock' in command
+    for destination in ('/var/tmp/marx-dictionary-graph-../escape.tar.gz',
+                        '/opt/marx-search/data/dictionary-graphs/v1/graph.sqlite'):
+        with pytest.raises(ValueError):
+            receive_command(destination, 7, 'a' * 64)

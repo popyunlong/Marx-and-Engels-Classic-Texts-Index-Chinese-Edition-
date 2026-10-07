@@ -63,6 +63,7 @@ def create_blueprint(require_access, page_context):
         value = current_graph()
         context = page_context()
         context["layout_page"] = "concept-map"
+        context["dictionary_map_ready"] = value is not None
         return render_template("dictionary_map.html", **context,
                                graph_ready=value is not None, kinds=KINDS)
 

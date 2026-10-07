@@ -21,6 +21,20 @@ before(async()=>{
 after(async()=>{if(browser)await browser.close();if(server)server.kill();});
 const ready=p=>p.waitForFunction(()=>!document.getElementById('dmWorkspace').hidden);
 const centerURL=()=>base+'/dictionary/map?center='+encodeURIComponent(center);
+
+test('unavailable map hides both navigation entries and keeps dictionary reading',async t=>{
+  const p=await open(t,390);
+  for(const route of ['/dictionary','/dictionary/entry/'+encodeURIComponent(center),'/concept-map','/dictionary/map']){
+    await p.goto(base+route+'?unavailable=1');
+    assert.equal(await p.locator('.v2nav a[href="/concept-map"],.v2tabbar a[href="/concept-map"],.dict-nav a[href="/concept-map"]').count(),0);
+    if(route.includes('map')){
+      assert(await p.getByText('概念地图暂不可用',{exact:true}).isVisible());
+      assert(await p.getByRole('link',{name:'返回词条目录',exact:true}).isVisible());
+    }
+  }
+  await p.goto(base+'/concept-map?center='+encodeURIComponent(center));await ready(p);
+  assert.equal(await p.locator('.v2nav a[href="/concept-map"],.v2tabbar a[href="/concept-map"]').count(),2);
+});
 async function open(t,width=1400){const ctx=await browser.newContext({viewport:{width,height:960},acceptDownloads:true});t.after(()=>ctx.close());return ctx.newPage();}
 
 for(const width of [390,720,820,821,900,1024,1100,1140,1200,1280,1600]){

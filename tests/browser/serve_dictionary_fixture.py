@@ -27,17 +27,18 @@ def context():
     return dict(layout_v2=True,layout_page='dictionary',app_name='马克思主义理论研究辅助程序',
                 app_version_display='本地验收',site_text=lambda key:TEXT.get(key,key),
                 current_user=None if request.args.get('guest') else SimpleNamespace(display_name='地图验收用户',email='fixture@example.test'),
-                citation_assistant_available=True,sponsor_enabled=False,csrf_token='fixture',account_center_label='会员中心')
+                citation_assistant_available=True,sponsor_enabled=False,csrf_token='fixture',account_center_label='会员中心',
+                dictionary_map_ready=dictionary_map_web.current_graph() is not None)
 
 
 @app.get('/dictionary')
 def dictionary():
-    return render_template('dictionary.html',**context(),groups=dictionary_groups(),stats=dictionary_stats(),dictionary_map_ready=True)
+    return render_template('dictionary.html',**context(),groups=dictionary_groups(),stats=dictionary_stats())
 
 
 @app.get('/dictionary/entry/<path:slug>')
 def dictionary_entry_page(slug):
-    return render_template('dictionary_entry.html',**context(),entry=dictionary_entry(slug),dictionary_map_ready=True,related_dictionary=[])
+    return render_template('dictionary_entry.html',**context(),entry=dictionary_entry(slug),related_dictionary=[])
 
 
 @app.get('/api/dictionary/suggest')
