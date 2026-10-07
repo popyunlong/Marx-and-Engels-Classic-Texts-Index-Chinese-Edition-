@@ -52,9 +52,13 @@ jobs:
       - name: Check durable catalogue observation and browser progress
         run: python -m pytest tests/test_catalog_server_observation.py tests/test_catalog_browser_review.py tests/test_prepare_mega_iv3_verified.py -q
 
+      - name: Check isolated dictionary graph and budget controls
+        run: python -m pytest tests/test_dictionary_feature.py tests/test_dictionary_graph.py tests/test_dictionary_graph_release.py tests/test_dictionary_candidate_isolation.py -q
+
       - name: Check release shell syntax
         run: |
           bash -n deploy/promote_release.sh
+          bash -n deploy/dictionary_graph_control.sh
           bash -n deploy/rollback_release.sh
           bash -n deploy/research_units.sh
           bash -n deploy/release_traffic.sh
@@ -81,7 +85,7 @@ jobs:
           npm install --no-save --package-lock=false playwright@1.62.1
           npx playwright install --with-deps chromium
       - name: Check AI controls in a real browser without live API calls
-        run: node --test --test-reporter=spec tests/browser/ai_controls.cjs tests/browser/citation_scope.cjs 2>&1 | tee /tmp/ai-controls-browser.log
+        run: node --test --test-reporter=spec tests/browser/ai_controls.cjs tests/browser/citation_scope.cjs tests/browser/dictionary_map.cjs 2>&1 | tee /tmp/ai-controls-browser.log
       - name: Include browser failure details in check annotations
         if: failure()
         run: |

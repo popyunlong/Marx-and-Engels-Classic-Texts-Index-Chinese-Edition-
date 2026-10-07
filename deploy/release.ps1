@@ -12,6 +12,7 @@ param(
     [string]$ArtifactDirectory = "",
     [string]$CatalogArchive = "",
     [string]$CorpusArchive = "",
+    [string]$DictionaryGraphArchive = "",
     [switch]$DryRun,
     [switch]$KeepArtifact
 )
@@ -102,6 +103,7 @@ $remoteArchive = $null
 $uploaded = $false
 $remoteCatalogArchive = ""
 $remoteCorpusArchive = ""
+$remoteDictionaryGraphArchive = ""
 try {
     $branch = Invoke-Checked -Label "Read current branch" -FilePath $git -ArgumentList @("symbolic-ref", "--quiet", "--short", "HEAD") -Capture
     if ($branch -ne "production") {
@@ -199,6 +201,12 @@ try {
             throw "Corpus artifacts require a committed config/corpus_release.json binding."
         }
     }
+    if ($DictionaryGraphArchive) {
+        $DictionaryGraphArchive = (Resolve-Path -LiteralPath $DictionaryGraphArchive).Path
+        if (-not (Test-Path -LiteralPath (Join-Path $appDir "config/dictionary_graph_release.json"))) {
+            throw "Dictionary graph artifacts require a committed binding."
+        }
+    }
     if ($DryRun) {
         $KeepArtifact = $true
         Write-Host "Dry run complete; no server connection was made."
@@ -234,8 +242,12 @@ try {
         $remoteCorpusArchive = "/var/tmp/marx-corpus-$releaseId.tar.gz"
         $uploadArgs += @("--file", $CorpusArchive, $remoteCorpusArchive)
     }
+    if ($DictionaryGraphArchive) {
+        $remoteDictionaryGraphArchive = "/var/tmp/marx-dictionary-graph-$releaseId.tar.gz"
+        $uploadArgs += @("--file", $DictionaryGraphArchive, $remoteDictionaryGraphArchive)
+    }
     Invoke-Python310 -Python $python -Label "Upload health-guarded release artifacts at up to 2 MiB/s" -Arguments $uploadArgs
-    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/run_release_transaction.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive'"
+    $remoteCommand = "tar -xOf '$remoteArchive' app/deploy/run_release_transaction.sh | bash -s -- '$RemoteRoot' '$remoteArchive' '$ExpectedLive' '$releaseId' '$remoteCatalogArchive' '$reviewNonce' '$remoteCorpusArchive' '$remoteDictionaryGraphArchive'"
     Write-Host "Candidate review nonce: $reviewNonce"
     Write-Host "The transaction will pause before cutover for candidate browser checks."
     Invoke-Checked -Label "Promote release transaction" -FilePath $ssh -ArgumentList @($sshCommon + @($remote, $remoteCommand))
@@ -251,6 +263,10 @@ try {
                 & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 if ($remoteCatalogArchive) {
                     $cleanupArgs[-1] = "flock -s -n /run/lock/marx-search-release.lock rm -f -- '$remoteCatalogArchive'"
+                    & $ssh.Source @cleanupArgs 2>$null | Out-Null
+                }
+                if ($remoteDictionaryGraphArchive) {
+                    $cleanupArgs[-1] = "flock -s -n /run/lock/marx-search-release.lock rm -f -- '$remoteDictionaryGraphArchive'"
                     & $ssh.Source @cleanupArgs 2>$null | Out-Null
                 }
                 if ($remoteCorpusArchive) {

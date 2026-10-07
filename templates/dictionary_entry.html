@@ -149,6 +149,7 @@
       <span>{{ app_name }} · {{ app_version_display }}</span>
     </div>
     <nav class="dict-nav">
+      {% if dictionary_map_ready %}<a href="{{ url_for('dictionary_map.page', center=entry.slug) if entry is defined else url_for('dictionary_map.page') }}">概念地图</a>{% endif %}
       <a href="{{ url_for('dictionary') }}">返回词条目录</a>
       <a class="primary" href="/?restore=1">返回检索</a>
     </nav>
@@ -169,13 +170,18 @@
       {% endif %}
       <div class="content">
         {% for paragraph in entry.paragraphs %}
-        <p>{{ paragraph }}</p>
+        <p id="paragraph-{{ loop.index }}" style="scroll-margin-top:160px">{{ paragraph }}</p>
         {% else %}
         <p>该词条解释内容暂未抽取成功。</p>
         {% endfor %}
       </div>
     </article>
 
+    {% if related_dictionary %}
+    <section class="citation"><strong>相关词条 · 原文联系</strong><div class="dict-nav">
+      {% for related in related_dictionary %}<a href="{{ url_for('dictionary_entry_page', slug=related.slug) }}">{{ related.title }}</a>{% endfor %}
+    </div><a href="{{ url_for('dictionary_map.page', center=entry.slug) }}">在概念地图中探索关系依据</a></section>
+    {% endif %}
     <section class="citation">
       <strong>对应书籍页码引文</strong>
       <p>{{ entry.citation }}</p>

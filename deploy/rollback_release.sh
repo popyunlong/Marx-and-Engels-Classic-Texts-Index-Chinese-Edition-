@@ -78,6 +78,9 @@ PY
 TRANSACTION_APP="$(readlink -f "$APP_ROOT/current/app")"
 source "$TRANSACTION_APP/deploy/release_traffic.sh"
 python3 "$TRANSACTION_APP/scripts/catalog_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
+if [ -f "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" ]; then
+  python3 "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
+fi
 [ "$TARGET_RELEASE" != "$CURRENT" ] || { echo "target is already current" >&2; exit 3; }
 TARGET_META_ID="$(python3 - "$TARGET/release.json" <<'PY'
 import json, pathlib, re, sys
@@ -210,6 +213,7 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --setenv="MARX_AI_CONFIG_FILE=$APP_ROOT/config/ai.yaml" \
   --setenv="MARX_ALIPAY_CONFIG_FILE=$APP_ROOT/config/alipay.yaml" \
   --setenv="MARX_ZPAY_CONFIG_FILE=$APP_ROOT/config/zpay.yaml" \
+  /usr/bin/env MARX_SKIP_STARTUP_MAINTENANCE=1 MARX_SKIP_SEARCH_WARM=1 \
   "$APP_ROOT/runtime-python" -m ingestion.runtime --port "$CANDIDATE_PORT" >/dev/null
 if ! wait_runtime "$CANDIDATE_PORT" "$TARGET/release.json"; then
   retire_candidate_if_drained "unhealthy rollback candidate" || true

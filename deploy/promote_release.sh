@@ -4,8 +4,8 @@
 set -Eeuo pipefail
 umask 027
 
-if [ "$#" -ne 7 ]; then
-  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID CATALOG_ARCHIVE REVIEW_NONCE CORPUS_ARCHIVE" >&2
+if [ "$#" -ne 7 ] && [ "$#" -ne 8 ]; then
+  echo "usage: promote_release.sh APP_ROOT ARCHIVE EXPECTED_LIVE RELEASE_ID CATALOG_ARCHIVE REVIEW_NONCE CORPUS_ARCHIVE [GRAPH_ARCHIVE]" >&2
   exit 2
 fi
 
@@ -16,6 +16,7 @@ RELEASE_ID="$4"
 CATALOG_ARCHIVE="${5:-}"
 REVIEW_NONCE="${6:-}"
 CORPUS_ARCHIVE="${7:-}"
+GRAPH_ARCHIVE="${8:-}"
 RELEASES="$APP_ROOT/releases"
 LOCK_FILE="/run/lock/marx-search-release.lock"
 LEDGER="$APP_ROOT/release-ledger.jsonl"
@@ -190,6 +191,11 @@ if [ -n "$CORPUS_ARCHIVE" ]; then CORPUS_ARGS=(--archive "$CORPUS_ARCHIVE"); fi
 python3 "$FINAL/app/scripts/corpus_deploy.py" preflight \
   --root "$APP_ROOT" --app "$FINAL/app" "${CORPUS_ARGS[@]}"
 
+GRAPH_ARGS=()
+if [ -n "$GRAPH_ARCHIVE" ]; then GRAPH_ARGS=(--archive "$GRAPH_ARCHIVE"); fi
+python3 "$FINAL/app/scripts/dictionary_graph_deploy.py" preflight \
+  --root "$APP_ROOT" --app "$FINAL/app" "${GRAPH_ARGS[@]}"
+
 RUNTIME_PYTHON="${MARX_RUNTIME_PYTHON:-}"
 if [ -z "$RUNTIME_PYTHON" ]; then
   RUNTIME_PYTHON="$(systemctl show "$MAIN_SERVICE" -p ExecStart --value | grep -oE '/[^ ;{}]+/python([0-9.]*)?' | head -n1 || true)"
@@ -249,6 +255,10 @@ health() {
     if [ -f "$RELEASES/$expected_release/release.json" ]; then
       printf '%s' "$runtime_json" | python3 "$FINAL/app/scripts/catalog_deploy.py" health \
         --metadata "$RELEASES/$expected_release/release.json" || return 1
+      if [ "$expected_release" = "$RELEASE_ID" ]; then
+        printf '%s' "$runtime_json" | python3 "$FINAL/app/scripts/dictionary_graph_deploy.py" health \
+          --metadata "$RELEASES/$expected_release/release.json" || return 1
+      fi
     fi
     printf '%s' "$runtime_json" | python3 -c '
 import json, sys
@@ -373,6 +383,7 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --setenv="MARX_AI_CONFIG_FILE=$APP_ROOT/config/ai.yaml" \
   --setenv="MARX_ALIPAY_CONFIG_FILE=$APP_ROOT/config/alipay.yaml" \
   --setenv="MARX_ZPAY_CONFIG_FILE=$APP_ROOT/config/zpay.yaml" \
+  /usr/bin/env MARX_SKIP_STARTUP_MAINTENANCE=1 MARX_SKIP_SEARCH_WARM=1 \
   "$RUNTIME_PYTHON" -m ingestion.runtime --port "$CANDIDATE_PORT" >/dev/null
 if ! wait_health "$CANDIDATE_PORT" "$RELEASE_ID"; then
   journalctl -u "$CANDIDATE_UNIT" -n 80 --no-pager >&2 || true
@@ -560,6 +571,7 @@ entry = {
     "release_id": sys.argv[2],
     "parent_release_id": sys.argv[3],
     "catalog_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("catalog_release"),
+    "dictionary_graph_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("dictionary_graph_release"),
     "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
 }
 with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:

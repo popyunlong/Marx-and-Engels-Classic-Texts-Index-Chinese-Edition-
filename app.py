@@ -11553,6 +11553,7 @@ def dictionary():
         state=current_view_state(),
         groups=dictionary_groups(),
         stats=stats,
+        dictionary_map_ready=_dictionary_current_graph() is not None,
     )
 
 
@@ -11569,6 +11570,8 @@ def dictionary_entry_page(slug: str):
         app_version=APP_VERSION,
         state=current_view_state(),
         entry=entry,
+        dictionary_map_ready=_dictionary_current_graph() is not None,
+        related_dictionary=_dictionary_related(slug),
     )
 
 
@@ -11584,6 +11587,25 @@ def api_dictionary_suggest():
     resp = jsonify({"ok": True, "results": results})
     resp.headers["Cache-Control"] = "private, max-age=300"
     return resp
+
+
+# Map routes share dictionary access; graph failures do not affect ordinary entries.
+from dictionary_map_web import create_blueprint as _dictionary_map_blueprint
+from dictionary_graph import current_graph as _dictionary_current_graph
+def _dictionary_related(slug):
+    import sqlite3
+    try:
+        graph = _dictionary_current_graph()
+        return graph.neighborhood(slug, limit=6)["nodes"][1:] if graph else []
+    except (OSError, ValueError, KeyError, sqlite3.Error):
+        return []
+
+
+app.register_blueprint(_dictionary_map_blueprint(
+    _require_content_feature,
+    lambda: dict(app_name=WEB_APP_NAME, app_version=APP_VERSION,
+                 layout_v2=True, layout_page="dictionary", state=current_view_state()),
+))
 
 
 # ---- 篇章名称自动补全（搜索全部书库目录） ----
@@ -12340,6 +12362,7 @@ def api_ping():
 def api_runtime():
     state = current_view_state()
     layout_index = getattr(corpus, 'layout_index', None)
+    dictionary_map = _dictionary_current_graph()
     return jsonify(
         {
             "ok": True,
@@ -12353,6 +12376,8 @@ def api_runtime():
             "app_release": current_app_release(),
             "corpus_release": corpus_release.status(),
             "catalog_release": catalog_status(),
+            "dictionary_map": {"ready": dictionary_map is not None,
+                               "version": dictionary_map.meta["id"] if dictionary_map else None},
             "layout_exact_ready": bool(layout_index and layout_index.enabled and
                                        not layout_index.error and layout_index.projections),
         }

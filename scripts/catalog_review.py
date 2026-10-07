@@ -67,7 +67,8 @@ def validate_review(app, evidence):
     app = Path(app)
     metadata = json.loads((app.parent / 'release.json').read_text('utf-8'))
     parent = json.loads((app.parent.parent / metadata['parent_release_id'] / 'release.json').read_text('utf-8'))
-    if metadata.get('catalog_release') == parent.get('catalog_release'):
+    if (metadata.get('catalog_release') == parent.get('catalog_release')
+            and metadata.get('dictionary_graph_release') == parent.get('dictionary_graph_release')):
         return
     if evidence.get('release_id') != metadata['release_id'] or evidence.get('result') != 'pass':
         raise ValueError('catalogue review identity or decision mismatch')
