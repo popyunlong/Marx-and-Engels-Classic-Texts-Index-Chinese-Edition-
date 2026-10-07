@@ -169,3 +169,59 @@ def test_provider_filter_is_terminal_and_format_retry_is_bounded(tmp_path,monkey
     monkeypatch.setattr(client.session,'post',malformed)
     assert client.ask('mimo-v2.6-flash',[{'role':'user','content':'fixture'}])['status']=='model_format_error'
     assert len(calls)==3 and budget.report()['requests']==3
+
+
+def test_alias_must_name_the_complete_source_entity():
+    from scripts.build_dictionary_graph import explicit_alias
+    party=entry('party','爱森纳赫派','政党派别。')
+    assert explicit_alias(entry('source','德国社会民主工党','又称“爱森纳赫派”。'),party)
+    assert not explicit_alias(entry('meeting','全德社会民主派代表大会','会议成立德国社会民主工党，又称“爱森纳赫派”。'),party)
+    assert not explicit_alias(entry('event','德国社会民主工党的建立','历史事件。\n\n又称“爱森纳赫派”。'),party)
+
+
+def test_complex_review_binds_exact_evidence_and_drops_unreviewed_types(tmp_path):
+    from scripts.review_dictionary_relations import apply_review,review_covers
+    a=entry('source','整体','整体包括部分。');b=entry('target','部分','组成部分。')
+    complex_edge=make_edge('source','target','part','inference','组成关系',[evidence(a,'整体包括部分。')])
+    literal=make_edge('source','target','mention','evidence','正文提及',[evidence(a,'整体包括部分。')])
+    unseen=make_edge('target','source','broader','inference','不可靠',[])
+    edges={e['id']:e for e in (complex_edge,literal,unseen)}
+    review=tmp_path/'review.json'
+    review.write_text(json.dumps({'protocol':1,'source_sha256':'fingerprint','decisions':{'source':{
+        'inputs':[complex_edge],'accepted_ids':[complex_edge['id'],unseen['id']]}}}),encoding='utf-8')
+    accepted=apply_review(edges,review,{'source':a,'target':b},'fingerprint')
+    assert set(accepted)=={complex_edge['id'],literal['id']}
+    assert accepted[complex_edge['id']]['review']=='mimo_v2.6_pro_direction_reviewed'
+    changed=dict(complex_edge,explanation='改变了关系的含义')
+    assert review_covers({'inputs':[complex_edge,unseen]},[complex_edge])
+    assert not review_covers({'inputs':[complex_edge]},[changed])
+    assert apply_review({changed['id']:changed},review,{'source':a,'target':b},'fingerprint')=={}
+    with pytest.raises(ValueError):apply_review(edges,review,{'source':a,'target':b},'new fingerprint')
+
+
+def test_complex_type_does_not_confuse_chapters_parts_or_opposition_subjects():
+    from scripts.review_dictionary_relations import grounded_type
+    source=entry('s','《测试白皮书》','包括尊重人权这一部分。');target=entry('t','尊重人权','概念。')
+    e=make_edge('s','t','part','inference','部分',[evidence(source,source['content'])])
+    assert not grounded_type(e,{'s':source,'t':target})
+
+
+def test_reverse_components_and_attributed_exclusions(tmp_path):
+    from scripts.review_dictionary_relations import grounded_type
+    from scripts.build_dictionary_graph import apply_exclusions
+    source=entry('s','地理环境','地理环境是社会存在的组成部分。');target=entry('t','社会存在','物质生活条件。')
+    e=make_edge('s','t','part','inference','组成',[evidence(source,source['content'])])
+    assert not grounded_type(e,{'s':source,'t':target})
+    path=tmp_path/'exclusions.json'
+    path.write_text(json.dumps({'source_sha256':'source','reviewer':'Test reviewer','reviewed_at':'2026-10-07',
+        'exclusions':[{'id':e['id'],'reason':'reverse component direction'}]}),encoding='utf-8')
+    assert apply_exclusions({e['id']:e},path,'source')=={}
+    with pytest.raises(ValueError):apply_exclusions({e['id']:e},path,'other source')
+    source=entry('s','固定资本','生产资本中用于购买机器的部分资本。');target=entry('t','生产资本','资本形式。')
+    e=make_edge('s','t','broader','inference','部分',[evidence(source,source['content'])])
+    assert not grounded_type(e,{'s':source,'t':target})
+    source=entry('s','发展','哲学范畴。\n\n发展或静止是辩证法和形而上学的区别。');target=entry('t','形而上学','方法。')
+    e=make_edge('s','t','opposes','inference','对立',[evidence(source,'发展或静止是辩证法和形而上学的区别。')])
+    assert not grounded_type(e,{'s':source,'t':target})
+    e['evidence']=[{'quote':'用发展的还是静止的观点看世界，是辩证法和形而上学的根本区别之一。'}]
+    assert not grounded_type(e,{'s':source,'t':target})

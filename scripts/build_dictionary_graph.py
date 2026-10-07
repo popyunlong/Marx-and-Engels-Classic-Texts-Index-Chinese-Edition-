@@ -27,7 +27,7 @@ from dictionary_graph import KINDS, THEMES, file_hash, readonly
 from dictionary_store import normalize_term
 
 PROMPT_VERSION = "dictionary-relations-v2"
-VALIDATION_VERSION = 2
+VALIDATION_VERSION = 3
 # CNY / million tokens; integer microyuan per token. Treat every input as uncached.
 PRICES = {"mimo-v2.6-flash": (1, 2), "mimo-v2.6-pro": (3, 6)}
 PRICE_SOURCE = "https://mimo.mi.com/docs/pricing"
@@ -331,7 +331,11 @@ def validate_relations(result, entry, by_slug, allowed):
 
 def explicit_alias(source,target):
     # A school or subtype is not a synonym merely because the model says so.
-    aliases=re.findall(r'(?:亦称|又称|也称|简称|别称)(?:为)?[“「"]([^”」"]+)[”」"]',source['content'])
+    first=paragraphs(source)[0] if paragraphs(source) else ''
+    match=re.search(r'(?:亦称|又称|也称|简称|别称)(?:为)?[“「"]([^”」"]+)[”」"]',first)
+    if not match or normalize_term(first[:match.start()]) not in {'',normalize_term(source['title'])}:
+        return False
+    aliases=[match[1]]
     return normalize_term(target['title']) in {normalize_term(a) for a in aliases}
 
 
@@ -401,6 +405,18 @@ def write_graph(source, output, entries, edges, results, budget_report, graph_id
     return meta
 
 
+def apply_exclusions(edges, path, source_hash):
+    """Apply attributed local review corrections without changing model audit records."""
+    value=json.loads(Path(path).read_text('utf-8'))
+    if value.get('source_sha256')!=source_hash or not value.get('reviewer') or not value.get('reviewed_at'):
+        raise ValueError('relation corrections require matching source and reviewer')
+    rows=value.get('exclusions',[])
+    if not isinstance(rows,list) or any(not isinstance(r,dict) or not re.fullmatch(r'[0-9a-f]{24}',r.get('id','')) or not r.get('reason') for r in rows):
+        raise ValueError('invalid relation correction')
+    rejected={r['id'] for r in rows}
+    return {key:edge for key,edge in edges.items() if key not in rejected}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source",type=Path,required=True)
@@ -412,6 +428,8 @@ def main():
     p.add_argument("--credentials",type=Path)
     p.add_argument("--pilot-accepted",action="store_true")
     p.add_argument("--workers",type=int,default=4)
+    p.add_argument("--complex-review",type=Path)
+    p.add_argument("--exclude-relations",type=Path)
     args=p.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,100}",args.id):
         p.error("unsafe graph id")
@@ -494,8 +512,16 @@ def build(args):
             and (e['kind'] not in {'broader','part'} or any(normalize_term(by_slug[e['target']]['title']) in normalize_term(ev['quote']) for ev in e['evidence']))]
         for edge in value['relations']:
             edges[edge["id"]]=edge
+    if args.complex_review:
+        from scripts.review_dictionary_relations import apply_review
+        edges=apply_review(edges,args.complex_review,by_slug,file_hash(args.source))
+    if args.exclude_relations:
+        edges=apply_exclusions(edges,args.exclude_relations,file_hash(args.source))
     atomic_json(state_path,results)
     report=write_graph(args.source,args.output,entries,edges,results,budget.report(),args.id)
+    report['review_inputs']={name:file_hash(path) for name,path in (
+        ('complex_review_sha256',args.complex_review),('exclusions_sha256',args.exclude_relations)) if path}
+    atomic_json(args.output/'report.json',report)
     print(json.dumps({"artifact":str(args.output),"coverage":report["coverage"],"budget":report["budget"],"stopped":stopped},ensure_ascii=False))
     return 2 if stopped else 0
 

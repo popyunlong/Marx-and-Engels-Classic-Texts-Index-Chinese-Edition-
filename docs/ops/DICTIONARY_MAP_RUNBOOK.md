@@ -4,7 +4,7 @@
 
 ## 两次发布
 
-先发布独立导航修复提交，再发布地图功能及经过审查的地图版本。导航覆盖目录和详情，继续使用全站账号菜单与栏目切换。地图发布缺少绑定文件时关闭入口，辞典原有路由与正文照常工作。
+先发布导航及候选实例启动保护，再发布经过审查的地图绑定版本。导航覆盖目录和详情，继续使用全站账号菜单与栏目切换。地图代码可以先随导航发布，但缺少绑定文件时关闭入口，辞典原有路由与正文照常工作。两次切换分别留存观察和回退目标。
 
 只能由指定发布协调者执行仓库正式流程。不得从本功能分支、脏目录或未推送提交发布，也不得绕过生产锁直接修改服务器源文件、上游或服务。发布前重新比较线上运行提交、远端 main、production 和发布账本；发生变化则重新对齐并验收。
 
@@ -24,6 +24,24 @@ python scripts/build_dictionary_graph.py --source data/dictionary.sqlite `
 检查点按源指纹及处理版本保存，响应按内容及模型缓存。操作系统文件锁阻止同一检查点并行写入。重复启动需使用新的不可变输出版本；已完成调用直接复用缓存。正常浏览地图不会启动建图脚本。
 
 原文提及、页码明确的参见与 AI 解释分层。字面提及不声称同义或因果；AI 推断默认关闭。普通词、重复词目中的短词、非完整书名和缺少明确目标的层级关系采用保守过滤。来源仍有复核标记的词条保留节点，不生成关系。
+
+初步复核之后，还须使用 Pro 对同义、上下位、整体组成及对立关系再做完整词目与方向检查，费用仍来自上述同一个账本。该检查读取原子保存的检查点，写入独立审查记录，可与初步抽取并行；全库完成后再运行一次补齐新增关系。最终产物必须传入该记录，缺少复核或复核输入发生变化的复杂关系会被删除。同义关系还要求首段明确指称源词目别名，避免将事件与其中的组织混为同一概念。
+
+```powershell
+python scripts/review_dictionary_relations.py --source data/dictionary.sqlite `
+  --state SOURCE_SHA-dictionary-relations-v2.json `
+  --work D:/CodexData/data/dictionary-map-20261007/build `
+  --output D:/CodexData/data/dictionary-map-20261007/build/complex-review.json
+python scripts/build_dictionary_graph.py --source data/dictionary.sqlite `
+  --work D:/CodexData/data/dictionary-map-20261007/build `
+  --output D:/CodexData/data/dictionary-map-20261007/graphs/FINAL_VERSION `
+  --id FINAL_VERSION --mode rules `
+  --complex-review D:/CodexData/data/dictionary-map-20261007/build/complex-review.json
+```
+
+第二条命令合并全部缓存结果并执行最终验证，不新增模型调用。`--state` 应填写工作目录内与源指纹一致的完整检查点路径。
+
+语义抽查发现的错误还可写入独立纠错文件，并用 `--exclude-relations FILE` 应用。文件必须包含源 `source_sha256`、真实 `reviewer`、`reviewed_at` 与 `exclusions: [{id, reason}]`；只删除关系，不改写或伪造模型原始审计。产物报告记录复核文件和纠错文件的校验值。不得用某次抽样通过代替其他已知错误的修正。
 
 ## 产物与审查
 
