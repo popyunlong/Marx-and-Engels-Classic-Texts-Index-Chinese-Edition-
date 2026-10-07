@@ -30,8 +30,8 @@
         linear-gradient(180deg, #f7f3ed 0%, #efe7db 100%);
       background-attachment: fixed;
     }
-    .topbar {
-      position: sticky;
+    .dict-toolbar {
+      position: relative;
       top: 0;
       z-index: 5;
       display: flex;
@@ -43,11 +43,11 @@
       background: rgba(255, 253, 249, .94);
       backdrop-filter: blur(10px);
     }
-    .brand { display: grid; gap: 2px; min-width: 0; }
-    .brand strong { font-size: 1.05rem; font-family: var(--serif); color: var(--accent); }
-    .brand span { color: var(--muted); font-size: .9rem; }
-    .nav { display: flex; gap: 10px; flex-wrap: wrap; }
-    .nav a {
+    .dict-brand { display: grid; gap: 2px; min-width: 0; }
+    .dict-brand strong { font-size: 1.05rem; font-family: var(--serif); color: var(--accent); }
+    .dict-brand span { color: var(--muted); font-size: .9rem; }
+    .dict-nav { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dict-nav a {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -61,13 +61,13 @@
       font-weight: 700;
       transition: background .18s ease, color .18s ease, border-color .18s ease;
     }
-    .nav a:hover { background: var(--accent-soft); }
-    .nav a.primary {
+    .dict-nav a:hover { background: var(--accent-soft); }
+    .dict-nav a.primary {
       color: white;
       background: var(--accent);
       border-color: var(--accent);
     }
-    .nav a.primary:hover { background: var(--accent-deep); color: white; }
+    .dict-nav a.primary:hover { background: var(--accent-deep); color: white; }
     main {
       width: min(900px, calc(100% - 32px));
       margin: 24px auto 52px;
@@ -132,20 +132,23 @@
     .citation strong { color: var(--accent); font-family: var(--serif); }
     .citation p { margin: 0; color: var(--muted); line-height: 1.75; }
     @media (max-width: 720px) {
-      .topbar { display: grid; padding: 12px 16px; }
+      .dict-toolbar { display: grid; padding: 12px 16px; }
       main { width: min(100% - 24px, 900px); margin-top: 16px; }
       article { padding: 18px 16px; }
     }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=25">
   {% include '_refined_assets.html' %}
+  <style>.dict-page main{padding-bottom:88px}.dict-page .letter-section{scroll-margin-top:150px}</style>
 </head>
-<body>
-  <header class="topbar">
-    <div class="brand">
+<body class="v2 dict-page">
+  {% include "_appnav.html" %}
+  <header class="dict-toolbar">
+    <div class="dict-brand">
       <strong>{{ site_text("dictionary.heading") }}</strong>
       <span>{{ app_name }} · {{ app_version_display }}</span>
     </div>
-    <nav class="nav">
+    <nav class="dict-nav">
       <a href="{{ url_for('dictionary') }}">返回词条目录</a>
       <a class="primary" href="/?restore=1">返回检索</a>
     </nav>
