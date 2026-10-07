@@ -18,7 +18,7 @@ img,canvas,video{max-width:100%;}
 .v2tab{font-size:14px;}
 .v2tab.active{color:var(--wine);}
 /* Keep every navigation entry clear of account controls at intermediate widths. */
-@media (min-width:821px) and (max-width:1400px){.v2brand-word{display:none;}}
+@media (min-width:821px) and (max-width:1520px){.v2brand-word{display:none;}}
 body.v2 .page{max-width:1320px;padding-top:26px;}
 .page,.wrap,.container{box-sizing:border-box;}
 body .panel,body .hit,body .group-card,body .status-card,body .notice-card,

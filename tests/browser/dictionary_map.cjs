@@ -61,6 +61,44 @@ test('directory puts concept map first and opens the graph directly',async t=>{
   assert(await p.locator('#dmGraphPanel').isVisible());
   assert((await p.locator('#dmGraphNote').textContent()).includes('完整展示 · 8'));
   assert.equal(await p.locator('.dm-pick input:checked').count(),8);
+  assert.equal(new URL(p.url()).pathname,'/concept-map');
+});
+
+test('concept map is an independent column and dictionary retains its original index',async t=>{
+  const p=await open(t);await p.goto(base+'/concept-map?center=fixture-small&group=all&view=list&offset=0');await ready(p);
+  assert.equal(await p.title(),'概念地图 · 马克思主义理论研究辅助程序');
+  const active=p.locator('.v2tabs-top [aria-current="page"]');
+  assert.equal((await active.textContent()).trim(),'概念地图');
+  assert.equal(await active.getAttribute('href'),'/concept-map');
+  assert.equal(await p.locator('.v2tabs-top a[href="/dictionary"].active').count(),0);
+  assert(await p.locator('#dmGraphPanel').isHidden());
+  await p.locator('.v2tabs-top a[href="/dictionary"]').click();
+  assert(await p.locator('#dictSearchInput').isVisible());
+  assert(await p.locator('.letters').isVisible());assert(await p.locator('.term').count()>1000);
+  assert.equal(await p.locator('#dmWorkspace').count(),0);assert.equal(await p.locator('.dict-nav a[href="/concept-map"]').count(),0);
+  await p.locator('.v2tabs-top a[href="/concept-map"]').click();await ready(p);
+  assert.equal(await p.locator('.dm-entry').count(),30);
+  await p.goto(base+'/dictionary/map?center=fixture-small&group=incoming&view=graph&pick=fixture-8');await ready(p);
+  await p.locator('#dmPng').waitFor({state:'visible'});
+  assert.equal(new URL(p.url()).pathname,'/concept-map');
+  assert.equal(new URL(p.url()).searchParams.get('group'),'incoming');
+  assert.equal(new URL(p.url()).searchParams.get('pick'),'fixture-8');
+});
+
+test('graph cards expose pages and evidence through keyboard and PNG export',async t=>{
+  const p=await open(t,390);const errors=[];p.on('pageerror',e=>errors.push(e.message));
+  await p.goto(base+'/concept-map?center=fixture-small');await ready(p);await p.locator('#dmPng').waitFor({state:'visible'});
+  const cards=await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().map(n=>decodeURIComponent(n.data('card'))));
+  assert(cards.every(svg=>svg.includes('页')&&svg.includes('<svg')));
+  assert(cards.slice(1).every(svg=>svg.includes('条关系')));
+  assert(cards.some(svg=>svg.includes('指向中心词')));assert(cards.some(svg=>svg.includes('从中心词出发')));
+  await p.locator('#dmGraphIndexSummary').click();
+  const first=p.locator('#dmGraphNodes button').first();await first.focus();await p.keyboard.press('Enter');
+  assert(await p.locator('#dmGraphDetail blockquote').first().isVisible());
+  assert((await p.locator('#dmGraphDetail a').last().getAttribute('href')).includes('#paragraph-1'));
+  const [download]=await Promise.all([p.waitForEvent('download'),p.locator('#dmPng').click()]);
+  const png=await fs.readFile(await download.path());assert.equal(png.subarray(1,4).toString(),'PNG');assert(png.length>10000);
+  assert.deepEqual(errors,[]);
 });
 
 test('reading groups, full pagination, evidence, inference, CSV and history',async t=>{
@@ -109,6 +147,11 @@ for(const width of [320,390,820,1440]){
       }))};
     });
     assert.equal(metrics.zoom,1);assert.equal(metrics.nodes,21);assert(metrics.font.every(f=>parseFloat(f)>=14));assert.equal(metrics.overlap,false);
+    if(width<=720)assert(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.edges().every(e=>{
+      const leaf=e.source().data('center')==='yes'?e.target():e.source();
+      const endpoint=e.source().data('center')==='yes'?e.targetEndpoint():e.sourceEndpoint();
+      return Math.abs(endpoint.y-leaf.position('y'))<1;
+    })), 'mobile arrows meet each leaf at its own side port');
     assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
     const shared=p.url();await p.reload();await ready(p);await p.locator('#dmPng').waitFor({state:'visible'});
     assert.equal(await p.locator('.dm-pick input:checked').count(),20);assert.equal(p.url(),shared);

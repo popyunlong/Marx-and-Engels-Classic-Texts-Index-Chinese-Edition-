@@ -50,7 +50,7 @@
       if (state.picks?.length) state.picks.forEach(slug => p.append('pick', slug));
       else p.set('pick', '');
     }
-    const url = '/dictionary/map?' + p;
+    const url = '/concept-map?' + p;
     if (location.pathname + location.search !== url) history[replace ? 'replaceState' : 'pushState'](null, '', url);
   }
   async function fetchData(path, params, signal) {
@@ -80,6 +80,7 @@
     if (cy) { cy.destroy(); cy = null; }
     $('dmPng').hidden = true;
     $('dmGraphDetail').hidden = true;
+    $('dmGraphNodes').replaceChildren();
   }
   async function load(push = false, moveFocus = false) {
     const seq = ++requestNo;
@@ -272,6 +273,52 @@
     });
     return graphPromise;
   }
+  const rolePalette = {
+    outgoing: {color: '#6377bd', pale: '#edf1fc', label: '从中心词出发'},
+    incoming: {color: '#288b83', pale: '#e7f4f1', label: '指向中心词'},
+    both: {color: '#a17b38', pale: '#fbf2df', label: '双向联系'}
+  };
+  const svgText = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]));
+  function cardImage(item, lines, w, h, role, isCenter, relationCount, narrow) {
+    const palette = rolePalette[role], ink = isCenter ? '#fff' : '#253044';
+    const label = isCenter ? '正在探索' : palette.label;
+    const pages = item.start_page === item.end_page ? `第 ${item.start_page} 页` : `第 ${item.start_page}–${item.end_page} 页`;
+    const compact = !isCenter && w < 180;
+    const footer = isCenter || compact ? pages : `${pages} · ${relationCount} 条关系`;
+    const text = lines.map((line, index) => `<text x="22" y="${58 + index * 23}" fill="${ink}" font-size="${isCenter ? 16 : 14}" font-weight="600">${svgText(line)}</text>`).join('');
+    // Self-contained vector cards keep screen rendering and PNG export identical.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <defs><linearGradient id="center" x2="1" y2="1"><stop stop-color="#804452"/><stop offset="1" stop-color="#3e263e"/></linearGradient><filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#253044" flood-opacity=".08"/></filter></defs>
+      <g font-family="Microsoft YaHei, sans-serif"><rect x="6" y="6" width="${w-12}" height="${h-12}" rx="12" fill="${isCenter ? 'url(#center)' : '#fff'}" stroke="${isCenter ? '#885c71' : '#dfe5ee'}" filter="url(#shadow)"/>
+      ${isCenter ? '' : `<rect x="22" y="21" width="3" height="11" rx="1.5" fill="${palette.color}"/>`}
+      <text x="${isCenter ? 22 : 31}" y="31" font-size="11" fill="${isCenter ? '#dfc9d6' : palette.color}">${label}</text>${text}
+      <path d="M22 ${h-39} H${w-22}" stroke="${isCenter ? '#a3798c' : '#e9edf3'}" stroke-opacity=".5"/>
+      <text x="22" y="${compact ? h-30 : h-21}" font-size="11" fill="${isCenter ? '#e3d1db' : '#7a8595'}">${svgText(footer)}</text>
+      ${compact ? `<text x="22" y="${h-16}" font-size="11" fill="#7a8595">${relationCount} 条关系</text>` : ''}
+      ${isCenter && narrow ? `<circle cx="${w/2}" cy="${h-6}" r="3.5" fill="#c9a9ba" stroke="#fff" stroke-width="1.5"/>` : `<circle cx="6" cy="${h/2}" r="3.5" fill="${isCenter ? '#c9a9ba' : palette.color}" stroke="#fff" stroke-width="1.5"/><circle cx="${w-6}" cy="${h/2}" r="3.5" fill="${isCenter ? '#c9a9ba' : palette.color}" stroke="#fff" stroke-width="1.5"/>`}</g></svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
+  function showGraphNode(slug, moveFocus = false) {
+    cy.elements().removeClass('dm-active dm-faded');
+    const target = cy.getElementById(slug);
+    target.connectedEdges().addClass('dm-active');
+    cy.elements().not(target.closedNeighborhood()).addClass('dm-faded');
+    const item = graphItems().find(item => item.slug === slug);
+    if (item) {
+      $('dmGraphDetail').replaceChildren(make('p', '原文与联系', 'dm-eyebrow'), make('h3', title(slug)));
+      const actions = make('div', undefined, 'dm-actions');
+      actions.append(button('查看它的概念地图', () => explore(slug)), link('阅读词条内容', node(slug).url));
+      actions.append(button('移出当前图谱', () => {
+        state.picks = state.picks.filter(pick => pick !== slug); renderRelations(); drawGraph(); saveURL(true);
+      }));
+      $('dmGraphDetail').append(actions);
+      appendAllEvidence($('dmGraphDetail'), edgesFor(item)); $('dmGraphDetail').hidden = false;
+      if (moveFocus) {
+        $('dmGraphDetail').tabIndex = -1; $('dmGraphDetail').focus({preventScroll: true});
+        $('dmGraphDetail').scrollIntoView({block: 'nearest', behavior: 'auto'});
+      }
+    } else { $('dmReadCenter').focus({preventScroll: true}); }
+  }
   async function drawGraph() {
     destroyGraph();
     const seq = drawing;
@@ -284,6 +331,7 @@
     $('dmGraphAll').hidden = !data.items.length || data.items.every(item => state.picks.includes(item.slug));
     $('dmGraphBalance').hidden = data.total <= GRAPH_CAP;
     $('dmGraphSelection').hidden = data.total <= GRAPH_CAP;
+    $('dmGraphIndex').hidden = !picked.length;
     $('dmCanvas').hidden = !picked.length;
     if (!picked.length) {
       $('dmGraphNote').textContent = data.total ? '当前未选择词条。请展开下方关系列表选择要加入地图的词条。' :
@@ -294,34 +342,35 @@
       await loadGraphLibrary();
       if (seq !== drawing || !isGraph()) return;
       const width = $('dmCanvas').clientWidth, narrow = width < 650;
-      const nodeWidth = narrow ? Math.floor((width - 52) / 2) : Math.min(176, Math.floor((width - 260) / 2) - 28);
+      const nodeWidth = narrow ? Math.floor((width - 40) / 2) : Math.min(220, Math.floor((width - 300) / 2) - 24);
       const box = (slug, isCenter = false) => {
-        const w = isCenter ? Math.min(220, width - 48) : nodeWidth;
+        const w = isCenter ? Math.min(244, width - 40) : nodeWidth;
         const font = isCenter ? 16 : 14;
-        const columns = Math.max(3, Math.floor((w - 28) / font));
+        const columns = Math.max(3, Math.floor((w - 44) / font));
         const chars = Array.from(title(slug)), lines = [];
         for (let i = 0; i < chars.length; i += columns) lines.push(chars.slice(i, i + columns).join(''));
         const item = picked.find(item => item.slug === slug);
         const relations = item ? edgesFor(item) : [];
         const outgoing = relations.some(edge => edge.source === state.center), incoming = relations.some(edge => edge.target === state.center);
         const role = outgoing && incoming ? 'both' : outgoing ? 'outgoing' : 'incoming';
-        const label = (isCenter ? '中心词条\n' : '') + lines.join('\n');
-        return {data: {id: slug, label, role, center: isCenter ? 'yes' : 'no', w, h: Math.max(76, (lines.length + (isCenter ? 1 : 0)) * 24 + 24)}};
+        const label = lines.join('\n'), h = Math.max(116, lines.length * 23 + 91 + (!isCenter && w < 180 ? 14 : 0));
+        const card = cardImage(node(slug), lines, w, h, role, isCenter, relations.length, narrow);
+        return {data: {id: slug, label, role, card, center: isCenter ? 'yes' : 'no', w, h}};
       };
       const main = box(state.center, true), elements = [main];
       const neighbours = picked.map(item => box(item.slug));
       const rows = [];
       for (let i = 0; i < neighbours.length; i += 2) rows.push(neighbours.slice(i, i + 2));
-      const rowsHeight = rows.reduce((sum, row) => sum + Math.max(...row.map(el => el.data.h)) + 28, 0);
-      const height = narrow ? main.data.h + rowsHeight + 100 : Math.max(360, rowsHeight + 48, main.data.h + 100);
-      let y = narrow ? main.data.h + 76 : (height - rowsHeight) / 2;
+      const rowsHeight = rows.reduce((sum, row) => sum + Math.max(...row.map(el => el.data.h)) + 16, 0);
+      const height = narrow ? main.data.h + rowsHeight + 78 : Math.max(400, rowsHeight + 64, main.data.h + 100);
+      let y = narrow ? main.data.h + 64 : (height - rowsHeight) / 2;
       for (const row of rows) {
         const rowHeight = Math.max(...row.map(el => el.data.h));
         row.forEach((el, index) => {
-          el.position = {x: index === 0 ? nodeWidth / 2 + 24 : width - nodeWidth / 2 - 24, y: y + rowHeight / 2};
+          el.position = {x: index === 0 ? nodeWidth / 2 + 14 : width - nodeWidth / 2 - 14, y: y + rowHeight / 2};
           elements.push(el);
         });
-        y += rowHeight + 28;
+        y += rowHeight + 16;
       }
       main.position = {x: width / 2, y: narrow ? main.data.h / 2 + 24 : height / 2};
       $('dmCanvas').style.height = height + 'px';
@@ -329,49 +378,69 @@
       const lines = new Map();
       for (const item of picked) for (const edge of edgesFor(item)) {
         const key = JSON.stringify([edge.source, edge.target, edge.layer]);
-        if (!lines.has(key)) lines.set(key, {data: {id: 'line-' + lines.size, source: edge.source, target: edge.target, layer: edge.layer, edgeIds: [], label: edge.label}});
+        if (!lines.has(key)) lines.set(key, {data: {id: 'line-' + lines.size, source: edge.source, target: edge.target, layer: edge.layer,
+          color: edge.source === state.center ? rolePalette.outgoing.color : rolePalette.incoming.color, edgeIds: [], label: edge.label}});
         lines.get(key).data.edgeIds.push(edge.id);
       }
       elements.push(...lines.values());
+      if (narrow) {
+        const nodes = new Map(elements.filter(el => el.position).map(el => [el.data.id, el]));
+        for (const line of lines.values()) {
+          const outgoing = line.data.source === state.center;
+          const leaf = nodes.get(outgoing ? line.data.target : line.data.source);
+          const rootPort = `0 ${main.data.h/2-6}`;
+          const leafPort = `${(leaf.position.x < width/2 ? 1 : -1) * (leaf.data.w/2-6)} 0`;
+          // Route each direct contact through the open central gutter. Lines must
+          // never run through intermediate cards and suggest a false leaf-to-leaf chain.
+          const trunkX = main.position.x + (outgoing ? 3 : -3);
+          const points = [{x:trunkX,y:main.position.y+main.data.h/2+14},{x:trunkX,y:leaf.position.y}];
+          if (!outgoing) points.reverse();
+          const source = nodes.get(line.data.source).position, target = nodes.get(line.data.target).position;
+          const dx = target.x-source.x, dy = target.y-source.y, squared = dx*dx+dy*dy, length = Math.sqrt(squared);
+          Object.assign(line.data, {mobile:'yes',sourcePort:outgoing?rootPort:leafPort,targetPort:outgoing?leafPort:rootPort,
+            routeWeights:points.map(p=>((p.x-source.x)*dx+(p.y-source.y)*dy)/squared),
+            routeDistances:points.map(p=>(-(p.x-source.x)*dy+(p.y-source.y)*dx)/length)});
+        }
+      }
+      await Promise.all(elements.filter(el => el.data.card).map(el => new Promise((resolve, reject) => {
+        const image = new Image(); image.onload = resolve; image.onerror = () => reject(new Error('图形卡片暂不可用，请使用关系列表。')); image.src = el.data.card;
+      })));
+      if (seq !== drawing || !isGraph()) return;
       cy = window.cytoscape({container: $('dmCanvas'), elements, userZoomingEnabled: false, userPanningEnabled: false,
         autoungrabify: true, minZoom: 1, maxZoom: 1, zoom: 1, pan: {x: 0, y: 0},
         layout: {name: 'preset', fit: false, animate: false},
         style: [
-          {selector: 'node', style: {shape: 'round-rectangle', width: 'data(w)', height: 'data(h)', label: 'data(label)',
-            'background-color': '#f8f4ed', 'border-width': 1.2, 'border-color': '#cfb99e', color: '#463b31', 'font-size': 14,
-            'font-family': 'Microsoft YaHei, sans-serif', 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.6}},
-          {selector: 'node[role="outgoing"]', style: {'background-color': '#f8eeef', 'border-color': '#c9a1a6', color: '#713e45'}},
-          {selector: 'node[role="incoming"]', style: {'background-color': '#eff3f4', 'border-color': '#a5b8be', color: '#435d67'}},
-          {selector: 'node[role="both"]', style: {'background-color': '#f8f4ed', 'border-color': '#cfb99e', color: '#463b31'}},
-          {selector: 'node[center="yes"]', style: {'background-color': '#7b303b', 'border-width': 3, 'border-color': '#e1c5c8', color: '#fffaf6', 'font-size': 16, 'font-weight': 'bold'}},
-          {selector: 'edge', style: {width: 1.5, opacity: .58, 'line-color': '#ae9581', 'target-arrow-color': '#ae9581', 'target-arrow-shape': 'triangle', 'arrow-scale': .9, 'curve-style': 'bezier'}},
-          {selector: 'edge[layer="inference"]', style: {'line-style': 'dashed', 'line-color': '#557d83', 'target-arrow-color': '#557d83'}},
-          {selector: 'node:selected', style: {'border-width': 2.5, 'border-color': '#7b303b'}},
-          {selector: 'edge:selected, edge.dm-active', style: {width: 2.5, opacity: 1, 'line-color': '#7b303b', 'target-arrow-color': '#7b303b', label: 'data(label)', 'font-size': 12,
-            color: '#7b303b', 'text-background-opacity': 1, 'text-background-color': '#fffdf9', 'text-background-padding': 4}}
+          {selector: 'node', style: {shape: 'round-rectangle', width: 'data(w)', height: 'data(h)', label: '',
+            'background-opacity': 0, 'border-width': 0, 'background-image': 'data(card)', 'background-fit': 'contain',
+            'background-width': '100%', 'background-height': '100%', 'font-size': 14}},
+          {selector: 'node[center="yes"]', style: {'font-size': 16}},
+          {selector: 'edge', style: {width: 1.6, opacity: .65, 'line-color': 'data(color)', 'target-arrow-color': 'data(color)',
+            'target-arrow-shape': 'triangle', 'arrow-scale': .8, 'curve-style': 'round-taxi', 'taxi-direction': narrow ? 'downward' : 'horizontal', 'taxi-radius': 18, 'taxi-turn': '45%'}},
+          {selector: 'edge[mobile="yes"]', style: {'curve-style':'round-segments','edge-distances':'node-position','segment-radius':8,
+            'segment-weights':'data(routeWeights)','segment-distances':'data(routeDistances)',
+            'source-endpoint':'data(sourcePort)','target-endpoint':'data(targetPort)'}},
+          {selector: 'edge[layer="inference"]', style: {'line-style': 'dashed', 'line-color': '#9981bc', 'target-arrow-color': '#9981bc'}},
+          {selector: 'node:selected', style: {'underlay-color': '#8b637c', 'underlay-opacity': .15, 'underlay-padding': 4}},
+          {selector: 'edge:selected, edge.dm-active', style: {width: 2.6, opacity: 1}},
+          {selector: '.dm-faded', style: {opacity: .22}}
         ]});
       cy.on('tap', 'edge', event => {
         cy.edges().removeClass('dm-active');
+        cy.elements().removeClass('dm-faded');
         const ids = event.target.data('edgeIds');
         $('dmGraphDetail').replaceChildren(make('h3', '关系依据'));
         appendAllEvidence($('dmGraphDetail'), ids.map(edge).filter(Boolean));
         $('dmGraphDetail').hidden = false;
       });
-      cy.on('tap', 'node', event => {
-        const slug = event.target.id();
-        cy.edges().removeClass('dm-active'); event.target.connectedEdges().addClass('dm-active');
-        const item = graphItems().find(item => item.slug === slug);
-        if (item) {
-          $('dmGraphDetail').replaceChildren(make('h3', title(slug)));
-          const actions = make('div', undefined, 'dm-actions');
-          actions.append(button('查看它的概念地图', () => explore(slug)), link('阅读词条内容', node(slug).url));
-          actions.append(button('移出当前图谱', () => {
-            state.picks = state.picks.filter(pick => pick !== slug); renderRelations(); drawGraph(); saveURL(true);
-          }));
-          $('dmGraphDetail').append(actions);
-          appendAllEvidence($('dmGraphDetail'), edgesFor(item)); $('dmGraphDetail').hidden = false;
-        } else { $('dmReadCenter').focus({preventScroll: true}); }
+      cy.on('tap', 'node', event => showGraphNode(event.target.id()));
+      cy.on('tap', event => {
+        if (event.target === cy) cy.elements().removeClass('dm-faded dm-active');
       });
+      $('dmGraphIndexSummary').textContent = `图中词条 · ${picked.length} 个 · 查看原文依据`;
+      for (const item of picked) {
+        const b = button(title(item.slug), () => showGraphNode(item.slug, true));
+        b.dataset.slug = item.slug; $('dmGraphNodes').append(b);
+      }
       $('dmPng').hidden = false;
     } catch (error) { if (seq === drawing) { $('dmCanvas').hidden = true; $('dmGraphNote').textContent = error.message; } }
   }
@@ -436,7 +505,7 @@
   function download(blob, name) {
     const url = URL.createObjectURL(blob), a = link('', url); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  $('dmPng').onclick = () => { if (cy) download(cy.png({output: 'blob', bg: '#fffdf9', full: true, scale: 2}), '辞典概念地图.png'); };
+  $('dmPng').onclick = () => { if (cy) download(cy.png({output: 'blob', bg: '#f7f9fc', full: true, scale: 2}), '概念地图.png'); };
   $('dmCsv').onclick = () => {
     const cell = value => '"' + String(value ?? '').replace(/^[=+@-]/, "'$&").replace(/"/g, '""') + '"';
     const scope = isPath() ? '当前路径' : `${data.groups.find(g => g.id === state.group).label} · 第 ${Math.floor(data.offset / data.limit) + 1} 页`;

@@ -106,3 +106,51 @@
 #dmReadingPanel[open]>summary{margin-bottom:4px}
 @media(max-width:720px){.dm-graph-header{padding:18px 14px 10px;align-items:start;flex-wrap:wrap}.dm-graph-legend{padding:0 14px 12px;gap:16px}.dm-graph-detail{padding:18px 14px}#dmGraphPanel>.dm-muted{padding:14px}#dmGraphPanel{border-radius:10px}.dm-entry .dm-actions{gap:14px}.dm-main .dm-read-center{min-height:46px}}
 @media(max-width:720px){.dm-selection-note{padding:0 14px}}
+
+/* Card-and-connector direction, informed by xyflow and AntV G6 examples.
+   Kept in the existing renderer: no third-party theme or runtime is installed. */
+body.dict-map-page{--text:#293446;--muted:#788394;--line:#e3e7ee;--accent:#744052;--serif:"Noto Serif CJK SC","Microsoft YaHei",serif;background:#f5f7fa}
+.dict-map-page .dm-main{max-width:1460px;padding-top:30px}
+.dm-heading{padding:0 4px 24px;margin-bottom:0}
+.dm-heading h1{font-size:32px;letter-spacing:2px;color:#2b3446;margin:6px 0 8px}
+.dm-heading .dm-eyebrow{color:#997382;font-size:12px;letter-spacing:2px}
+.dm-heading p{font-size:14px;color:#7b8595}
+.dm-card{background:#fff;border-color:#e4e8ee;border-radius:16px;box-shadow:0 3px 14px #26344d03}
+.dm-layout{grid-template-columns:180px minmax(0,1fr);gap:24px}
+.dm-controls{padding:18px 24px}
+.dm-main button,.dm-button{border-color:#dee3eb;background:#fff;border-radius:8px}
+.dm-main button:hover,.dm-button:hover{background:#f5f6fa;border-color:#bdc7d7}
+.dm-main a:focus-visible,.dm-main button:focus-visible,.dm-main summary:focus-visible,.dm-main input:focus-visible{outline-color:#7487c4}
+.dm-search input,.dm-filters select{border-color:#dfe4ec;border-radius:8px}
+.dm-main .dm-primary-action,.dm-main .dm-primary-link{background:#754354;border-color:#754354;box-shadow:0 2px 5px #75435413}
+#dmThemes button[aria-pressed=true]{background:#ebeef7;border-color:transparent;color:#526294}
+.dm-toolbar{border:0;padding-bottom:0}
+.dm-toolbar button{background:#f7f8fb;border-color:transparent;color:#737f92}
+.dm-section-heading{margin-top:22px}
+.dm-switch{background:#f0f2f7;border-radius:10px;padding:4px;gap:2px}
+.dm-switch button{border:0;background:transparent;color:#778295;padding:7px 14px}
+.dm-switch button[aria-pressed=true]{background:#fff;color:#4c5977;box-shadow:0 1px 5px #253b6014}
+.dm-groups{gap:7px}
+.dm-groups button{font-size:13px;padding:7px 11px}
+.dm-groups button[aria-pressed=true]{background:#edf0f8;border-color:#edf0f8;color:#526294}
+.dm-entry{border:1px solid #e6eaf1;border-radius:12px;padding:20px;transition:border-color .15s,box-shadow .15s}
+.dm-entry:hover{border-color:#c5cedc;box-shadow:0 4px 15px #26344d06}
+.dm-directory{gap:16px;padding-top:20px}
+#dmGraphPanel{background:#f7f9fc;border-color:#e1e6ef;border-radius:16px;box-shadow:none}
+.dm-graph-header{background:#fff;padding:20px 24px 14px}
+.dm-graph-header .dm-eyebrow{color:#485676;letter-spacing:1px;font-weight:600}
+#dmGraphNote{color:#7b8595;font-size:13px}
+.dm-selection-note{background:#fff;margin:0;padding:0 24px 12px;color:#8891a0}
+.dm-graph-legend{background:#fff;padding-bottom:18px;margin:0;border-bottom:1px solid #e8ecf3;color:#788394}
+.dm-graph-legend [data-role=outgoing]:before{background:#6377bd}
+.dm-graph-legend [data-role=incoming]:before{background:#288b83}
+.dm-graph-legend [data-role=both]:before{background:#a17b38}
+#dmCanvas{background:radial-gradient(ellipse at center,#ecebf540,transparent 70%),radial-gradient(#b7c4d744 .8px,transparent .8px);background-size:100% 100%,20px 20px;cursor:pointer}
+#dmGraphPanel>.dm-muted{background:#fff;border-color:#e6ebf3;color:#8992a0;font-size:12px}
+.dm-graph-detail{background:#fff;border-color:#e6ebf3;scroll-margin-top:100px}
+.dm-graph-index{padding:0 24px 14px;color:#7a8595;font-size:12px}
+.dm-graph-index>summary{padding:12px 0;cursor:pointer}
+.dm-node-index{display:flex;gap:8px;flex-wrap:wrap}
+.dm-node-index button{max-width:100%;text-align:left;font-size:13px;overflow-wrap:anywhere}
+@media(max-width:1000px){.dm-layout{grid-template-columns:150px minmax(0,1fr);gap:16px}}
+@media(max-width:720px){.dict-map-page .dm-main{padding:18px 10px 110px}.dm-heading{padding:0 8px 20px}.dm-layout{grid-template-columns:1fr;gap:8px}.dm-card{padding:16px 12px;border-radius:12px}.dm-entry{padding:16px}.dm-graph-header{padding:16px 12px 12px}.dm-selection-note{padding:0 12px 12px}.dm-graph-index{padding:0 12px 10px}.dm-graph-legend{padding:0 12px 14px;gap:12px}.dm-switch button{min-height:40px}.dm-node-index button{min-height:44px}.dm-directory{grid-template-columns:1fr}}

@@ -53,7 +53,8 @@ const {chromium}=require('playwright');
       const errors=[],requests=[];p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>requests.push(r.url()));
       const ready=()=>p.waitForFunction(()=>!document.getElementById('dmWorkspace').hidden);
       const check=async()=>assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-      await p.goto(base+'/dictionary/map?theme='+encodeURIComponent('中国马克思主义'));await ready();await check();
+      await p.goto(base+'/concept-map?theme='+encodeURIComponent('中国马克思主义'));await ready();await check();
+      assert.equal((await p.locator('.v2tabs-top [aria-current="page"]').textContent()).trim(),'概念地图');
       assert.equal(await p.locator('.dm-entry').count(),30);assert(!requests.some(u=>u.includes('cytoscape')));
       await p.screenshot({path:path.join(output,`directory-${width}.png`)});
       const center=hubs.find(h=>h.term==='资本').slug;
@@ -75,7 +76,7 @@ const {chromium}=require('playwright');
           clipped:nodes.some(n=>{const r=n.renderedBoundingBox();return r.x1<0||r.y1<0||r.x2>el.clientWidth||r.y2>el.clientHeight;})};
       });
       assert.equal(metrics.overlap,false);assert.equal(metrics.clipped,false);assert.equal(metrics.zoom,1);assert(metrics.font.every(f=>parseFloat(f)>=14));
-      await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`diagram-${width}.png`)});
+      await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`diagram-${width}.png`),style:'.v2nav,.v2tabbar{opacity:0!important}'});
       const sample='1954年宪法中的人民民主原则和社会主义原则-798';
       await p.goto(base+'/dictionary/map?center='+encodeURIComponent(sample));await ready();
       await p.locator('#dmPng').waitFor({state:'visible'});
@@ -89,7 +90,7 @@ const {chromium}=require('playwright');
       assert.equal(sampleMetrics.overlap,false);assert.equal(sampleMetrics.clipped,false);
       await p.locator('#dmTitle').evaluate(el=>el.scrollIntoView({block:'start'}));
       await p.screenshot({path:path.join(output,`entry-map-${width}.png`)});
-      await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`entry-diagram-${width}.png`)});
+      await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`entry-diagram-${width}.png`),style:'.v2nav,.v2tabbar{opacity:0!important}'});
       const [source]=await Promise.all([p.waitForNavigation(),p.locator('#dmReadCenter').click()]);
       assert.equal(source.status(),200);assert((await p.locator('body').textContent()).includes('对应书籍页码引文'));
       if(width===1440){
@@ -104,7 +105,7 @@ const {chromium}=require('playwright');
           assert(chosenEdges.some(e=>e.source===hub.slug));assert(chosenEdges.some(e=>e.target===hub.slug));
           hub.focus={neighbours:preferred.length,themes:[...new Set(payload.focus.nodes.filter(n=>preferred.includes(n.slug)).map(n=>n.theme))],
             outgoing:chosenEdges.filter(e=>e.source===hub.slug).length,incoming:chosenEdges.filter(e=>e.target===hub.slug).length};
-          await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`hub-${hub.slug}.png`)});
+          await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`hub-${hub.slug}.png`),style:'.v2nav,.v2tabbar{opacity:0!important}'});
           await p.reload();await ready();await p.locator('#dmPng').waitFor({state:'visible'});
           assert.deepEqual(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().map(n=>n.id()).sort()),selected);
         }
@@ -117,6 +118,14 @@ const {chromium}=require('playwright');
       await p.goto(base+'/dictionary/map?theme='+encodeURIComponent('中国马克思主义')+'&q='+encodeURIComponent('省部级'));await ready();
       assert((await p.locator('.dm-entry h3').first().textContent()).length>40);await check();
       await p.locator('.dm-entry').first().screenshot({path:path.join(output,`long-title-${width}.png`)});
+      await p.locator('.dm-entry button').first().click();await ready();
+      if(await p.locator('#dmCanvas').isVisible()){
+        await p.locator('#dmPng').waitFor({state:'visible'});
+        await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`long-title-map-${width}.png`),style:'.v2nav,.v2tabbar{opacity:0!important}'});
+      }
+      await p.goto(base+'/dictionary');await check();
+      assert.equal(await p.locator('#dmWorkspace').count(),0);assert(await p.locator('.letters').isVisible());
+      await p.screenshot({path:path.join(output,`dictionary-${width}.png`)});
       assert.deepEqual(errors,[]);assert(!requests.some(u=>/api\/ai\/|xiaomimimo/.test(u)));
       samples.sort((a,b)=>a-b);assert(samples.at(-1)<2500);
       results.push({width,samples:5,median_reading_ms:samples[2],max_reading_ms:samples.at(-1),diagram:metrics});await ctx.close();

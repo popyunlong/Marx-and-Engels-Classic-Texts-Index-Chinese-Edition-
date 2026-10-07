@@ -58,9 +58,12 @@ def create_blueprint(require_access, page_context):
         return response
 
     @bp.get("/dictionary/map")
+    @bp.get("/concept-map")
     def page():
         value = current_graph()
-        return render_template("dictionary_map.html", **page_context(),
+        context = page_context()
+        context["layout_page"] = "concept-map"
+        return render_template("dictionary_map.html", **context,
                                graph_ready=value is not None, kinds=KINDS)
 
     @bp.get("/api/dictionary/graph")
