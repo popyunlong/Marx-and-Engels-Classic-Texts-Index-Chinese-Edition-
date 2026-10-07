@@ -45,9 +45,10 @@ def create_blueprint(require_access, page_context):
             abort(400, description="数量参数无效。")
 
     def decorate(payload, value):
-        for node in payload.get("nodes", []):
+        focus = payload.get("focus", {})
+        for node in payload.get("nodes", []) + focus.get("nodes", []):
             node["url"] = url_for("dictionary_entry_page", slug=node["slug"])
-        for edge in payload.get("edges", []):
+        for edge in payload.get("edges", []) + focus.get("edges", []):
             for evidence in edge["evidence"]:
                 evidence["url"] = url_for("dictionary_entry_page", slug=evidence["slug"], _anchor="paragraph-" + str(evidence["paragraph"]))
         payload.update(ok=True, version=value.meta["id"], coverage=value.meta["coverage"], themes=value.overview())
@@ -81,7 +82,7 @@ def create_blueprint(require_access, page_context):
         value = graph()
         try:
             payload = value.relations(request.args.get("center", ""), group=request.args.get("group", ""),
-                                      query=request.args.get("q", ""), **pagination(20), **options())
+                                      query=request.args.get("q", ""), picks=request.args.getlist("pick")[:20], **pagination(20), **options())
         except KeyError:
             abort(404, description="未找到该词条。")
         except ValueError:

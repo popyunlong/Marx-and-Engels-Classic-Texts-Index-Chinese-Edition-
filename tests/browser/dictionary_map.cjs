@@ -40,27 +40,32 @@ for(const width of [390,720,820,821,900,1024,1100,1140,1200,1280,1600]){
   });
 }
 
-test('theme directory paginates without loading graph resources',async t=>{
+test('directory puts concept map first and opens the graph directly',async t=>{
   const p=await open(t);const requests=[];p.on('request',r=>requests.push(r.url()));
   await p.goto(base+'/dictionary/map');await ready(p);
   assert.equal(await p.locator('.dm-entry').count(),30);
   assert(await p.locator('#dmGraphPanel').isHidden());assert(await p.locator('#dmViewControls').isHidden());
+  assert.equal(await p.locator('.dm-entry .dm-actions').first().locator(':scope > :first-child').textContent(),'查看概念地图');
+  assert.equal(await p.locator('.dm-entry .dm-actions a').first().textContent(),'阅读词条内容');
   const first=await p.locator('.dm-entry h3').allTextContents();
   await p.locator('#dmNext').click();await ready(p);
   const second=await p.locator('.dm-entry h3').allTextContents();
   assert.equal(second.length,30);assert.equal(new Set([...first,...second]).size,60);
   await p.reload();await ready(p);assert.equal(new URL(p.url()).searchParams.get('offset'),'30');
   await p.locator('#dmPrev').click();await ready(p);assert.deepEqual(await p.locator('.dm-entry h3').allTextContents(),first);
-  await p.locator('#dmQuery').fill('关联概念 74');await p.locator('#dmQueryForm button').click();await ready(p);
+  assert(!requests.some(u=>u.includes('cytoscape')));
+  await p.locator('#dmQuery').fill('8条关系词条');await p.locator('#dmQueryForm button').click();await ready(p);
   assert.equal(await p.locator('.dm-entry').count(),1);
   await p.locator('.dm-entry button').click();await ready(p);
-  assert(await p.locator('#dmEdges').textContent().then(s=>s.includes('暂无关系')));
-  assert(!requests.some(u=>u.includes('cytoscape')));
+  await p.locator('#dmPng').waitFor({state:'visible'});
+  assert(await p.locator('#dmGraphPanel').isVisible());
+  assert((await p.locator('#dmGraphNote').textContent()).includes('完整展示 · 8'));
+  assert.equal(await p.locator('.dm-pick input:checked').count(),8);
 });
 
 test('reading groups, full pagination, evidence, inference, CSV and history',async t=>{
   const p=await open(t);const errors=[],requests=[];p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>requests.push(r.url()));
-  await p.goto(centerURL()+'&limit=59');await ready(p); // Old links now open a readable list.
+  await p.goto(centerURL()+'&limit=59&view=list&group=outgoing');await ready(p);
   assert.equal(await p.locator('.dm-relation').count(),20);
   assert.equal(await p.locator('#dmEdges .dm-inferred').count(),0);
   assert(!requests.some(u=>u.includes('cytoscape')));
@@ -91,23 +96,22 @@ test('reading groups, full pagination, evidence, inference, CSV and history',asy
 for(const width of [320,390,820,1440]){
   test('readable local diagram and complete titles at '+width,async t=>{
     const p=await open(t,width);await p.goto(centerURL());await ready(p);
-    await p.locator('#dmGraphView').click();await p.locator('#dmPng').waitFor({state:'visible'});
-    const expected=width<=720?4:6;
-    assert.equal(await p.locator('.dm-pick input:checked').count(),expected);
-    for(let i=expected;i<8;i++)await p.locator('.dm-pick input:not(:checked)').first().check();
-    assert.equal(await p.locator('.dm-pick input:checked').count(),8);
-    await p.locator('.dm-pick input:not(:checked)').first().click();
-    assert.equal(await p.locator('.dm-pick input:checked').count(),8);
+    await p.locator('#dmPng').waitFor({state:'visible'});
+    const expected=width<=720?6:10;
+    assert.equal(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().length),expected+1);
+    await p.locator('#dmReadingSummary').click();
+    await p.locator('#dmGraphAll').click();await p.locator('#dmPng').waitFor({state:'visible'});
+    assert.equal(await p.locator('.dm-pick input:checked').count(),20);
     const metrics=await p.locator('#dmCanvas').evaluate(el=>{
       const cy=el._cyreg.cy;
       return {zoom:cy.zoom(),nodes:cy.nodes().length,font:cy.nodes().map(n=>n.renderedStyle('font-size')),overlap:cy.nodes().some((a,i)=>cy.nodes().some((b,j)=>{
         if(j<=i)return false;const x=a.renderedBoundingBox(),y=b.renderedBoundingBox();return x.x1<y.x2&&x.x2>y.x1&&x.y1<y.y2&&x.y2>y.y1;
       }))};
     });
-    assert.equal(metrics.zoom,1);assert.equal(metrics.nodes,9);assert(metrics.font.every(f=>parseFloat(f)>=14));assert.equal(metrics.overlap,false);
+    assert.equal(metrics.zoom,1);assert.equal(metrics.nodes,21);assert(metrics.font.every(f=>parseFloat(f)>=14));assert.equal(metrics.overlap,false);
     assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
     const shared=p.url();await p.reload();await ready(p);await p.locator('#dmPng').waitFor({state:'visible'});
-    assert.equal(await p.locator('.dm-pick input:checked').count(),8);assert.equal(p.url(),shared);
+    assert.equal(await p.locator('.dm-pick input:checked').count(),20);assert.equal(p.url(),shared);
     await p.locator('#dmListView').click();assert(await p.locator('#dmGraphPanel').isHidden());assert(await p.locator('#dmPng').isHidden());
     await p.locator('#dmQuery').fill('讲话');await p.locator('#dmQueryForm button').click();await ready(p);
     const long=await p.locator('.dm-relation h3').textContent();assert(long.length>40);assert(!long.includes('…'));
@@ -129,7 +133,7 @@ test('ordered paths retain arrows, same term and no path',async t=>{
 });
 
 test('mobile keyboard evidence, unavailable graph and stale version recovery',async t=>{
-  const p=await open(t,390);await p.goto(centerURL());await ready(p);
+  const p=await open(t,390);await p.goto(centerURL()+'&view=list');await ready(p);
   const summary=p.locator('#dmEdges summary').first();await summary.focus();await p.keyboard.press('Enter');
   assert(await p.locator('#dmEdges details[open] blockquote').first().isVisible());
   await p.goto(base+'/dictionary/map?unavailable=1');assert(await p.getByText('概念地图暂不可用',{exact:true}).isVisible());
@@ -149,3 +153,26 @@ test('failed diagram load leaves evidence readable; failed API hides stale conte
   assert(await p.locator('#dmWorkspace').isHidden());
   await p.unroute('**/api/dictionary/relations?**');await p.locator('#dmRetry').click();await ready(p);
 });
+
+for(const width of [390,1440]){
+  test('small mixed-direction maps show every neighbour and place reading under title at '+width,async t=>{
+    const p=await open(t,width);await p.goto(base+'/dictionary/map?center=fixture-small');await ready(p);
+    await p.locator('#dmPng').waitFor({state:'visible'});
+    assert((await p.locator('#dmGraphNote').textContent()).includes('完整展示 · 8 个相关词条 / 8 条关系'));
+    assert.equal(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().length),9);
+    assert.deepEqual(await p.locator('#dmCanvas').evaluate(el=>{
+      const nodes=el._cyreg.cy.nodes().filter(n=>n.data('center')!=='yes');
+      return {outgoing:nodes.filter(n=>n.data('role')==='outgoing').length,incoming:nodes.filter(n=>n.data('role')==='incoming').length};
+    }),{outgoing:4,incoming:4});
+    const title=await p.locator('#dmTitle').boundingBox(),read=await p.locator('#dmReadCenter').boundingBox();
+    assert(read.y>=title.y+title.height);assert(Math.abs(read.x-title.x)<=1);
+    assert.equal(await p.locator('#dmReadCenter').getAttribute('href'),'/dictionary/entry/fixture-small');
+    assert(await p.locator('#dmReadingPanel').evaluate(el=>!el.open));
+    await p.locator('#dmListView').click();assert(await p.locator('#dmGraphPanel').isHidden());
+    assert.equal(await p.locator('.dm-relation').count(),8);
+    await p.reload();await ready(p);assert(await p.locator('#dmGraphPanel').isHidden());
+    assert.equal(new URL(p.url()).searchParams.get('view'),'list');
+    await p.goto(base+'/dictionary/map?center=fixture-74');await ready(p);
+    assert((await p.locator('#dmGraphNote').textContent()).includes('暂无关系'));
+  });
+}

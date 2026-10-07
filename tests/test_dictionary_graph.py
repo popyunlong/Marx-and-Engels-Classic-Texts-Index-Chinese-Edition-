@@ -114,6 +114,64 @@ def test_reading_groups_directions_filters_and_empty_states(reading_graph):
     with pytest.raises(KeyError): graph.relations('absent')
 
 
+def test_all_relations_group_deduplicates_neighbours_and_keeps_each_edge(reading_graph):
+    graph = reading_graph
+    all_edges, all_neighbours = [], []
+    for offset in range(0, 107, 20):
+        page = graph.relations('center', group='all', offset=offset)
+        assert page['group'] == 'all' and page['total'] == 107
+        assert page['total_relations'] == 110
+        all_edges.extend(edge['id'] for edge in page['edges'])
+        all_neighbours.extend(item['slug'] for item in page['items'])
+    assert len(all_neighbours) == len(set(all_neighbours)) == 107
+    assert len(all_edges) == len(set(all_edges)) == 110
+    both = graph.relations('center', group='all', query='词条000', inference=True)
+    assert both['total'] == 1 and both['total_relations'] == 6
+    assert len(both['items'][0]['edge_ids']) == len(both['edges']) == 6
+    assert {edge['source'] for edge in both['edges']} == {'center', 'n-0'}
+    assert graph.relations('center', group='all', kind='reference')['total'] == 1
+
+
+def test_focus_sample_can_restore_neighbours_outside_reading_page(reading_graph):
+    graph = reading_graph
+    page = graph.relations('center', group='all', picks=['n-99', 'absent'])
+    assert 'n-99' not in [item['slug'] for item in page['items']]
+    assert 'n-99' in [item['slug'] for item in page['focus']['items']]
+    assert 'absent' not in [item['slug'] for item in page['focus']['items']]
+    assert any(edge['target'] == 'n-99' for edge in page['focus']['edges'])
+    assert not any(edge['target'] == 'n-99' for edge in page['edges'])  # CSV remains page-scoped.
+    assert len(page['focus']['recommended']) <= 12
+    assert graph.relations('center', group='all', query='词条001', picks=['n-99'])['focus']['recommended'] == ['n-1']
+
+
+def test_large_focus_includes_explicit_references_both_directions_and_themes(tmp_path):
+    entries = [entry('center', '中心词', '这是来源原文。')]
+    for i in range(12):
+        entries.extend([entry(f'concept-{i}', f'劳动概念{i:02}', '概念正文。'),
+                        entry(f'person-{i}', f'人物{i:02}', '（1900—1980）人物正文。'),
+                        entry(f'work-{i}', f'《著作{i:02}》', '著作正文。')])
+    edges = {}
+    for i, item in enumerate(entries[1:]):
+        source, target = ('center', item['slug']) if i < 18 else (item['slug'], 'center')
+        edge = make_edge(source, target, 'mention', 'evidence', '提及', [evidence(entries[0], '这是来源原文。')])
+        edges[edge['id']] = edge
+    explicit = make_edge('center', 'work-11', 'reference', 'evidence', '参见', [evidence(entries[0], '这是来源原文。')])
+    edges[explicit['id']] = explicit
+    source = tmp_path / 'source'
+    source.write_bytes(b'balanced graph test')
+    out = tmp_path / 'balanced'
+    write_graph(source, out, entries, edges, {}, {}, 'balanced-v1')
+    graph = Graph(out / 'graph.sqlite', json.loads((out / 'binding.json').read_text('utf-8')), source)
+    result = graph.relations('center', group='all')
+    focus = result['focus']
+    assert result['total'] == 36 and result['total_relations'] == 37
+    assert len(focus['recommended']) == 12 and focus['recommended'][0] == 'work-11'
+    assert {node['theme'] for node in focus['nodes'] if node['slug'] != 'center'} >= {'政治经济学', '人物与著作'}
+    assert any(edge['source'] == 'center' and edge['kind'] == 'mention' for edge in focus['edges'])
+    assert any(edge['target'] == 'center' for edge in focus['edges'])
+    assert focus['recommended'] == graph.relations('center', group='all')['focus']['recommended']
+
+
 def test_directory_counts_stable_pages_and_path_order(reading_graph):
     graph = reading_graph
     pages = [graph.browse_page(limit=30, offset=i) for i in range(0, 109, 30)]
@@ -208,6 +266,8 @@ def test_api_access_stale_version_and_limits(sample,monkeypatch):
     assert reading.headers['Cache-Control'] == 'private, no-store'
     assert all(node['url'].startswith('/entry/') for node in reading.json['nodes'])
     assert all('#paragraph-' in ev['url'] for edge in reading.json['edges'] for ev in edge['evidence'])
+    assert all(node['url'].startswith('/entry/') for node in reading.json['focus']['nodes'])
+    assert all('#paragraph-' in ev['url'] for edge in reading.json['focus']['edges'] for ev in edge['evidence'])
     assert api.get('/api/dictionary/relations?center=capital&group=invalid').status_code == 400
     assert api.get('/api/dictionary/relations?center=capital&limit=invalid').status_code == 400
     assert api.get('/api/dictionary/relations?center=capital&version=old').status_code == 409

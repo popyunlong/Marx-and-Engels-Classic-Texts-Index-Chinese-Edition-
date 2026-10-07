@@ -36,7 +36,7 @@ const {chromium}=require('playwright');
       const choices=await get('/api/dictionary/suggest',{q:term});const slug=choices.results.find(n=>n.title===term).slug;
       const all=await get('/api/dictionary/relations',{center:slug});assert.equal(all.total_relations,expected);
       const edgeIds=[];
-      for(const group of all.groups.filter(g=>g.count)){
+      for(const group of all.groups.filter(g=>g.count&&g.id!=='all')){
         const slugs=[];
         for(let offset=0;offset<group.count;offset+=20){
           const page=await get('/api/dictionary/relations',{center:slug,group:group.id,offset,limit:20});
@@ -59,7 +59,7 @@ const {chromium}=require('playwright');
       const center=hubs.find(h=>h.term==='资本').slug;
       const samples=[];
       for(let i=0;i<6;i++){
-        const start=performance.now();await p.goto(base+'/dictionary/map?center='+encodeURIComponent(center));await ready();
+        const start=performance.now();await p.goto(base+'/dictionary/map?center='+encodeURIComponent(center)+'&view=list');await ready();
         await p.locator('#dmEdges summary').first().click();assert(await p.locator('#dmEdges details[open] blockquote').first().isVisible());
         if(i)samples.push(performance.now()-start);
       }
@@ -76,6 +76,40 @@ const {chromium}=require('playwright');
       });
       assert.equal(metrics.overlap,false);assert.equal(metrics.clipped,false);assert.equal(metrics.zoom,1);assert(metrics.font.every(f=>parseFloat(f)>=14));
       await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`diagram-${width}.png`)});
+      const sample='1954年宪法中的人民民主原则和社会主义原则-798';
+      await p.goto(base+'/dictionary/map?center='+encodeURIComponent(sample));await ready();
+      await p.locator('#dmPng').waitFor({state:'visible'});
+      assert((await p.locator('#dmGraphNote').textContent()).includes('完整展示 · 8 个相关词条 / 8 条关系'));
+      assert.equal(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().length),9);
+      const sampleMetrics=await p.locator('#dmCanvas').evaluate(el=>{
+        const nodes=el._cyreg.cy.nodes();return {overlap:nodes.some((a,i)=>nodes.some((b,j)=>{
+          if(i>=j)return false;const x=a.renderedBoundingBox(),y=b.renderedBoundingBox();return x.x1<y.x2&&x.x2>y.x1&&x.y1<y.y2&&x.y2>y.y1;
+        })),clipped:nodes.some(n=>{const r=n.renderedBoundingBox();return r.x1<0||r.y1<0||r.x2>el.clientWidth||r.y2>el.clientHeight;})};
+      });
+      assert.equal(sampleMetrics.overlap,false);assert.equal(sampleMetrics.clipped,false);
+      await p.locator('#dmTitle').evaluate(el=>el.scrollIntoView({block:'start'}));
+      await p.screenshot({path:path.join(output,`entry-map-${width}.png`)});
+      await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`entry-diagram-${width}.png`)});
+      const [source]=await Promise.all([p.waitForNavigation(),p.locator('#dmReadCenter').click()]);
+      assert.equal(source.status(),200);assert((await p.locator('body').textContent()).includes('对应书籍页码引文'));
+      if(width===1440){
+        for(const hub of hubs.filter(h=>h.term!=='资本')){
+          await p.goto(base+'/dictionary/map?center='+encodeURIComponent(hub.slug));await ready();
+          await p.locator('#dmPng').waitFor({state:'visible'});
+          const selected=await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().map(n=>n.id()).sort());
+          assert.equal(selected.length,11);
+          const payload=await get('/api/dictionary/relations',{center:hub.slug,group:'all'});
+          const preferred=payload.focus.recommended.slice(0,10);
+          const chosenEdges=payload.focus.edges.filter(e=>preferred.includes(e.source)||preferred.includes(e.target));
+          assert(chosenEdges.some(e=>e.source===hub.slug));assert(chosenEdges.some(e=>e.target===hub.slug));
+          hub.focus={neighbours:preferred.length,themes:[...new Set(payload.focus.nodes.filter(n=>preferred.includes(n.slug)).map(n=>n.theme))],
+            outgoing:chosenEdges.filter(e=>e.source===hub.slug).length,incoming:chosenEdges.filter(e=>e.target===hub.slug).length};
+          await p.locator('#dmGraphPanel').screenshot({path:path.join(output,`hub-${hub.slug}.png`)});
+          await p.reload();await ready();await p.locator('#dmPng').waitFor({state:'visible'});
+          assert.deepEqual(await p.locator('#dmCanvas').evaluate(el=>el._cyreg.cy.nodes().map(n=>n.id()).sort()),selected);
+        }
+      }
+      await p.goto(base+'/dictionary/map?center='+encodeURIComponent(center)+'&view=list');await ready();
       await p.locator('#dmListView').click();await p.locator('#dmInference').check();await ready();
       assert(await p.locator('[data-group^="inference_"]').count()>0);
       await p.locator('[data-group="inference_related"]').click();await ready();

@@ -66,7 +66,11 @@ def fake_graph():
             ev=[{'slug':capital['slug'],'paragraph':1,'quote':'在资本的词条中理解这些联系。','citation':'测试来源，第121–122页','start_page':121,'end_page':122}]
             c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',(str(i),capital['slug'],slug,'related' if i==1 else 'mention','inference' if i==1 else 'evidence','测试关系',json.dumps(ev),'fixture','fixture'))
     c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',('reverse', 'fixture-1', capital['slug'], 'related', 'inference', '反向测试关系', json.dumps(ev), 'fixture', 'fixture'))
-    meta={'id':'fixture-v1','schema_version':1,'source_sha256':file_hash(source),'coverage':{'entries':75,'analyzed_entries':75,'relations':74,'inferred_relations':1}}
+    c.execute('INSERT INTO nodes VALUES (?,?,?,?,?,?,?)',('fixture-small','8条关系词条','concept','政治经济学',120,120,0))
+    for i in range(3,11):
+        source_slug,target_slug=('fixture-small','fixture-'+str(i)) if i<7 else ('fixture-'+str(i),'fixture-small')
+        c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',('small-'+str(i),source_slug,target_slug,'mention','evidence','小规模双向图测试',json.dumps(ev),'fixture','fixture'))
+    meta={'id':'fixture-v1','schema_version':1,'source_sha256':file_hash(source),'coverage':{'entries':76,'analyzed_entries':76,'relations':82,'inferred_relations':2}}
     c.execute('INSERT INTO metadata VALUES (?,?)',('manifest',json.dumps(meta)))
     c.commit();c.close()
     return Graph(database,dict(id='fixture-v1',sha256=file_hash(database),source_sha256=file_hash(source)),source)

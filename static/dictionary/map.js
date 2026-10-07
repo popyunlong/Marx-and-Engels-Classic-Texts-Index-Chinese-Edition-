@@ -17,28 +17,34 @@
   let state, data, requestNo = 0, controller, cy, graphPromise, drawing = 0;
   const suggestions = {dmTerm: new Map(), dmTarget: new Map()};
   const suggestSeq = {dmTerm: 0, dmTarget: 0};
-  const title = slug => data?.nodes.find(n => n.slug === slug)?.title || slug;
-  const node = slug => data.nodes.find(n => n.slug === slug);
-  const edgesFor = item => item.edge_ids.map(id => data.edges.find(e => e.id === id)).filter(Boolean);
+  const node = slug => data.nodes.find(n => n.slug === slug) || data.focus?.nodes.find(n => n.slug === slug);
+  const title = slug => data ? node(slug)?.title || slug : slug;
+  const edge = id => data.edges.find(e => e.id === id) || data.focus?.edges.find(e => e.id === id);
+  const edgesFor = item => item.edge_ids.map(edge).filter(Boolean);
+  const graphItems = () => [...new Map([...(data.focus?.items || []), ...data.items].map(item => [item.slug, item])).values()];
   const pageSize = () => state.center ? 20 : 30;
   const isPath = () => !!(state.center && state.to);
   const isGraph = () => !!(state.center && !state.to && state.view === 'graph');
   const relationText = edge => `${title(edge.source)} → ${title(edge.target)} · ${edge.label}`;
+  const GRAPH_CAP = 20;
+  const defaultPicks = () => data.total <= GRAPH_CAP ? data.items.map(item => item.slug) :
+    (data.offset === 0 && data.focus ? data.focus.recommended : data.items.map(item => item.slug)).slice(0, innerWidth <= 720 ? 6 : 10);
 
   function readURL() {
     const p = new URLSearchParams(location.search);
     const offset = Number(p.get('offset'));
     return {version: p.get('version') || '', center: p.get('center') || '', theme: p.get('theme') || '',
-      q: (p.get('q') || '').slice(0, 100), group: p.get('group') || '', kind: p.get('kind') || '',
+      q: (p.get('q') || '').slice(0, 100), group: p.get('group') || (p.get('center') ? 'all' : ''), kind: p.get('kind') || '',
       inference: p.get('inference') === '1', offset: Number.isFinite(offset) ? Math.min(10000, Math.max(0, Math.floor(offset))) : 0,
-      view: p.get('view') === 'graph' ? 'graph' : 'list', to: p.get('to') || '',
-      picks: p.has('pick') ? p.getAll('pick').filter(Boolean).slice(0, 8) : null};
+      view: p.get('view') === 'list' ? 'list' : 'graph', to: p.get('to') || '',
+      picks: p.has('pick') ? p.getAll('pick').filter(Boolean).slice(0, GRAPH_CAP) : null};
   }
   function saveURL(replace = false) {
     const p = new URLSearchParams();
     for (const key of ['version', 'center', 'theme', 'q', 'group', 'kind', 'to']) if (state[key]) p.set(key, state[key]);
     if (state.inference) p.set('inference', '1');
     if (state.offset) p.set('offset', state.offset);
+    if (state.center && !state.to) p.set('view', state.view);
     if (isGraph()) {
       p.set('view', 'graph');
       if (state.picks?.length) state.picks.forEach(slug => p.append('pick', slug));
@@ -48,7 +54,10 @@
     if (location.pathname + location.search !== url) history[replace ? 'replaceState' : 'pushState'](null, '', url);
   }
   async function fetchData(path, params, signal) {
-    const response = await fetch(path + '?' + new URLSearchParams(params), {
+    const search = new URLSearchParams(params);
+    search.delete('picks');
+    for (const pick of params.picks || []) search.append('pick', pick);
+    const response = await fetch(path + '?' + search, {
       credentials: 'same-origin', headers: {Accept: 'application/json'}, signal
     });
     const payload = await response.json().catch(() => ({}));
@@ -64,7 +73,7 @@
     return load(true, moveFocus);
   }
   function explore(slug) {
-    return change({center: slug, group: '', offset: 0, q: '', to: '', view: 'list', picks: null}, true);
+    return change({center: slug, group: 'all', offset: 0, q: '', to: '', view: 'graph', picks: null}, true);
   }
   function destroyGraph() {
     drawing++;
@@ -88,7 +97,7 @@
       endpoint = '/api/dictionary/path'; Object.assign(params, {from: state.center, to: state.to});
     } else if (state.center) {
       endpoint = '/api/dictionary/relations';
-      Object.assign(params, {center: state.center, group: state.group, q: state.q, offset: state.offset, limit: 20});
+      Object.assign(params, {center: state.center, group: state.group, q: state.q, offset: state.offset, limit: 20, picks: state.picks || []});
     } else {
       endpoint = '/api/dictionary/graph';
       Object.assign(params, {theme: state.theme, q: state.q, offset: state.offset, limit: 30});
@@ -100,8 +109,8 @@
       if (!isPath()) state.offset = data.offset;
       if (state.center && !isPath()) {
         state.group = data.group;
-        state.picks = state.picks === null ? data.items.slice(0, innerWidth <= 720 ? 4 : 6).map(i => i.slug) :
-          state.picks.filter(slug => data.items.some(i => i.slug === slug));
+        state.picks = state.picks === null ? defaultPicks() :
+          state.picks.filter(slug => graphItems().some(i => i.slug === slug));
       }
       $('dmWorkspace').hidden = false;
       render(); saveURL(!push);
@@ -137,7 +146,8 @@
     $('dmHome').hidden = !centered; $('dmRelations').hidden = !path;
     $('dmReadCenter').hidden = !centered; $('dmGroups').hidden = !centered || path;
     $('dmViewControls').hidden = !centered || path; $('dmDirectory').hidden = centered;
-    $('dmEdges').hidden = !centered; $('dmQueryForm').hidden = path;
+    $('dmReadingPanel').hidden = !centered; $('dmReadingPanel').open = !isGraph();
+    $('dmQueryForm').hidden = path;
     $('dmPagination').hidden = path; $('dmRelationNote').hidden = !centered;
     $('dmGraphPanel').hidden = !isGraph();
     $('dmCsv').hidden = !centered || !data.edges.length;
@@ -166,6 +176,7 @@
           b.title = `${group.count} 个相关词条，${group.relations} 条关系`; $('dmGroups').append(b);
         }
         status(`${active.label} · ${data.total} 个相关词条 · 每页 20 条`);
+        $('dmReadingSummary').textContent = `关系依据与更多词条 · ${active.label} / ${data.total} 个相关词条`;
         renderRelations();
       }
     } else {
@@ -177,7 +188,8 @@
         const article = make('article', undefined, 'dm-entry');
         article.append(make('h3', item.title), make('p', `${item.theme} · 第 ${item.start_page}–${item.end_page} 页`, 'dm-muted'));
         const actions = make('div', undefined, 'dm-actions');
-        actions.append(link('阅读词条', item.url), button('查看联系', () => explore(item.slug))); article.append(actions);
+        const mapButton = button('查看概念地图', () => explore(item.slug)); mapButton.className = 'dm-primary-action';
+        actions.append(mapButton, link('阅读词条内容', item.url)); article.append(actions);
         $('dmDirectory').append(article);
       }
       if (!data.nodes.length) $('dmDirectory').append(make('p', '没有匹配的词条。请调整关键词或选择其他主题。', 'dm-empty'));
@@ -218,18 +230,18 @@
       const label = make('label', undefined, 'dm-pick'), input = make('input');
       input.type = 'checkbox'; input.checked = state.picks.includes(slug);
       input.addEventListener('change', () => {
-        if (input.checked && state.picks.length >= 8) {
-          input.checked = false; status('小图最多展示 8 个相关词条，请先取消一个已选词条。'); return;
+        if (input.checked && state.picks.length >= GRAPH_CAP) {
+          input.checked = false; status(`概念地图单次最多展示 ${GRAPH_CAP} 个相关词条，请先取消一个已选词条。`); return;
         }
         state.picks = input.checked ? [...state.picks, slug] : state.picks.filter(s => s !== slug);
         drawGraph(); saveURL(true);
       });
-      label.append(input, make('span', '加入小图')); header.append(label);
+      label.append(input, make('span', '加入地图')); header.append(label);
     }
     article.append(header, make('p', relationText(first) + (edges.length > 1 ? ` · 共 ${edges.length} 条关系` : ''), 'dm-direction'));
     if (first.evidence[0]) appendEvidence(article, first.evidence[0], true);
     const actions = make('div', undefined, 'dm-actions');
-    actions.append(link('阅读词条', item.url), button('以此词条继续探索', () => explore(slug))); article.append(actions);
+    actions.append(button('查看它的概念地图', () => explore(slug)), link('阅读词条内容', item.url)); article.append(actions);
     const details = make('details');
     details.append(make('summary', `查看全部依据 · ${edges.length} 条关系 / ${edges.reduce((n, e) => n + e.evidence.length, 0)} 处原文`));
     appendAllEvidence(details, edges); article.append(details);
@@ -263,41 +275,61 @@
   async function drawGraph() {
     destroyGraph();
     const seq = drawing;
-    const picked = data.items.filter(item => state.picks.includes(item.slug));
-    $('dmGraphNote').textContent = `局部展示 · 已选 ${picked.length} / ${data.total} 个相关词条（最多 8 个）`;
+    const picked = graphItems().filter(item => state.picks.includes(item.slug));
+    const selectedEdges = picked.flatMap(edgesFor);
+    const complete = data.offset === 0 && picked.length === data.total;
+    const scope = state.group === 'all' && !state.q && !state.kind ? '' : '当前筛选 · ';
+    $('dmGraphNote').textContent = complete ? `${scope}完整展示 · ${picked.length} 个相关词条 / ${selectedEdges.length} 条关系` :
+      `${scope}局部展示 · ${picked.length} / ${data.total} 个相关词条 · 可筛选或翻页查看其余联系`;
+    $('dmGraphAll').hidden = !data.items.length || data.items.every(item => state.picks.includes(item.slug));
+    $('dmGraphBalance').hidden = data.total <= GRAPH_CAP;
+    $('dmGraphSelection').hidden = data.total <= GRAPH_CAP;
     $('dmCanvas').hidden = !picked.length;
-    if (!picked.length) { $('dmGraphNote').textContent += '。请在下方列表选择词条。'; return; }
+    if (!picked.length) {
+      $('dmGraphNote').textContent = data.total ? '当前未选择词条。请展开下方关系列表选择要加入地图的词条。' :
+        '当前筛选下暂无关系。可以阅读词条内容，或调整筛选条件。';
+      return;
+    }
     try {
       await loadGraphLibrary();
       if (seq !== drawing || !isGraph()) return;
-      const width = $('dmCanvas').clientWidth, incoming = [], outgoing = [];
-      for (const item of picked) {
-        (edgesFor(item).some(e => e.source === state.center) ? outgoing : incoming).push(item);
-      }
-      const mixed = incoming.length && outgoing.length, narrow = mixed && width < 580;
-      const nodeWidth = Math.max(70, Math.min(180, (width - 48) / (mixed && !narrow ? 3 : 2) - 25));
-      const columns = Math.max(3, Math.floor((nodeWidth - 12) / 14));
+      const width = $('dmCanvas').clientWidth, narrow = width < 650;
+      const nodeWidth = narrow ? Math.floor((width - 52) / 2) : Math.min(176, Math.floor((width - 260) / 2) - 28);
       const box = (slug, isCenter = false) => {
+        const w = isCenter ? Math.min(220, width - 48) : nodeWidth;
+        const font = isCenter ? 16 : 14;
+        const columns = Math.max(3, Math.floor((w - 28) / font));
         const chars = Array.from(title(slug)), lines = [];
         for (let i = 0; i < chars.length; i += columns) lines.push(chars.slice(i, i + columns).join(''));
-        return {data: {id: slug, label: lines.join('\n'), center: isCenter ? 'yes' : 'no', w: nodeWidth, h: Math.max(52, lines.length * 22 + 20)}};
+        const item = picked.find(item => item.slug === slug);
+        const relations = item ? edgesFor(item) : [];
+        const outgoing = relations.some(edge => edge.source === state.center), incoming = relations.some(edge => edge.target === state.center);
+        const role = outgoing && incoming ? 'both' : outgoing ? 'outgoing' : 'incoming';
+        const label = (isCenter ? '中心词条\n' : '') + lines.join('\n');
+        return {data: {id: slug, label, role, center: isCenter ? 'yes' : 'no', w, h: Math.max(76, (lines.length + (isCenter ? 1 : 0)) * 24 + 24)}};
       };
       const main = box(state.center, true), elements = [main];
-      const top = narrow ? main.data.h + 85 : 30;
-      const place = (items, x) => {
-        let y = top;
-        for (const item of items) { const el = box(item.slug); el.position = {x, y: y + el.data.h / 2}; y += el.data.h + 48; elements.push(el); }
-        return y;
-      };
-      const leftX = width * (mixed && !narrow ? .17 : .25), rightX = width * (mixed && !narrow ? .83 : .75);
-      const height = Math.max(260, place(incoming, leftX), place(outgoing, rightX));
-      main.position = {x: mixed ? width / 2 : incoming.length ? rightX : leftX, y: narrow ? main.data.h / 2 + 24 : height / 2};
+      const neighbours = picked.map(item => box(item.slug));
+      const rows = [];
+      for (let i = 0; i < neighbours.length; i += 2) rows.push(neighbours.slice(i, i + 2));
+      const rowsHeight = rows.reduce((sum, row) => sum + Math.max(...row.map(el => el.data.h)) + 28, 0);
+      const height = narrow ? main.data.h + rowsHeight + 100 : Math.max(360, rowsHeight + 48, main.data.h + 100);
+      let y = narrow ? main.data.h + 76 : (height - rowsHeight) / 2;
+      for (const row of rows) {
+        const rowHeight = Math.max(...row.map(el => el.data.h));
+        row.forEach((el, index) => {
+          el.position = {x: index === 0 ? nodeWidth / 2 + 24 : width - nodeWidth / 2 - 24, y: y + rowHeight / 2};
+          elements.push(el);
+        });
+        y += rowHeight + 28;
+      }
+      main.position = {x: width / 2, y: narrow ? main.data.h / 2 + 24 : height / 2};
       $('dmCanvas').style.height = height + 'px';
       // Parallel evidence stays in the list; one line represents each direction and layer.
       const lines = new Map();
       for (const item of picked) for (const edge of edgesFor(item)) {
         const key = JSON.stringify([edge.source, edge.target, edge.layer]);
-        if (!lines.has(key)) lines.set(key, {data: {id: 'line-' + lines.size, source: edge.source, target: edge.target, layer: edge.layer, edgeIds: []}});
+        if (!lines.has(key)) lines.set(key, {data: {id: 'line-' + lines.size, source: edge.source, target: edge.target, layer: edge.layer, edgeIds: [], label: edge.label}});
         lines.get(key).data.edgeIds.push(edge.id);
       }
       elements.push(...lines.values());
@@ -306,22 +338,39 @@
         layout: {name: 'preset', fit: false, animate: false},
         style: [
           {selector: 'node', style: {shape: 'round-rectangle', width: 'data(w)', height: 'data(h)', label: 'data(label)',
-            'background-color': '#eee2d3', color: '#34291f', 'font-size': 14, 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.5}},
-          {selector: 'node[center="yes"]', style: {'background-color': '#85353e', color: '#ffffff', 'font-weight': 'bold'}},
-          {selector: 'edge', style: {width: 1.8, 'line-color': '#a58d73', 'target-arrow-color': '#a58d73', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier'}},
+            'background-color': '#f8f4ed', 'border-width': 1.2, 'border-color': '#cfb99e', color: '#463b31', 'font-size': 14,
+            'font-family': 'Microsoft YaHei, sans-serif', 'text-wrap': 'wrap', 'text-valign': 'center', 'text-halign': 'center', 'line-height': 1.6}},
+          {selector: 'node[role="outgoing"]', style: {'background-color': '#f8eeef', 'border-color': '#c9a1a6', color: '#713e45'}},
+          {selector: 'node[role="incoming"]', style: {'background-color': '#eff3f4', 'border-color': '#a5b8be', color: '#435d67'}},
+          {selector: 'node[role="both"]', style: {'background-color': '#f8f4ed', 'border-color': '#cfb99e', color: '#463b31'}},
+          {selector: 'node[center="yes"]', style: {'background-color': '#7b303b', 'border-width': 3, 'border-color': '#e1c5c8', color: '#fffaf6', 'font-size': 16, 'font-weight': 'bold'}},
+          {selector: 'edge', style: {width: 1.5, opacity: .58, 'line-color': '#ae9581', 'target-arrow-color': '#ae9581', 'target-arrow-shape': 'triangle', 'arrow-scale': .9, 'curve-style': 'bezier'}},
           {selector: 'edge[layer="inference"]', style: {'line-style': 'dashed', 'line-color': '#557d83', 'target-arrow-color': '#557d83'}},
-          {selector: ':selected', style: {'border-width': 2, 'border-color': '#85353e', 'line-color': '#85353e', 'target-arrow-color': '#85353e'}}
+          {selector: 'node:selected', style: {'border-width': 2.5, 'border-color': '#7b303b'}},
+          {selector: 'edge:selected, edge.dm-active', style: {width: 2.5, opacity: 1, 'line-color': '#7b303b', 'target-arrow-color': '#7b303b', label: 'data(label)', 'font-size': 12,
+            color: '#7b303b', 'text-background-opacity': 1, 'text-background-color': '#fffdf9', 'text-background-padding': 4}}
         ]});
       cy.on('tap', 'edge', event => {
+        cy.edges().removeClass('dm-active');
         const ids = event.target.data('edgeIds');
         $('dmGraphDetail').replaceChildren(make('h3', '关系依据'));
-        appendAllEvidence($('dmGraphDetail'), data.edges.filter(e => ids.includes(e.id)));
+        appendAllEvidence($('dmGraphDetail'), ids.map(edge).filter(Boolean));
         $('dmGraphDetail').hidden = false;
       });
       cy.on('tap', 'node', event => {
         const slug = event.target.id();
-        const article = [...$('dmEdges').children].find(el => el.dataset.slug === slug);
-        if (article) { article.querySelector('details').open = true; article.scrollIntoView({block: 'start'}); }
+        cy.edges().removeClass('dm-active'); event.target.connectedEdges().addClass('dm-active');
+        const item = graphItems().find(item => item.slug === slug);
+        if (item) {
+          $('dmGraphDetail').replaceChildren(make('h3', title(slug)));
+          const actions = make('div', undefined, 'dm-actions');
+          actions.append(button('查看它的概念地图', () => explore(slug)), link('阅读词条内容', node(slug).url));
+          actions.append(button('移出当前图谱', () => {
+            state.picks = state.picks.filter(pick => pick !== slug); renderRelations(); drawGraph(); saveURL(true);
+          }));
+          $('dmGraphDetail').append(actions);
+          appendAllEvidence($('dmGraphDetail'), edgesFor(item)); $('dmGraphDetail').hidden = false;
+        } else { $('dmReadCenter').focus({preventScroll: true}); }
       });
       $('dmPng').hidden = false;
     } catch (error) { if (seq === drawing) { $('dmCanvas').hidden = true; $('dmGraphNote').textContent = error.message; } }
@@ -363,7 +412,7 @@
   });
   $('dmQueryForm').addEventListener('submit', event => { event.preventDefault(); change({q: $('dmQuery').value.trim(), offset: 0, picks: null}); });
   for (const id of ['dmInference', 'dmKind']) $(id).addEventListener('change', () => change({
-    inference: $('dmInference').checked, kind: $('dmKind').value, group: '', offset: 0, picks: null
+    inference: $('dmInference').checked, kind: $('dmKind').value, group: 'all', offset: 0, picks: null
   }));
   $('dmHome').onclick = () => change({center: '', to: '', group: '', q: '', offset: 0, view: 'list', picks: null});
   $('dmRelations').onclick = () => change({to: '', offset: 0, picks: null});
@@ -372,6 +421,11 @@
   for (const [id, view] of [['dmListView', 'list'], ['dmGraphView', 'graph']]) $(id).onclick = () => {
     destroyGraph(); state.view = view; render(); saveURL();
   };
+  $('dmGraphAll').onclick = () => {
+    state.picks = data.items.slice(0, GRAPH_CAP).map(item => item.slug);
+    renderRelations(); drawGraph(); saveURL(true);
+  };
+  $('dmGraphBalance').onclick = () => change({offset: 0, picks: null});
   $('dmLatest').onclick = () => { state.version = ''; load(true); };
   $('dmRetry').onclick = () => load();
   $('dmShare').onclick = async () => {
@@ -382,7 +436,7 @@
   function download(blob, name) {
     const url = URL.createObjectURL(blob), a = link('', url); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  $('dmPng').onclick = () => { if (cy) download(cy.png({output: 'blob', bg: '#fffdf9', full: true, scale: 2}), '辞典局部联系.png'); };
+  $('dmPng').onclick = () => { if (cy) download(cy.png({output: 'blob', bg: '#fffdf9', full: true, scale: 2}), '辞典概念地图.png'); };
   $('dmCsv').onclick = () => {
     const cell = value => '"' + String(value ?? '').replace(/^[=+@-]/, "'$&").replace(/"/g, '""') + '"';
     const scope = isPath() ? '当前路径' : `${data.groups.find(g => g.id === state.group).label} · 第 ${Math.floor(data.offset / data.limit) + 1} 页`;

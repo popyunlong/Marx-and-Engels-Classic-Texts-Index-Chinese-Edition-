@@ -73,7 +73,7 @@
 .dm-evidence{border-top:1px dashed var(--line);padding:14px 0;margin-top:10px}
 .dm-explanation{font-size:14px;line-height:1.9}
 .dm-pagination{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:24px;margin-top:8px;font-size:13px}
-#dmCanvas{width:100%;height:480px;border:1px solid var(--line);border-radius:8px;background:#fcfaf6}
+#dmCanvas{width:100%;height:480px;background:radial-gradient(ellipse at center,rgba(123,48,59,.035),transparent 70%),radial-gradient(#d9cebf .65px,transparent .65px);background-size:100% 100%,24px 24px}
 .dm-graph-detail{padding:18px 0;border-bottom:1px solid var(--line)}
 .dm-empty{padding:28px 0;font-size:15px;line-height:1.9;grid-column:1/-1}
 .dm-footer{margin-top:26px}
@@ -83,3 +83,26 @@
 @media(max-width:720px){.dm-main{padding:22px 14px 110px}.dm-heading{align-items:flex-start;gap:12px;flex-wrap:wrap}.dm-heading h1{font-size:27px}.dm-layout{grid-template-columns:1fr;gap:8px}.dm-sidebar{padding:0 0 12px}#dmThemes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}#dmThemes button{font-size:13px;padding:9px 8px}.dm-sidebar>.dm-muted{display:none}.dm-card{padding:16px}.dm-search{width:100%;min-width:0;flex-basis:100%;flex-wrap:wrap}.dm-search label{width:100%}.dm-search input{width:0}.dm-filters{gap:12px}.dm-toolbar{gap:6px}.dm-section-heading{margin-top:22px}#dmTitle{font-size:23px}.dm-relation-header{flex-direction:column;gap:4px}.dm-relation blockquote{font-size:16px}.dm-groups button{min-height:44px}.dm-pagination{gap:12px}.dm-main button,.dm-button{min-height:44px}.dm-actions{gap:14px}.dm-section-heading>a{min-height:44px;display:flex;align-items:center}.dm-relation{scroll-margin-top:100px}}
 @media(prefers-reduced-motion:reduce){.dict-map-page *{scroll-behavior:auto!important}}
 @media(max-width:720px){.dm-is-centered .dm-heading{display:none}.dm-sidebar details>.dm-muted{display:none}.dm-sidebar summary{min-height:44px;padding:10px 0;box-sizing:border-box}.dm-is-centered .dm-controls{gap:12px}.dm-is-centered .dm-section-heading{margin-top:18px}.dm-is-centered .dm-search label{font-size:13px}}
+.dm-main .dm-primary-action,.dm-main .dm-primary-link{display:inline-flex;align-items:center;justify-content:center;gap:12px;background:#7b303b;color:#fffaf6;border:1px solid #7b303b;border-radius:7px;padding:10px 16px;font-size:14px;line-height:1.5;text-decoration:none;min-height:44px;box-sizing:border-box}
+.dm-main .dm-primary-action:hover,.dm-main .dm-primary-link:hover{background:#64252f;color:#fffaf6;border-color:#64252f}
+.dm-main .dm-read-center{margin:8px 0 10px;font-weight:600;padding:11px 18px}
+.dm-section-heading>div{width:100%}
+#dmGraphPanel{margin:22px 0;background:#fdfbf7;border:1px solid #e1d5c5;border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(70,47,34,.035)}
+.dm-graph-header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:22px 24px 12px}
+.dm-graph-header .dm-eyebrow{letter-spacing:2px;color:#8b6456}
+#dmGraphNote{font-size:14px;line-height:1.8;margin:0;color:#584a3f}
+.dm-graph-header button{flex:none;font-size:13px;padding:7px 10px}
+.dm-graph-actions{display:flex;gap:8px;flex-wrap:wrap}
+.dm-selection-note{font-size:12px;line-height:1.8;color:#75675d;padding:0 24px;margin:0 0 14px}
+.dm-graph-legend{display:flex;gap:20px;flex-wrap:wrap;padding:0 24px 16px;font-size:12px;color:#706358}
+.dm-graph-legend span{display:flex;align-items:center;gap:7px}
+.dm-graph-legend span:before{content:"";display:block;width:9px;height:9px;border-radius:50%;background:#cfb99e}
+.dm-graph-legend [data-role=outgoing]:before{background:#c9a1a6}
+.dm-graph-legend [data-role=incoming]:before{background:#a5b8be}
+.dm-graph-legend [data-role=both]:before{background:#cfb99e}
+#dmGraphPanel>.dm-muted{margin:0;padding:16px 24px;border-top:1px solid #e9dfd1}
+.dm-graph-detail{padding:20px 24px;background:#fffdf9;border-top:1px solid #e9dfd1}
+#dmReadingPanel>summary{cursor:pointer;font-size:15px;color:var(--accent);font-weight:600;padding:18px 0;line-height:1.8}
+#dmReadingPanel[open]>summary{margin-bottom:4px}
+@media(max-width:720px){.dm-graph-header{padding:18px 14px 10px;align-items:start;flex-wrap:wrap}.dm-graph-legend{padding:0 14px 12px;gap:16px}.dm-graph-detail{padding:18px 14px}#dmGraphPanel>.dm-muted{padding:14px}#dmGraphPanel{border-radius:10px}.dm-entry .dm-actions{gap:14px}.dm-main .dm-read-center{min-height:46px}}
+@media(max-width:720px){.dm-selection-note{padding:0 14px}}
