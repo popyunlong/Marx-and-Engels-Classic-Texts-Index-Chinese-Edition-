@@ -55,6 +55,8 @@ node --test tests/browser/ai_controls.cjs tests/browser/citation_scope.cjs tests
 
 热缓存地图及路径接口目标 P95 ≤500ms；本地约定浏览器 60 节点两秒内可交互。性能报告必须写明设备与测试方式，不以本地结果声称线上负载已验证。
 
+真实图文件的浏览器验收可设置 `DICTIONARY_GRAPH_FIXTURE` 为版本目录、`DICTIONARY_ACCEPTANCE_OUTPUT` 为本地结果目录，再运行 `node scripts/check_dictionary_map_browser.cjs`。脚本使用隔离迷你应用，在桌面和手机宽度各采集 20 次从打开 60 节点地图到展示关系依据的耗时，并保存截图；不访问生产或模型。`PYTHON`、`BROWSER_CHANNEL` 可复用本机已有运行环境和浏览器。
+
 ## 受控切换与独立关闭
 
 协调者从干净、已推送、HEAD 等于 origin/production 的 production 执行 `deploy/release.ps1`，地图版本额外传 `-DictionaryGraphArchive`。整个远端事务持有 `/run/lock/marx-search-release.lock`，沿用低优先级候选实例。候选启动命令不带 `--with-worker`，并在启动命令中强制 `MARX_SKIP_STARTUP_MAINTENANCE=1` 和 `MARX_SKIP_SEARCH_WARM=1`，防止环境文件重新启用上传续跑；回退候选和部署冒烟也适用。正式实例保留正常维护行为。浏览器验收不得提交邮件、支付或收费模型任务。
