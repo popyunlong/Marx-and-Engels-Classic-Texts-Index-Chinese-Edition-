@@ -144,6 +144,15 @@ def test_ambiguous_compounds_and_page_qualified_references():
     assert any(e['kind']=='reference' and e['target']=='two' for e in links)
 
 
+def test_laborer_and_natural_philosophy_do_not_misidentify_short_concepts():
+    es=[entry('s','人物','培养高素质劳动者，讲授自然哲学。'),entry('labor','劳动','劳动是人类活动。'),entry('nature','自然','哲学范畴。')]
+    _,edges=candidates_and_rules(es)
+    assert not any(e['source']=='s' for e in edges.values())
+    es[0]['content']='劳动者的个体劳动。'
+    _,edges=candidates_and_rules(es)
+    assert any(e['source']=='s' and e['target']=='labor' for e in edges.values())
+
+
 def test_checkpoint_has_only_one_writer(tmp_path):
     with build_lock(tmp_path):
         with pytest.raises(OSError):

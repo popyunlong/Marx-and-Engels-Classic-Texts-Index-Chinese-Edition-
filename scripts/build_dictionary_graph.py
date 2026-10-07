@@ -27,7 +27,7 @@ from dictionary_graph import KINDS, THEMES, file_hash, readonly
 from dictionary_store import normalize_term
 
 PROMPT_VERSION = "dictionary-relations-v2"
-VALIDATION_VERSION = 3
+VALIDATION_VERSION = 4
 # CNY / million tokens; integer microyuan per token. Treat every input as uncached.
 PRICES = {"mimo-v2.6-flash": (1, 2), "mimo-v2.6-pro": (3, 6)}
 PRICE_SOURCE = "https://mimo.mi.com/docs/pricing"
@@ -247,12 +247,14 @@ def candidates_and_rules(entries):
                         continue
                     quote = sentence.strip()
                     title = normalize_term(by_slug[slug]['title'])
+                    if title=='劳动' and norm[end+1:end+2]=='者':
+                        continue
                     # These words are commonly ordinary verbs/nouns rather than philosophical categories.
                     if by_slug[slug]['title'].startswith('《') and by_slug[slug]['title'] not in quote:
                         continue
                     if title=='范畴' and '范畴是' not in quote:
                         continue
-                    if title in {'联系','发展','分析','综合','存在','运动','变化','过程','系统','结构','形式','内容','原因','结果','可能','现实','实践','反映','认识','科学','历史','文化','主体','客体','物质','意识','思维','矛盾'}:
+                    if title in {'自然','联系','发展','分析','综合','存在','运动','变化','过程','系统','结构','形式','内容','原因','结果','可能','现实','实践','反映','认识','科学','历史','文化','主体','客体','物质','意识','思维','矛盾'}:
                         if not any(marker in quote for marker in ('“'+by_slug[slug]['title']+'”',by_slug[slug]['title']+'是',by_slug[slug]['title']+'指')):
                             continue
                     if len(quote) > 600:
