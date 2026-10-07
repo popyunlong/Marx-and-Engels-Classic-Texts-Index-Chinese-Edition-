@@ -54,6 +54,82 @@ def test_graph_filters_caps_and_paths(sample):
     with pytest.raises(KeyError):graph.neighborhood('missing')
 
 
+@pytest.fixture
+def reading_graph(tmp_path):
+    entries = [entry('center', '中心', '原文第一段。\n\n原文第二段。'), entry('empty', '无关系', '无关系正文。')]
+    entries += [entry('n-' + str(i), '词条%03d' % i, '相关词条正文。', i + 2) for i in range(105)]
+    entries += [entry('dup-a', '重复词', '重复正文。', 8), entry('dup-b', '重复词', '重复正文。', 3)]
+    ev = [evidence(entries[0], '原文第一段。'), evidence(entries[0], '原文第二段。')]
+    edges = {}
+    for other in entries[2:]:
+        edge = make_edge('center', other['slug'], 'mention', 'evidence', '正文提及', ev)
+        edges[edge['id']] = edge
+    for source, target, kind, layer in [('n-0', 'center', 'mention', 'evidence'),
+                                         ('center', 'n-0', 'reference', 'evidence'),
+                                         ('n-0', 'center', 'reference', 'evidence'),
+                                         ('center', 'n-0', 'related', 'inference'),
+                                         ('n-0', 'center', 'related', 'inference')]:
+        edge = make_edge(source, target, kind, layer, '测试关系', ev)
+        edges[edge['id']] = edge
+    source = tmp_path / 'source'
+    source.write_bytes(b'isolated reading fixture')
+    out = tmp_path / 'reading'
+    write_graph(source, out, entries, edges, {}, {}, 'reading-v1')
+    return Graph(out / 'graph.sqlite', json.loads((out / 'binding.json').read_text('utf-8')), source)
+
+
+def test_reading_pages_cover_all_neighbours_and_preserve_evidence(reading_graph):
+    graph = reading_graph
+    slugs, ids = [], []
+    for offset in range(0, 107, 20):
+        page = graph.relations('center', group='outgoing', offset=offset)
+        assert page['total'] == 107
+        assert len(page['items']) <= 20
+        slugs.extend(item['slug'] for item in page['items'])
+        ids.extend(edge['id'] for edge in page['edges'])
+        assert all(len(edge['evidence']) == 2 for edge in page['edges'])
+    assert len(slugs) == len(set(slugs)) == 107
+    assert len(ids) == len(set(ids)) == 107
+    assert len(graph.neighborhood('center', limit=59)['nodes']) == 60
+    page = graph.relations('center', group='outgoing', query='重复词')
+    assert [item['slug'] for item in page['items']] == ['dup-b', 'dup-a']
+    assert graph.relations('center', group='outgoing', offset=9999)['offset'] == 100
+
+
+def test_reading_groups_directions_filters_and_empty_states(reading_graph):
+    graph = reading_graph
+    page = graph.relations('center')
+    assert page['group'] == 'reference'
+    assert len(page['items']) == 1 and len(page['edges']) == 2
+    assert {edge['source'] for edge in page['edges']} == {'center', 'n-0'}
+    assert all(not group['id'].startswith('inference_') for group in page['groups'])
+    inferred = graph.relations('center', inference=True, group='inference_related')
+    assert inferred['total'] == 1 and len(inferred['edges']) == 2
+    assert graph.relations('center', group='incoming')['total'] == 1
+    assert graph.relations('center', group='outgoing', query="' OR 1=1 --")['total'] == 0
+    assert graph.relations('center', group='outgoing', kind='reference')['items'] == []
+    assert graph.relations('empty')['total_relations'] == 0
+    assert graph.relations('center', group='inference_related')['group'] == 'reference'
+    with pytest.raises(ValueError): graph.relations('center', group='invented')
+    with pytest.raises(KeyError): graph.relations('absent')
+
+
+def test_directory_counts_stable_pages_and_path_order(reading_graph):
+    graph = reading_graph
+    pages = [graph.browse_page(limit=30, offset=i) for i in range(0, 109, 30)]
+    ids = [node['slug'] for page in pages for node in page['nodes']]
+    assert len(ids) == len(set(ids)) == 109
+    assert all(page['total'] == 109 for page in pages)
+    assert graph.browse_page(query='重复词')['total'] == 2
+    assert graph.browse_page(theme='不存在')['total'] == 0
+    path = graph.path_between('n-2', 'n-1')
+    assert [node['slug'] for node in path['nodes']] == ['n-2', 'center', 'n-1']
+    assert [(step['from'], step['to']) for step in path['steps']] == [('n-2', 'center'), ('center', 'n-1')]
+    assert path['edges'][0]['source'] == 'center'  # Exploration may walk against the arrow.
+    assert graph.path_between('center', 'center')['steps'] == []
+    assert graph.path_between('center', 'empty')['steps'] == []
+
+
 def test_wrong_fingerprint_and_corruption_rejected(sample):
     _,_,graph,selected,source=sample
     with pytest.raises(GraphUnavailable):Graph(graph.path,dict(selected,source_sha256='0'*64),source)
@@ -127,11 +203,23 @@ def test_api_access_stale_version_and_limits(sample,monkeypatch):
     result=api.get('/api/dictionary/graph?center=capital&limit=999')
     assert result.status_code==200 and len(result.json['nodes'])<=60
     assert result.headers['Cache-Control']=='private, no-store'
+    reading = api.get('/api/dictionary/relations?center=capital')
+    assert reading.status_code == 200
+    assert reading.headers['Cache-Control'] == 'private, no-store'
+    assert all(node['url'].startswith('/entry/') for node in reading.json['nodes'])
+    assert all('#paragraph-' in ev['url'] for edge in reading.json['edges'] for ev in edge['evidence'])
+    assert api.get('/api/dictionary/relations?center=capital&group=invalid').status_code == 400
+    assert api.get('/api/dictionary/relations?center=capital&limit=invalid').status_code == 400
+    assert api.get('/api/dictionary/relations?center=capital&version=old').status_code == 409
+    assert api.get('/api/dictionary/relations?center=missing').status_code == 404
+    assert api.get('/api/dictionary/graph?limit=30').json['total'] == 5
     fixture.config['DENY']=True
     assert api.get('/api/dictionary/graph').status_code==403
+    assert api.get('/api/dictionary/relations?center=capital').status_code == 403
     monkeypatch.setattr(dictionary_map_web,'current_graph',lambda:None)
     fixture.config['DENY']=False
     assert api.get('/api/dictionary/graph').status_code==503
+    assert api.get('/api/dictionary/relations?center=capital').status_code == 503
 
 
 def test_ambiguous_compounds_and_page_qualified_references():

@@ -59,10 +59,13 @@ def fake_graph():
     for i in range(75):
         slug=capital['slug'] if i==0 else 'fixture-'+str(i)
         title='资本' if i==0 else '关联概念 '+str(i)
+        if i==2:
+            title='《在省部级主要领导干部学习贯彻党的十八届四中全会精神全面推进依法治国专题研讨班上的讲话》'
         c.execute('INSERT INTO nodes VALUES (?,?,?,?,?,?,?)',(slug,title,'concept','政治经济学',121,122,0))
-        if i:
+        if i and i != 74:
             ev=[{'slug':capital['slug'],'paragraph':1,'quote':'在资本的词条中理解这些联系。','citation':'测试来源，第121–122页','start_page':121,'end_page':122}]
             c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',(str(i),capital['slug'],slug,'related' if i==1 else 'mention','inference' if i==1 else 'evidence','测试关系',json.dumps(ev),'fixture','fixture'))
+    c.execute('INSERT INTO edges VALUES (?,?,?,?,?,?,?,?,?)',('reverse', 'fixture-1', capital['slug'], 'related', 'inference', '反向测试关系', json.dumps(ev), 'fixture', 'fixture'))
     meta={'id':'fixture-v1','schema_version':1,'source_sha256':file_hash(source),'coverage':{'entries':75,'analyzed_entries':75,'relations':74,'inferred_relations':1}}
     c.execute('INSERT INTO metadata VALUES (?,?)',('manifest',json.dumps(meta)))
     c.commit();c.close()
