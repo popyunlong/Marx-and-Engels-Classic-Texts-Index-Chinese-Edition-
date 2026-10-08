@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import citation_agent_bridge  # noqa: E402
 import citation_agent_test_backend as tasks  # noqa: E402
 import citation_agent_test_runtime as runtime  # noqa: E402
+from book_data_release import append_ancestors, compatible_corpus  # noqa: E402
 
 CORPUS_INDEX_DB_PATH = runtime.CORPUS_INDEX_DB_PATH
 corpus = runtime.load_corpus()
@@ -60,7 +61,7 @@ def _analysis(job_id: str, corpus_sha256: str, template_version: str) -> None:
     if not job:
         return
     try:
-        if job.get("corpus_sha256") != corpus_sha256:
+        if not compatible_corpus(job.get("corpus_sha256"),corpus_sha256):
             raise tasks.CitationAssistantError(CORPUS_ANALYSIS_VERSION_ERROR)
         if job.get("template_version") != template_version:
             raise tasks.CitationAssistantError(TEMPLATE_ANALYSIS_VERSION_ERROR)
@@ -68,9 +69,14 @@ def _analysis(job_id: str, corpus_sha256: str, template_version: str) -> None:
         # This deployment is intentionally incapable of a member rollout.  A future
         # approval release must add that lane explicitly rather than flipping a typo.
         agent_callback = citation_agent_bridge.make_callback(corpus) if mode == "admin_live" else None
+        options={}
+        ancestor=append_ancestors(corpus_sha256).get(job.get('corpus_sha256'))
+        scope=list(job.get('scope') or [])
+        if ancestor and not [s for s in scope if not str(s).startswith('mylib:')]:
+            options['scope_override']=scope+['book:'+b for b in ancestor['books']]
         tasks.run_analysis(
             job_id, corpus, personal_callback=runtime.personal_callback(job),
-            agent_callback=agent_callback,
+            agent_callback=agent_callback,**options,
         )
     except Exception as exc:
         tasks.update_job(job_id, status="failed", agent_status="degraded", error=str(exc)[:500])
@@ -81,7 +87,7 @@ def _export(job_id: str, corpus_sha256: str, template_version: str) -> None:
     if not job:
         return
     try:
-        if job.get("corpus_sha256") != corpus_sha256:
+        if not compatible_corpus(job.get("corpus_sha256"),corpus_sha256):
             raise tasks.CitationAssistantError(CORPUS_EXPORT_VERSION_ERROR)
         if job.get("template_version") != template_version:
             raise tasks.CitationAssistantError(TEMPLATE_EXPORT_VERSION_ERROR)
@@ -125,7 +131,13 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
         if _STOP_REQUESTED:
             return processed
         _reload_if_runtime_changed(loaded_fingerprint, loaded_template_version)
-        job = tasks.claim_next_job(
+        ancestors=append_ancestors(loaded_corpus_sha256)
+        claim=tasks.claim_next_job
+        if ancestors:
+            from ingestion.claims import citation
+            def claim(*args,**kwargs):
+                return citation(tasks.core,[loaded_corpus_sha256,*ancestors],*args,**kwargs)
+        job = claim(
             worker_id,
             lease_seconds=900,
             corpus_sha256=loaded_corpus_sha256,

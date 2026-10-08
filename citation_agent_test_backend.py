@@ -958,10 +958,15 @@ def run_analysis(
     *,
     personal_callback: Callable | None = None,
     agent_callback: Callable | None = None,
+    scope_override: list[str] | None = None,
 ) -> None:
     row = get_job(job_id)
     if not row:
         return
+    if scope_override is not None:
+        # A verified append may execute a retained task against unchanged old
+        # books without rewriting its recorded scope or corpus fingerprint.
+        row=dict(row,scope=list(scope_override))
     acquired = core._MATCH_SEMAPHORE.acquire(timeout=1)
     if not acquired:
         update_job(job_id, status="queued")

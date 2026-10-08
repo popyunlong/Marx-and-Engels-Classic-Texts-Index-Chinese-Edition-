@@ -98,16 +98,18 @@ def status():
     return selected or {'id':'legacy','sha256':None}
 
 
-def compatible_corpus(generation,current_sha):
-    """Only immutable, verified append ancestry can resume a previous job."""
-    if generation == current_sha:
-        return True
+def append_ancestors(current_sha):
+    """Read ancestry only from the verified bundle matching the loaded DB."""
     bundle=current()
     if bundle is None or 'data/ingestion-generations.json' not in bundle.manifest['files']:
-        return False
+        return {}
     proof=json.loads((bundle.root/'data/ingestion-generations.json').read_text('utf-8'))
-    return (proof.get('schema')==1 and proof.get('current')==current_sha
-            and generation in proof.get('ancestors',{}))
+    return proof.get('ancestors',{}) if proof.get('schema')==1 and proof.get('current')==current_sha else {}
+
+
+def compatible_corpus(generation,current_sha):
+    """Only immutable, verified append ancestry can resume a previous job."""
+    return generation == current_sha or generation in append_ancestors(current_sha)
 
 
 def text_only(source):

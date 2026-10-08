@@ -128,6 +128,35 @@ def test_annotation_options_preserve_article_and_page_provenance():
     assert all(option[key]==hit[key] for key in ('work_title','work_authors','work_date','work_end_pdf_page','page_refs','page_location'))
 
 
+def test_retained_agent_jobs_use_verified_ancestry_and_original_default_scope(appended,monkeypatch):
+    import importlib
+    import book_data_release as data
+    import citation_agent_test_runtime as runtime
+    _,output,_,selected=appended
+    bundle=Bundle(output,selected['sha256'])
+    monkeypatch.setattr(data,'current',lambda:bundle)
+    proof=json.loads((output/'data/ingestion-generations.json').read_text('utf-8'))
+    monkeypatch.setattr(runtime,'load_corpus',lambda:None)
+    worker=importlib.import_module('scripts.citation_agent_test_worker')
+    job=dict(id='retained',corpus_sha256=bundle.manifest['baseline_sha256'],template_version='same',scope=[])
+    calls=[];errors=[]
+    monkeypatch.setattr(worker.tasks,'get_job',lambda _:dict(job))
+    monkeypatch.setattr(worker.tasks,'run_export',lambda i:calls.append(('export',i)))
+    monkeypatch.setattr(worker.tasks,'run_analysis',lambda *a,**k:calls.append(('analysis',k)))
+    monkeypatch.setattr(worker.tasks,'update_job',lambda *a,**k:errors.append(k))
+    monkeypatch.setattr(runtime,'personal_callback',lambda _:None)
+    monkeypatch.setenv('CITATION_AGENT_TEST_MODE','off')
+    worker._analysis('retained',proof['current'],'same')
+    worker._export('retained',proof['current'],'same')
+    assert calls[0][1]['scope_override']==['book:旧书']
+    assert calls[1]==('export','retained')
+    assert job['scope']==[] and job['corpus_sha256']==bundle.manifest['baseline_sha256']
+    assert not errors
+    job['corpus_sha256']='unrelated'
+    worker._export('retained',proof['current'],'same')
+    assert errors[-1]['status']=='failed'
+
+
 def test_book_release_cannot_skip_full_functional_review(tmp_path):
     from scripts.book_import_deploy import review
     from corpus_release import FUNCTIONS
