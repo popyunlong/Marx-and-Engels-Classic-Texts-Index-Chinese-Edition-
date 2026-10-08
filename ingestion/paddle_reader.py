@@ -11,6 +11,8 @@ def finalize(payload, context):
                viewer_url=context['source_url'],source_kind='pdf_page',
                book=context['book'],volume=context['volume'],source_file=context['source_file'],
                pdf_pages=[context['page']],citations=context['citations'])
+    local.update(document=context.get('document'),page_refs=context.get('page_refs',[]),
+                 page_location=context.get('page_location',''))
     result['citations']=[local]+[c for c in payload.get('citations',[]) if c.get('source_kind')!='pdf_page']
     compact=lambda s:re.sub(r'\s+','',s)
     text='\n'.join(context.get(k,'') for k in ('previous_excerpt','current_text','next_excerpt'))

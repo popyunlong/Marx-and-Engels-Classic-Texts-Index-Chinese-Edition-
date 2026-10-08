@@ -12,7 +12,8 @@ from catalog_health import slow_routes, resource_pressure
 def validate_observation(report, metadata, parent, sample_source='same_client_ssh_forward'):
     expected = {'result': 'pass', 'sample_source': sample_source,
                 'live_release': parent['release_id'], 'candidate_release': metadata['release_id'],
-                'live_catalog': parent['catalog_release'], 'candidate_catalog': metadata['catalog_release']}
+                'live_catalog': parent.get('book_data_catalog') or parent['catalog_release'],
+                'candidate_catalog': metadata.get('book_data_catalog') or metadata['catalog_release']}
     if any(report.get(k) != v for k, v in expected.items()):
         raise ValueError('catalogue observation does not match this release and its live parent')
     elapsed = report.get('elapsed_seconds', 0)
@@ -68,6 +69,7 @@ def validate_review(app, evidence):
     metadata = json.loads((app.parent / 'release.json').read_text('utf-8'))
     parent = json.loads((app.parent.parent / metadata['parent_release_id'] / 'release.json').read_text('utf-8'))
     if (metadata.get('catalog_release') == parent.get('catalog_release')
+            and metadata.get('book_data_release') == parent.get('book_data_release')
             and metadata.get('dictionary_graph_release') == parent.get('dictionary_graph_release')):
         return
     if evidence.get('release_id') != metadata['release_id'] or evidence.get('result') != 'pass':

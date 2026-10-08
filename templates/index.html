@@ -2885,6 +2885,7 @@
                 <span class="v2book-body">
                   <span class="v2book-title">{{ book.title }}</span>
                   <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>
+                  {% if book.quality_note %}<span class="v2book-meta">{{ book.quality_note }}</span>{% endif %}
                   {% if book.recommender_name and book.recommender_email_masked %}
                   <span class="v2book-recommender">推荐人：{{ book.recommender_name }}（{{ book.recommender_email_masked }}）</span>
                   {% endif %}

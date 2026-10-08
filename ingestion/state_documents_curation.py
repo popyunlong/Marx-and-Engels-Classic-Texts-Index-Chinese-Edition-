@@ -94,7 +94,7 @@ def bibliography(n, inventory):
         if n==book:m['impression']='2011年6月第1次印刷'
         evidence=[dict(source_sha256=inventory[book-1]['source_sha256'],pdf_page=page,
                        fields=['publisher','isbn','edition','year'],scope='matched_set_copyright_page'),
-                  dict(source_sha256=inventory[n-1]['source_sha256'],pdf_page=437 if n==4 else 2,
+                  dict(source_sha256=inventory[n-1]['source_sha256'],pdf_page={4:437,21:3}.get(n,2),
                        fields=['title','volume','editors','publisher'],scope='own_title_page')]
         m['bibliography_note']='套书 ISBN 和版次据同套下册版权页，并与本册题名页核对；无本册印次证据时不填写印次。'
     else:
@@ -112,6 +112,10 @@ def bibliography(n, inventory):
         elif n==2:
             m.update(isbn='9787507332568',isbn_scope='volume',impression='2011年4月第1次印刷',source_edition='2011年4月第1版')
     m['bibliography_evidence']=evidence
+    if title=='十四大以来重要文献选编':
+        m['quality_note']='本套中册未提供，当前收录上、下册。'
+    elif title=='十七大以来重要文献选编':
+        m['quality_note']='当前收录上、中册；下册原件缺页，待补齐。'
     return m
 
 
@@ -140,6 +144,8 @@ def curate(n, audit, inventory, qa):
                                     printed_labels=r['observed_labels'],source_pdf_page=r['page'])
     if n==4:
         for p in [437,438,440,441]:d['pages'][p-1].update(kind='front',segment_id='misplaced_front_matter',segment_title='错置前置页')
+    if n==16:
+        d['pages'][3].update(segment_id='publication_note',segment_title='出版说明')
     if n==18:
         d['toc']=[]
         for row in d['pages']:

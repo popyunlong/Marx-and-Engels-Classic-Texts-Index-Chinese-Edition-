@@ -100,6 +100,8 @@ def rollback_guard(root, app):
 
 
 def review(app,evidence):
+    from scripts.book_import_deploy import review as review_books
+    review_books(app,evidence)
     selected=binding(app)
     if selected:
         verify_functional_review(evidence,selected)

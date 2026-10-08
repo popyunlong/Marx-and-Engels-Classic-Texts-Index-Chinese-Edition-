@@ -76,3 +76,17 @@ def test_book_health_checks_exact_data_binding():
     with pytest.raises(ValueError,match='book data generation'):
         check_health({'book_data_release':{'id':'v2','sha256':'b'*64}},
                      {'book_data_release':{'id':'v1','sha256':'a'*64}})
+
+
+def test_book_release_cannot_skip_full_functional_review(tmp_path):
+    from scripts.book_import_deploy import review
+    from corpus_release import FUNCTIONS
+    app=tmp_path/'app';app.mkdir();selected=dict(id='v1',sha256='a'*64)
+    (tmp_path/'release.json').write_bytes(canonical({'book_data_release':selected}))
+    evidence=dict(book_data_release=selected,result='pass',browsers=['desktop','mobile'],
+                  rollback_rehearsal=True,checks={k:True for k in FUNCTIONS})
+    with pytest.raises(ValueError,match='ai_guide'):review(app,evidence)
+    evidence['checks'].update(ai_guide=True,citation_annotation_agent=True,dictionary_map=True)
+    review(app,evidence)
+    evidence['book_data_release']=dict(selected,id='stale')
+    with pytest.raises(ValueError,match='another data release'):review(app,evidence)

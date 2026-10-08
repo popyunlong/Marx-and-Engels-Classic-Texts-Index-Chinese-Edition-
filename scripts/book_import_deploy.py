@@ -52,7 +52,9 @@ def prepare(root,app):
             db,config,catalog,old_text=resolve_parent(root,root/'current/app',live)
             versions=root/'data/book-data-releases';versions.mkdir(exist_ok=True)
             versions.chmod(0o755)
-            if not str(versions.resolve()).startswith('/home/data/'):
+            # Production data is a bind mount: realpath keeps /opt/... even
+            # though the actual storage is /home/data on the data device.
+            if versions.stat().st_dev!=Path('/home/data').stat().st_dev:
                 raise ValueError('book versions must reside on data disk')
             disk=shutil.disk_usage(versions)
             # Two full DBs, reviewed HTML catalogue, input packages and headroom.
@@ -103,6 +105,23 @@ def rollback_guard(root,app):
         if current.manifest['baseline_sha256']!=file_hash(baseline):
             raise ValueError('rollback baseline changed')
     verify(root,app)
+
+
+def review(app,evidence):
+    selected=binding(app)
+    if not selected:return
+    if evidence.get('book_data_release')!=selected:
+        raise ValueError('book functional review belongs to another data release')
+    # Appending books has its own acceptance policy. The stricter OCR-repair
+    # browser/geometry rules in corpus_release remain unchanged.
+    from corpus_release import FUNCTIONS
+    if evidence.get('result')!='pass' or any(evidence.get('checks',{}).get(k) is not True for k in FUNCTIONS):
+        raise ValueError('full book functional acceptance is incomplete')
+    if not {'desktop','mobile'}<=set(evidence.get('browsers',[])) or evidence.get('rollback_rehearsal') is not True:
+        raise ValueError('book desktop/mobile review or rollback rehearsal is missing')
+    for name in ('ai_guide','citation_annotation_agent','dictionary_map'):
+        if evidence.get('checks',{}).get(name) is not True:
+            raise ValueError('book functional check missing: '+name)
 
 
 if __name__=='__main__':

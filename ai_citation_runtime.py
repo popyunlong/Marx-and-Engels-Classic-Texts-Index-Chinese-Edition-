@@ -113,7 +113,8 @@ def source_segments(A, hit, payload: dict, text: str) -> list[dict]:
 def passage(A, hit, payload: dict, text: str, index: int) -> dict:
     out = {"index": index, "citation": payload.get("citation") or "", "text": text,
            "quote_segments": payload.get("_ai_quote_segments", [text])}
-    for k in ("document_id", "work_title", "work_authors", "provenance_verified", "source_file", "book", "section_title"):
+    for k in ("document_id", "work_title", "work_authors", "work_date", "chapter_pdf_page",
+              "work_end_pdf_page", "evidence_method", "provenance_verified", "source_file", "book", "volume", "section_title"):
         out[k] = payload.get(k)
     try:
         out["source_segments"] = source_segments(A, hit, payload, text)
@@ -554,7 +555,8 @@ def restore_history(A, messages, question, cap, allowed_books, document_scopes):
         hit = A.corpus._make_hit(volume, volume.page_offsets[first_pi], volume.page_offsets[first_pi] + 1, "exact", 100, "")
         hit = A.corpus.enrich_hit_document(hit)
         metadata = hit.to_dict()
-        for field in ("document_id", "work_title", "work_authors", "provenance_verified"):
+        for field in ("document_id", "work_title", "work_authors", "work_date", "chapter_pdf_page",
+                      "work_end_pdf_page", "evidence_method", "provenance_verified"):
             base[field] = metadata.get(field)
         if not C.admissible(base, "\n".join(parts), question):
             continue

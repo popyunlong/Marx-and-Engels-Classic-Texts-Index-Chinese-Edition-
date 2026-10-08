@@ -50,6 +50,8 @@ def register(package, books, manifest, volumes):
                 quality_note=str(package.get('quality_note') or '').strip(),
             )
         books.append(existing)
+    if m.get('quality_note'):
+        existing['quality_note']=m['quality_note']
     if m.get('volume_label'):existing.setdefault('volume_labels',{})[v]=m['volume_label']
     existing.setdefault('volume_bibliography',{})[v]={field:m.get(field,[]) for field in ('translators','editors')}
     existing['volume_bibliography'][v].update({field:m.get(field,'') for field in ('place','publisher','year','isbn','impression','source_edition')},edition_note=m.get('edition',''))

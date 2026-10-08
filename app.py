@@ -7458,7 +7458,10 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         source_url = ""
 
     text_highlights = None
+    book_document = None
     if book_data_release.text_only(source_file):
+        scope = corpus.document_scope_for_page(source_file, page_number)
+        book_document = scope.to_dict() if scope else None
         terms = request.args.getlist('term') or (
             [request.args.get('h')] if request.args.get('h') else (request.args.get('q') or '').split())
         text_highlights = locate_text(page_obj.raw_text, terms)
@@ -7484,6 +7487,7 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         "page_refs": [page_reference(page_obj)],
         "page_location": citation_pages([page_obj])["page"],
         "section_title": section_title or "",
+        "document": book_document,
         "citation": citation,
         "citations": citations,
         "source_url": source_url,
@@ -19229,6 +19233,9 @@ def _build_chat_grounding(
             "document_id": d.get("document_id") or "",
             "work_title": d.get("work_title") or "",
             "work_authors": d.get("work_authors") or [],
+            "work_date": d.get("work_date") or "",
+            "chapter_pdf_page": d.get("chapter_pdf_page"),
+            "work_end_pdf_page": d.get("work_end_pdf_page"),
             "provenance_verified": bool(d.get("provenance_verified")),
         })
         if ai_citations.enabled():
@@ -20781,6 +20788,9 @@ def _api_search_associative_impl(*, cancel_event=None):
                     "document_id": base.get("document_id") or "",
                     "work_title": base.get("work_title") or "",
                     "work_authors": base.get("work_authors") or [],
+                    "work_date": base.get("work_date") or "",
+                    "chapter_pdf_page": base.get("chapter_pdf_page"),
+                    "work_end_pdf_page": base.get("work_end_pdf_page"),
                     "provenance_verified": bool(base.get("provenance_verified")),
                 })
                 review_sources.append((i, hit, plain))

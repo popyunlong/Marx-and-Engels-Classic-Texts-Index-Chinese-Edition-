@@ -3657,7 +3657,7 @@ class Corpus:
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
         book_cfg = self.get_book_config(vol.book)
 
-        return Hit(
+        hit = Hit(
             book=vol.book,
             volume=vol.volume,
             source_file=vol.source_file,
@@ -3677,6 +3677,8 @@ class Corpus:
             norm_start=norm_start,
             norm_end=norm_end,
         )
+        from book_data_release import text_only
+        return self.enrich_hit_document(hit) if text_only(vol.source_file) else hit
 
     @staticmethod
     def _export_page_raw_map(

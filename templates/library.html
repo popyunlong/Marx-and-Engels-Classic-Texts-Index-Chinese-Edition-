@@ -403,6 +403,7 @@
           <span class="bg-count">{{ book.volumes|length }} 卷</span>
         </summary>
         <div class="book-section-body">
+          {% if book.quality_note %}<p>{{ book.quality_note }}</p>{% endif %}
           {% for volume in book.volumes %}
           <details class="volume">
             <summary>

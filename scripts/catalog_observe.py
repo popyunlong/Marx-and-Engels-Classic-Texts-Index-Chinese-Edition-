@@ -216,7 +216,8 @@ def main():
         metadata, parent, args.output = server_context(args.server_app)
         args.live, args.candidate = 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'
         args.live_release, args.candidate_release = parent['release_id'], metadata['release_id']
-        args.live_catalog, args.candidate_catalog = parent['catalog_release'], metadata['catalog_release']
+        args.live_catalog = parent.get('book_data_catalog') or parent['catalog_release']
+        args.candidate_catalog = metadata.get('book_data_catalog') or metadata['catalog_release']
         args.processes = server_processes(args.candidate_release)
         args.interval = 30
     elif not all(getattr(args, k) is not None for k in ('live', 'candidate', 'live_release', 'candidate_release', 'live_catalog', 'candidate_catalog', 'output')):
