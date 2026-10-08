@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -61,6 +62,11 @@ def prepare(root,app):
             estimated=Path(db).stat().st_size*2+sum(p.stat().st_size for p in incoming.rglob('*') if p.is_file())+(2<<30)
             if estimated>(10<<30) or disk.free-estimated<(15<<30):
                 raise OSError('book import peak would exceed task budget or reserve')
+            # SQLite's full old/new-row comparison can spill to disk. Keep
+            # those transient sort files on the same budgeted data device.
+            scratch=incoming/'sqlite-temp'
+            scratch.mkdir(mode=0o700,exist_ok=True)
+            os.environ['SQLITE_TMPDIR']=str(scratch)
             version=spec['id']+'-'+candidate['release_id'][-8:]
             from ingestion.book_data import build
             selected=build(packages,app,versions/version,baseline=db,config=config,pdfs=root/'pdfs',
