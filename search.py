@@ -3655,6 +3655,7 @@ class Corpus:
         citation = self._make_citation(vol.book, vol.volume, pages, source_file=vol.source_file)
         citations = self._make_citations(vol.book, vol.volume, pages, source_file=vol.source_file)
         section_title = self.get_section_for_page(vol.source_file, pages[0].pdf_page)
+        section_title = (pages[0].page_label_info or {}).get('segment_title') or section_title
         book_cfg = self.get_book_config(vol.book)
 
         hit = Hit(

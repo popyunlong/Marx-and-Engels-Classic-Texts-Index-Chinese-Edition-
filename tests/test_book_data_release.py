@@ -85,6 +85,22 @@ def test_component_tampering_prevents_startup(appended):
         Bundle(output,selected['sha256'])
 
 
+def test_contents_hit_is_not_mislabeled_as_body_evidence(appended,monkeypatch):
+    import search
+    from search import Corpus
+    from book_config import load_book_configs
+    from ai_citations import admissible
+    _,output,p,_=appended
+    monkeypatch.setattr(search,'load_book_configs',lambda:load_book_configs(output/'config/books.yaml'))
+    monkeypatch.setattr(search,'MANIFEST',output/'config/manifest.yaml')
+    corpus=Corpus(output/'data/corpus.sqlite',output/'config/volumes.yaml')
+    volume=corpus.get_volume_by_source_file(p['source_file'])
+    volume.pages[0].page_label_info={'segment_id':'contents','segment_title':'目录'}
+    hit=corpus._make_hit(volume,0,2,'exact',100,'新的')
+    assert hit.section_title=='目录'
+    assert not admissible(hit.to_dict(),volume.pages[0].raw_text,'研究相关观点')
+
+
 def test_book_health_checks_exact_data_binding():
     from scripts.catalog_deploy import check_health
     with pytest.raises(ValueError,match='book data generation'):
