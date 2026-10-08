@@ -14015,8 +14015,9 @@ def api_citation_retry_pdf(job_id: str):
     job = citation_tasks.get_job(job_id, int(user["id"]))
     if not job:
         abort(404, description="任务不存在。")
+    from book_data_release import compatible_corpus
     if (
-        job.get("corpus_sha256") != _citation_corpus_sha256()
+        not compatible_corpus(job.get("corpus_sha256"), _citation_corpus_sha256())
         or job.get("template_version") != _citation_template_version()
     ):
         abort(409, description="语料或模板版本已更新，请新建任务后再导出。")

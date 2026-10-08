@@ -98,6 +98,18 @@ def status():
     return selected or {'id':'legacy','sha256':None}
 
 
+def compatible_corpus(generation,current_sha):
+    """Only immutable, verified append ancestry can resume a previous job."""
+    if generation == current_sha:
+        return True
+    bundle=current()
+    if bundle is None or 'data/ingestion-generations.json' not in bundle.manifest['files']:
+        return False
+    proof=json.loads((bundle.root/'data/ingestion-generations.json').read_text('utf-8'))
+    return (proof.get('schema')==1 and proof.get('current')==current_sha
+            and generation in proof.get('ancestors',{}))
+
+
 def text_only(source):
     # Manifest membership, rather than an arbitrary client flag, controls rendering.
     bundle=current()

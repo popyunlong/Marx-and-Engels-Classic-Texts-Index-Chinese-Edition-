@@ -108,6 +108,26 @@ def test_book_health_checks_exact_data_binding():
                      {'book_data_release':{'id':'v1','sha256':'a'*64}})
 
 
+def test_only_verified_append_ancestors_allow_old_pdf_retry(appended,monkeypatch):
+    import book_data_release as data
+    _,output,_,selected=appended
+    bundle=Bundle(output,selected['sha256'])
+    monkeypatch.setattr(data,'current',lambda:bundle)
+    proof=json.loads((output/'data/ingestion-generations.json').read_text('utf-8'))
+    assert data.compatible_corpus(bundle.manifest['baseline_sha256'],proof['current'])
+    assert not data.compatible_corpus('unrelated-corpus',proof['current'])
+    assert not data.compatible_corpus(bundle.manifest['baseline_sha256'],'unrelated-current')
+
+
+def test_annotation_options_preserve_article_and_page_provenance():
+    from citation_assistant import _option_from_hit
+    hit=dict(source_file='pdfs/book.pdf',pdf_pages=[14],printed_pages=['4'],
+             work_title='视察上海时的谈话',work_authors=['邓小平'],work_date='1991年',
+             work_end_pdf_page=15,page_refs=[{'pdf_page':14,'printed_page':'4'}],page_location='书本第4页')
+    option=_option_from_hit(hit)
+    assert all(option[key]==hit[key] for key in ('work_title','work_authors','work_date','work_end_pdf_page','page_refs','page_location'))
+
+
 def test_book_release_cannot_skip_full_functional_review(tmp_path):
     from scripts.book_import_deploy import review
     from corpus_release import FUNCTIONS
