@@ -79,8 +79,11 @@ done
 mkdir -p "$RELEASES"
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  echo "another production release or rollback owns $LOCK_FILE" >&2
-  exit 75
+  echo "release lock busy; waiting up to 120 seconds for existing work to finish" >&2
+  if ! flock -w 120 9; then
+    echo "another production release or rollback owns $LOCK_FILE" >&2
+    exit 75
+  fi
 fi
 
 read_release_id() {
