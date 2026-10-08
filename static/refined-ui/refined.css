@@ -11,14 +11,15 @@ body.v2{background:#f5f2eb;}
 button,input,select,textarea {font-family:var(--sans);}
 :focus-visible{outline:3px solid #a8783d;outline-offset:3px;}
 img,canvas,video{max-width:100%;}
-.v2nav{background:#fffdf8ed;border-color:var(--line);gap:20px;height:auto;min-height:62px;}
-.v2brand-word{font-family:var(--serif);font-size:19px;}
+.v2nav{background:#fffdf8ed;border-color:var(--line);gap:16px;height:62px;flex-wrap:nowrap;}
 .v2brand-mark{background:var(--wine);border-radius:5px;}
-.v2tabs-top{min-width:0;flex-wrap:wrap;}
+.v2tabs-top{min-width:0;flex:0 1 auto;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding-block:4px;}
+.v2tabs-top .v2tab{flex:none;}
 .v2tab{font-size:14px;}
 .v2tab.active{color:var(--wine);}
-/* Keep every navigation entry clear of account controls at intermediate widths. */
-@media (min-width:821px) and (max-width:1520px){.v2brand-word{display:none;}}
+.v2tab.active::after{bottom:0;}
+/* Narrow desktop navigation scrolls within its row, keeping account controls clear. */
+@media (min-width:821px) and (max-width:1200px){.v2aname{display:none;}.v2acct{gap:4px;}.v2btn-soft{padding-inline:9px;}}
 body.v2 .page{max-width:1320px;padding-top:26px;}
 .page,.wrap,.container{box-sizing:border-box;}
 body .panel,body .hit,body .group-card,body .status-card,body .notice-card,
@@ -68,9 +69,8 @@ input,textarea,select{max-width:100%;}
 @keyframes refined-depth{from{transform:scale(1.015) translateY(0)}to{transform:scale(1.06) translateY(-5px)}}
 @keyframes refined-glow{from{transform:translateX(-8%);opacity:.3}to{transform:translateX(8%);opacity:.8}}
 @keyframes refined-mote{0%,100%{opacity:0;transform:translateY(10px)}45%{opacity:.5;transform:translateY(-18px)}}
-@media(max-width:1100px){.v2nav{gap:12px;padding-left:18px;padding-right:18px;}.v2brand-word{font-size:16px;}.v2tab{font-size:13px;}.refined-query-layout{grid-template-columns:minmax(0,1fr) 250px;}}
+@media(max-width:1100px){.v2nav{gap:12px;padding-left:18px;padding-right:18px;}.v2tab{font-size:13px;}.refined-query-layout{grid-template-columns:minmax(0,1fr) 250px;}}
 @media(min-width:821px) and (max-width:1100px){.v2tab{padding:8px 7px;gap:4px;}}
-@media(min-width:821px) and (max-width:1200px){.v2nav{flex-wrap:wrap;height:auto;padding-block:8px;row-gap:4px;}.v2tabs-top{order:3;flex-basis:100%;justify-content:center;}.v2tab.active::after{bottom:-2px;}}
 @media(max-width:720px){
   .left-stack,.search-panel-v2,.refined-query-layout{min-width:0;}
   .left-stack,.right-stack{grid-template-columns:minmax(0,1fr);}

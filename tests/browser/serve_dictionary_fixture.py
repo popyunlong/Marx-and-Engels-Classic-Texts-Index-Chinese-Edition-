@@ -20,7 +20,7 @@ app=Flask(__name__,template_folder=str(ROOT/'templates'),static_folder=str(ROOT/
 TEXT={'index.hero_title':'马克思主义理论研究辅助程序','dictionary.heading':'马克思主义大辞典',
       'dictionary.description':'逐条查阅释义，沿原文探索概念联系。','dictionary.search_label':'检索词条',
       'dictionary.search_placeholder':'输入词条名称','dictionary.search_hint':'搜索词条并查看原书页码',
-      'citation.nav_label':'AI论文校注','citation.nav_mobile_label':'校注'}
+      'citation.nav_label':'论文插注校注agent','citation.nav_mobile_label':'校注'}
 
 
 def context():
