@@ -17861,7 +17861,9 @@ def api_search():
             return jsonify(payload_chaptered)
 
     try:
-        public_search_scope = _public_book_keys()
+        # Co-occurrence has a global hit cap. Apply the selected scope before
+        # scanning, otherwise earlier books can exhaust it and hide this book.
+        public_search_scope = _intersect_public_scope(scope_spec) if cooc else _public_book_keys()
         if cooc:
             grouped = corpus.search_cooccurrence_grouped(
                 cooc_keywords, group_limit=1000000, book_scope=public_search_scope
