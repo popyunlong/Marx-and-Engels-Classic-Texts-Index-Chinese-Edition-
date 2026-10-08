@@ -28,7 +28,7 @@ import yaml
 from book_config import load_book_configs
 from runtime_env import (
     BUNDLE_ROOT as _BUNDLE,
-    CONFIG_DIR,
+    BOOK_CONFIG_DIR,
     EXTERNAL_DATA_DIR,
     RUNTIME_ROOT as _EXEDIR,
     resolve_runtime_db_files,
@@ -40,8 +40,8 @@ from runtime_env import (
 # - _EXEDIR：exe 所在目录；未打包时也等于脚本目录
 ROOT = _BUNDLE
 PDF_ROOT = _EXEDIR / "pdfs"
-MANIFEST = CONFIG_DIR / "manifest.yaml"
-VOLUMES = CONFIG_DIR / "volumes.yaml"
+MANIFEST = BOOK_CONFIG_DIR / "manifest.yaml"
+VOLUMES = BOOK_CONFIG_DIR / "volumes.yaml"
 TEXT_CORRECTIONS = Path(__file__).resolve().parent / "config/wenji_text_corrections.yaml"
 BUILD_DB_PATH = EXTERNAL_DATA_DIR / "corpus.sqlite"
 

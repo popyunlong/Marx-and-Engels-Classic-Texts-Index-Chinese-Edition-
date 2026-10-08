@@ -64,6 +64,20 @@ def test_old_page_changes_are_rejected(appended,column,value):
         verify_append(app/'data/corpus.sqlite',db,[p],app/'config',output/'config')
 
 
+def test_index_and_citations_use_bound_volume_years(appended,monkeypatch):
+    import runpy
+    import runtime_env
+    from search import Corpus
+    _,output,p,_=appended
+    monkeypatch.setattr(runtime_env,'BOOK_CONFIG_DIR',output/'config')
+    paths=runpy.run_path(str(Path(__file__).resolve().parents[1]/'build_index.py'))
+    assert paths['MANIFEST']==output/'config/manifest.yaml'
+    assert paths['VOLUMES']==output/'config/volumes.yaml'
+    corpus=object.__new__(Corpus)
+    corpus.volumes_cfg=yaml.safe_load(paths['VOLUMES'].read_text('utf-8'))
+    assert corpus._citation_year('新书',2,p['source_file'])==2009
+
+
 def test_component_tampering_prevents_startup(appended):
     _,output,_,selected=appended
     path=output/'articles.json';path.chmod(0o644);path.write_bytes(b'[]')
