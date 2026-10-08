@@ -7,6 +7,50 @@ from ingestion.history_western import parse_contents
 from ingestion.paddle_catalog import register
 
 
+def test_preface_author_overrides_preserve_the_main_work_and_translation():
+    from ingestion.history_western import complete_work_ranges
+    meta=dict(title='原著',authors=['原作者'],translators=['译者'],work_ranges=[
+        dict(start=2,end=3,title='序言',authors=['序作者'],translators=[]),
+        dict(start=9,end=9,title='译后记',authors=['译者'],translators=[])])
+    original=copy.deepcopy(meta)
+    result=complete_work_ranges(meta,10)
+    assert meta==original
+    assert [(r['start'],r['end']) for r in result['work_ranges']]==[(1,1),(2,3),(4,8),(9,9),(10,10)]
+    assert result['work_ranges'][2]['authors']==['原作者']
+    assert result['work_ranges'][2]['translators']==['译者']
+    assert result['work_ranges'][1]==meta['work_ranges'][0]
+    assert complete_work_ranges(result,10)==result
+
+
+@pytest.mark.parametrize('ranges', [
+    [dict(start=0,end=2)], [dict(start=2,end=11)],
+    [dict(start=2,end=5),dict(start=5,end=8)]])
+def test_invalid_author_partition_is_rejected(ranges):
+    from ingestion.history_western import complete_work_ranges
+    with pytest.raises(ValueError):
+        complete_work_ranges(dict(title='书',authors=['作者'],work_ranges=ranges),10)
+
+
+def test_completed_ranges_keep_body_searchable_without_misattributing_preface(monkeypatch):
+    from types import SimpleNamespace as S
+    from search import Page, Volume
+    from ingestion.history_western import complete_work_ranges
+    from ingestion import paddle_runtime, paddle_scope
+    meta=complete_work_ranges(dict(title='原著',authors=['原作者'],work_ranges=[
+        dict(start=1,end=1,title='译序',authors=['译者'],translators=[])]),3)
+    pages=[Page(n,str(n),'独立正文'+str(n),'独立正文'+str(n),n) for n in range(1,4)]
+    volume=Volume.build('书',1,'source.pdf','原著',pages)
+    corpus=S(get_volume_by_source_file=lambda _:volume,
+             _scoped_volumes=lambda *a:[volume],_chapter_segments=lambda _:[])
+    app=S(corpus=corpus,_resolve_search_scope=lambda *a:({},None,False),
+          _chat_grounding_source_text=lambda *a:None,_research_review_passage_text=lambda *a:None)
+    monkeypatch.setattr(paddle_runtime,'bibliography',lambda:{'书':{1:meta}})
+    paddle_scope.install(app)
+    assert [p.pdf_page for v in corpus._scoped_volumes('书') for p in v.pages]==[1,2,3]
+    assert [p.pdf_page for v in corpus._scoped_volumes('书',paddle_scope.WorkScope({'书':None},['原作者'])) for p in v.pages]==[2,3]
+    assert [p.pdf_page for v in corpus._scoped_volumes('书',paddle_scope.WorkScope({'书':None},['译者'])) for p in v.pages]==[1]
+
+
 def evidence():
     parent=dict(release_id='old',book_data_release={'id':'old-data'},book_data_catalog={'id':'old-toc'})
     metadata=dict(release_id='new',parent_release_id='old',review_mode='append-fast',

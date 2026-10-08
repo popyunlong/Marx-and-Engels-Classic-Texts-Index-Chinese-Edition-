@@ -1,7 +1,7 @@
 {
-  "id": "history-western-20261008-reviewed-v2",
+  "id": "history-western-20261008-reviewed-v3",
   "expected_parent_release": "4a5d0d67c3b0d17f780fa952528994980cbfc2bb-20261008T084702Z-13eac4e1",
-  "packages_sha256": "6b38d7ccfba24beb8d5fcd7cb58e3b8ff5a65a9ede164d05e46996dbf458df89",
+  "packages_sha256": "a329a735fbddf7032880f4a3bf2b4ab7c706e5492e38419b3aff8200238cdf9f",
   "pdf_sha256": [
     "f08232480eab32bc3802893801947c00889b4c506c967f398a48e18db9f9c2f5",
     "b148ae59e433f9c9fe2d670e95f823f3c17fcbd3c7defcfdf6a2c42c7c676e66",

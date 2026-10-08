@@ -27,6 +27,30 @@ def key(value):
     return re.sub(r'[^\w]','',clean_title(value))
 
 
+def complete_work_ranges(metadata, page_count):
+    """Expand reviewed author overrides into the retrieval module's full partition."""
+    overrides = metadata.get('work_ranges', [])
+    if not overrides:
+        return dict(metadata)
+    ranges = []
+    cursor = 1
+    def original(start, end):
+        return dict(start=start, end=end,
+                    title=metadata.get('citation_title') or metadata['title'],
+                    authors=list(metadata['authors']),
+                    translators=list(metadata.get('translators', [])))
+    for part in sorted(overrides, key=lambda part: part['start']):
+        if not cursor <= part['start'] <= part['end'] <= page_count:
+            raise ValueError('author ranges overlap or fall outside the PDF')
+        if cursor < part['start']:
+            ranges.append(original(cursor, part['start'] - 1))
+        ranges.append(dict(part))
+        cursor = part['end'] + 1
+    if cursor <= page_count:
+        ranges.append(original(cursor, page_count))
+    return dict(metadata, work_ranges=ranges)
+
+
 def read_pages(pdf):
     import pymupdf as fitz
     pdf=Path(pdf);paths=list(pdf.parent.glob(pdf.name+'*.json'))
@@ -92,7 +116,7 @@ def parse_contents(rows, pages):
 
 def prepare(pdf,spec):
     rows,evidence,bookmarks=read_pages(pdf);source=sha(pdf)
-    meta=spec['metadata'];segments=spec['segments'];toc_pages=spec['toc_pages']
+    meta=complete_work_ranges(spec['metadata'],len(rows));segments=spec['segments'];toc_pages=spec['toc_pages']
     if 'source_evidence' in evidence:
         import pymupdf
         with pymupdf.open(pdf) as doc:
