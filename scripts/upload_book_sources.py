@@ -8,15 +8,27 @@ from pathlib import Path
 import paramiko
 
 RECEIVER=r'''
-import fcntl,hashlib,json,pathlib,shutil,sys,urllib.request
+import contextlib,fcntl,hashlib,json,pathlib,shutil,sys,time,urllib.request
 expected,sha,size=sys.argv[1],sys.argv[2],int(sys.argv[3])
 assert len(sha)==64 and all(c in '0123456789abcdef' for c in sha)
-lock=open('/run/lock/marx-search-release.lock','a');fcntl.flock(lock,fcntl.LOCK_SH|fcntl.LOCK_NB)
+lock=open('/run/lock/marx-search-release.lock','a')
+@contextlib.contextmanager
+def transaction():
+    deadline=time.monotonic()+120
+    while True:
+        try:
+            fcntl.flock(lock,fcntl.LOCK_SH|fcntl.LOCK_NB);break
+        except BlockingIOError:
+            if time.monotonic()>=deadline:raise
+            time.sleep(1)
+    try:yield
+    finally:fcntl.flock(lock,fcntl.LOCK_UN)
 def check():
     data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/runtime',timeout=10))
     if data['app_release']['id']!=expected or not data['ok']:raise ValueError('live version/health changed')
 check()
-root=pathlib.Path('/home/data/pdfs/自动入库');root.mkdir(parents=True,exist_ok=True)
+root=pathlib.Path('/home/data/pdfs/自动入库')
+with transaction():root.mkdir(parents=True,exist_ok=True)
 target=root/(sha+'.pdf');partial=root/(sha+'.pdf.state-documents-part')
 def fingerprint(path):
     h=hashlib.sha256()
@@ -32,15 +44,23 @@ if offset>size:raise ValueError('partial exceeds original')
 if shutil.disk_usage(root).free-(size-offset)<15*1024**3:raise OSError('data reserve would be violated')
 h=fingerprint(partial)
 print(json.dumps({'offset':offset,'prefix_sha256':h.hexdigest()}),flush=True)
-count=offset;last=count
-with partial.open('ab') as f:
+count=offset;last_check=time.monotonic()
+with transaction():f=partial.open('ab',buffering=0)
+with f:
+    # A private file lock prevents concurrent resumptions of this one original;
+    # network waits never own the global lock needed by health recovery.
+    fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    if f.tell()!=offset:raise ValueError('partial changed before resume')
     while count<size:
         b=sys.stdin.buffer.read(min(65536,size-count))
         if not b:raise EOFError('interrupted transfer retained for resume')
-        f.write(b);h.update(b);count+=len(b)
-        if count-last>=64*1024**2:check();last=count
+        if time.monotonic()-last_check>=5:check();last_check=time.monotonic()
+        with transaction():
+            if f.write(b)!=len(b):raise OSError('short original write')
+        h.update(b);count+=len(b)
 if count!=size or h.hexdigest()!=sha:raise ValueError('original checksum mismatch')
-check();partial.chmod(0o444);partial.rename(target)
+with transaction():
+    check();partial.chmod(0o444);partial.rename(target)
 print(json.dumps({'complete':True,'bytes':count,'sha256':sha}),flush=True)
 '''
 
@@ -55,10 +75,10 @@ def main():
     report=[]
     try:
         for item in json.loads(a.inventory.read_text('utf-8')):
-            if '13349425' in item['pdf']:continue # known truncated original, deferred
+            if item.get('upload') is False:continue
             path=a.source/item['pdf'];sha=item['source_sha256'];size=path.stat().st_size
             command='python3 -u -c '+shlex.quote(RECEIVER)+' '+shlex.quote(a.expected_live)+' '+sha+' '+str(size)
-            stdin,stdout,stderr=c.exec_command(command,timeout=60)
+            stdin,stdout,stderr=c.exec_command(command,timeout=180)
             line=stdout.readline()
             if not line:raise RuntimeError(stderr.read().decode())
             state=json.loads(line)

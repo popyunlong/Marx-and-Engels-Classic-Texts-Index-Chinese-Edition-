@@ -7,13 +7,19 @@ COLLECTIONS = {
     **ECONOMICS_COLLECTIONS,
     'user_recommended': '用户荐书',
     'party_state_documents': '党和国家重要文献',
+    'marxism_history': '马克思主义发展史',
+    'western_marxism': '西马文库',
 }
 
 
 def register(package, books, manifest, volumes):
     proof=package.get('paddle_source',{})
-    if proof.get('schema')!=1 or not re.fullmatch('[0-9a-f]{64}',proof.get('json_sha256','')):
-        raise ValueError('Paddle source identity missing')
+    extracted=package.get('source_evidence',{})
+    if not (proof.get('schema')==1 and re.fullmatch('[0-9a-f]{64}',proof.get('json_sha256',''))):
+        if (extracted.get('schema')!=1 or extracted.get('kind')!='pdf_text_with_markdown'
+                or extracted.get('pdf_sha256')!=package.get('source_sha256')
+                or not re.fullmatch('[0-9a-f]{64}',extracted.get('markdown_sha256',''))):
+            raise ValueError('Original text source identity missing')
     m=package['metadata'];key=m['book_key'];v=m['volume']
     if m['collection'] not in COLLECTIONS or not isinstance(v,int) or v<1:
         raise ValueError('Invalid source catalog')

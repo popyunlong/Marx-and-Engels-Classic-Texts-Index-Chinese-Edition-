@@ -82,9 +82,9 @@ def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda
                 sources.append(source)
                 c.commit()
                 continue
-            economic = bool(package.get('economics28') or package.get('paddle_source'))
+            economic = bool(package.get('economics28') or package.get('paddle_source') or package.get('source_evidence'))
             if economic:
-                if package.get('paddle_source'):
+                if package.get('paddle_source') or package.get('source_evidence'):
                     from .paddle_catalog import register
                 else:
                     from .economics_catalog import register

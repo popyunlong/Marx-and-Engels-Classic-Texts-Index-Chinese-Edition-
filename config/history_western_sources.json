@@ -1,0 +1,630 @@
+{
+  "schema": 1,
+  "books": [
+    {
+      "stem": "11797919",
+      "metadata": {
+        "book_key": "简明马克思主义史",
+        "title": "简明马克思主义史",
+        "citation_title": "简明马克思主义史",
+        "display_title": "简明马克思主义史",
+        "year": "2001",
+        "publisher": "人民出版社",
+        "place": "北京",
+        "authors": [],
+        "translators": [],
+        "editors": [
+          "庄福龄"
+        ],
+        "isbn": "7-01-002950-4",
+        "edition": "第2版",
+        "impression": "2002年2月北京第3次印刷",
+        "source_edition": "2001年第2版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "marxism_history"
+      },
+      "segments": [
+        {
+          "start": 15,
+          "end": 444,
+          "offset": 14,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "copyright_pages": [
+        4
+      ]
+    },
+    {
+      "stem": "11886501",
+      "metadata": {
+        "book_key": "理性和革命",
+        "title": "理性和革命",
+        "citation_title": "理性和革命：黑格尔和社会理论的兴起",
+        "display_title": "理性和革命",
+        "year": "2007",
+        "publisher": "上海人民出版社",
+        "place": "上海",
+        "authors": [
+          "赫伯特·马尔库塞"
+        ],
+        "translators": [
+          "程志民等"
+        ],
+        "editors": [],
+        "isbn": "978-7-208-07150-6",
+        "edition": "第1版",
+        "impression": "2007年10月第1次印刷",
+        "source_edition": "2007年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 8,
+          "end": 368,
+          "offset": 7,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        6,
+        7
+      ],
+      "copyright_pages": [
+        3
+      ]
+    },
+    {
+      "stem": "12206069",
+      "metadata": {
+        "book_key": "启迪：本雅明文选",
+        "title": "启迪：本雅明文选",
+        "citation_title": "启迪：本雅明文选",
+        "display_title": "启迪：本雅明文选",
+        "year": "2008",
+        "publisher": "生活·读书·新知三联书店",
+        "place": "北京",
+        "authors": [
+          "瓦尔特·本雅明"
+        ],
+        "translators": [
+          "张旭东",
+          "王斑"
+        ],
+        "editors": [
+          "汉娜·阿伦特"
+        ],
+        "isbn": "978-7-108-02920-1",
+        "edition": "第1版",
+        "impression": "2008年9月北京第1次印刷",
+        "source_edition": "2008年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 8,
+          "end": 301,
+          "offset": 7,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        6,
+        7
+      ],
+      "copyright_pages": [
+        4
+      ]
+    },
+    {
+      "stem": "12221290_fz",
+      "metadata": {
+        "book_key": "马克思主义发展史",
+        "title": "马克思主义发展史",
+        "citation_title": "马克思主义发展史",
+        "display_title": "马克思主义发展史",
+        "year": "2009",
+        "publisher": "中国人民大学出版社",
+        "place": "北京",
+        "authors": [],
+        "translators": [],
+        "editors": [
+          "顾海良"
+        ],
+        "isbn": "978-7-300-08740-5",
+        "edition": "第1版",
+        "impression": "2009年4月第1次印刷",
+        "source_edition": "2009年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "marxism_history",
+        "cip_year": "2007"
+      },
+      "segments": [
+        {
+          "start": 10,
+          "end": 664,
+          "offset": 9,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        7,
+        8,
+        9
+      ],
+      "copyright_pages": [
+        4
+      ]
+    },
+    {
+      "stem": "13518717",
+      "metadata": {
+        "book_key": "单向度的人",
+        "title": "单向度的人",
+        "citation_title": "单向度的人：发达工业社会意识形态研究",
+        "display_title": "单向度的人",
+        "year": "2014",
+        "publisher": "上海译文出版社",
+        "place": "上海",
+        "authors": [
+          "赫伯特·马尔库塞"
+        ],
+        "translators": [
+          "刘继"
+        ],
+        "editors": [],
+        "isbn": "978-7-5327-6496-9",
+        "edition": "第1版",
+        "impression": "2014年4月第1次印刷",
+        "source_edition": "2014年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 16,
+          "end": 236,
+          "offset": 15,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 6,
+          "end": 13,
+          "offset": 5,
+          "id": "preface_1",
+          "title": "导言",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        14,
+        15
+      ],
+      "copyright_pages": [
+        4
+      ]
+    },
+    {
+      "stem": "14480812",
+      "metadata": {
+        "book_key": "逃避自由",
+        "title": "逃避自由",
+        "citation_title": "逃避自由",
+        "display_title": "逃避自由",
+        "year": "2018",
+        "publisher": "人民文学出版社",
+        "place": "北京",
+        "authors": [
+          "艾里希·弗洛姆"
+        ],
+        "translators": [
+          "刘林海"
+        ],
+        "editors": [],
+        "isbn": "978-7-02-014507-2",
+        "edition": "第1版",
+        "impression": "2018年11月第1次印刷",
+        "source_edition": "2018年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 7,
+          "end": 206,
+          "offset": 6,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 4,
+          "end": 5,
+          "offset": 3,
+          "id": "preface_1",
+          "title": "前言",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        6
+      ],
+      "copyright_pages": [
+        3
+      ]
+    },
+    {
+      "stem": "14939978",
+      "metadata": {
+        "book_key": "为承认而斗争",
+        "title": "为承认而斗争",
+        "citation_title": "为承认而斗争：论社会冲突的道德语法",
+        "display_title": "为承认而斗争",
+        "year": "2021",
+        "publisher": "上海人民出版社",
+        "place": "上海",
+        "authors": [
+          "阿克塞尔·霍耐特"
+        ],
+        "translators": [
+          "胡继华"
+        ],
+        "editors": [],
+        "isbn": "978-7-208-16856-5",
+        "edition": "第2版",
+        "impression": "2021年3月第1次印刷",
+        "source_edition": "2021年第2版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism",
+        "bibliography_note": "曹卫东校；CIP核字年份2020，所据版次为2021年3月第2版。"
+      },
+      "segments": [
+        {
+          "start": 14,
+          "end": 267,
+          "offset": 13,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 5,
+          "end": 7,
+          "offset": 4,
+          "id": "preface_1",
+          "title": "校译者前言",
+          "kind": "front"
+        },
+        {
+          "start": 8,
+          "end": 11,
+          "offset": 7,
+          "id": "preface_2",
+          "title": "前言",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        12,
+        13
+      ],
+      "copyright_pages": [
+        3
+      ]
+    },
+    {
+      "stem": "15435622",
+      "metadata": {
+        "book_key": "理性之蚀",
+        "title": "理性之蚀",
+        "citation_title": "理性之蚀",
+        "display_title": "理性之蚀",
+        "year": "2024",
+        "publisher": "上海人民出版社",
+        "place": "上海",
+        "authors": [
+          "马克斯·霍克海默"
+        ],
+        "translators": [
+          "郑兴"
+        ],
+        "editors": [],
+        "isbn": "978-7-208-18763-4",
+        "edition": "第1版",
+        "impression": "2024年3月第1次印刷",
+        "source_edition": "2024年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 13,
+          "end": 249,
+          "offset": 12,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 5,
+          "end": 8,
+          "offset": 4,
+          "id": "preface_1",
+          "title": "丛书总序",
+          "kind": "front"
+        },
+        {
+          "start": 9,
+          "end": 11,
+          "offset": 8,
+          "id": "preface_2",
+          "title": "序言",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        12
+      ],
+      "copyright_pages": [
+        3
+      ]
+    },
+    {
+      "stem": "交往行为理论",
+      "metadata": {
+        "book_key": "交往行为理论",
+        "title": "交往行为理论",
+        "citation_title": "交往行为理论",
+        "display_title": "交往行为理论（第一卷）：行为合理性与社会合理化",
+        "year": "2018",
+        "publisher": "上海人民出版社",
+        "place": "上海",
+        "authors": [
+          "尤尔根·哈贝马斯"
+        ],
+        "translators": [
+          "曹卫东"
+        ],
+        "editors": [],
+        "isbn": "978-7-208-15354-7",
+        "edition": "第1版",
+        "impression": "2018年9月第1次印刷",
+        "source_edition": "2018年第1版",
+        "volume": 1,
+        "single_volume": false,
+        "collection": "western_marxism",
+        "volume_label": "（第一卷）"
+      },
+      "segments": [
+        {
+          "start": 8,
+          "end": 558,
+          "offset": 7,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        6,
+        7
+      ],
+      "copyright_pages": [
+        4
+      ]
+    },
+    {
+      "stem": "可复制",
+      "metadata": {
+        "book_key": "爱欲与文明",
+        "title": "爱欲与文明",
+        "citation_title": "爱欲与文明",
+        "display_title": "爱欲与文明",
+        "year": "2012",
+        "publisher": "上海译文出版社",
+        "place": "上海",
+        "authors": [
+          "赫伯特·马尔库塞"
+        ],
+        "translators": [
+          "黄勇",
+          "薛民"
+        ],
+        "editors": [],
+        "isbn": "978-7-5327-5762-6",
+        "edition": "第1版",
+        "impression": "2012年4月第1次印刷",
+        "source_edition": "2012年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 33,
+          "end": 298,
+          "offset": 32,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 3,
+          "end": 16,
+          "offset": 2,
+          "id": "preface_1",
+          "title": "1966年政治序言",
+          "kind": "front"
+        },
+        {
+          "start": 17,
+          "end": 18,
+          "offset": 16,
+          "id": "preface_2",
+          "title": "第一版序言",
+          "kind": "front"
+        },
+        {
+          "start": 19,
+          "end": 23,
+          "offset": 18,
+          "id": "preface_3",
+          "title": "1961年标准版序言",
+          "kind": "front"
+        },
+        {
+          "start": 24,
+          "end": 28,
+          "offset": 23,
+          "id": "preface_4",
+          "title": "导言",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        31,
+        32
+      ],
+      "copyright_pages": [
+        2
+      ]
+    },
+    {
+      "stem": "可编辑",
+      "metadata": {
+        "book_key": "马克思主义经济学说史",
+        "title": "马克思主义经济学说史",
+        "citation_title": "马克思主义经济学说史",
+        "display_title": "马克思主义经济学说史",
+        "year": "2020",
+        "publisher": "高等教育出版社",
+        "place": "北京",
+        "authors": [],
+        "translators": [],
+        "editors": [
+          "《马克思主义经济学说史》编写组"
+        ],
+        "isbn": "978-7-04-054443-5",
+        "edition": "第2版",
+        "impression": "2020年9月第2次印刷",
+        "source_edition": "2020年第2版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "marxism_history"
+      },
+      "segments": [
+        {
+          "start": 12,
+          "end": 333,
+          "offset": 11,
+          "id": "body",
+          "title": "正文"
+        }
+      ],
+      "toc_pages": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "copyright_pages": [
+        3
+      ]
+    },
+    {
+      "stem": "最低限度的道德",
+      "metadata": {
+        "book_key": "最低限度的道德",
+        "title": "最低限度的道德",
+        "citation_title": "最低限度的道德：对受损生活的反思",
+        "display_title": "最低限度的道德",
+        "year": "2020",
+        "publisher": "上海人民出版社",
+        "place": "上海",
+        "authors": [
+          "阿多诺"
+        ],
+        "translators": [
+          "丛子钰"
+        ],
+        "editors": [],
+        "isbn": "978-7-208-16373-7",
+        "edition": "第1版",
+        "impression": "2020年4月第1次印刷",
+        "source_edition": "2020年第1版",
+        "volume": 1,
+        "single_volume": true,
+        "collection": "western_marxism"
+      },
+      "segments": [
+        {
+          "start": 17,
+          "end": 322,
+          "offset": 16,
+          "id": "body",
+          "title": "正文"
+        },
+        {
+          "start": 5,
+          "end": 6,
+          "offset": 4,
+          "id": "preface_1",
+          "title": "中译本出版说明",
+          "kind": "front"
+        },
+        {
+          "start": 7,
+          "end": 10,
+          "offset": 6,
+          "id": "preface_2",
+          "title": "献辞",
+          "kind": "front"
+        }
+      ],
+      "toc_pages": [
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ],
+      "copyright_pages": [
+        3
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "stem": "15591973",
+      "reason": "正文印刷页出现八处跳号，需核验缺页；不按全书固定偏移上线"
+    },
+    {
+      "stem": "美学理论",
+      "reason": "重排电子文本无印刷页码，待建立可靠纸本页码对应"
+    }
+  ]
+}

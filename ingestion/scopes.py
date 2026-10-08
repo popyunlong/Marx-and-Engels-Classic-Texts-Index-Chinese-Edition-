@@ -4,6 +4,26 @@
 def install(app_module):
     from .economics_catalog import install_scopes
     install_scopes(app_module)
+    history='marxism_history'
+    app_module._COLLECTION_LABELS[history]='马克思主义发展史'
+    app_module._COLLECTION_DESCRIPTIONS[history]='马克思主义发展与经济学说史著作 · 按原书目录阅读、检索原文并生成引文'
+    history_books=tuple(b.key for b in app_module.BOOK_CONFIGS
+        if b.collection==history and b.available and b.key in app_module.corpus.books)
+    if history_books:
+        group=next((g for g in app_module.CORPUS_SCOPES if g['id']==history),None)
+        if group is None:
+            app_module.CORPUS_SCOPES=(*app_module.CORPUS_SCOPES,
+                dict(id=history,label='马克思主义发展史',books=history_books,
+                     hints=('马克思主义发展史','马克思主义史','马克思主义经济学说史','庄福龄','顾海良')))
+        else:group['books']=history_books
+    western=[b for b in app_module.BOOK_CONFIGS if b.collection=='western_marxism'
+             and b.available and b.key in app_module.corpus.books]
+    app_module._COLLECTION_DESCRIPTIONS['western_marxism']=(
+        f'西方马克思主义经典著作 · {len(western)} 个书目独立编目，可按目录阅读、检索原文并生成规范引文')
+    for group in app_module.CORPUS_SCOPES:
+        if group['id']=='western_marxism':
+            group['books']=tuple(b.key for b in western)
+            group['hints']=tuple(dict.fromkeys((*group['hints'],'马尔库塞','弗洛姆','霍耐特','霍克海默','本雅明')))
     # 用户荐书是独立专题，不归入经济学旧批次或「其他入库文献」。公开窗口由
     # app._book_is_public 动态判定；这里仅登记稳定的专题结构与阅读页顺序。
     collection = 'user_recommended'

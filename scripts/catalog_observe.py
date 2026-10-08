@@ -20,7 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from catalog_health import distribution, slow_routes
+from catalog_health import distribution, slow_routes, resource_pressure
+from release_review_policy import append_fast
 
 ROUTES = ('/api/runtime', '/', '/v2/read')
 
@@ -91,6 +92,17 @@ def compare(rows):
     return {'result': 'fail' if slow else 'pass', 'slow_routes': slow, 'routes': summaries}
 
 
+def compare_fast(rows):
+    """Three actual rounds; do not claim a p95 for this small sample."""
+    summaries={side:{route:distribution([r[side][route] for r in rows])
+        for route in ROUTES} for side in ('live','candidate')}
+    slow=[r for r in ROUTES if
+        summaries['candidate'][r]['median']>max(1.,3*summaries['live'][r]['median'])
+        or summaries['candidate'][r]['max']>max(2.,3*summaries['live'][r]['max'])]
+    failed=len(rows)<3 or slow or any(r.get('resources',{}).get('pressured') is not False for r in rows)
+    return dict(result='fail' if failed else 'pass',slow_routes=slow,routes=summaries)
+
+
 def observe(args):
     args.output.mkdir(parents=True, exist_ok=False)
     report_path = args.output / 'report.json'
@@ -101,6 +113,8 @@ def observe(args):
     if getattr(args, 'server_app', None):
         report.update(schema_version=2, sample_source='server_loopback',
                       processes=args.processes, interval_seconds=args.interval)
+    if getattr(args,'append_fast',False):
+        report.update(schema_version=3,review_mode='append-fast')
     save_report(report_path, report)
     rows = []
     with (args.output / 'probe-evidence.jsonl').open('x', encoding='utf-8') as evidence:
@@ -120,6 +134,8 @@ def _observe_measured(args, report, report_path, rows, evidence):
                     raise RuntimeError('primary or candidate process changed during observation')
                 cycle = time.monotonic()
                 row = {'at': datetime.now(timezone.utc).isoformat(), 'elapsed': cycle - started}
+                if getattr(args,'append_fast',False):
+                    row['resources']=resource_pressure()
                 order = ('live', 'candidate') if len(rows) % 2 == 0 else ('candidate', 'live')
                 for side in order:
                     row[side] = probe(getattr(args, side), getattr(args, side + '_release'),
@@ -130,10 +146,11 @@ def _observe_measured(args, report, report_path, rows, evidence):
                 out.write(json.dumps(row) + '\n'); out.flush()
                 report.update(pairs=len(rows), elapsed_seconds=row['elapsed'])
                 save_report(report_path, report)
-                if row['elapsed'] - rows[0]['elapsed'] >= args.seconds:
+                if (len(rows)>=3 if getattr(args,'append_fast',False)
+                        else row['elapsed'] - rows[0]['elapsed'] >= args.seconds):
                     break
                 time.sleep(max(0, args.interval - (time.monotonic() - cycle)))
-        report.update(compare(rows))
+        report.update(compare_fast(rows) if getattr(args,'append_fast',False) else compare(rows))
         report['elapsed_seconds'] = rows[-1]['elapsed']
         report['pairs'] = len(rows)
     except Exception as exc:
@@ -214,15 +231,17 @@ def main():
             return
         os.umask(0o077)
         metadata, parent, args.output = server_context(args.server_app)
+        args.append_fast=append_fast(metadata,parent)
         args.live, args.candidate = 'http://127.0.0.1:8000', 'http://127.0.0.1:8001'
         args.live_release, args.candidate_release = parent['release_id'], metadata['release_id']
         args.live_catalog = parent.get('book_data_catalog') or parent['catalog_release']
         args.candidate_catalog = metadata.get('book_data_catalog') or metadata['catalog_release']
         args.processes = server_processes(args.candidate_release)
         args.interval = 30
+        if args.append_fast:args.seconds,args.interval=0,1
     elif not all(getattr(args, k) is not None for k in ('live', 'candidate', 'live_release', 'candidate_release', 'live_catalog', 'candidate_catalog', 'output')):
         parser.error('supply --server-app or all paired endpoint arguments')
-    if args.seconds < 1800 or not 10 <= args.interval <= 30:
+    if not getattr(args,'append_fast',False) and (args.seconds < 1800 or not 10 <= args.interval <= 30):
         parser.error('candidate observation requires >=1800s and a 10-30s interval')
     result = observe(args)
     print(json.dumps(result, indent=2))

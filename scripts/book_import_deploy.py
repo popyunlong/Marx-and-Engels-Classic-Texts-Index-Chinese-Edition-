@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -31,13 +32,17 @@ def prepare(root,app):
         raise ValueError('live parent changed before book import')
     for field in ('book_data_release','book_data_catalog','book_import_batch'):
         if field in live:candidate[field]=live[field]
-    specfile=app/'config/state_documents_batch.json'
+    specfile=app/'config/book_import_batch.json'
+    generic=specfile.exists()
+    if not generic:specfile=app/'config/state_documents_batch.json'
     if specfile.exists():
         spec=json.loads(specfile.read_text('utf-8'))
         if spec['id']!=live.get('book_import_batch'):
             if spec['expected_parent_release']!=live['release_id']:
                 raise ValueError('reviewed batch belongs to another live release')
-            incoming=Path('/home/data/marx-state-documents')/spec['id']
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,80}',spec['id']):
+                raise ValueError('unsafe import batch identity')
+            incoming=Path('/home/data/marx-book-imports' if generic else '/home/data/marx-state-documents')/spec['id']
             package_file=incoming/'packages.json'
             if file_hash(package_file)!=spec['packages_sha256']:
                 raise ValueError('approved packages changed')
@@ -74,6 +79,11 @@ def prepare(root,app):
             bundle=Bundle(versions/version,selected['sha256'])
             candidate.update(book_data_release=selected,book_data_catalog=bundle.manifest['catalog'],
                 book_import_batch=spec['id'],release_type='new_books')
+            mode=spec.get('review_mode','standard')
+            candidate.update(review_mode=mode,
+                append_only_verified=bundle.manifest['candidate'].get('append_only_verified') is True)
+            from release_review_policy import append_fast
+            append_fast(candidate,live)
     (app.parent/'release.json').write_bytes(canonical(candidate))
     verify(root,app)
     return candidate

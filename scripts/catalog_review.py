@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from catalog_health import slow_routes, resource_pressure
+from release_review_policy import append_fast
 
 
 def validate_observation(report, metadata, parent, sample_source='same_client_ssh_forward'):
@@ -35,6 +36,8 @@ def validate_observation(report, metadata, parent, sample_source='same_client_ss
 
 
 def validate_server_samples(report, rows, metadata, parent):
+    if append_fast(metadata,parent):
+        return validate_fast_samples(report,rows,metadata,parent)
     from scripts.catalog_observe import compare, ROUTES
     if report.get('schema_version') != 2 or report.get('interval_seconds') != 30:
         raise ValueError('server observation schema or interval mismatch')
@@ -62,6 +65,42 @@ def validate_server_samples(report, rows, metadata, parent):
     if report.get('elapsed_seconds') != rows[-1]['elapsed']:
         raise ValueError('server elapsed time does not match raw observations')
     validate_observation(report, metadata, parent, sample_source='server_loopback')
+
+
+def validate_fast_samples(report,rows,metadata,parent):
+    from scripts.catalog_observe import compare_fast,ROUTES
+    expected=dict(schema_version=3,review_mode='append-fast',sample_source='server_loopback',
+        result='pass',interval_seconds=1,live_release=parent['release_id'],
+        candidate_release=metadata['release_id'],
+        live_catalog=parent.get('book_data_catalog') or parent.get('catalog_release'),
+        candidate_catalog=metadata['book_data_catalog'])
+    if any(report.get(k)!=v for k,v in expected.items()) or len(rows)<3 or report.get('pairs')!=len(rows):
+        raise ValueError('fast append observation identity or rounds mismatch')
+    previous=-1
+    for row in rows:
+        elapsed=row.get('elapsed')
+        if not isinstance(elapsed,(int,float)) or not math.isfinite(elapsed) or elapsed<=previous:
+            raise ValueError('invalid fast observation timeline')
+        if previous>=0 and not .5<=elapsed-previous<=90:
+            raise ValueError('fast observation gap or oversampling')
+        previous=elapsed
+        pressure=row.get('resources',{})
+        if pressure.get('pressured') is not False:
+            raise ValueError('fast observation resource pressure')
+        for name in ('cpu_avg10','io_avg10','memory_avg10','available_mib'):
+            value=pressure.get(name)
+            if not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:
+                raise ValueError('fast resource evidence missing')
+        if (pressure['cpu_avg10']>90 or pressure['io_avg10']>5 or pressure['memory_avg10']>1
+                or pressure['available_mib']<512):raise ValueError('fast resource evidence disagrees')
+        for side in ('live','candidate'):
+            if set(row.get(side,{}))!=set(ROUTES) or any(not isinstance(v,(int,float))
+                    or not math.isfinite(v) or not 0<=v<6 for v in row[side].values()):
+                raise ValueError('fast core route evidence invalid')
+    actual=compare_fast(rows)
+    if (rows[0]['elapsed']>1 or report.get('elapsed_seconds')!=rows[-1]['elapsed']
+            or any(report.get(k)!=v for k,v in actual.items())):
+        raise ValueError('fast observation summary disagrees with server samples')
 
 
 def validate_review(app, evidence):

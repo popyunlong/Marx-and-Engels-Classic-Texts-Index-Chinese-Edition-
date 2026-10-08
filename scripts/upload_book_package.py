@@ -13,13 +13,15 @@ from upload_book_sources import RECEIVER
 def main():
     p=argparse.ArgumentParser();p.add_argument('--file',type=Path,required=True)
     p.add_argument('--batch',required=True);p.add_argument('--expected-live',required=True)
-    p.add_argument('--report',type=Path,required=True);a=p.parse_args()
+    p.add_argument('--report',type=Path,required=True)
+    p.add_argument('--generic',action='store_true');a=p.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,80}',a.batch):raise ValueError('unsafe batch')
     h=hashlib.sha256()
     with a.file.open('rb') as source:
         for block in iter(lambda:source.read(1048576),b''):h.update(block)
     sha=h.hexdigest();size=a.file.stat().st_size
-    receiver=RECEIVER.replace("'/home/data/pdfs/自动入库'",repr('/home/data/marx-state-documents/'+a.batch))
+    root='/home/data/marx-book-imports/' if a.generic else '/home/data/marx-state-documents/'
+    receiver=RECEIVER.replace("'/home/data/pdfs/自动入库'",repr(root+a.batch))
     receiver=receiver.replace("target=root/(sha+'.pdf');partial=root/(sha+'.pdf.state-documents-part')",
                               "target=root/'packages.json';partial=root/'packages.json.part'")
     cfg=paramiko.SSHConfig.from_path(str(Path.home()/'.ssh/config')).lookup('marx-cloud')
@@ -27,7 +29,7 @@ def main():
     c.connect(cfg['hostname'],username=cfg['user'],key_filename=cfg['identityfile'][0],timeout=15)
     try:
         command='python3 -u -c '+shlex.quote(receiver)+' '+shlex.quote(a.expected_live)+' '+sha+' '+str(size)
-        stdin,stdout,stderr=c.exec_command(command,timeout=120)
+        stdin,stdout,stderr=c.exec_command(command,timeout=180)
         line=stdout.readline()
         if not line:raise RuntimeError(stderr.read().decode())
         state=json.loads(line)
