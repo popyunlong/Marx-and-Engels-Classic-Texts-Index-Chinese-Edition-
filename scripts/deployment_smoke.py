@@ -69,6 +69,18 @@ def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
 
     import app as app_module  # noqa: PLC0415
 
+    # The embedded worker and dedicated worker both render citation exports.
+    # Test the release's own dependency set before either can claim a DOCX job.
+    if mode == "server":
+        from io import BytesIO
+        from docx import Document
+        document = Document()
+        document.add_paragraph("引文导出验收")
+        payload = BytesIO()
+        document.save(payload)
+        if not payload.getvalue().startswith(b"PK"):
+            raise RuntimeError("Word 引文导出组件不可用")
+
     if mode == "server" and os.environ.get("APP_RELEASE_FILE"):
         index = getattr(app_module.corpus, "layout_index", None)
         if not index or not index.enabled or index.error or not index.projections:

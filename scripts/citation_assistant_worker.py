@@ -12,6 +12,7 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -63,8 +64,11 @@ def _reload_if_corpus_changed(loaded_fingerprint: tuple[int, int, int, int] | No
 def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
     global _STOP_REQUESTED
     _STOP_REQUESTED = False
-    signal.signal(signal.SIGTERM, _request_stop)
-    signal.signal(signal.SIGINT, _request_stop)
+    # A standalone worker owns process signals; the web process owns signals
+    # when this same executor runs in its background thread.
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _request_stop)
+        signal.signal(signal.SIGINT, _request_stop)
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     processed = 0
     next_cleanup_at = 0.0
