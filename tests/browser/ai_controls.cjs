@@ -281,7 +281,7 @@ test('production navigation labels never overlap account controls at responsive 
       for(const width of [390,820,821,900,1000,1024,1100,1140,1180,1200,1201,1280,1400,1401,1440,1600]) {
         await page.setViewportSize({width,height:900});
         const issues=await page.locator('header').evaluate(header=>{
-          const rects=[...header.querySelectorAll('a,button')].map(el=>({el,r:el.getBoundingClientRect()})).filter(x=>x.r.width&&x.r.height);
+          const rects=[...header.querySelectorAll('.v2brand,.v2acct a,.v2acct button')].map(el=>({el,r:el.getBoundingClientRect()})).filter(x=>x.r.width&&x.r.height);
           const problems=[];
           for(let i=0;i<rects.length;i++) {
             const {el,r}=rects[i];
@@ -297,6 +297,21 @@ test('production navigation labels never overlap account controls at responsive 
           return problems;
         });
         assert.deepEqual(issues,[],`guest=${guest}, width=${width}`);
+        if(width>820){
+          const nav=page.locator('.v2tabs-top');
+          const geometry=await nav.evaluate(el=>{
+            const r=el.getBoundingClientRect(),account=document.querySelector('.v2acct').getBoundingClientRect();
+            return {clear:r.right<=account.left,rows:new Set([...el.querySelectorAll('a')].map(a=>Math.round(a.getBoundingClientRect().top))).size};
+          });
+          assert(geometry.clear && geometry.rows===1,JSON.stringify({guest,width,...geometry}));
+          for(const link of await nav.locator('a').all()){
+            await link.scrollIntoViewIfNeeded();
+            assert(await link.evaluate(el=>{
+              const r=el.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+              return el.contains(hit);
+            }),`navigation link blocked: guest=${guest}, width=${width}`);
+          }
+        }
       }
     }
   } finally {await context.close();}

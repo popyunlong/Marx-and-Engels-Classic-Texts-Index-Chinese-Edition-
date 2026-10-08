@@ -15,10 +15,8 @@
 {% endif %}
 {% set _citation_href = url_for('citation_agent_page') %}
 <header class="v2nav">
-  <a class="v2brand" href="{{ _search_href }}">
+  <a class="v2brand" href="{{ _search_href }}" aria-label="{{ site_text('index.hero_title') }}">
     <span class="v2brand-mark">马</span>
-    {# 与首页大标题共用控制台文案，确保站长修改后新版统一导航同步更新。 #}
-    <span class="v2brand-word">{{ site_text("index.hero_title") }}</span>
   </a>
 
   <nav class="v2tabs-top" aria-label="主导航">

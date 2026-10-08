@@ -37,12 +37,26 @@ test('unavailable map hides both navigation entries and keeps dictionary reading
 });
 async function open(t,width=1400){const ctx=await browser.newContext({viewport:{width,height:960},acceptDownloads:true});t.after(()=>ctx.close());return ctx.newPage();}
 
-for(const width of [390,720,820,821,900,1024,1100,1140,1200,1280,1600]){
+for(const width of [320,390,720,820,821,900,1024,1100,1140,1200,1280,1440,1600,2281]){
   test('dictionary navigation remains accessible at '+width,async t=>{
     const p=await open(t,width);await p.goto(base+'/dictionary');
     assert.equal(await p.locator('.v2nav').count(),1);
     assert.equal(await p.locator('[aria-current="page"]').count(),2);
     assert(await p.locator('.v2brand').getAttribute('href')==='/?restore=1');
+    assert.equal(await p.locator('.v2brand').innerText(),'马');
+    assert(await p.locator('.v2brand').getAttribute('aria-label'));
+    if(width>820){
+      const geometry=await p.evaluate(()=>{
+        const header=document.querySelector('.v2nav').getBoundingClientRect();
+        const account=document.querySelector('.v2acct').getBoundingClientRect();
+        const links=[...document.querySelectorAll('.v2tabs-top a')].map(el=>el.getBoundingClientRect());
+        return {height:header.height,rows:new Set(links.map(r=>Math.round(r.top))).size,
+          accountInside:account.right<=innerWidth && account.bottom<=header.bottom,
+          navClear:document.querySelector('.v2tabs-top').getBoundingClientRect().right<=account.left};
+      });
+      assert.equal(geometry.rows,1,JSON.stringify(geometry));
+      assert(geometry.height<=64 && geometry.accountInside && geometry.navClear,JSON.stringify(geometry));
+    }
     const nav=width<=820?p.locator('.v2tabbar'):p.locator('.v2tabs-top');
     const links=nav.locator('a');
     for(let i=0;i<await links.count();i++){
