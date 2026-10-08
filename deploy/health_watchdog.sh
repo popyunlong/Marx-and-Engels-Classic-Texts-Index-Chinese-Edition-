@@ -19,6 +19,7 @@ GAP=5                        # 两次探测间隔（秒）
 CURL_TIMEOUT=10              # 单次探测超时（秒）：>10s 无首字节即视为假死
 STAMP="/run/marx-search-watchdog.last-restart"
 MIN_RESTART_INTERVAL=120     # 两次自动重启的最小间隔（秒）：防崩溃循环里反复重启
+STARTUP_GRACE_SECONDS=600    # 现有书库启动校验约 270s；不能在监听前反复打断
 
 log() { logger -t marx-watchdog "$*" 2>/dev/null || true; echo "marx-watchdog: $*"; }
 
@@ -33,6 +34,17 @@ fi
 # 服务本就没在运行 → 交给 systemd 的 Restart=always，看门狗不插手。
 if ! systemctl is-active --quiet "$SERVICE"; then
   log "service '$SERVICE' not active; leaving to systemd Restart=always"
+  exit 0
+fi
+
+# Loading a large, version-bound library includes pre-listen route checks.
+# Allow that bounded startup to finish before diagnosing a running server hang.
+started_us=$(systemctl show "$SERVICE" -p ActiveEnterTimestampMonotonic --value)
+uptime_us=$(awk '{printf "%.0f", $1 * 1000000}' /proc/uptime)
+if [[ "$started_us" =~ ^[0-9]+$ ]] && [ "$started_us" -gt 0 ] && \
+   [ "$((uptime_us - started_us))" -ge 0 ] && \
+   [ "$((uptime_us - started_us))" -lt "$((STARTUP_GRACE_SECONDS * 1000000))" ]; then
+  log "service is within its ${STARTUP_GRACE_SECONDS}s startup grace; deferring watchdog probe"
   exit 0
 fi
 
@@ -59,6 +71,18 @@ if [ -f "$STAMP" ]; then
 fi
 
 echo "$now" > "$STAMP" 2>/dev/null || true
+# SIGUSR1 is safe only when this process installed a handler. Older releases
+# may not have one: never send the default-terminating signal to those processes.
+# The current runtime handler writes thread stacks (without locals) to journald.
+main_pid=$(systemctl show "$SERVICE" -p MainPID --value)
+if [[ "$main_pid" =~ ^[0-9]+$ ]] && [ "$main_pid" -gt 0 ]; then
+  caught=$(awk '/^SigCgt:/ {print $2}' "/proc/$main_pid/status" 2>/dev/null || true)
+  if [[ "$caught" =~ ^[0-9a-fA-F]+$ ]] && (( (16#$caught & 512) != 0 )); then
+    log "capturing unresponsive process thread stacks before restart"
+    systemctl kill --kill-who=main --signal=SIGUSR1 "$SERVICE" || true
+    sleep 1
+  fi
+fi
 log "health probe failed ${ATTEMPTS}x (service active but unresponsive) -> restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 log "restart issued for ${SERVICE}"

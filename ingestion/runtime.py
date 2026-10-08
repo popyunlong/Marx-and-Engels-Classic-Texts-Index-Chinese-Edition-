@@ -107,6 +107,8 @@ def verify(app_module, record):
 
 
 def main():
+    from runtime_diagnostics import enable_thread_dumps
+    enable_thread_dumps()
     p = argparse.ArgumentParser()
     p.add_argument("--worker", action="store_true")
     p.add_argument("--with-worker", action="store_true")
