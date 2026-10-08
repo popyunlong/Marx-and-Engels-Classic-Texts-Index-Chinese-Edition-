@@ -125,8 +125,13 @@ def main():
     install_scopes(app)
     from .paddle_runtime import install as install_paddle
     install_paddle(app)
+    from book_data_release import current as current_book_data
+    book_bundle = current_book_data()
+    if book_bundle is not None:
+        verify(app, book_bundle.manifest['candidate'])
     from .generations import install
-    install(app, Path.cwd() / "data/ingestion-generations.json")
+    install(app, book_bundle.root / 'data/ingestion-generations.json' if book_bundle else
+            Path.cwd() / 'data/ingestion-generations.json')
     if args.pinned_template:
         from .pinned_template import install as install_pinned_template
         install_pinned_template(app, args.pinned_template)

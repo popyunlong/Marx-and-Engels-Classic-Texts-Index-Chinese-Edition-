@@ -125,6 +125,11 @@ def page_identity(database):
 
 
 def pinned_path(kind):
+    if kind == 'database':
+        from book_data_release import current as book_data
+        appended = book_data()
+        if appended:
+            return appended.path('database')
     bundle=current()
     return bundle.path(kind) if bundle else None
 

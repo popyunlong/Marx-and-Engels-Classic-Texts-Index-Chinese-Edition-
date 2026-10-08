@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from runtime_env import CONFIG_DIR
+from runtime_env import BOOK_CONFIG_DIR, BUNDLE_ROOT
 
 
-BOOKS_CONFIG_PATH = CONFIG_DIR / "books.yaml"
-WESTERN_REVIEWED_CONFIG_PATH = CONFIG_DIR / "western_marxism_reviewed.yaml"
+BOOKS_CONFIG_PATH = BOOK_CONFIG_DIR / "books.yaml"
+WESTERN_REVIEWED_CONFIG_PATH = BUNDLE_ROOT / "config/western_marxism_reviewed.yaml"
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,20 @@ class BookConfig:
     # 个别多卷本使用「上卷 / 下卷」「第三卷（上）/ 第三卷（下）」等非数字卷标。
     # 这里保存 (volume, label) 对；引文层直接使用 label，避免机械生成错误的「第4卷」。
     volume_labels: tuple[tuple[int, str], ...] = ()
+    volume_bibliography: dict[int, dict[str, Any]] = field(default_factory=dict, compare=False, hash=False)
+    isbn: str = ""
+    impression: str = ""
+
+    def for_volume(self, volume: int) -> "BookConfig":
+        evidence = self.volume_bibliography.get(volume, {})
+        values = {}
+        for name in ('publisher', 'place', 'edition_note', 'source_edition', 'isbn', 'impression'):
+            if name in evidence:
+                values[name] = str(evidence[name] or '')
+        for name in ('authors', 'editors', 'translators', 'organizers'):
+            if name in evidence:
+                values[name] = tuple(evidence[name] or ())
+        return replace(self, **values) if values else self
 
 
 DEFAULT_BOOK_CONFIGS: tuple[BookConfig, ...] = (
@@ -211,6 +225,10 @@ def load_book_configs(path: Path = BOOKS_CONFIG_PATH) -> list[BookConfig]:
                     for k, v in (item.get("volume_labels") or {}).items()
                     if str(k).strip().lstrip("-").isdigit() and str(v).strip()
                 ),
+                volume_bibliography={int(k): dict(v) for k,v in (item.get('volume_bibliography') or {}).items()
+                                     if str(k).isdigit() and isinstance(v, dict)},
+                isbn=str(item.get('isbn') or ''),
+                impression=str(item.get('impression') or ''),
             )
         )
     # 西马增量的逐卷证据与书目元数据集中保存在独立复核表中。运行时按 key 合并为

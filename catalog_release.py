@@ -140,6 +140,10 @@ def catalog_root():
 
 @lru_cache(maxsize=1)
 def active_catalog():
+    from book_data_release import current as book_data
+    appended = book_data()
+    if appended:
+        return appended.catalog()
     selected = binding()
     if selected is None:
         return None  # Legacy mode exists only before the first bound release.
@@ -153,6 +157,13 @@ def historic_catalog(version):
     active = active_catalog()
     if active and active.version == version:
         return active
+    book_receipt = catalog_root().parent / 'book-data-accepted' / (version + '.json')
+    if book_receipt.is_file():
+        from book_data_release import Bundle
+        selected = json.loads(book_receipt.read_text('utf-8'))
+        if selected.get('id') != version:
+            raise ValueError('historical book data receipt mismatch')
+        return Bundle(catalog_root().parent/'book-data-releases'/version,selected['sha256']).catalog()
     receipt = catalog_root().parent / 'catalog-accepted' / (version + '.json')
     approved = json.loads(receipt.read_text(encoding='utf-8'))
     if approved.get('id') != version:

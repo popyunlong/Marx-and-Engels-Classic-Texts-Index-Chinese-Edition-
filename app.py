@@ -3,6 +3,8 @@ from __future__ import annotations
 from page_labels import page_reference, citation_pages, VERSION as PAGE_LABEL_VERSION
 from release_metadata import current_app_release
 from catalog_release import catalog_status
+import book_data_release
+from ingestion.text_highlight import locate as locate_text, locate_pages as locate_text_pages
 
 import json
 import membership_purchase as multi_purchase
@@ -7455,6 +7457,21 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
     except Exception:
         source_url = ""
 
+    text_highlights = None
+    if book_data_release.text_only(source_file):
+        terms = request.args.getlist('term') or (
+            [request.args.get('h')] if request.args.get('h') else (request.args.get('q') or '').split())
+        text_highlights = locate_text(page_obj.raw_text, terms)
+        if len(terms) == 1 and text_highlights['unmatched']:
+            neighbors = [dict(page=p.pdf_page, text=p.raw_text)
+                         for p in volume.pages[max(0,page_index-1):page_index+2]]
+            cross = locate_text_pages(neighbors, terms[0])
+            if cross['pages']:
+                local = next((p['spans'] for p in cross['pages'] if p['page']==page_number), [])
+                text_highlights = locate_text(page_obj.raw_text, [])
+                text_highlights['spans'] = [dict(m,utf16_start=len(page_obj.raw_text[:m['start']].encode('utf-16-le'))//2,
+                    utf16_end=len(page_obj.raw_text[:m['end']].encode('utf-16-le'))//2) for m in local]
+                text_highlights['matched_pages'] = [p['page'] for p in cross['pages']]
     return {
         "source_file": source_file,
         "display_title": volume.display_title,
@@ -7471,7 +7488,9 @@ def _get_page_context_payload(source_file: str, page_number: int) -> dict:
         "citations": citations,
         "source_url": source_url,
         "viewer_url": url_for("pdf_viewer", file=source_file, page=page_number),
-        "current_text": _clean_text(page_obj.raw_text),
+        "current_text": (page_obj.raw_text if book_data_release.text_only(source_file)
+                         else _clean_text(page_obj.raw_text)),
+        "text_highlights": text_highlights,
         "previous_excerpt": _clean_text(previous_text, limit=240),
         "next_excerpt": _clean_text(next_text, limit=240),
     }
@@ -12215,8 +12234,9 @@ def pdf_viewer():
         layout_page_matches=layout_page_matches,
         ocr_geometry_revision=(
             _ocr_geometry_database_revision(OCR_GEOMETRY_DB_PATH)
-            if highlight_text else ""
+            if highlight_text and not book_data_release.text_only(source_file) else ""
         ),
+        text_highlight_only=book_data_release.text_only(source_file),
         ai_upsell=_ai_reader_upsell(url_for("pdf_viewer", **ai_viewer_args)),
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
         ai_web_access_enabled=_ai_web_access_enabled(),
@@ -12256,7 +12276,13 @@ def page_image():
     page_number = max(1, request.args.get("page", type=int) or 1)
     query_text = " ".join((request.args.get("q") or "").split())
     highlight_text = _bounded_highlight_text(request.args.get("h")) or _bounded_highlight_text(query_text)
+    from book_data_release import text_only
+    image_highlight_disabled = text_only(source_file)
+    if image_highlight_disabled:
+        highlight_text = ''
     layout_reference = str(request.args.get("lr") or "")[:160]
+    if image_highlight_disabled:
+        layout_reference = ''
     if layout_reference:
         index = getattr(corpus, "layout_index", None)
         if index is None or index.resolve(source_file, layout_reference, normalize(query_text)) is None:
@@ -12376,6 +12402,7 @@ def api_runtime():
             "management_api_enabled": state["management_api_enabled"],
             "app_release": current_app_release(),
             "corpus_release": corpus_release.status(),
+            "book_data_release": book_data_release.status(),
             "catalog_release": catalog_status(),
             "dictionary_map": {"ready": dictionary_map is not None,
                                "version": dictionary_map.meta["id"] if dictionary_map else None},

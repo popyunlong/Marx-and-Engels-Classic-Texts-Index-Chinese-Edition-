@@ -33,8 +33,11 @@ else:
     RUNTIME_ROOT = BUNDLE_ROOT
 
 CONFIG_DIR = BUNDLE_ROOT / "config"
-MANIFEST_PATH = CONFIG_DIR / "manifest.yaml"
-VOLUMES_PATH = CONFIG_DIR / "volumes.yaml"
+from book_data_release import current as current_book_data
+_book_data = current_book_data()
+BOOK_CONFIG_DIR = _book_data.path('config') if _book_data is not None else CONFIG_DIR
+MANIFEST_PATH = BOOK_CONFIG_DIR / "manifest.yaml"
+VOLUMES_PATH = BOOK_CONFIG_DIR / "volumes.yaml"
 
 EXTERNAL_DATA_DIR = Path(
     os.environ.get("MARX_RUNTIME_DATA_DIR") or (RUNTIME_ROOT / "data")
@@ -263,6 +266,8 @@ def read_expected_hash(path: Path | None) -> str:
 
 
 def read_data_version() -> str:
+    if _book_data is not None:
+        return _book_data.manifest['id']
     for candidate in (
         EXTERNAL_DATA_DIR / "release.json",
         BUNDLED_DATA_DIR / "release.json",

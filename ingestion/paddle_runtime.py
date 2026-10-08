@@ -9,8 +9,8 @@ import yaml
 
 @lru_cache(maxsize=1)
 def bibliography():
-    from runtime_env import CONFIG_DIR
-    data=yaml.safe_load((Path(CONFIG_DIR)/'books.yaml').read_text(encoding='utf-8'))
+    from runtime_env import BOOK_CONFIG_DIR
+    data=yaml.safe_load((Path(BOOK_CONFIG_DIR)/'books.yaml').read_text(encoding='utf-8'))
     return {b['key']:b.get('volume_bibliography',{}) for b in data['books'] if b.get('volume_bibliography')}
 
 

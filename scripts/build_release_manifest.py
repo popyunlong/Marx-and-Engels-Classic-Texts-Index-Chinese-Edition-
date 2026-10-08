@@ -102,6 +102,8 @@ def create_manifest(args: argparse.Namespace) -> int:
         payload['catalog_release'] = json.loads(catalog_binding.read_text(encoding='utf-8'))
     if (source_dir / 'corpus_release.py').is_file():
         payload['corpus_protocol'] = 1
+    if (source_dir / 'book_data_release.py').is_file():
+        payload['book_import_protocol'] = 1
     corpus_binding = source_dir / 'config/corpus_release.json'
     if corpus_binding.exists():
         payload['corpus_release'] = json.loads(corpus_binding.read_text(encoding='utf-8'))

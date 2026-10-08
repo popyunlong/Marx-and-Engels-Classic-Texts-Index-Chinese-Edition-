@@ -42,7 +42,7 @@ ROOT = _BUNDLE
 PDF_ROOT = _EXEDIR / "pdfs"
 MANIFEST = CONFIG_DIR / "manifest.yaml"
 VOLUMES = CONFIG_DIR / "volumes.yaml"
-TEXT_CORRECTIONS = CONFIG_DIR / "wenji_text_corrections.yaml"
+TEXT_CORRECTIONS = Path(__file__).resolve().parent / "config/wenji_text_corrections.yaml"
 BUILD_DB_PATH = EXTERNAL_DATA_DIR / "corpus.sqlite"
 
 

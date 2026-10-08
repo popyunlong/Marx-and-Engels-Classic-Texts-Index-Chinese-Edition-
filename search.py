@@ -277,6 +277,11 @@ class TocEntry:
     printed_page: str | None = None
     kind: str = "body"
     sort_order: int = 0
+    authors: tuple[str, ...] = ()
+    date: str = ""
+    end_pdf_page: int | None = None
+    evidence_method: str = ""
+    provenance_verified: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -287,6 +292,11 @@ class TocEntry:
             "printed_page": self.printed_page,
             "kind": self.kind,
             "sort_order": self.sort_order,
+            "authors": list(self.authors),
+            "date": self.date,
+            "end_pdf_page": self.end_pdf_page,
+            "evidence_method": self.evidence_method,
+            "provenance_verified": self.provenance_verified,
         }
 
 
@@ -312,6 +322,9 @@ class DocumentScope:
     # subsection.  Keep that wider scope on a distinct id so an explicitly
     # requested subsection can still retain its original, exact hard boundary.
     citation_root: bool = False
+    date: str = ""
+    end_pdf_page: int | None = None
+    evidence_method: str = ""
 
     @property
     def document_id(self) -> str:
@@ -328,6 +341,9 @@ class DocumentScope:
             "work_authors": list(self.authors),
             "provenance_verified": self.provenance_verified,
             "chapter_pdf_page": self.chapter_pdf_page,
+            "work_date": self.date,
+            "end_pdf_page": self.end_pdf_page,
+            "evidence_method": self.evidence_method,
         }
 
 
@@ -404,6 +420,10 @@ class Hit:
     document_id: str = ""
     work_title: str = ""
     work_authors: tuple[str, ...] = ()
+    work_date: str = ""
+    chapter_pdf_page: int | None = None
+    work_end_pdf_page: int | None = None
+    evidence_method: str = ""
     provenance_verified: bool = False
     norm_start: int = 0
     norm_end: int = 0
@@ -440,6 +460,10 @@ class Hit:
             "document_id": self.document_id,
             "work_title": self.work_title,
             "work_authors": list(self.work_authors),
+            "work_date": self.work_date,
+            "chapter_pdf_page": self.chapter_pdf_page,
+            "work_end_pdf_page": self.work_end_pdf_page,
+            "evidence_method": self.evidence_method,
             "provenance_verified": self.provenance_verified,
             "chapter_only": self.chapter_only,
             "exact_basis": self.exact_basis if self.match_type == "exact" else None,
@@ -782,13 +806,15 @@ class Corpus:
         return True
 
     def _catalog_entries(self, catalog, source_file=None):
+        from book_data_release import article_fields
         grouped = {}
         rows = catalog.rows if source_file is None else catalog.rows_by_source.get(source_file, [])
         for row in rows:
             grouped.setdefault(row['source_file'], []).append(TocEntry(
                 title=self._clean_title(row['title']), pdf_page=row['pdf_page'],
                 level=row['level'], source='db', printed_page=str(row['printed_page']) if row['printed_page'] else None,
-                kind=row['kind'], sort_order=row['sort_order']))
+                kind=row['kind'], sort_order=row['sort_order'],
+                **article_fields(row['source_file'],row['pdf_page'],row['title'])))
         return grouped
 
     def get_toc_entries(self, source_file: str, catalog_version: str | None = None) -> list[TocEntry]:
@@ -1218,6 +1244,9 @@ class Corpus:
                 authors=root_scope.authors,
                 provenance_verified=root_scope.provenance_verified,
                 citation_root=True,
+                date=root_scope.date,
+                end_pdf_page=root_scope.end_pdf_page,
+                evidence_method=root_scope.evidence_method,
             )
             citation_roots[root_index] = citation_scope
             self._document_scope_by_id[citation_scope.document_id] = citation_scope
@@ -1232,6 +1261,8 @@ class Corpus:
     def _use_whole_book_title_for_citation(self, book: str) -> bool:
         """Use a monograph's title instead of its chapter/preface TOC label."""
         config = self.get_book_config(book)
+        if config.collection == 'party_state_documents':
+            return False
         if bool(config.single_volume) or book == "资本论":
             return True
         title = str(config.citation_title or "").strip()
@@ -1270,7 +1301,7 @@ class Corpus:
             while ancestors and int(entries[ancestors[-1]].level or 1) >= level:
                 ancestors.pop()
 
-            has_responsibility = bool(self._authors_from_toc_title(entry.title))
+            has_responsibility = bool(entry.authors or self._authors_from_toc_title(entry.title))
             subordinate = self._looks_like_subordinate_toc_title(entry.title)
             auxiliary = self._looks_like_auxiliary_toc_title(entry.title)
             if has_responsibility:
@@ -1279,7 +1310,7 @@ class Corpus:
                 authored_ancestor = next(
                     (
                         ancestor for ancestor in reversed(ancestors)
-                        if self._authors_from_toc_title(entries[ancestor].title)
+                        if entries[ancestor].authors or self._authors_from_toc_title(entries[ancestor].title)
                     ),
                     None,
                 )
@@ -1317,7 +1348,7 @@ class Corpus:
                 break
         if end <= start:
             return None
-        authors = self._verified_work_authors(vol.book, vol.volume, entry.title)
+        authors = entry.authors if entry.provenance_verified else self._verified_work_authors(vol.book, vol.volume, entry.title)
         scope = DocumentScope(
             book=vol.book,
             volume=vol.volume,
@@ -1327,7 +1358,10 @@ class Corpus:
             norm_start=start,
             norm_end=end,
             authors=authors,
-            provenance_verified=bool(authors),
+            provenance_verified=entry.provenance_verified or bool(authors),
+            date=entry.date,
+            end_pdf_page=entry.end_pdf_page,
+            evidence_method=entry.evidence_method,
         )
         self._document_scope_by_id[scope.document_id] = scope
         return scope
@@ -1616,6 +1650,10 @@ class Corpus:
         hit.document_id = scope.document_id
         hit.work_title = scope.title
         hit.work_authors = scope.authors
+        hit.work_date = scope.date
+        hit.chapter_pdf_page = scope.chapter_pdf_page
+        hit.work_end_pdf_page = scope.end_pdf_page
+        hit.evidence_method = scope.evidence_method
         hit.provenance_verified = scope.provenance_verified
         return hit
 
@@ -3940,7 +3978,7 @@ class Corpus:
         # 在 file_years 里单独取年份；未命中再回退到「卷→年」映射。
         file_years = self.volumes_cfg.get("file_years") or {}
         year = self._citation_year(book, volume, source_file)
-        book_cfg = self.get_book_config(book)
+        book_cfg = self.get_book_config(book).for_volume(volume)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
 
@@ -4008,7 +4046,7 @@ class Corpus:
         均在此处变成可安全拼接的片段；缺失字段留空，不猜测。
         """
         year = self._citation_year(book, volume, source_file)
-        book_cfg = self.get_book_config(book)
+        book_cfg = self.get_book_config(book).for_volume(volume)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
         pagination = citation_pages(pages)
@@ -4149,7 +4187,7 @@ class Corpus:
             return self._make_citation(book, volume, pages, source_file=source_file)
         file_years = self.volumes_cfg.get("file_years") or {}
         year = self._citation_year(book, volume, source_file)
-        book_cfg = self.get_book_config(book)
+        book_cfg = self.get_book_config(book).for_volume(volume)
         publisher = book_cfg.publisher or self.volumes_cfg.get("publisher", "人民出版社")
         place = book_cfg.place or self.volumes_cfg.get("place", "北京")
         pagination = citation_pages(pages)

@@ -33,11 +33,11 @@ def install(app_module):
     # The legacy xi group has a fixed list. Extend it from the same version's
     # bibliography so future imports do not require editing the production app.
     for group in app_module.CORPUS_SCOPES:
-        if group['id'] != 'xi':
+        if group['id'] not in {'xi', 'party_docs'}:
             continue
         existing = tuple(group['books'])
         additions = tuple(book.key for book in app_module.BOOK_CONFIGS
-                          if book.collection == 'xi_thought' and book.available
+                          if book.collection == ('xi_thought' if group['id']=='xi' else 'party_state_documents') and book.available
                           and book.key in app_module.corpus.books and book.key not in existing)
         group['books'] = tuple(dict.fromkeys((*existing, *additions)))
     registered={key for group in app_module.CORPUS_SCOPES for key in group['books']}

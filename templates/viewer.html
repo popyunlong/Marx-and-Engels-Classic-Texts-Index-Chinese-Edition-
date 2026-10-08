@@ -1042,6 +1042,9 @@
         if (h && h !== q) u.searchParams.set('h', h);
         var lr = new URL(window.location.href).searchParams.get('lr');
         if (lr) u.searchParams.set('lr', lr);
+        if ({{ text_highlight_only | default(false) | tojson }}) {
+          for (var key of ['rev', 'q', 'h', 'grev', 'lr']) u.searchParams.delete(key);
+        }
         if ({{ (layout_warning | default('')) | tojson }}) { u.searchParams.delete('q'); u.searchParams.delete('h'); u.searchParams.delete('lr'); }
         var im = new Image();
         try { im.fetchPriority = 'high'; } catch (e) {}
@@ -1749,6 +1752,10 @@
   function buildPageImageUrl(page) {
     const url = new URL('/page-image', window.location.origin);
     url.searchParams.set('file', sourceFile);
+    if ({{ text_highlight_only | default(false) | tojson }}) {
+      url.searchParams.set('page', page);
+      return url.pathname + url.search;
+    }
     const layoutRef = activeLayoutRef;
     if (layoutRef) url.searchParams.set('lr', layoutRef);
     url.searchParams.set('page', page);
@@ -1992,7 +1999,8 @@
   async function fetchPageContext(page, retries = 2) {
     for (let attempt = 0; ; attempt++) {
       try {
-        const resp = await fetch(`/api/pdf-page-context?file=${encodeURIComponent(sourceFile)}&page=${page}`);
+        const anchor = findHighlight || highlightQueryText || queryText || '';
+        const resp = await fetch(`/api/pdf-page-context?file=${encodeURIComponent(sourceFile)}&page=${page}&h=${encodeURIComponent(anchor)}`);
         if (resp.status >= 400 && resp.status < 500) throw new Error(`页面上下文加载失败（${resp.status}）`);
         if (resp.status >= 500) throw Object.assign(new Error('服务暂时不可用'), { _retryable: true });
         const data = await resp.json();
@@ -2089,7 +2097,22 @@
     // 高亮：检索来源词 + 「查找本书」当前词，合并去重
     const terms = [...new Set([...queryTerms(findHighlight), ...queryTerms(highlightQueryText || queryText)])]
       .sort((a, b) => b.length - a.length);
-    if (activeLayoutRef) {
+    if (currentPageContext.text_highlights) {
+      const raw = currentPageContext.current_text || '';
+      let cursor = 0, html = '';
+      for (const m of currentPageContext.text_highlights.spans || []) {
+        const a = m.utf16_start, b = m.utf16_end;
+        if (a < cursor || raw.slice(a, b) !== m.text) { html = esc(raw); cursor = raw.length; break; }
+        html += esc(raw.slice(cursor, a)) + '<mark>' + esc(m.text) + '</mark>';
+        cursor = b;
+      }
+      pageText.innerHTML = html + esc(raw.slice(cursor));
+      pageText.title = currentPageContext.text_highlights.hint || '';
+      requestAnimationFrame(() => {
+        const mark = pageText.querySelector('mark');
+        if (mark) mark.scrollIntoView({ block: 'nearest' });
+      });
+    } else if (activeLayoutRef) {
       const spans = layoutPageMatches.filter(m => Number(m.pdf_page) === Number(currentPageNumber));
       const raw = currentPageContext.current_text || '';
       let cursor = 0, html = '';
@@ -2126,6 +2149,8 @@
   function closeFind() {
     if (readerFind) readerFind.hidden = true;
     findHighlight = ''; findMatches = []; findIndex = -1;
+    pageContextCache.clear();
+    if ({{ text_highlight_only | default(false) | tojson }}) fetchPageContext(currentPageNumber).then(c => { applyPageContext(c); renderPageText(); }).catch(() => {});
     if (findResults) findResults.innerHTML = '';
     if (findCount) findCount.textContent = '';
     renderPageText();
@@ -2134,6 +2159,8 @@
     if (!findInput) return;
     const q = (findInput.value || '').trim();
     findHighlight = q;
+    pageContextCache.clear();
+    if ({{ text_highlight_only | default(false) | tojson }}) fetchPageContext(currentPageNumber).then(c => { if (findHighlight === q) { applyPageContext(c); renderPageText(); } }).catch(() => {});
     if (!q) { findMatches = []; findIndex = -1; findResults.innerHTML = ''; findCount.textContent = ''; renderPageText(); return; }
     const seq = ++findReqSeq;
     findCount.textContent = '查找中…';
@@ -2204,7 +2231,15 @@
 
   if (copyCiteBtn) {
     copyCiteBtn.addEventListener('click', async () => {
-      const text = getCurrentPageCitation() || pageCiteText.textContent || '';
+      const citation = getCurrentPageCitation() || pageCiteText.textContent || '';
+      const selection = window.getSelection();
+      let quote = '';
+      if (selection && selection.rangeCount && pageText.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+        quote = selection.toString();
+      } else if ({{ text_highlight_only | default(false) | tojson }}) {
+        quote = [...pageText.querySelectorAll('mark')].map(m => m.textContent).join('\n');
+      }
+      const text = quote ? quote + '\n' + citation : citation;
       if (!text) return;
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {

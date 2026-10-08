@@ -15,7 +15,8 @@ import yaml
 from .store import sha256
 
 
-def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda: None, *, unit_checkpoint=None):
+def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda: None, *, unit_checkpoint=None,
+                    data_root=None, config_root=None, pdf_root=None):
     """Append only, preserving every old row ID and every existing config entry.
 
     Caller owns the common publish lock. SQLite backup makes a coherent snapshot;
@@ -39,13 +40,16 @@ def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda
     config = directory / "config"
     data.mkdir(exist_ok=True)
     config.mkdir(exist_ok=True)
-    base = app_root / "data/corpus.sqlite"
+    data_root = Path(data_root) if data_root else app_root / 'data'
+    config_root = Path(config_root) if config_root else app_root / 'config'
+    pdf_root = Path(pdf_root) if pdf_root else app_root / 'pdfs'
+    base = data_root / "corpus.sqlite"
     base_sha = sha256(base, poll)
-    configs = {name: sha256(app_root / "config" / name) for name in ["books.yaml", "manifest.yaml", "volumes.yaml"]}
-    books_config = yaml.safe_load((app_root / "config/books.yaml").read_text(encoding="utf-8"))
+    configs = {name: sha256(config_root / name) for name in ["books.yaml", "manifest.yaml", "volumes.yaml"]}
+    books_config = yaml.safe_load((config_root / "books.yaml").read_text(encoding="utf-8"))
     books = books_config["books"]
-    manifest = yaml.safe_load((app_root / "config/manifest.yaml").read_text(encoding="utf-8"))
-    volumes = yaml.safe_load((app_root / "config/volumes.yaml").read_text(encoding="utf-8"))
+    manifest = yaml.safe_load((config_root / "manifest.yaml").read_text(encoding="utf-8"))
+    volumes = yaml.safe_load((config_root / "volumes.yaml").read_text(encoding="utf-8"))
     candidate_db = data / "corpus.sqlite"
     with sqlite3.connect(base.as_uri() + "?mode=ro", uri=True) as src, sqlite3.connect(candidate_db) as dst:
         src.backup(dst, pages=256, progress=lambda *_: poll(), sleep=.01)
@@ -67,7 +71,7 @@ def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda
             expected = "pdfs/自动入库/" + package["source_sha256"] + ".pdf"
             if source != expected or not 1 <= len(package["pages"]) == package["page_count"]:
                 raise ValueError("候选清单无效")
-            if sha256(app_root / source, poll) != package["source_sha256"]:
+            if sha256(pdf_root / source[5:], poll) != package["source_sha256"]:
                 raise ValueError("生产 PDF 与验收哈希不符")
             if c.execute("SELECT 1 FROM pages WHERE source_file=? LIMIT 1", (source,)).fetchone():
                 if not package.get('economics28_revision') or not package.get('economics28'):
@@ -128,12 +132,12 @@ def build_candidate(packages, app_root: Path, directory: Path, checkpoint=lambda
                 raise ValueError('精校改变了授权文字以外的页面字段')
         if c.execute('SELECT COUNT(*) FROM (SELECT * FROM original.toc_entries EXCEPT SELECT * FROM main.toc_entries)').fetchone()[0]:
             raise ValueError('候选库改变了已有目录')
-    for path in (app_root / "config").iterdir():
+    for path in config_root.iterdir():
         if path.is_file():
             shutil.copy2(path, config / path.name)
     for name, value in [("books.yaml", books_config), ("manifest.yaml", manifest), ("volumes.yaml", volumes)]:
         (config / name).write_text(yaml.safe_dump(value, allow_unicode=True, sort_keys=False), encoding="utf-8")
-    if sha256(base, poll) != base_sha or any(sha256(app_root / "config" / n) != h for n, h in configs.items()):
+    if sha256(base, poll) != base_sha or any(sha256(config_root / n) != h for n, h in configs.items()):
         raise ValueError("生产基线已经变化，需要重新合并")
     digest = sha256(candidate_db, poll)
     (data / "corpus.sqlite.sha256").write_text(digest + "\n", encoding="ascii")

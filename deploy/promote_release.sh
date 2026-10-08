@@ -216,6 +216,8 @@ mkdir -p "$FINAL/.deps"
 PYTHONPYCACHEPREFIX="$FINAL/.pycache" PYTHONPATH="$FINAL/app:$FINAL/.deps" \
   "$RUNTIME_PYTHON" -m compileall -q "$FINAL/app"
 chown -R root:www-data "$FINAL"
+PYTHONPYCACHEPREFIX="$APP_ROOT/runtime-cache" PYTHONPATH="$FINAL/app:$FINAL/.deps" \
+  "$RUNTIME_PYTHON" "$FINAL/app/scripts/book_import_deploy.py" prepare --root "$APP_ROOT" --app "$FINAL/app"
 (
   cd "$FINAL/app"
   PYTHONPATH="$FINAL/app:$FINAL/.deps" APP_RELEASE_FILE="$FINAL/release.json" \
@@ -420,6 +422,7 @@ fi
 
 # Register this already-validated version before it can appear in a reader URL.
 # Retain the receipt even after a failed cutover so an opened tab stays readable.
+python3 "$FINAL/app/scripts/book_import_deploy.py" accept --root "$APP_ROOT" --app "$FINAL/app"
 if ! python3 "$FINAL/app/scripts/catalog_deploy.py" accept --root "$APP_ROOT" --app "$FINAL/app"; then
   retire_candidate_if_drained "unaccepted catalogue candidate" || KEEP_FINAL=1
   exit 4
@@ -570,7 +573,8 @@ entry = {
     "event": "promote",
     "release_id": sys.argv[2],
     "parent_release_id": sys.argv[3],
-    "catalog_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("catalog_release"),
+    "catalog_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("book_data_catalog") or json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("catalog_release"),
+    "book_data_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("book_data_release"),
     "dictionary_graph_release": json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")).get("dictionary_graph_release"),
     "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
 }

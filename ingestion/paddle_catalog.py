@@ -6,6 +6,7 @@ from .economics_catalog import COLLECTIONS as ECONOMICS_COLLECTIONS
 COLLECTIONS = {
     **ECONOMICS_COLLECTIONS,
     'user_recommended': '用户荐书',
+    'party_state_documents': '党和国家重要文献',
 }
 
 
@@ -16,7 +17,7 @@ def register(package, books, manifest, volumes):
     m=package['metadata'];key=m['book_key'];v=m['volume']
     if m['collection'] not in COLLECTIONS or not isinstance(v,int) or v<1:
         raise ValueError('Invalid source catalog')
-    if not m.get('authors') or not m.get('citation_title') or not re.fullmatch('[12][0-9]{3}',m['year']):
+    if not (m.get('authors') or m.get('editors')) or not m.get('citation_title') or not re.fullmatch('[12][0-9]{3}',m['year']):
         raise ValueError('Bibliographic source fields missing')
     existing=next((b for b in books if b['key']==key),None)
     if existing:
@@ -51,7 +52,7 @@ def register(package, books, manifest, volumes):
         books.append(existing)
     if m.get('volume_label'):existing.setdefault('volume_labels',{})[v]=m['volume_label']
     existing.setdefault('volume_bibliography',{})[v]={field:m.get(field,[]) for field in ('translators','editors')}
-    existing['volume_bibliography'][v].update(place=m['place'],edition_note=m.get('edition',''))
+    existing['volume_bibliography'][v].update({field:m.get(field,'') for field in ('place','publisher','year','isbn','impression','source_edition')},edition_note=m.get('edition',''))
     if m.get('work_ranges'):existing['volume_bibliography'][v]['work_ranges']=m['work_ranges']
     manifest.setdefault(key,[]).append(dict(file=package['source_file'],volume=v,display_title=m['display_title'],
                                            sha256=package['source_sha256'],page_count=package['page_count']))
