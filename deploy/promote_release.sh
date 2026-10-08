@@ -24,10 +24,10 @@ CADDYFILE="${MARX_CADDYFILE:-/etc/caddy/Caddyfile}"
 MAIN_SERVICE="${MARX_MAIN_SERVICE:-marx-search.service}"
 PRIMARY_PORT="${MARX_PRIMARY_PORT:-8000}"
 CANDIDATE_PORT="${MARX_CANDIDATE_PORT:-8001}"
-# Loading the production corpus can take a little over a minute while both the
-# candidate and primary coexist. Keep serving the healthy side of the cutover
-# while allowing the replacement up to three minutes to become ready.
-HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-90}"
+# Corpus loading plus per-volume append checks run before the listener opens.
+# Keep serving the healthy side while allowing six minutes for those checks;
+# the same health and exact-release requirements still gate every cutover.
+HEALTH_RETRIES="${MARX_DEPLOY_HEALTH_RETRIES:-180}"
 DRAIN_TIMEOUT_SECONDS="${MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS:-720}"
 CANDIDATE_UNIT="marx-search-candidate-${RELEASE_ID//[^A-Za-z0-9_.-]/-}.service"
 MANAGED_SUPPORT_UNITS=(
