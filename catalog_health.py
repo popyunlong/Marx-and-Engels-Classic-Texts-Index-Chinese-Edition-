@@ -16,6 +16,13 @@ WINDOW_SECONDS = 300
 CORE_ROUTES = frozenset(('/', '/api/runtime', '/login', '/v2/read', '/reader', '/viewer'))
 
 
+def resource_pressure_blocks(values):
+    # Full-memory PSI is stalled time, not RAM usage. Brief 1-10% reclaim
+    # during a verified append is advisory while capacity and routes are healthy.
+    return (values['cpu_avg10'] > 90 or values['io_avg10'] > 5
+            or values['memory_avg10'] > 10 or values['available_mib'] < 512)
+
+
 def resource_pressure(proc=Path('/proc')):
     """Linux PSI provides contention evidence while the release owns its lock."""
     values = {}
@@ -28,8 +35,8 @@ def resource_pressure(proc=Path('/proc')):
     values['available_mib'] = int(memory['MemAvailable'].strip().split()[0]) / 1024
     if any(not math.isfinite(v) or v < 0 for v in values.values()):
         raise ValueError('invalid resource pressure metrics')
-    values['pressured'] = (values['cpu_avg10'] > 90 or values['io_avg10'] > 5
-                          or values['memory_avg10'] > 1 or values['available_mib'] < 512)
+    values['pressured'] = resource_pressure_blocks(values)
+    values['memory_reclaim_warning'] = values['memory_avg10'] > 1
     return values
 
 

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from catalog_health import slow_routes, resource_pressure
+from catalog_health import slow_routes, resource_pressure, resource_pressure_blocks
 from release_review_policy import append_fast
 
 
@@ -91,8 +91,7 @@ def validate_fast_samples(report,rows,metadata,parent):
             value=pressure.get(name)
             if not isinstance(value,(int,float)) or not math.isfinite(value) or value<0:
                 raise ValueError('fast resource evidence missing')
-        if (pressure['cpu_avg10']>90 or pressure['io_avg10']>5 or pressure['memory_avg10']>1
-                or pressure['available_mib']<512):raise ValueError('fast resource evidence disagrees')
+        if resource_pressure_blocks(pressure):raise ValueError('fast resource evidence disagrees')
         for side in ('live','candidate'):
             if set(row.get(side,{}))!=set(ROUTES) or any(not isinstance(v,(int,float))
                     or not math.isfinite(v) or not 0<=v<6 for v in row[side].values()):

@@ -153,6 +153,15 @@ def test_candidate_resource_pressure_requires_real_counters(tmp_path):
         (tmp_path / 'pressure' / name).write_text('some avg10=0.00\nfull avg10=0.00\n')
     (tmp_path / 'meminfo').write_text('MemAvailable: 1048576 kB\n')
     assert not resource_pressure(tmp_path)['pressured']
+    (tmp_path / 'pressure' / 'memory').write_text('full avg10=3.39\n')
+    sample = resource_pressure(tmp_path)
+    assert not sample['pressured'] and sample['memory_reclaim_warning']
+    (tmp_path / 'pressure' / 'memory').write_text('full avg10=10.01\n')
+    assert resource_pressure(tmp_path)['pressured']
+    (tmp_path / 'pressure' / 'memory').write_text('full avg10=0.00\n')
+    (tmp_path / 'meminfo').write_text('MemAvailable: 523264 kB\n')
+    assert resource_pressure(tmp_path)['pressured']
+    (tmp_path / 'meminfo').write_text('MemAvailable: 1048576 kB\n')
     (tmp_path / 'pressure' / 'io').write_text('full avg10=6.00\n')
     assert resource_pressure(tmp_path)['pressured']
     (tmp_path / 'pressure' / 'io').write_text('full avg10=nan\n')
