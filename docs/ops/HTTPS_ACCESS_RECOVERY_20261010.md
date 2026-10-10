@@ -10,9 +10,17 @@
 - The live corpus had 614 distinct `source_file` values; 610 were on the live public manifest, with four unmatched Western Marxism paths. The current paths for *Marx and Engels Collected Works* volume 1 and second edition volume 44 were on the manifest. September 4 repository history used the same paths for those two volumes. The downloadable files in the user's screenshots were unavailable for byte-level inspection.
 - A read-only query of the production corpus found ten pages containing “健康” in each of those two volumes. The new HTML/Word comparison test uses their actual PDF page numbers (volume 1: 150, 394, 410, 430, 431, 432, 435, 436, 439, 440; volume 44: 73, 212, 214, 216, 283, 298, 305, 311, 312, 314). Its citation text is synthetic, so the test establishes link construction and page targeting, not the historical exported file's exact content.
 - Existing HTML and Word export code uses the same percent-encoded `viewer_url`. New exports now omit the link if its public source is not on the manifest while retaining the citation; the reader shows a useful message for an unavailable source. This does not repair previously downloaded files.
-- Cloudflare account configuration and WeChat's current verdict were not available through the connected session. Those states must be verified by the authorized account operator before claiming completion.
+- Cloudflare dashboard inspection found an `@` A record to `38.76.174.234` and a proxied `www` CNAME to the apex, both with automatic TTL. The zone currently uses **Full**, not Full (strict), encryption. No Page Rules were configured before this change. WeChat's current verdict remains unavailable.
 
 The read-only origin configuration snapshots and bounded public probe output are stored under `D:\CodexData\outputs\https-access-20261010`. They contain neither private keys nor user content.
+
+## Deployed `www` 302 and rollback identity
+
+The designated coordinator deployed the exact GET/HEAD Single Redirect in Cloudflare on 2026-10-10. Its rule ID is `3d091d3afd094d1d8e89168a748db61f`, name `marx_www_to_apex_20261010`, and status is **302**. The pre-change dashboard record and deployed settings are under `D:\CodexData\outputs\https-access-20261010\snapshot`. This batch did not alter DNS, the apex rule, Caddy, HSTS, or encryption mode.
+
+The first post-change probe verified all four Cloudflare addresses: apex HTTPS stayed HTTP 200 and `www` HTTPS became HTTP 302; HTTP `www` also returned 302. A path with encoded file, page, Chinese query, space and plus parameters preserved the complete query string in `Location`. Following the redirect reached apex HTTP 200 in one hop. A POST to `www` was not redirected and retained the pre-existing origin handshake failure. The 30-minute observation is still in progress; do not promote to 301 until at least 24 hours of healthy observation.
+
+To roll back this batch, acquire `/run/lock/marx-search-release.lock`, verify the rule still has the exact ID and settings above, and disable or delete only `3d091d3afd094d1d8e89168a748db61f`. Probe both hostnames again. If another operator has changed the rule, stop and inspect rather than deleting by name alone.
 
 ## Independent `www` repair
 
