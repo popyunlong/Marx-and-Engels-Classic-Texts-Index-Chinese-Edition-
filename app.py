@@ -12142,7 +12142,7 @@ def pdf_viewer():
     _rate_limit_reader_ip_or_abort("view")
     _require_source_public(source_file)
     if not source_file or source_file not in ALLOWED_SOURCE_FILES:
-        abort(404, description="请求的资料不在白名单中。")
+        abort(404, description="原文链接所指资料已更新或暂不可用，请返回检索页重新检索。")
     volume = corpus.get_volume_by_source_file(source_file) if corpus else None
     if volume is None:
         abort(404, description="未找到对应的卷册信息。")
@@ -17447,12 +17447,17 @@ def _search_export_viewer_url(job: dict, hit: dict, *, personal: bool = False) -
         submission_id = mylib_corpus.submission_id_from_key(str(hit.get("book") or ""))
         return f"{base}/mylib/{int(submission_id)}?{urllib.parse.urlencode({'page': page, 'q': query, 'h': highlight})}" \
             if submission_id else ""
+    # The corpus can retain a volume after its source has left the public
+    # manifest. Export the citation, but never advertise a broken reader link.
+    source_file = str(hit.get("source_file") or "")
+    if source_file not in ALLOWED_SOURCE_FILES:
+        return ""
     printed = [
         str(value) for value in (hit.get("printed_pages") or [])
         if value
     ]
     params = urllib.parse.urlencode({
-        "file": str(hit.get("source_file") or ""),
+        "file": source_file,
         "page": page,
         "q": query,
         "h": highlight,
