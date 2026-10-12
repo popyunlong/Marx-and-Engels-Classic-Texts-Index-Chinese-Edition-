@@ -331,6 +331,15 @@ for(const legacy of [false,true]) test(`composer layout adapts to its own width 
     if(r.width<640) assert.ok(r.mode.bottom<=r.retrieval.top && r.retrieval.bottom<=r.submit.top,JSON.stringify(r));
     else assert.ok(Math.abs((r.mode.top+r.mode.bottom)-(r.submit.top+r.submit.bottom))<2 && r.retrieval.top>=r.mode.bottom,JSON.stringify(r));
     if([320,390,1440].includes(width)) await snapshot(page,`mode-${legacy?'legacy':'v2'}-${width}`);
+    await page.locator('.aip-mode-button[data-depth="research"]').click();
+    await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
+    await noOverflow(page);
+    for(const selector of ['#aipComposerGrounding','#aipScopeToggle']) {
+      await visibleAndClickable(page,selector);
+      assert.ok(await page.locator(selector).evaluate(el=>el.scrollWidth<=el.clientWidth+1),'research label exceeds button');
+    }
+    if(width===320) await snapshot(page,`mode-research-${legacy?'legacy':'v2'}-${width}`);
+    await page.locator('.aip-mode-button[data-depth="quick"]').click();
   }
 });
 
