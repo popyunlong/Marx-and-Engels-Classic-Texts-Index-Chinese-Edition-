@@ -524,6 +524,7 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
 #aip-root .aip-mode-button.active { background: #fff; color: var(--aip-accent); border-color: #d8b9ad; box-shadow: 0 1px 3px rgba(64, 44, 27, .08); }
 .aip-retrieval-actions { display: flex; min-width: 0; gap: 8px; }
 #aip-root .aip-retrieval-actions button { min-width: 0; min-height: 44px; padding: 8px; font-size: .8rem; }
+.aip-retrieval-actions .aip-retrieval-toggle { flex-shrink: 0; }
 #aip-root .aip-retrieval-actions .aip-scope-trigger { display: flex; align-items: center; gap: 4px; }
 .aip-retrieval-actions #aipScopeSummary { min-width: 0; flex-shrink: 1; }
 .aip-submit-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
