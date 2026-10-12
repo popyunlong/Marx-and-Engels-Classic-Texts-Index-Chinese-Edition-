@@ -34,8 +34,8 @@ before(async () => {
 });
 after(async () => { if(browser) await browser.close(); if(server) server.kill(); });
 
-async function setup(t, {width=768,height=800,legacy=false,access=true,researchAccess=access,entitlements,seed=true,guest=false}={}) {
-  const context=await browser.newContext({viewport:{width,height}});
+async function setup(t, {width=768,height=800,deviceScaleFactor=1,legacy=false,access=true,researchAccess=access,entitlements,seed=true,guest=false}={}) {
+  const context=await browser.newContext({viewport:{width,height},deviceScaleFactor});
   const page=await context.newPage();
   const errors=[], requests=[];
   let pending=null, hold=false, fail=false;
@@ -316,9 +316,11 @@ for(const researchAccess of [true,false]) test(`mode permissions agree at both e
   assert.equal(await allowed.getAttribute('aria-pressed'),'true');
 });
 
-for(const legacy of [false,true]) test(`composer layout adapts to its own width (${legacy?'legacy':'v2'})`,async t=>{
-  const {page}=await setup(t,{legacy});
-  for(const width of [320,375,390,640,768,960,1181,1440]) {
+for(const legacy of [false,true]) test(`composer uses at most two compact rows (${legacy?'legacy':'v2'})`,async t=>{
+  const fixture=await setup(t,{legacy,deviceScaleFactor:1.75});
+  const {page}=fixture;
+  // Include a zoomed half-window and both sides of the one-row breakpoint.
+  for(const width of [320,375,390,480,576,640,768,800,820,960,1181,1440,1920]) {
     await page.setViewportSize({width,height:900});
     await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
     await noOverflow(page);
@@ -326,11 +328,23 @@ for(const legacy of [false,true]) test(`composer layout adapts to its own width 
     const r=await page.locator('#aipComposer').evaluate(el=>{
       const rect=s=>el.querySelector(s).getBoundingClientRect().toJSON();
       const css=getComputedStyle(el);
-      return {width:el.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),mode:rect('.aip-mode-switch'),retrieval:rect('.aip-retrieval-actions'),submit:rect('.aip-submit-actions')};
+      return {width:el.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),mode:rect('.aip-mode-switch'),grounding:rect('#aipComposerGrounding'),scope:rect('#aipScopeToggle'),clear:rect('#aipClear'),send:rect('#aipSend'),actions:rect('.aip-actions')};
     });
-    if(r.width<640) assert.ok(r.mode.bottom<=r.retrieval.top && r.retrieval.bottom<=r.submit.top,JSON.stringify(r));
-    else assert.ok(Math.abs((r.mode.top+r.mode.bottom)-(r.submit.top+r.submit.bottom))<2 && r.retrieval.top>=r.mode.bottom,JSON.stringify(r));
-    if([320,390,1440].includes(width)) await snapshot(page,`mode-${legacy?'legacy':'v2'}-${width}`);
+    const center=rect=>(rect.top+rect.bottom)/2;
+    assert.ok(r.mode.width<230,'mode switch should not stretch across the composer');
+    assert.ok(r.actions.height<=92,'toolbar is taller than two compact rows: '+JSON.stringify(r));
+    assert.ok(Math.abs(center(r.mode)-center(r.send))<2,JSON.stringify(r));
+    for(const control of [r.grounding,r.scope,r.clear]) {
+      assert.ok(Math.abs(center(control)-center(r.grounding))<2,JSON.stringify(r));
+      if(r.width>=720) assert.ok(Math.abs(center(control)-center(r.mode))<2,JSON.stringify(r));
+      else assert.ok(control.top>=r.mode.bottom,JSON.stringify(r));
+    }
+    const controls=[r.mode,r.grounding,r.scope,r.clear,r.send];
+    for(let i=0;i<controls.length;i++) for(let j=i+1;j<controls.length;j++) {
+      const a=controls[i],b=controls[j];
+      assert.ok(a.right<=b.left || b.right<=a.left || a.bottom<=b.top || b.bottom<=a.top,'composer buttons overlap');
+    }
+    if([320,390,576,640,960,1440].includes(width)) await snapshot(page,`mode-${legacy?'legacy':'v2'}-${width}`);
     await page.locator('.aip-mode-button[data-depth="research"]').click();
     await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
     await noOverflow(page);
@@ -341,6 +355,17 @@ for(const legacy of [false,true]) test(`composer layout adapts to its own width 
     if(width===320) await snapshot(page,`mode-research-${legacy?'legacy':'v2'}-${width}`);
     await page.locator('.aip-mode-button[data-depth="quick"]').click();
   }
+  await page.setViewportSize({width:320,height:844});
+  await page.locator('#aipSessions').evaluate(el=>el.getAnimations().forEach(a=>a.finish()));
+  fixture.hold();
+  await page.locator('#aipPrompt').fill('检查停止按钮占位');
+  // Stop has a longer label than send, and must still fit the same two rows.
+  await page.locator('#aipSend').click();
+  await page.locator('#aipStop').waitFor({state:'visible'});
+  await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
+  for(const selector of ['#aipStop','#aipScopeToggle','#aipComposerGrounding']) await visibleAndClickable(page,selector);
+  await noOverflow(page);
+  await page.locator('#aipStop').click();
 });
 
 test('locked accounts do not expose enabled composer controls',async t=>{
