@@ -19,7 +19,8 @@
   var modelBadge = $("#aipModelBadge");
   var lockEl = $("#aipLock");
   var controlsEl = $("#aipControls");
-  var depthTabs = Array.prototype.slice.call(root.querySelectorAll(".aip-depth-tab"));
+  var depthTabs = Array.prototype.slice.call(root.querySelectorAll(".aip-depth-tab, .aip-mode-button"));
+  var modeHint = $("#aipModeHint");
   var providerRow = $("#aipProviderRow");
   var modelSelect = $("#aipModel");
   var zhipuOpt = $("#aipModelZhipuOpt");
@@ -2739,7 +2740,7 @@
       var d = t.getAttribute("data-depth");
       var on = d === depth;
       t.classList.toggle("active", on);
-      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.setAttribute(t.classList.contains("aip-mode-button") ? "aria-pressed" : "aria-selected", on ? "true" : "false");
       t.disabled = !depthAllowed(d);
     });
     var isResearch = depth === "research";
@@ -2758,6 +2759,7 @@
   function setDepth(d) {
     if (d !== "quick" && d !== "research") return;
     if (!depthAllowed(d)) return;   // 无权限的档不可切
+    if (d === depth) return;        // 重复选中不重置用户选择的模型
     depth = d;
     try { localStorage.setItem(AI_DEPTH_KEY, d); } catch (_) {}
     applyDepthUI(true);
@@ -2772,6 +2774,10 @@
   }
   function updateSendEnabled() {
     var canUse = sessionsReady && runtimeEnabled() && depthAllowed(depth);
+    if (modeHint) {
+      modeHint.hidden = !streaming;
+      modeHint.textContent = streaming ? "模式选择下次提问生效，当前回答继续生成。" : "";
+    }
     // 生成中：把「发送提问 / 清空会话」换成单个「停止回答」，仿主流 AI 对话的收发切换。
     if (sendBtn) { sendBtn.disabled = !(canUse && !streaming); sendBtn.hidden = streaming; }
     if (stopBtn) stopBtn.hidden = !streaming;
@@ -3043,6 +3049,16 @@
   // ===================== 事件绑定 =====================
   depthTabs.forEach(function (t) {
     t.addEventListener("click", function () { setDepth(t.getAttribute("data-depth")); });
+    t.addEventListener("keydown", function (e) {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      var siblings = depthTabs.filter(function (button) { return button.parentElement === t.parentElement && !button.disabled; });
+      if (!siblings.length) return;
+      e.preventDefault();
+      var index = e.key === "Home" ? 0 : e.key === "End" ? siblings.length - 1
+        : (siblings.indexOf(t) + (e.key === "ArrowRight" ? 1 : -1) + siblings.length) % siblings.length;
+      focusWithoutScroll(siblings[index]);
+      setDepth(siblings[index].getAttribute("data-depth"));
+    });
   });
   // 引用条目「展开/收起」+「复制引文」：事件委托到对话容器（renderMessages 会重建 DOM，故不逐个绑定）。
   if (messagesEl) {
