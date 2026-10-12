@@ -34,20 +34,21 @@ before(async () => {
 });
 after(async () => { if(browser) await browser.close(); if(server) server.kill(); });
 
-async function setup(t, {width=768,height=800,legacy=false,access=true,seed=true,guest=false}={}) {
+async function setup(t, {width=768,height=800,legacy=false,access=true,researchAccess=access,entitlements,seed=true,guest=false}={}) {
   const context=await browser.newContext({viewport:{width,height}});
   const page=await context.newPage();
   const errors=[], requests=[];
-  let pending=null, hold=false;
+  let pending=null, hold=false, fail=false;
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/api/**', async route=>{
     const url=new URL(route.request().url());
     let payload={ok:true,enabled:false,eligible:false};
-    if(url.pathname==='/api/ai/assistant-config') payload={...config,access,research_access:access,access_gate:'login'};
+    if(url.pathname==='/api/ai/assistant-config') payload={...config,access,research_access:researchAccess,ai_entitlements:entitlements,access_gate:'login'};
     if(['/api/ai/search-chat','/api/search/associative'].includes(url.pathname)) {
       requests.push(route.request().postDataJSON());
       if(hold) { pending=route; return; }
       payload={ok:true,answer_markdown:'测试回答',review_markdown:'测试研究综述',citations:[],review_citations:[]};
+      if(fail) { payload={ok:false,error:'测试失败'}; fail=false; }
     }
     await route.fulfill({json:payload});
   });
@@ -61,9 +62,9 @@ async function setup(t, {width=768,height=800,legacy=false,access=true,seed=true
   });
   t.after(async()=>{ if(pending) await pending.abort().catch(()=>{}); await context.close(); assert.deepEqual(errors,[]); });
   await page.goto(base+(legacy?'/ai':'/v2/ai')+(guest?'?guest=1':''));
-  if(access) await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
+  if(access || researchAccess) await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
   else await page.locator('#aipLock').waitFor({state:'visible'});
-  return {page,requests,hold:()=>{hold=true;},release:async()=>{hold=false;if(pending){await pending.fulfill({json:{ok:true,answer_markdown:'已完成'}}).catch(()=>{});pending=null;}}};
+  return {page,requests,fail:()=>{fail=true;},hold:()=>{hold=true;},release:async()=>{hold=false;if(pending){await pending.fulfill({json:{ok:true,answer_markdown:'已完成',review_markdown:'研究已完成'}}).catch(()=>{});pending=null;}}};
 }
 async function visibleAndClickable(page, selector) {
   const result=await page.locator(selector).evaluate(el=>{
@@ -180,7 +181,7 @@ for(const legacy of [false,true]) test(`retrieval controls synchronize and send 
   await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
   assert.equal(await page.locator('#aipComposerGrounding').getAttribute('aria-pressed'),'false');
   assert.match(await page.locator('#aipScopeSummary').innerText(),/全部/);
-  await page.locator('[data-depth="research"]').click();
+  await page.locator('.aip-depth-tab[data-depth="research"]').click();
   assert.equal(await page.locator('#aipComposerGrounding').isDisabled(),true);
   assert.equal(await page.locator('#aipComposerGrounding').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('#aipScopeToggle').isEnabled(),true);
@@ -227,6 +228,112 @@ test('changing retrieval settings during generation only affects the next reques
   assert.equal(requests.at(-1).grounding,false);
   assert.doesNotMatch(await page.locator('#aipMessages').innerText(),/请求失败/);
 });
+for(const legacy of [false,true]) test(`composer mode preserves drafts, scope, preferences and routes (${legacy?'legacy':'v2'})`,async t=>{
+  const {page,requests}=await setup(t,{legacy});
+  const quick=page.locator('.aip-mode-button[data-depth="quick"]');
+  const research=page.locator('.aip-mode-button[data-depth="research"]');
+  await page.locator('#aipScopeChips [data-scope="all"]').click();
+  await page.locator('#aipComposerGrounding').click();
+  await page.locator('#aipPrompt').fill('保留这段草稿');
+  const history=await page.locator('#aipMessages').innerText();
+  await research.click();
+  assert.equal(await page.locator('#aipPrompt').inputValue(),'保留这段草稿');
+  assert.equal(await page.locator('#aipMessages').innerText(),history);
+  assert.equal(requests.length,0);
+  assert.equal(await research.getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('.aip-depth-tab[data-depth="research"]').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('#aipComposerGrounding').isDisabled(),true);
+  await research.press('ArrowLeft');
+  assert.equal(await quick.getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#aipGrounding').isChecked(),false);
+  await quick.press('End');
+  await page.locator('#aipSend').click();
+  await page.waitForFunction(()=>!window.__marxBusy());
+  assert.equal(requests.at(-1).mode,'research');
+  assert.equal(requests.at(-1).scope,'all');
+  assert.equal(requests.at(-1).model,'deepseek-v4-pro');
+  await page.reload();
+  await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
+  assert.equal(await research.getAttribute('aria-pressed'),'true');
+  await page.locator('.aip-depth-tab[data-depth="quick"]').click();
+  assert.equal(await quick.getAttribute('aria-pressed'),'true');
+  await page.locator('#aipPrompt').fill('快速跟进');
+  await page.locator('#aipSend').click();
+  await page.waitForFunction(()=>!window.__marxBusy());
+  assert.equal(requests.at(-1).question,'快速跟进');
+  assert.equal(requests.at(-1).model,'deepseek-v4-flash');
+  assert.equal(requests.at(-1).grounding,false);
+  assert.ok(requests.at(-1).messages.some(m=>m.content.includes('保留这段草稿')));
+});
+
+test('reselecting a mode does not reset an entitled custom model',async t=>{
+  const {page}=await setup(t,{entitlements:{
+    models:{'deepseek-v4-flash':['off'],'deepseek-v4-pro':['on'],'mimo-v2.5':['off']},
+    defaults:{quick:{provider:'deepseek',model:'deepseek-v4-flash',reasoning_effort:'off'}},
+  }});
+  await page.locator('#aipModel').selectOption('mimo|mimo-v2.5|off');
+  await page.locator('.aip-mode-button[data-depth="quick"]').click();
+  await page.locator('.aip-depth-tab[data-depth="quick"]').click();
+  assert.equal(await page.locator('#aipModel').inputValue(),'mimo|mimo-v2.5|off');
+});
+
+for(const complete of [true,false]) test(`mode changes leave the in-flight request intact (${complete?'complete':'stop and retry'})`,async t=>{
+  const fixture=await setup(t);
+  const {page,requests}=fixture;
+  fixture.hold();
+  await page.locator('#aipPrompt').fill('当前快速问题');
+  await page.locator('#aipSend').click();
+  await page.waitForFunction(()=>window.__marxBusy());
+  await page.locator('.aip-mode-button[data-depth="research"]').click();
+  await page.locator('#aipPrompt').fill('下一问研究');
+  assert.match(await page.locator('#aipModeHint').innerText(),/下次提问生效/);
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].model,'deepseek-v4-flash');
+  if(!complete) await page.locator('#aipStop').click();
+  await fixture.release();
+  await page.waitForFunction(()=>!window.__marxBusy());
+  assert.equal(await page.locator('#aipModeHint').isVisible(),false);
+  if(complete) assert.match(await page.locator('#aipMessages .msg.assistant').last().innerText(),/快速问答[\s\S]*已完成/);
+  else fixture.fail();
+  await page.locator('#aipSend').click();
+  await page.waitForFunction(()=>!window.__marxBusy());
+  assert.equal(requests.at(-1).mode,'research');
+  if(!complete) {
+    assert.match(await page.locator('#aipMessages').innerText(),/测试失败/);
+    await page.locator('#aipPrompt').fill('重试研究');
+    await page.locator('#aipSend').click();
+    await page.waitForFunction(()=>!window.__marxBusy());
+    assert.match(await page.locator('#aipMessages .msg.assistant').last().innerText(),/测试研究综述/);
+  }
+});
+
+for(const researchAccess of [true,false]) test(`mode permissions agree at both entry points (research=${researchAccess})`,async t=>{
+  const {page}=await setup(t,{access:!researchAccess,researchAccess});
+  const denied=researchAccess?'quick':'research';
+  for(const cls of ['.aip-mode-button','.aip-depth-tab']) assert.equal(await page.locator(`${cls}[data-depth="${denied}"]`).isDisabled(),true);
+  const allowed=page.locator(`.aip-mode-button[data-depth="${researchAccess?'research':'quick'}"]`);
+  await allowed.focus(); await allowed.press('ArrowRight');
+  assert.equal(await allowed.getAttribute('aria-pressed'),'true');
+});
+
+for(const legacy of [false,true]) test(`composer layout adapts to its own width (${legacy?'legacy':'v2'})`,async t=>{
+  const {page}=await setup(t,{legacy});
+  for(const width of [320,375,390,640,768,960,1181,1440]) {
+    await page.setViewportSize({width,height:900});
+    await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
+    await noOverflow(page);
+    for(const selector of ['.aip-mode-button[data-depth="quick"]','.aip-mode-button[data-depth="research"]','#aipComposerGrounding','#aipScopeToggle','#aipClear','#aipSend']) await visibleAndClickable(page,selector);
+    const r=await page.locator('#aipComposer').evaluate(el=>{
+      const rect=s=>el.querySelector(s).getBoundingClientRect().toJSON();
+      const css=getComputedStyle(el);
+      return {width:el.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),mode:rect('.aip-mode-switch'),retrieval:rect('.aip-retrieval-actions'),submit:rect('.aip-submit-actions')};
+    });
+    if(r.width<640) assert.ok(r.mode.bottom<=r.retrieval.top && r.retrieval.bottom<=r.submit.top,JSON.stringify(r));
+    else assert.ok(Math.abs((r.mode.top+r.mode.bottom)-(r.submit.top+r.submit.bottom))<2 && r.retrieval.top>=r.mode.bottom,JSON.stringify(r));
+    if([320,390,1440].includes(width)) await snapshot(page,`mode-${legacy?'legacy':'v2'}-${width}`);
+  }
+});
+
 test('locked accounts do not expose enabled composer controls',async t=>{
   const {page}=await setup(t,{access:false});
   assert.equal(await page.locator('#aipComposer').isVisible(),false);

@@ -5,7 +5,7 @@
   <title>AI 研究对话 · {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261002-controls-2">
+  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261012-mode-1">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=20261002-inline-1">
   {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=31">{% endif %}
   {% include '_refined_assets.html' %}
@@ -141,13 +141,22 @@
         <div class="aip-composer" id="aipComposer" hidden>
           <textarea id="aipPrompt" rows="2" placeholder="输入你的问题，回车发送（Shift+Enter 换行）"></textarea>
           <div class="aip-actions">
-            <button type="button" class="aip-primary" id="aipSend">发送提问</button>
-            {# 生成中显示「停止回答」，中止当前在飞的这条回答，随即可开启新的提问。 #}
-            <button type="button" class="aip-stop" id="aipStop" hidden>■ 停止回答</button>
-            <button type="button" class="aip-secondary" id="aipClear">清空会话</button>
-            <button type="button" class="aip-retrieval-toggle" id="aipComposerGrounding" aria-pressed="true">检索引文库 <span id="aipComposerGroundingState">开启</span></button>
-            <button type="button" class="aip-scope-trigger" id="aipScopeToggle" aria-haspopup="dialog" aria-controls="aipScopePanel" aria-expanded="false">范围与著作 <span id="aipScopeSummary">自动</span><span aria-hidden="true"> ▾</span></button>
+            <div class="aip-mode-switch" role="group" aria-label="提问模式">
+              <button type="button" class="aip-mode-button active" data-depth="quick" aria-pressed="true">快速问答</button>
+              <button type="button" class="aip-mode-button" data-depth="research" aria-pressed="false">研究级检索</button>
+            </div>
+            <div class="aip-retrieval-actions">
+              <button type="button" class="aip-retrieval-toggle" id="aipComposerGrounding" aria-pressed="true">检索引文库 <span id="aipComposerGroundingState">开启</span></button>
+              <button type="button" class="aip-scope-trigger" id="aipScopeToggle" aria-haspopup="dialog" aria-controls="aipScopePanel" aria-expanded="false">范围与著作 <span id="aipScopeSummary">自动</span><span aria-hidden="true"> ▾</span></button>
+            </div>
+            <div class="aip-submit-actions">
+              <button type="button" class="aip-secondary" id="aipClear">清空会话</button>
+              <button type="button" class="aip-primary" id="aipSend">发送提问</button>
+              {# 生成中以停止回答替换发送；模式切换仅作用于下一问。 #}
+              <button type="button" class="aip-stop" id="aipStop" hidden>■ 停止回答</button>
+            </div>
           </div>
+          <p class="aip-mode-hint" id="aipModeHint" role="status" hidden></p>
         </div>
 
       </section>
@@ -169,6 +178,6 @@
     </section>
   </div>
   <script src="/static/book-scope/book-scope.js?v=20261002-inline-1" defer></script>
-  <script src="/static/ai-page/ai-page.js?v=20261006-stop-1" defer></script>
+  <script src="/static/ai-page/ai-page.js?v=20261012-mode-1" defer></script>
 </body>
 </html>

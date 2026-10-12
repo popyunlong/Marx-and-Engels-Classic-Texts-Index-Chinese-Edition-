@@ -499,6 +499,7 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
 
 /* ---------- 输入区 ---------- */
 .aip-composer {
+  container: aip-composer / inline-size;
   flex: none;
   position: sticky; bottom: var(--aip-bottom-height); z-index: 10;   /* 避让移动端底部导航 */
   margin-bottom: 14px;
@@ -516,8 +517,25 @@ body.v2 #aip-root .msg-body.aip-essay h4 { color: #6f5310; }
   background: rgba(255, 255, 255, 0.98);
 }
 .aip-composer textarea:focus { outline: none; border-color: rgba(143, 29, 29, 0.6); box-shadow: 0 0 0 4px rgba(143, 29, 29, 0.08); }
-.aip-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.aip-actions button { border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid var(--aip-line); background: #fff; color: var(--aip-text); }
+.aip-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.aip-actions button { border-radius: 10px; padding: 10px 18px; min-height: 44px; white-space: nowrap; font: inherit; font-weight: 700; cursor: pointer; border: 1px solid var(--aip-line); background: #fff; color: var(--aip-text); }
+.aip-mode-switch { display: flex; min-width: 0; padding: 3px; gap: 3px; border: 1px solid var(--aip-line); border-radius: 12px; background: #f6f0e8; }
+#aip-root .aip-mode-button { flex: 1; min-width: 0; padding: 8px 14px; border-color: transparent; background: transparent; font-size: .88rem; color: var(--aip-muted); }
+#aip-root .aip-mode-button.active { background: #fff; color: var(--aip-accent); border-color: #d8b9ad; box-shadow: 0 1px 3px rgba(64, 44, 27, .08); }
+.aip-retrieval-actions { display: flex; min-width: 0; gap: 8px; }
+#aip-root .aip-retrieval-actions button { min-width: 0; min-height: 44px; padding: 8px; font-size: .8rem; }
+#aip-root .aip-retrieval-actions .aip-scope-trigger { display: flex; align-items: center; gap: 4px; }
+.aip-retrieval-actions #aipScopeSummary { min-width: 0; flex-shrink: 1; }
+.aip-submit-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.aip-submit-actions .aip-primary, .aip-submit-actions .aip-stop { margin-left: auto; }
+.aip-mode-hint { margin: 0; color: var(--aip-muted); font-size: .78rem; line-height: 1.5; }
+@container aip-composer (min-width: 640px) {
+  .aip-actions { grid-template-columns: max-content minmax(0, 1fr); align-items: center; }
+  .aip-mode-switch { grid-column: 1; grid-row: 1; }
+  .aip-submit-actions { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .aip-submit-actions .aip-primary, .aip-submit-actions .aip-stop { margin-left: 0; }
+  .aip-retrieval-actions { grid-column: 1 / -1; grid-row: 2; }
+}
 .aip-primary { background: var(--aip-accent) !important; border-color: var(--aip-accent) !important; color: #fff !important; }
 .aip-primary:hover { background: var(--aip-accent-deep) !important; }
 .aip-primary:disabled { opacity: .55; cursor: not-allowed; }
