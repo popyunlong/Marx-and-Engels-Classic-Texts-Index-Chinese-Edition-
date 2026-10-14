@@ -226,15 +226,19 @@
     .catalog-total { flex:0 0 auto; min-width:96px; padding:10px 14px; color:var(--accent); background:var(--soft); border:1px solid rgba(143,29,29,.16); border-radius:16px; text-align:center; }
     .catalog-total strong { display:block; font:700 1.7rem/1 Georgia,"Times New Roman",serif; }
     .catalog-total span { font-size:.78rem; letter-spacing:.08em; }
+    .catalog-section { min-width:0; }
+    .catalog-section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+    .catalog-section-head h3 { margin:0; font-size:1.3rem; }
+    .catalog-section + .catalog-section { margin-top:14px; }
     .catalog-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 18px;
     }
     .journal-group { padding:20px; border:1px solid rgba(222,207,189,.9); border-radius:18px; background:rgba(255,253,249,.82); box-shadow:0 10px 25px rgba(64,44,27,.045); }
-    .journal-group:nth-child(3) { grid-column:1 / -1; }
+    .catalog-grid > .journal-group:nth-child(3) { grid-column:1 / -1; }
     .journal-group-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding-bottom:13px; border-bottom:2px solid var(--accent); }
-    .journal-group h3 { margin:0; font-size:1.08rem; }
+    .journal-group h4 { margin:0; font-size:1.08rem; }
     .journal-group-subtitle { display:block; margin-top:5px; color:var(--muted); font:italic .74rem/1.4 Georgia,"Times New Roman",serif; letter-spacing:.08em; }
     .journal-count { flex:0 0 auto; padding:3px 9px; border-radius:999px; color:var(--accent); background:var(--soft); font-size:.78rem; font-weight:700; }
     .journal-list {
@@ -252,13 +256,18 @@
       border:1px solid rgba(222,207,189,.76);
       border-radius:11px;
       background:#fffefa;
-      font:600 .88rem/1.42 Georgia,"Times New Roman",serif;
+      min-width:0;
+      overflow-wrap:anywhere;
+      font-size:.88rem;
+      font-weight:600;
+      line-height:1.5;
     }
+    .journal-name-en { display:block; margin-top:4px; color:var(--muted); font:400 .82rem/1.45 Georgia,"Times New Roman",serif; }
     .journal-chip::before { content:""; position:absolute; left:11px; width:6px; height:6px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(143,29,29,.08); }
     @media (max-width: 760px) {
       .catalog-head { align-items:flex-start; }
       .catalog-grid { grid-template-columns:1fr; }
-      .journal-group:nth-child(3) { grid-column:auto; }
+      .catalog-grid > .journal-group:nth-child(3) { grid-column:auto; }
       .journal-list { grid-template-columns:1fr; }
     }
     @media (max-width: 480px) {
@@ -386,26 +395,43 @@
     <section class="card catalog">
       <div class="catalog-head">
         <div>
-          <h2>可订阅英文期刊</h2>
-          <p class="muted">国内外研究动态的外刊来源，按研究方向整理。每周汇合国内期刊目录，提供题名、作者、双语摘要、关键词与引文资料；原刊未提供的信息明确留缺。</p>
+          <h2>国内外研究动态 · 覆盖期刊</h2>
+          <p class="muted">每周汇集国内外期刊目录与研究新文，提供题名、作者、可获得的摘要、关键词及引文资料；外文题名与已有摘要提供中文翻译。各刊更新频率不同，每期内容以实际收录为准。</p>
         </div>
-        <div class="catalog-total"><strong>{{ journal_catalog.total }}</strong><span>JOURNALS</span></div>
+        <div class="catalog-total"><strong>{{ journal_catalog.total }}</strong><span>种期刊 · 合计</span></div>
       </div>
+      <section class="catalog-section" aria-labelledby="domestic-journals">
+        <div class="catalog-section-head">
+          <h3 id="domestic-journals">国内期刊</h3>
+          <span class="journal-count">{{ journal_catalog.zh_count }} 种</span>
+        </div>
+        <div class="journal-list">
+          {% for source in journal_catalog.zh %}
+          <div class="journal-chip"><span>{{ source.name }}</span></div>
+          {% endfor %}
+        </div>
+      </section>
+      <section class="catalog-section" aria-labelledby="foreign-journals">
+        <div class="catalog-section-head">
+          <h3 id="foreign-journals">国外期刊</h3>
+          <span class="journal-count">{{ journal_catalog.en_count }} 种</span>
+        </div>
       <div class="catalog-grid">
         {% for group in journal_catalog.en_groups %}
         <section class="journal-group">
           <div class="journal-group-head">
-            <div><h3>{{ group.title }}</h3><span class="journal-group-subtitle">{{ group.subtitle }}</span></div>
+            <div><h4>{{ group.title }}</h4><span class="journal-group-subtitle">{{ group.subtitle }}</span></div>
             <span class="journal-count">{{ group.count }} 种</span>
           </div>
           <div class="journal-list">
             {% for source in group.sources %}
-            <div class="journal-chip"><span>{{ source.name }}</span></div>
+            <div class="journal-chip"><span>{% if source.name_zh %}{{ source.name_zh }}{% endif %}<span class="journal-name-en" lang="en">{{ source.name }}</span></span></div>
             {% endfor %}
           </div>
         </section>
         {% endfor %}
       </div>
+      </section>
     </section>
   </div>
   <script>

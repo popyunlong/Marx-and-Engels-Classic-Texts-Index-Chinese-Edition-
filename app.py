@@ -8905,6 +8905,8 @@ def delete_account():
 
 @app.route("/pricing")
 def pricing():
+    from research_catalog import research_source_catalog
+
     state = current_view_state()
     plans = list_active_plans()
     purchase_enabled = multi_purchase.enabled()
@@ -8919,7 +8921,7 @@ def pricing():
         state=state,
         plans=plans,
         purchase_options=purchase_options,
-        journal_catalog=journal_source_catalog(),
+        journal_catalog=research_source_catalog(),
         next_url=next_url,
         payment_ready=False,
     )

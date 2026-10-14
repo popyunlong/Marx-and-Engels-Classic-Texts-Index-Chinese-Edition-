@@ -11,6 +11,35 @@ from research_routes import register
 from scripts import research_domestic_sync as sync
 
 
+def test_membership_catalog_matches_monitored_scope(monkeypatch):
+    from research_catalog import research_source_catalog
+    import journal_alerts
+
+    monkeypatch.setattr(journal_alerts, "list_journal_sources",
+                        Mock(side_effect=AssertionError("Coverage must not read legacy sources")))
+    catalog = research_source_catalog()
+    expected_domestic = {
+        "中国社会科学", "马克思主义研究", "中共党史研究", "马克思主义与现实",
+        "国外理论动态", "当代世界与社会主义", "中国特色社会主义研究",
+        "思想理论教育导刊", "马克思主义理论学科研究", "科学社会主义", "党的文献",
+        "红旗文稿", "当代世界社会主义问题", "教学与研究", "理论视野", "求是",
+        "社会主义研究", "思想理论教育", "思想政治教育研究", "毛泽东邓小平理论研究",
+        "毛泽东研究", "政治经济学评论", "当代经济研究", "经济纵横", "经济学家",
+        "经济理论与经济管理",
+    }
+    assert {s["name"] for s in catalog["zh"]} == expected_domestic
+    assert len(catalog["zh"]) == catalog["zh_count"] == 26
+    foreign = {s["name"] for s in catalog["en"]}
+    assert foreign == {s["name"] for s in col.sources()}
+    assert len(foreign) == len(catalog["en"]) == catalog["en_count"] == 45
+    assert all(s["name_zh"] for s in catalog["en"])
+    grouped = [s["name"] for group in catalog["en_groups"] for s in group["sources"]]
+    assert len(grouped) == len(set(grouped)) == 45
+    assert set(grouped) == foreign
+    assert all(group["count"] == len(group["sources"]) for group in catalog["en_groups"])
+    assert catalog["total"] == catalog["zh_count"] + catalog["en_count"] == 71
+
+
 @pytest.fixture(autouse=True)
 def database(tmp_path, monkeypatch):
     monkeypatch.setattr(r, "DB_PATH", tmp_path / "journal.sqlite3")
