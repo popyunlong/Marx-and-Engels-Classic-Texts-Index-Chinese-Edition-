@@ -47,15 +47,11 @@ class EnglishCatalogTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             ja.add_journal_source(name="中文测试刊", language="zh")
 
-    def test_pricing_catalog_has_only_grouped_english_journals(self) -> None:
+    def test_legacy_catalog_keeps_grouped_english_journals(self) -> None:
         catalog = ja.journal_source_catalog()
         grouped = [source["name"] for group in catalog["en_groups"] for source in group["sources"]]
         self.assertEqual(len(grouped), catalog["total"])
         self.assertEqual(len(set(grouped)), catalog["total"])
-        template = (Path(__file__).resolve().parents[1] / "templates" / "pricing.html").read_text(encoding="utf-8")
-        self.assertNotIn("中文理论期刊", template)
-        self.assertIn("可订阅英文期刊", template)
-        self.assertIn("journal_catalog.en_groups", template)
 
 
 class PdfUrlResolutionTest(unittest.TestCase):

@@ -1144,12 +1144,34 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertFalse(articles[0]["requires_review"])
 
     def test_pricing_page_shows_journal_catalog(self) -> None:
-        response = self.client.get("/pricing")
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn("可订阅英文期刊", html)
-        self.assertNotIn("马克思主义研究", html)
-        self.assertIn("Historical Materialism", html)
+        from bs4 import BeautifulSoup
+        from research_catalog import research_source_catalog
+
+        catalog = research_source_catalog()
+        for logged_in in (False, True):
+            with self.subTest(logged_in=logged_in):
+                if logged_in:
+                    user = self._create_active_member("pricing-catalog@example.test")
+                    self._force_login_user_id(user["id"])
+                response = self.client.get("/pricing")
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                page = BeautifulSoup(html, "html.parser")
+                self.assertIn("国内外研究动态 · 覆盖期刊", html)
+                self.assertIn("各刊更新频率不同，每期内容以实际收录为准。", html)
+                self.assertNotIn("可订阅英文期刊", html)
+                self.assertEqual(page.select_one(".catalog-total strong").text, "71")
+                domestic, foreign = page.select(".catalog-section")
+                self.assertEqual(domestic.select_one(".journal-count").text, "26 种")
+                self.assertEqual(foreign.select_one(".journal-count").text, "45 种")
+                self.assertEqual([s.text for s in domestic.select(".journal-chip")],
+                                 [s["name"] for s in catalog["zh"]])
+                self.assertEqual({s.text for s in foreign.select(".journal-name-en")},
+                                 {s["name"] for s in catalog["en"]})
+                self.assertEqual(len(foreign.select(".journal-chip")), 45)
+                for source in catalog["en"]:
+                    self.assertIn(source["name_zh"], foreign.get_text())
+                self.assertTrue(page.select(".plan-row .actions"))
 
     def test_library_toc_suggest_returns_results_with_book_and_viewer_url(self) -> None:
         app_module.set_setting(
