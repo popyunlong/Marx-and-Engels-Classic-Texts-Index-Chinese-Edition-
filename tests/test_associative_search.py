@@ -30,6 +30,16 @@ def test_explicit_missing_quote_never_falls_back_to_unrelated_source():
          'work_title': '之江新语'}])
     assert '未在指定检索范围内找到' in answer
     assert '之江新语' not in answer and '[1]' not in answer
+
+
+def test_explicit_missing_quote_with_verb_after_zhuzhi_never_uses_other_passages():
+    question = '请在《历史与阶级意识》中逐字查找“火星量子草莓验收不存在句20261014”。如果没有找到，不要提供替代引文或页码。'
+    assert app_module._requested_exact_quotes(question) == ['火星量子草莓验收不存在句20261014']
+    answer = app_module._build_verified_evidence_fallback(question, [
+        {'index': 1, 'text': '历史唯物主义是一种真实的研究方法，但不包含所问的句子。',
+         'work_title': '历史与阶级意识'}])
+    assert '未在指定检索范围内找到' in answer
+    assert '历史唯物主义' not in answer and '[1]' not in answer
 import ai as ai_module  # noqa: E402
 import search as search_module  # noqa: E402
 from membership import (  # noqa: E402

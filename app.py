@@ -16900,7 +16900,10 @@ def _review_citation_context(passage_text: str, span: str, window: int = 320) ->
 
 def _requested_exact_quotes(question: str) -> list[str]:
     """Recognize explicit sentence lookup, without treating concept names as quotes."""
-    if not re.search(r"(?:查找|检索|核验|核查|查证).{0,40}(?:逐字原文|原句|这句话|原文)", question):
+    if not re.search(
+        r"(?:查找|检索|核验|核查|查证).{0,40}(?:逐字原文|原句|这句话|原文)"
+        r"|逐字.{0,8}(?:查找|检索|核验|核查|查证)", question
+    ):
         return []
     return [a or b for a, b in re.findall(r'“([^”]{8,500})”|"([^"\n]{8,500})"', question)]
 
