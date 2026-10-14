@@ -56,6 +56,23 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         out = self._render(source, overrides={key: ""})
         self.assertEqual(out, "<span></span>")
 
+    def test_pricing_notice_number_preserves_existing_overrides(self) -> None:
+        source = (TEMPLATE_DIR / "pricing.html").read_text(encoding="utf-8")
+        notice = source.split('<div class="notice">', 1)[1].split('</div>', 1)[0]
+        env = Environment(autoescape=True, extensions=[AutoSiteTextExtension])
+        overrides = {
+            "auto.d951a029b9": "重要通知：",
+            "auto.a8b6aa6947": "（1）保留既有第一条。（2）保留既有第二条。（3）保留既有第三条。",
+            "auto.2ca47864d5": "（5）保留既有第五条。",
+        }
+        env.globals["site_text_auto"] = lambda key, b64="": render_auto_site_text(key, b64, overrides)
+        env.globals["site_text"] = lambda key: "保留后台说明"
+        rendered = env.from_string(notice).render(alipay_runtime={"enabled": True})
+        for text in overrides.values():
+            self.assertIn(text, rendered)
+        self.assertIn("（4）同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。", rendered)
+        self.assertEqual(rendered.count("（4）"), 1)
+
     def test_saved_auto_override_is_present_in_effective_map(self) -> None:
         key = next(iter(discover_auto_literals()))
         with TemporaryDirectory() as temp_dir:
