@@ -132,7 +132,8 @@ def article_index():
 def article_fields(source,page,title):
     row=article_index().get((source,int(page)))
     # Historic TOCs must never acquire attribution from a different title.
-    if not row or re.sub(r'\W','',row['title'])!=re.sub(r'\W','',title):
+    if (not row or re.sub(r'\W','',row['title'])!=re.sub(r'\W','',title)
+            or 'end_pdf_page' not in row or 'evidence_method' not in row):
         return {}
     return dict(authors=tuple(row.get('authors',[])),date=row.get('date',''),
                 end_pdf_page=row['end_pdf_page'],evidence_method=row['evidence_method'],

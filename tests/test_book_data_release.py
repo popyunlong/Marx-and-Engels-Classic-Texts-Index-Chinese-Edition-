@@ -169,3 +169,14 @@ def test_book_release_cannot_skip_full_functional_review(tmp_path):
     review(app,evidence)
     evidence['book_data_release']=dict(selected,id='stale')
     with pytest.raises(ValueError,match='another data release'):review(app,evidence)
+
+
+def test_incomplete_article_attribution_does_not_break_reviewed_toc(monkeypatch):
+    import book_data_release as data
+    source='pdfs/自动入库/reviewed.pdf'
+    monkeypatch.setattr(data,'article_index',lambda:{
+        (source,21):{'source_file':source,'pdf_page':21,'title':'第一章 技术'},
+        (source,65):{'source_file':source,'pdf_page':65,'title':'第二章 技术',
+                     'end_pdf_page':95,'evidence_method':'image_review'}})
+    assert data.article_fields(source,21,'第一章 技术')=={}
+    assert data.article_fields(source,65,'第二章 技术')['end_pdf_page']==95
