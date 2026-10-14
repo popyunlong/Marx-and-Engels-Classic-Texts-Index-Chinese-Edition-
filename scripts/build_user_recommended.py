@@ -259,7 +259,7 @@ def _metadata(book_key: str, row: dict) -> dict:
         "recommendation_id": int(row["recommendation_id"]),
         "recommender_name": row["recommender_name"],
         "recommender_email_masked": row["recommender_email_masked"],
-        "public_window_days": 30,
+        "public_window_days": 0,
         "bibliography_source_pages": row.get("bibliography_source_pages", []),
     }
 

@@ -58,6 +58,7 @@ def _request(
     content_type: str = "application/octet-stream",
     timeout: int = TIMEOUT_FAST,
     raw: bool = False,
+    max_bytes: int | None = None,
 ):
     if not configured():
         raise StoreError("个人文库存储节点未配置（MYLIB_NODE_URL / MYLIB_NODE_TOKEN）。")
@@ -70,7 +71,9 @@ def _request(
         req.add_header("Content-Type", content_type)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_ctx()) as resp:
-            payload = resp.read()
+            payload = resp.read() if max_bytes is None else resp.read(max_bytes + 1)
+            if max_bytes is not None and len(payload) > max_bytes:
+                raise StoreError("存储节点返回的文件超过大小限制")
             if raw:
                 return payload, resp.headers.get("Content-Type", "application/octet-stream")
             return json.loads(payload.decode("utf-8")) if payload else {}
@@ -201,7 +204,8 @@ def fetch_book_recommendation(user_id: int, recommendation_id: int) -> tuple[byt
     return _request(
         "GET", "/book-recommendations/source",
         params={"uid": int(user_id), "rid": int(recommendation_id)},
-        timeout=TIMEOUT_SLOW, raw=True,
+        timeout=min(TIMEOUT_SLOW, 90), raw=True,
+        max_bytes=int(os.environ.get("BOOK_RECOMMENDATION_MAX_PDF_MB", "100")) * 1024 * 1024,
     )
 
 

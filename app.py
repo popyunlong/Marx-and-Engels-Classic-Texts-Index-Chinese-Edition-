@@ -911,42 +911,15 @@ def _parse_public_timestamp(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-_PUBLIC_WINDOW_CACHE_LOCK = threading.Lock()
-_PUBLIC_WINDOW_CACHE_MTIME_NS: int | None = None
-_PUBLIC_WINDOW_CACHE: dict[str, tuple[str, str]] = {}
-
-
 def _runtime_public_window(cfg: BookConfig) -> tuple[str, str]:
-    """Reload the tiny timed-window projection when books.yaml is atomically replaced.
+    """Recommendations remain public; legacy dates are retained only for audit.
 
-    This lets the publisher assign the exact activation instant after isolated
-    preflight succeeds and immediately before Caddy receives the cutover.
-    Ordinary books never take this path.
+    Availability is still checked by _book_is_public. All scope and export
+    consumers use this projection so expired recommendations recover together.
     """
-    if getattr(cfg, "collection", "") != "user_recommended":
-        return str(cfg.public_from or ""), str(cfg.public_until or "")
-    global _PUBLIC_WINDOW_CACHE_MTIME_NS, _PUBLIC_WINDOW_CACHE
-    try:
-        mtime_ns = BOOKS_CONFIG_PATH.stat().st_mtime_ns
-        if _PUBLIC_WINDOW_CACHE_MTIME_NS != mtime_ns:
-            with _PUBLIC_WINDOW_CACHE_LOCK:
-                if _PUBLIC_WINDOW_CACHE_MTIME_NS != mtime_ns:
-                    payload = yaml.safe_load(BOOKS_CONFIG_PATH.read_text(encoding="utf-8")) or {}
-                    projection = {
-                        str(row.get("key") or ""): (
-                            str(row.get("public_from") or "").strip(),
-                            str(row.get("public_until") or "").strip(),
-                        )
-                        for row in payload.get("books") or []
-                        if isinstance(row, dict) and str(row.get("key") or "").strip()
-                    }
-                    _PUBLIC_WINDOW_CACHE = projection
-                    _PUBLIC_WINDOW_CACHE_MTIME_NS = mtime_ns
-        return _PUBLIC_WINDOW_CACHE.get(
-            cfg.key, (str(cfg.public_from or ""), str(cfg.public_until or ""))
-        )
-    except (OSError, ValueError, TypeError, yaml.YAMLError):
-        return "invalid", "invalid"
+    if getattr(cfg, "collection", "") == "user_recommended":
+        return "", ""
+    return str(cfg.public_from or ""), str(cfg.public_until or "")
 
 
 def _book_is_public(book: str | BookConfig, *, now: datetime | None = None) -> bool:
@@ -1044,7 +1017,7 @@ _COLLECTION_DESCRIPTIONS = {
     "party_state_documents": "历次党代会报告、全会公报、重要文献选编与五年规划纲要 · 各部文献独立编目，可按目录阅读、检索原文并生成规范引文",
     "leader_chronicles": "马克思主义者的编年体生平记录 · 可按年份查考某日言行并检索原文",
     "western_marxism": "西方马克思主义经典著作 · 48 个书目、50 个卷册独立编目，可按目录阅读、检索原文并生成规范引文",
-    "user_recommended": "读者推荐并获授权公开的著作 · 可按目录阅读、检索原文并使用 AI 导读",
+    "user_recommended": "读者推荐、审核通过后永久收录的著作 · 可按目录阅读、检索原文并使用 AI 导读",
     "kant_works": "康德《著作全集》现有七部八册（原第 1—5、7—9 卷） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
     "hegel_works": "黑格尔八部主要著作（16 册） · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
     "feuerbach_works": "商务印书馆《费尔巴哈文集》十一部著作 · 按原书目录阅读、检索原文并生成精确到册页的规范引文",
@@ -5971,7 +5944,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_mylib_review_endpoint": "admin_mylib_review",
         "control_mylib_enabled": bool(remote_admin and mylib_store.configured()),
         "book_recommendations": (
-            mylib.list_book_recommendations(limit=100)
+            _recommendation_admin_rows()
             if remote_admin and admin_module == "content" else []
         ),
         "book_recommendation_pending_count": (
@@ -14932,12 +14905,54 @@ def api_book_recommendation_upload():
     return jsonify({"ok": True, "id": rid, "status": "storing"}), 202
 
 
+def _published_recommendation_sources():
+    published = {}
+    if corpus is not None:
+        for cfg in BOOK_CONFIGS:
+            if cfg.collection != "user_recommended":
+                continue
+            for volume in corpus.books.get(cfg.key, []):
+                digest = Path(volume.source_file).stem
+                if len(digest) == 64:
+                    published[digest] = cfg.key
+                elif cfg.recommendation_id:
+                    # Older curated PDFs kept their descriptive filenames.
+                    row = mylib.get_book_recommendation(cfg.recommendation_id)
+                    if row:
+                        published[row['sha256']] = cfg.key
+    return published
+
+
+def _recommendation_admin_rows():
+    import recommendations
+    return recommendations.decorate(mylib.list_book_recommendations(limit=100), _published_recommendation_sources())
+
+
+@app.post("/admin/book-recommendations/<int:recommendation_id>/<action>")
+def admin_book_recommendation_review(recommendation_id: int, action: str):
+    _require_admin()
+    _require_management_csrf()
+    if action not in {"approve", "reject", "retry"}:
+        abort(404)
+    import recommendations
+    row = mylib.get_book_recommendation(recommendation_id)
+    if row and row["sha256"] in _published_recommendation_sources():
+        abort(409, description="此书已在公共书库中，无需重复入库。")
+    try:
+        recommendations.decide(recommendation_id, action, str(g.current_user["id"]),
+                               request.form.get("reason", ""))
+    except ValueError as exc:
+        abort(409, description=str(exc))
+    flash("荐书处理状态已更新。通过审核的书籍将在校对及正式发布后永久收录。", "success")
+    return redirect(url_for("admin", module="content", _anchor="book-recommendations"))
+
+
 @app.get("/admin/book-recommendations/<int:recommendation_id>/download")
 def admin_book_recommendation_download(recommendation_id: int):
     """管理员经网站后台代理下载荐书 PDF；存储节点地址和令牌不会下发浏览器。"""
     _require_admin()
     row = mylib.get_book_recommendation(int(recommendation_id))
-    if not row or row.get("status") != "pending":
+    if not row or row.get("status") not in {"pending", "archived"}:
         abort(404, description="荐书文件不存在或尚未完成转存。")
     try:
         blob, _content_type = mylib_store.fetch_book_recommendation(
@@ -14969,7 +14984,7 @@ def admin_book_recommendation_archive(recommendation_id: int):
     if row.get("status") not in {"pending", "failed"}:
         abort(409, description="当前荐书状态不能归档。")
     mylib.set_book_recommendation_status(int(recommendation_id), "archived")
-    flash("荐书已标记为处理完成。", "success")
+    flash("荐书文件记录已归档；公开入库状态单独记录。", "success")
     return redirect(url_for("admin", module="content") + "#book-recommendations")
 
 

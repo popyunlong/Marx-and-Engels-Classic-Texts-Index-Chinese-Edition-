@@ -24,7 +24,7 @@ def install(app_module):
         if group['id']=='western_marxism':
             group['books']=tuple(b.key for b in western)
             group['hints']=tuple(dict.fromkeys((*group['hints'],'马尔库塞','弗洛姆','霍耐特','霍克海默','本雅明')))
-    # 用户荐书是独立专题，不归入经济学旧批次或「其他入库文献」。公开窗口由
+    # 用户荐书是永久独立专题，不归入经济学旧批次或「其他入库文献」。公开资格由
     # app._book_is_public 动态判定；这里仅登记稳定的专题结构与阅读页顺序。
     collection = 'user_recommended'
     label = '用户荐书'
@@ -34,7 +34,7 @@ def install(app_module):
         app_module._COLLECTION_LIBRARY_SORT_ORDERS[collection] = 3
     if hasattr(app_module, '_COLLECTION_DESCRIPTIONS'):
         app_module._COLLECTION_DESCRIPTIONS[collection] = (
-            '读者推荐并获授权公开的著作 · 可按目录阅读、检索原文并使用 AI 导读；识别文本持续校对'
+            '读者推荐、审核通过后永久收录的著作 · 可按目录阅读、检索原文并使用 AI 导读；识别文本持续校对'
         )
     additions = tuple(
         book.key for book in app_module.BOOK_CONFIGS

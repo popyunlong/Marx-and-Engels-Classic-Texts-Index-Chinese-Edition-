@@ -1,5 +1,7 @@
 """Catalog user-provided OCR without claiming Luna or full-page verification."""
 import re
+import hashlib
+import json
 from .economics_catalog import COLLECTIONS as ECONOMICS_COLLECTIONS
 
 
@@ -15,7 +17,15 @@ COLLECTIONS = {
 def register(package, books, manifest, volumes):
     proof=package.get('paddle_source',{})
     extracted=package.get('source_evidence',{})
-    if not (proof.get('schema')==1 and re.fullmatch('[0-9a-f]{64}',proof.get('json_sha256',''))):
+    reviewed_recommendation = (
+        extracted.get('schema') == 1 and extracted.get('kind') == 'recommendation_pdf'
+        and extracted.get('pdf_sha256') == package.get('source_sha256')
+        and extracted.get('pages_sha256') == hashlib.sha256(json.dumps(
+            package.get('pages'), ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        and package.get('audit', {}).get('release_reviewed') is True
+        and package.get('metadata', {}).get('collection') == 'user_recommended'
+    )
+    if not reviewed_recommendation and not (proof.get('schema')==1 and re.fullmatch('[0-9a-f]{64}',proof.get('json_sha256',''))):
         if (extracted.get('schema')!=1 or extracted.get('kind')!='pdf_text_with_markdown'
                 or extracted.get('pdf_sha256')!=package.get('source_sha256')
                 or not re.fullmatch('[0-9a-f]{64}',extracted.get('markdown_sha256',''))):
@@ -42,11 +52,8 @@ def register(package, books, manifest, volumes):
             recommendation_id = int(m.get('recommendation_id') or 0)
             name = str(m.get('recommender_name') or '').strip()
             masked = str(m.get('recommender_email_masked') or '').strip()
-            duration = int(m.get('public_window_days') or 0)
             if recommendation_id < 1 or not name or not re.fullmatch(r'[^@\s]+@[^@\s]+', masked) or 'x' not in masked.lower():
                 raise ValueError('User recommendation attribution missing or not masked')
-            if duration != 30:
-                raise ValueError('User recommendation public window must be 30 days')
             existing.update(
                 recommendation_id=recommendation_id,
                 recommender_name=name,
