@@ -16898,10 +16898,21 @@ def _review_citation_context(passage_text: str, span: str, window: int = 320) ->
     )
 
 
+def _requested_exact_quotes(question: str) -> list[str]:
+    """Recognize explicit sentence lookup, without treating concept names as quotes."""
+    if not re.search(r"(?:查找|检索|核验|核查|查证).{0,40}(?:逐字原文|原句|这句话|原文)", question):
+        return []
+    return [a or b for a, b in re.findall(r'“([^”]{8,500})”|"([^"\n]{8,500})"', question)]
+
+
 def _build_verified_evidence_fallback(topic: str, passages: list[dict]) -> str:
     """Return evidence-only output when a safe synthesis cannot be retained."""
 
-    del topic  # The fallback contains source text only; it makes no new claim.
+    requested = _requested_exact_quotes(topic)
+    if requested:
+        passages = [p for p in passages if any(exact_quote(q, p.get("text", "")) for q in requested)]
+        if not passages:
+            return "未在指定检索范围内找到所要求的逐字原文；本次没有可核验的引文或页码。"
     usable: list[dict] = []
     for item in passages:
         cleaned = clean_evidence((item or {}).get("text") or "", item)
@@ -19051,6 +19062,9 @@ def _build_chat_grounding(
         LOGGER.info("Search-chat grounding expand failed query=%s: %s", _private_log_fingerprint(question), exc)
 
     quotes, fragments, keywords, chapter_keywords = _parse_assoc_plan(plan)
+    requested_quotes = _requested_exact_quotes(question)
+    if requested_quotes:
+        quotes, fragments, keywords, chapter_keywords = requested_quotes, [], [], []
     raw_terms = _split_gist_terms(question)
     personal_scope_sids, public_scope_raw = _split_personal_scope(raw_scope)
     personal_only = bool(personal_scope_sids and not public_scope_raw)
@@ -19262,6 +19276,13 @@ def _build_chat_grounding(
         cd["grounding_index"] = idx
         citations.append(cd)
     warnings = []
+    if requested_quotes:
+        passages = [p for p in passages if any(exact_quote(q, p.get("text", "")) for q in requested_quotes)]
+        indices = {p["index"] for p in passages}
+        citations = [c for c in citations if c.get("grounding_index") in indices]
+        scope_meta["exact_quote_requested"] = True
+        if not passages:
+            warnings.append("未在指定检索范围内找到所要求的逐字原文；本次没有可核验的引文或页码。")
     if not passages and _has_citation_exclusions(exclusions):
         warnings.append("未找到尚未在本会话中使用、且与问题直接相关的新原文；本次未重复旧引文。")
     return passages, citations, warnings, scope_meta
@@ -19373,6 +19394,7 @@ def api_ai_search_chat():
     # 不再调用模型凭自身知识补答，避免用户误把生成内容当成本书原文，也不消耗一次 AI 额度。
     strict_grounding_scope = bool(
         grounding_scope_meta.get("personal_only")
+        or grounding_scope_meta.get("exact_quote_requested")
         or grounding_scope_meta.get("document_status") in {"resolved", "not_found", "ambiguous"}
     )
     if grounding_on and strict_grounding_scope and not grounding_passages:

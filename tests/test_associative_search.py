@@ -20,6 +20,16 @@ os.environ["ZPAY_KEY"] = "test-secret"
 os.environ["TURNSTILE_ENABLED"] = "0"
 
 import app as app_module  # noqa: E402
+
+
+def test_explicit_missing_quote_never_falls_back_to_unrelated_source():
+    question = '请查找逐字原文“火星量子草莓验收不存在句20261014”，没有找到就说明。'
+    assert app_module._requested_exact_quotes(question) == ['火星量子草莓验收不存在句20261014']
+    answer = app_module._build_verified_evidence_fallback(question, [
+        {'index': 1, 'text': '关于调研工作有一段真实文字，但不含用户要求核验的原句。',
+         'work_title': '之江新语'}])
+    assert '未在指定检索范围内找到' in answer
+    assert '之江新语' not in answer and '[1]' not in answer
 import ai as ai_module  # noqa: E402
 import search as search_module  # noqa: E402
 from membership import (  # noqa: E402
