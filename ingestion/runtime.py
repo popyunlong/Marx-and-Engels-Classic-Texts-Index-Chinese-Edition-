@@ -156,6 +156,10 @@ def main():
         worker_thread=threading.Thread(target=consume, name="ingestion-citation-worker", daemon=True)
         worker_thread.start()
         expose_worker_health(app,worker_thread,args.activation_file)
+        if app.mylib_store.configured():
+            from .recommendations import consume as consume_recommendations
+            threading.Thread(target=consume_recommendations, args=(args.activation_file,),
+                             name="recommendation-preparation", daemon=True).start()
     app.run_waitress()
 
 

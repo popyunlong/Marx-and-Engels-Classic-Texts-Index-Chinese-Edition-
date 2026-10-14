@@ -1627,8 +1627,8 @@
 
         {% if remote_admin %}
         <section class="card" id="book-recommendations">
-          <h2>用户荐书{% if book_recommendation_pending_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ book_recommendation_pending_count }} 本待下载）</span>{% endif %}</h2>
-          <p class="section-note">注册用户从首页提交的 PDF 会暂存在独立个人文库服务器的荐书专用目录，不进入个人文库、公共书库或检索索引。只有管理员登录后台后可经本站代理下载，浏览器不会接触存储节点地址或令牌。</p>
+          <h2>用户荐书{% if book_recommendation_pending_count %} <span class="muted" style="font-size:.62em;font-weight:700">（{{ book_recommendation_pending_count }} 本待处理）</span>{% endif %}</h2>
+          <p class="section-note">荐书原件安全保存。审核通过后开始准备正文，完成版本、目录与检索校对后，经正式发布永久收录。归档记录不代表已经入库。</p>
           {% if not book_recommendation_storage_enabled %}
           <div class="item" style="color:var(--warn)">个人文库存储节点尚未配置，首页荐书上传会暂时停用。</div>
           {% endif %}
@@ -1640,6 +1640,7 @@
                   {% if r.status == 'pending' %}<strong style="color:var(--ok)">已安全暂存</strong>
                   {% elif r.status == 'storing' %}<strong style="color:var(--warn)">正在转存</strong>
                   {% elif r.status == 'failed' %}<strong style="color:var(--accent)">转存失败</strong>
+                  {% elif r.status == 'archived' %}文件记录已归档
                   {% else %}{{ r.status }}{% endif %}
                 </span>
               </h3>
@@ -1653,20 +1654,39 @@
                 {% if r.stored_at %}<div>完成转存：{{ r.stored_at }}</div>{% endif %}
                 {% if r.fail_reason %}<div style="color:var(--accent)">失败原因：{{ r.fail_reason }}</div>{% endif %}
               </div>
-              {% if r.status == 'pending' %}
-              <div class="actions" style="margin-top:10px">
-                <a class="btn primary" href="{{ url_for('admin_book_recommendation_download', recommendation_id=r.id) }}">下载 PDF</a>
-                <form method="post" action="{{ url_for('admin_book_recommendation_archive', recommendation_id=r.id) }}" style="margin:0">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button class="btn" type="submit">标记已处理</button>
-                </form>
+              <div class="kv">
+                <div><strong>{{ r.publication_label }}</strong></div>
+                {% if r.publication.total_pages %}<div>处理进度：{{ r.publication.completed_pages }} / {{ r.publication.total_pages }} 页</div>{% endif %}
+                {% if r.publication.error %}<div style="color:var(--accent)">{{ r.publication.error }}</div>{% endif %}
               </div>
-              {% elif r.status == 'failed' %}
-              <form method="post" action="{{ url_for('admin_book_recommendation_archive', recommendation_id=r.id) }}" class="actions" style="margin-top:10px">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="btn" type="submit">归档失败记录</button>
-              </form>
-              {% endif %}
+              <div class="actions" style="margin-top:10px">
+                {% if r.status in ['pending', 'archived'] %}
+                <a class="btn" href="{{ url_for('admin_book_recommendation_download', recommendation_id=r.id) }}">下载原件核对</a>
+                {% endif %}
+                {% if r.publication.state == 'published' %}
+                <a class="btn primary" href="{{ url_for('layout_read', book=r.publication.book_key) }}">打开公开书目</a>
+                {% elif r.status in ['pending', 'archived'] %}
+                  {% if not r.publication or r.publication.state == 'rejected' %}
+                  <form method="post" action="{{ url_for('admin_book_recommendation_review', recommendation_id=r.id, action='approve') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="btn primary" type="submit">审核通过并处理</button>
+                  </form>
+                  {% endif %}
+                  {% if r.publication.state == 'failed' %}
+                  <form method="post" action="{{ url_for('admin_book_recommendation_review', recommendation_id=r.id, action='retry') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="btn" type="submit">重试处理</button>
+                  </form>
+                  {% endif %}
+                  {% if r.publication.state not in ['processing', 'ready'] %}
+                  <form method="post" action="{{ url_for('admin_book_recommendation_review', recommendation_id=r.id, action='reject') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input name="reason" maxlength="500" required aria-label="退回原因" placeholder="退回原因">
+                    <button class="btn" type="submit">退回</button>
+                  </form>
+                  {% endif %}
+                {% endif %}
+              </div>
             </section>
             {% else %}
             <div class="item muted">暂无用户荐书。</div>

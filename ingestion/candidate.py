@@ -189,57 +189,9 @@ def validate_prepared(directory, app_root, packages, checkpoint=lambda: None):
 
 
 def stamp_public_windows(directory, packages, record, *, now=None):
-    """Finalize timed-book visibility immediately before candidate startup.
+    """Compatibility hook: new recommendations have no timed public window.
 
-    Prepared candidates deliberately contain empty timestamps so a failed or
-    abandoned preflight cannot consume a reader-facing publication window.
-    This step changes candidate configuration only, refreshes its recorded
-    digest, and is safe to repeat on a later publish attempt.
+    Old immutable packages may still carry public_window_days=30. That field
+    no longer schedules removal and must not be copied into new configuration.
     """
-    targets = {
-        str(package.get('metadata', {}).get('book_key') or ''): int(
-            package.get('metadata', {}).get('public_window_days') or 0
-        )
-        for package in packages
-        if package.get('metadata', {}).get('collection') == 'user_recommended'
-    }
-    if not targets:
-        return record
-    if any(not key or days != 30 for key, days in targets.items()):
-        raise ValueError('用户荐书公开窗口配置无效')
-    started = now or datetime.now(timezone.utc)
-    started = started.astimezone(timezone.utc).replace(microsecond=0)
-    ended = started + timedelta(days=30)
-    config_path = Path(directory) / 'config/books.yaml'
-    payload = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}
-    books = payload.get('books') or []
-    seen = set()
-    for book in books:
-        key = str(book.get('key') or '') if isinstance(book, dict) else ''
-        if key not in targets:
-            continue
-        book['public_from'] = started.isoformat()
-        book['public_until'] = ended.isoformat()
-        seen.add(key)
-    if seen != set(targets):
-        raise ValueError('候选配置缺少待启用的用户荐书')
-    stat = config_path.stat()
-    temporary = config_path.with_name(config_path.name + '.timed-window.tmp')
-    temporary.write_text(
-        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding='utf-8'
-    )
-    os.chmod(temporary, stat.st_mode)
-    if hasattr(os, 'chown'):
-        os.chown(temporary, stat.st_uid, stat.st_gid)
-    os.replace(temporary, config_path)
-    record['candidate_config']['books.yaml'] = sha256(config_path)
-    record['public_window'] = {
-        'books': sorted(seen),
-        'public_from': started.isoformat(),
-        'public_until': ended.isoformat(),
-        'duration_days': 30,
-    }
-    (Path(directory) / 'candidate.json').write_text(
-        json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8'
-    )
     return record
