@@ -1,9 +1,10 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from scripts.snapshot_catalog import BATCH_BYTES, batches, capture
+from scripts.snapshot_catalog import BATCH_BYTES, Remote, batches, capture
 
 
 def test_batches_limit_file_count_and_bytes():
@@ -101,3 +102,46 @@ def test_output_must_be_new(tmp_path):
     with pytest.raises(ValueError, match="new directory"):
         capture(tmp_path, FakeRemote(), baseline_seconds=0,
                 sample_seconds=3600)
+
+
+def test_transient_ssh_connect_timeout_retries_health_observation(monkeypatch):
+    attempts = []
+    delays = []
+    replies = [subprocess.CompletedProcess([], 255, b"",
+               b"ssh: connect to host example.org port 22: Connection timed out"),
+               subprocess.CompletedProcess([], 0, b'{"ok": true}', b"")]
+    monkeypatch.setattr("scripts.snapshot_catalog.subprocess.run",
+                        lambda *args, **kwargs: attempts.append((args, kwargs)) or replies.pop(0))
+    monkeypatch.setattr("scripts.snapshot_catalog.time.sleep", delays.append)
+
+    assert Remote("example.org", None).json("metrics") == {"ok": True}
+    assert len(attempts) == 2
+    assert delays == [2]
+
+
+@pytest.mark.parametrize("stderr", [
+    b"Permission denied (publickey).",
+    b"ssh: connect to host example.org port 22: Connection refused",
+])
+def test_non_transient_ssh_failure_does_not_retry(monkeypatch, stderr):
+    attempts = []
+    monkeypatch.setattr("scripts.snapshot_catalog.subprocess.run",
+                        lambda *args, **kwargs: attempts.append(1) or
+                        subprocess.CompletedProcess([], 255, b"", stderr))
+    with pytest.raises(RuntimeError, match="remote metrics failed"):
+        Remote("example.org", None).json("metrics")
+    assert len(attempts) == 1
+
+
+def test_repeated_ssh_connect_timeout_stops_after_bounded_retries(monkeypatch):
+    attempts = []
+    delays = []
+    monkeypatch.setattr("scripts.snapshot_catalog.subprocess.run",
+                        lambda *args, **kwargs: attempts.append(1) or
+                        subprocess.CompletedProcess([], 255, b"",
+                            b"ssh: connect to host example.org port 22: Connection timed out"))
+    monkeypatch.setattr("scripts.snapshot_catalog.time.sleep", delays.append)
+    with pytest.raises(RuntimeError, match="Connection timed out"):
+        Remote("example.org", None).json("metrics")
+    assert len(attempts) == 3
+    assert delays == [2, 2]

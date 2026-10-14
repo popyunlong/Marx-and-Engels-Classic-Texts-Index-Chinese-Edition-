@@ -36,6 +36,8 @@ BATCH_BYTES = 32 * 1024 * 1024
 SAMPLE_SECONDS = 30
 BASELINE_SECONDS = 300
 LOCK_RETRIES = 10
+SSH_CONNECT_RETRIES = 3
+SSH_CONNECT_RETRY_DELAY = 2
 
 
 def canonical(value):
@@ -146,9 +148,20 @@ class Remote:
 
     def json(self, action):
         for attempt in range(LOCK_RETRIES):
-            result = subprocess.run(self.command({"action": action}), input=REMOTE_SOURCE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    timeout=45)
+            for connect_attempt in range(SSH_CONNECT_RETRIES):
+                result = subprocess.run(self.command({"action": action}), input=REMOTE_SOURCE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        timeout=45)
+                stderr = result.stderr.decode(errors="replace")
+                if (result.returncode == 255 and not result.stdout
+                        and "ssh: connect to host " in stderr
+                        and " port " in stderr and "Connection timed out" in stderr
+                        and connect_attempt < SSH_CONNECT_RETRIES - 1):
+                    print("SSH connection timed out; retrying health observation",
+                          file=sys.stderr)
+                    time.sleep(SSH_CONNECT_RETRY_DELAY)
+                    continue
+                break
             if result.returncode == 0:
                 return json.loads(result.stdout)
             if result.returncode == 1 and not result.stderr.strip() and attempt < LOCK_RETRIES - 1:
