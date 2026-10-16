@@ -1,0 +1,16 @@
+{
+  "v4": {
+    "revision": "1bf6cabfb63c1a14af0971749c2120a3e5c77d72",
+    "url": "https://raw.githubusercontent.com/lionsoul2014/ip2region/1bf6cabfb63c1a14af0971749c2120a3e5c77d72/data/ip2region_v4.xdb",
+    "size": 11122642,
+    "sha256": "27ecba8c9a6d5e3b280aedbe7ee15c65372b179fbd0dad3845d8c608f2fcace1",
+    "license": "Apache-2.0"
+  },
+  "v6": {
+    "revision": "85a4f87cb9d6f59f153b316d953f0ae43867adfc",
+    "url": "https://raw.githubusercontent.com/lionsoul2014/ip2region/85a4f87cb9d6f59f153b316d953f0ae43867adfc/data/ip2region_v6.xdb",
+    "size": 37277813,
+    "sha256": "939f6b46bd2b8bec3cf7c5ceb8ba782266ae9b1f35b5ba7916700dec0b7506ed",
+    "license": "Apache-2.0"
+  }
+}

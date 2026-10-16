@@ -14,3 +14,12 @@ The checksum is SHA-256 over UTF-8 lines of
 For `vendor/textual`, the checksum includes its license and the complete
 `jieba` subtree; for `vendor/ip2region`, it includes all four tracked files.
 Any intentional vendor update must update this table in the same commit.
+
+## Offline IP location data
+
+`data/geo/ip2region_v4.xdb` and `ip2region_v6.xdb` are Apache-2.0 data
+from lionsoul2014/ip2region (license: `vendor/ip2region/LICENSE`). Exact upstream
+revisions, source URLs, sizes and SHA-256 values are pinned in
+`data/geo/manifest.json`. These immutable release resources intentionally take
+precedence over legacy shared data. Explicit XDB environment overrides must
+match the release checksum. No user IP is sent to the upstream provider.

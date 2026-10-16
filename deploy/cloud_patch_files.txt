@@ -141,6 +141,7 @@ config/party_docs_meta.yaml
 config/western_marxism_sources.yaml
 scripts/build_western_marxism.py
 geoip.py
+registry_geo.py
 vendor/ip2region/__init__.py
 vendor/ip2region/searcher.py
 vendor/ip2region/util.py
@@ -148,6 +149,8 @@ vendor/ip2region/LICENSE
 static/geo/china_provinces.min.json
 scripts/backfill_user_ips.py
 data/geo/ip2region_v4.xdb
+data/geo/ip2region_v6.xdb
+data/geo/manifest.json
 templates/_ai_assistant.html
 static/ai-assistant/ai-assistant.js
 static/ai-assistant/ai-assistant.css
@@ -183,3 +186,4 @@ static/mylib/mylib.css
 templates/mylib_home.html
 templates/mylib_upload.html
 templates/mylib_reader.html
+scripts/audit_registry_geo.py

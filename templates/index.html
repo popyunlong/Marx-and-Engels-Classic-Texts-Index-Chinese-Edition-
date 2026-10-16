@@ -6454,7 +6454,18 @@
       }
       if (stats.overseas_total > 0) { elOverseas.textContent = RG_CFG.overseasTpl.replace('{n}', fmt(stats.overseas_total)); elOverseas.style.display = ''; }
       else elOverseas.style.display = 'none';
-      if (stats.unknown > 0) { elUnknown.textContent = RG_CFG.unknownTpl.replace('{n}', fmt(stats.unknown)); elUnknown.style.display = ''; }
+      if (stats.unknown > 0) {
+        var reasons = stats.unknown_reasons || {};
+        var noIp = reasons.no_ip || 0;
+        var chinaMissing = reasons.china_province_missing || 0;
+        var other = Math.max(0, stats.unknown - noIp - chinaMissing);
+        elUnknown.textContent = RG_CFG.unknownTpl.replace('{n}', fmt(stats.unknown));
+        var detail = document.createElement('small');
+        detail.style.display = 'block';
+        detail.textContent = '未记录 IP ' + fmt(noIp) + ' 位 · 中国地区省份待识别 ' + fmt(chinaMissing) + ' 位 · 其他原因 ' + fmt(other) + ' 位';
+        elUnknown.appendChild(detail);
+        elUnknown.style.display = '';
+      }
       else elUnknown.style.display = 'none';
       buildMap();
     }

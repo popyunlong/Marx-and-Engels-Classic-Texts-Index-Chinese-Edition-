@@ -1,8 +1,8 @@
-"""离线 IP→省份/国家 归类（基于 ip2region v4 xdb，纯本地、不联网、不外发用户 IP）。
+"""离线 IP→省份/国家 归类（基于 ip2region 双栈 xdb，纯本地、不联网、不外发用户 IP）。
 
-· 数据：data/geo/ip2region_v4.xdb（Apache-2.0，lionsoul2014/ip2region）。
+· 数据：data/geo/ip2region_v{4,6}.xdb，版本和校验值见 manifest.json（Apache-2.0）。
 · 客户端：vendor/ip2region（同上游 python binding，已随仓库 vendored）。
-· 缓存策略 content：启动时把整个 xdb（~10MB）读入内存一次，之后查询纯内存、微秒级；
+· 缓存策略 content：启动时把双栈 xdb（共 ~46MiB）读入内存一次，之后查询纯内存、微秒级；
   content 模式的 Searcher.search() 只读不可变 bytes，8 线程 waitress 下并发安全。
 
 对外只暴露聚合后的省级计数（见 app 层），绝不把单个用户 IP 落到任何对外响应里。
@@ -19,40 +19,17 @@ _VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
 if _VENDOR not in sys.path:
     sys.path.insert(0, _VENDOR)
 
-try:
-    from runtime_env import EXTERNAL_DATA_DIR, BUNDLED_DATA_DIR
-    _DEFAULT_CANDIDATES = {
-        # 双栈各一库：新用户大多经 Cloudflare 双栈/国内移动网络以 IPv6 接入（电信 240e::/
-        # 移动 2409:8::/联通 2408::），只带 v4 库时这些用户全部落「未知」——2026-07 实测正是
-        # 注册分布图「新用户全归无法识别」的根因。
-        "v4": [
-            EXTERNAL_DATA_DIR / "geo" / "ip2region_v4.xdb",
-            BUNDLED_DATA_DIR / "geo" / "ip2region_v4.xdb",
-        ],
-        "v6": [
-            EXTERNAL_DATA_DIR / "geo" / "ip2region_v6.xdb",
-            BUNDLED_DATA_DIR / "geo" / "ip2region_v6.xdb",
-        ],
-    }
-except Exception:  # pragma: no cover - 纯数据层防御
-    _DEFAULT_CANDIDATES = {"v4": [], "v6": []}
+# Release-pinned offline data. Shared legacy files must not shadow this revision.
+from pathlib import Path
+import hashlib
+import json
 
+_DATA_DIR = Path(__file__).resolve().parent / "data" / "geo"
 _XDB_ENV = {"v4": "MARX_IP2REGION_XDB", "v6": "MARX_IP2REGION_XDB6"}
 
 
 def _xdb_path(family: str = "v4") -> str:
-    override = (os.environ.get(_XDB_ENV.get(family, "")) or "").strip()
-    if override:
-        return override
-    candidates = _DEFAULT_CANDIDATES.get(family) or []
-    for cand in candidates:
-        try:
-            if cand.exists():
-                return str(cand)
-        except Exception:  # noqa: BLE001
-            continue
-    # 回退到约定路径（即便不存在，加载时会被 try 捕获、降级为「未知」）
-    return str(candidates[0]) if candidates else f"data/geo/ip2region_{family}.xdb"
+    return (os.environ.get(_XDB_ENV[family]) or "").strip() or str(_DATA_DIR / f"ip2region_{family}.xdb")
 
 
 # --- 省级规范名（与 static/geo/china_provinces.min.json 的 key、与地图省界一一对应）---
@@ -132,6 +109,11 @@ def _get_searcher(family: str = "v4"):
                 if version is None:
                     raise RuntimeError("无法识别 xdb 版本")
                 buffer = util.load_content(handle)
+                manifest = json.loads((_DATA_DIR / "manifest.json").read_text(encoding="utf-8"))
+                if hashlib.sha256(buffer).hexdigest() != manifest[family]["sha256"]:
+                    raise RuntimeError("xdb checksum differs from release manifest")
+                if version.byte_num != (4 if family == "v4" else 16):
+                    raise RuntimeError("xdb address family mismatch")
             finally:
                 handle.close()
             searcher = xdb.new_with_buffer(version, buffer)
@@ -159,59 +141,45 @@ def geoip_status() -> dict:
     }
 
 
-def _is_locatable(ip: str):
-    """返回可定位的 ipaddress 对象，否则 None（空/非法/内网/保留地址不计入分布）。"""
+def classify_ip(ip: str) -> dict:
+    """Classify a normalized network exit, never infer a person's residence."""
+    def unknown(reason):
+        return {"scope": "unknown", "reason": reason}
+
     ip = (ip or "").strip()
     if not ip:
-        return None
+        return unknown("no_ip")
     try:
         addr = ipaddress.ip_address(ip)
     except ValueError:
-        return None
-    if (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_reserved
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_unspecified
-    ):
-        return None
-    return addr
-
-
-def classify_ip(ip: str) -> dict:
-    """把一个 IP 归类为 国内省份 / 海外国家 / 未知。
-
-    返回:
-      {"scope": "domestic", "province": "广东省"}
-      {"scope": "overseas", "country_code": "US", "country": "美国"}
-      {"scope": "unknown"}
-    """
-    addr = _is_locatable(ip)
-    if addr is None:
-        return {"scope": "unknown"}
+        return unknown("invalid_ip")
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    if not addr.is_global or addr.is_multicast:
+        return unknown("non_public")
     searcher = _get_searcher("v6" if addr.version == 6 else "v4")
     if searcher is None:
-        return {"scope": "unknown"}
+        return unknown("database_unavailable")
     try:
-        region = searcher.search(ip)
-    except Exception:  # noqa: BLE001
-        return {"scope": "unknown"}
+        region = searcher.search(str(addr))
+    except Exception:
+        return unknown("lookup_failed")
     if not region:
-        return {"scope": "unknown"}
+        return unknown("no_match")
     parts = region.split("|")
-    country = (parts[0] if len(parts) > 0 else "").strip()
-    prov = (parts[1] if len(parts) > 1 else "").strip()
-    code = (parts[4] if len(parts) > 4 else "").strip().upper()
-
-    canon = normalize_province(prov)
-    if canon:
-        return {"scope": "domestic", "province": canon}
+    if len(parts) != 5:
+        return unknown("lookup_failed")
+    country, prov, _city, _isp, code = (part.strip() for part in parts)
+    code = code.upper()
+    if country.lower() in {"reserved", "private", "loopback"}:
+        return unknown("non_public")
+    # Explicit ISO mappings cover databases that put HK/MO/TW in country fields.
+    special = {"HK": "香港特别行政区", "MO": "澳门特别行政区", "TW": "台湾省"}
+    if code in special:
+        return {"scope": "domestic", "province": special[code]}
     if code == "CN" or country.startswith("中国"):
-        # 中国 IP 但省份不可判定（极少数 0/空）：计入未知，不强行落到地图
-        return {"scope": "unknown"}
-    if not country or country == "0":
-        return {"scope": "unknown"}
-    cn = COUNTRY_CN.get(code) or country
-    return {"scope": "overseas", "country_code": code or country, "country": cn}
+        canon = normalize_province(prov)
+        return {"scope": "domestic", "province": canon} if canon else unknown("china_province_missing")
+    if not country or country == "0" or len(code) != 2 or not code.isalpha():
+        return unknown("no_match")
+    return {"scope": "overseas", "country_code": code, "country": COUNTRY_CN.get(code) or country}

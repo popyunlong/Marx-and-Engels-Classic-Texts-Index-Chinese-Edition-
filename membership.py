@@ -599,6 +599,10 @@ def init_membership_db() -> Path:
                 ON ai_usage(day, user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_reader_access_day_actor
                 ON reader_access_events(day, actor_key, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_reader_access_user_created
+                ON reader_access_events(user_id, created_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_ai_usage_user_created
+                ON ai_usage(user_id, created_at DESC, id DESC);
             CREATE INDEX IF NOT EXISTS idx_reader_access_created
                 ON reader_access_events(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_online_presence_bucket
@@ -1543,6 +1547,14 @@ def capture_user_ip_if_missing(*, user_id: int, ip: str) -> None:
             (ip, now, user_id),
         )
         conn.commit()
+
+
+def get_user_geo_counts() -> list[tuple[dict, int]]:
+    """Read a consistent snapshot; geo fallbacks never rewrite login evidence."""
+    from registry_geo import resolve_user_geo_counts
+    with _connect() as conn:
+        conn.execute("BEGIN")
+        return resolve_user_geo_counts(conn)
 
 
 def get_user_ip_counts() -> list[tuple[str, int]]:
