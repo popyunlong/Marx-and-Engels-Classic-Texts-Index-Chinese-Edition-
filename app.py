@@ -143,7 +143,7 @@ from membership import (
     count_registered_users,
     capture_user_ip_if_missing,
     get_community_weekly_trends,
-    get_user_ip_counts,
+    get_user_geo_counts,
     get_ai_credit_balances,
     get_ai_credit_balance,
     get_ai_entitlements,
@@ -10937,14 +10937,13 @@ def _sponsor_button_enabled() -> bool:
 
 
 def _build_registry_geo_payload() -> dict:
-    total = count_registered_users()
+    classified = get_user_geo_counts()
+    total = sum(count for _, count in classified)
     prov_counts: dict[str, int] = {}
     overseas: dict[str, dict] = {}
     domestic_unknown = 0
-    ip_user_count = 0
-    for ip, count in get_user_ip_counts():
-        ip_user_count += count
-        result = geoip.classify_ip(ip)
+    unknown_reasons: dict[str, int] = {}
+    for result, count in classified:
         scope = result.get("scope")
         if scope == "domestic":
             prov = result.get("province")
@@ -10960,7 +10959,8 @@ def _build_registry_geo_payload() -> dict:
             slot["count"] += count
         else:
             domestic_unknown += count
-    no_ip = max(0, total - ip_user_count)
+            reason = result.get("reason", "no_match")
+            unknown_reasons[reason] = unknown_reasons.get(reason, 0) + count
     provinces = sorted(
         (
             {"name": name, "short": geoip.PROVINCE_SHORT.get(name, name), "count": value}
@@ -10980,7 +10980,9 @@ def _build_registry_geo_payload() -> dict:
         "provinces": provinces,
         "overseas_total": sum(slot["count"] for slot in overseas.values()),
         "overseas": overseas_list,
-        "unknown": no_ip + domestic_unknown,
+        "unknown": domestic_unknown,
+        "unknown_reasons": unknown_reasons,
+        "geoip_ready_v6": geoip.geoip_status()["ready_v6"],
         "geoip_ready": geoip.geoip_ready(),
     }
 
@@ -10990,11 +10992,15 @@ def _get_registry_geo_payload() -> dict:
     cached = _registry_geo_cache.get("payload")
     if cached is not None and now - _registry_geo_cache.get("at", 0.0) < _REGISTRY_GEO_TTL_SECONDS:
         return cached
-    payload = _build_registry_geo_payload()  # 在锁外构建，避免长时间持锁；并发首启重复构建无害
+    # Single flight: historical fallback reads must not multiply on simultaneous cache misses.
     with _registry_geo_lock:
+        cached = _registry_geo_cache.get("payload")
+        if cached is not None and time.time() - _registry_geo_cache.get("at", 0.0) < _REGISTRY_GEO_TTL_SECONDS:
+            return cached
+        payload = _build_registry_geo_payload()
         _registry_geo_cache["payload"] = payload
         _registry_geo_cache["at"] = time.time()
-    return payload
+        return payload
 
 
 @app.get("/api/community/registry-geo")

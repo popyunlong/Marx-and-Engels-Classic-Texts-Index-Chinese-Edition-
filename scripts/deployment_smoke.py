@@ -69,6 +69,12 @@ def check_app_import_and_routes(root: Path, mode: str, skip_http: bool) -> None:
 
     import app as app_module  # noqa: PLC0415
 
+    # Both pinned data files must be present and match this release, including rollback.
+    import geoip
+    geo_status = geoip.geoip_status()
+    if not geo_status["ready"] or not geo_status["ready_v6"]:
+        raise RuntimeError("发布定位库未就绪或校验失败：" + str(geo_status))
+
     # The embedded worker and dedicated worker both render citation exports.
     # Test the release's own dependency set before either can claim a DOCX job.
     if mode == "server":

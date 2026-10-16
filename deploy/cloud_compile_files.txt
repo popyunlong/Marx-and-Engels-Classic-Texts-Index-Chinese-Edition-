@@ -55,4 +55,6 @@ scripts/citation_recall_benchmark.py
 scripts/build_party_toc.py
 scripts/build_western_marxism.py
 geoip.py
+registry_geo.py
 notes.py
+scripts/audit_registry_geo.py
