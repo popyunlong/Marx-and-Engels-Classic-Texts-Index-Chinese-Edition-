@@ -156,7 +156,7 @@ def register(app, host):
         if not issue:
             abort(404)
         snapshot = {**issue, "articles": [{**x["article"], "entry_id": x["entry_id"], "section": x["section"]}
-                                         for x in r.items(issue_id) if x["review"] != "excluded"]}
+                                         for x in r.items(issue_id) if x["review"] not in {"excluded", "deferred"}]}
         if issue['status'] == 'published':
             snapshot = json.loads(issue['snapshot'])
         if request.args.get('reserved') and mail.get(issue_id):
@@ -195,7 +195,7 @@ def register(app, host):
             elif action == 'review_issue':
                 if request.form.get('confirm') != 'yes' or not request.form.get('preview_hash'):
                     raise ValueError('请核对本期所有条目并勾选确认')
-                ids = [x['entry_id'] for x in r.items(issue_id) if x['review'] != 'excluded']
+                ids = [x['entry_id'] for x in r.items(issue_id) if x['review'] not in {'excluded', 'deferred'}]
                 r.review(issue_id, ids, 'approved', actor,
                          pagination_decision=request.form.get('pagination_decision'),
                          expected_hash=request.form['preview_hash'])
@@ -213,13 +213,22 @@ def register(app, host):
                 r.move_items(issue_id, request.form.getlist("entry_id", type=int), request.form.get("target_id", type=int))
             elif action == "merge":
                 r.merge_items(issue_id, request.form.get("entry_id", type=int), request.form.get("into_id", type=int), actor)
+            elif action == "domestic_status":
+                r.set_domestic_pending(issue_id, request.form.get('domestic_pending') == 'yes', actor,
+                                       request.form.get('preview_hash', ''))
+                flash('国内文献整理状态已保存，请重新核对预览。', 'success')
             elif action == "publish":
                 if request.form.get("confirm") != "yes":
-                    raise ValueError("请确认发布当前预览并向有效订阅者发送")
+                    raise ValueError("请确认发布当前预览")
+                mode = request.form.get('publication_mode', 'web_and_mail')
+                if mode not in {'web_only', 'web_and_mail'}:
+                    raise ValueError('无效发布方式')
                 snapshot = r.publish(issue_id, request.form.get("preview_hash", ""), actor,
-                                     scheduled_at=request.form.get("scheduled_at") or None)
+                                     scheduled_at=request.form.get("scheduled_at") or None,
+                                     schedule_mail=mode == "web_and_mail")
                 issue_id = snapshot["id"]
-                flash("网页已发布；邮件按确认的预约时间发送。更正不会替换已预约邮件或重发。", "success")
+                flash("网页已发布，未创建邮件预约。" if mode == 'web_only' else
+                      "网页已发布；邮件按确认的预约时间发送。更正不会替换已预约邮件或重发。", "success")
             elif action in {'pause', 'cancel', 'reschedule'}:
                 if action == 'reschedule' and request.form.get('confirm') != 'yes':
                     raise ValueError('请确认预约时间及邮件快照')
@@ -235,7 +244,7 @@ def register(app, host):
                     raise ValueError('预览已变化，请刷新后再发测试邮件')
                 snapshot = json.loads(issue['snapshot']) if issue['status']=='published' else {
                     **issue, 'articles': [{**x['article'], 'entry_id':x['entry_id'], 'section':x['section']}
-                                         for x in r.items(issue_id) if x['review']!='excluded']}
+                                         for x in r.items(issue_id) if x['review'] not in {'excluded', 'deferred'}]}
                 import journal_alerts as ja
                 smtp = ja.load_smtp_config()
                 if not smtp.enabled:
