@@ -136,6 +136,91 @@ def test_sources_match_existing_45_and_have_publishers():
     assert all(x["toc_url"].startswith("https://") for x in col.sources())
 
 
+def test_web_only_publication_preserves_deferred_and_domestic_supplement(monkeypatch):
+    import research_delivery as mail
+    from scripts.research_update_preview import create_app
+    i, foreign = ready(origin='foreign', title_zh='外文研究', authors_zh=['甲', '乙'])
+    domestic = r.import_payload(payload(), i['id'])
+    deferred = next(x['entry_id'] for x in r.items(i['id']) if x['article']['origin'] == 'domestic')
+    r.review(i['id'], [deferred], 'deferred', 'editor', pagination_decision='reject')
+    original_hash = r.preview_hash(i['id'])
+    r.set_domestic_pending(i['id'], True, 'editor', original_hash)
+    with pytest.raises(ValueError, match='预览已变化'):
+        r.publish(i['id'], original_hash, 'editor', schedule_mail=False)
+    frozen = r.publish(i['id'], r.preview_hash(i['id']), 'editor', schedule_mail=False)
+    assert frozen['domestic_pending'] and len(frozen['articles']) == 1
+    assert mail.get(i['id']) is None
+    sender = Mock()
+    monkeypatch.setattr(r, 'now_text', lambda: '2026-10-05T01:00:00+00:00')
+    mail.deliver('https://example.org', sender=sender, smtp=object(), recipients=[{'email':'a@example.org'}])
+    sender.assert_not_called()
+    app = create_app()
+    page = app.test_client().get(f"/research-updates/{i['id']}").get_data(as_text=True)
+    assert '国内文献待补充' in page and '第一篇' not in page
+    correction = r.correction_for(i['id'])
+    assert r.get_issue(correction)['domestic_pending']
+    assert next(x for x in r.items(correction) if x['entry_id'] == deferred)['review'] == 'deferred'
+    assert r.import_payload(payload(), i['id'])['replayed']
+    r.review(correction, [deferred], 'approved', 'editor', pagination_decision='reject')
+    r.set_domestic_pending(correction, False, 'editor', r.preview_hash(correction))
+    updated = r.publish(correction, r.preview_hash(correction), 'editor', schedule_mail=False)
+    assert updated['id'] == frozen['id'] and updated['revision'] == 2
+    assert not updated['domestic_pending'] and len(updated['articles']) == 2
+    assert next(a for a in updated['articles'] if a['entry_id'] == foreign['entry_id']) == frozen['articles'][0]
+    assert mail.get(i['id']) is None
+    with r.connect() as c:
+        assert c.execute('SELECT count(*) FROM research_deliveries').fetchone()[0] == 0
+        assert json.loads(c.execute('SELECT snapshot FROM research_revisions WHERE revision=1').fetchone()[0]) == frozen
+    next_correction = r.correction_for(i['id'])
+    assert len(r.items(next_correction)) == 2
+    assert all(x['review'] == 'approved' for x in r.items(next_correction))
+
+
+def test_web_only_still_blocks_pending_and_deferred_is_absent_from_preview():
+    from scripts.research_update_preview import create_app
+    i, _ = ready()
+    extra = r.upsert(i['id'], article(title='Deferred paper', url='https://example.org/deferred'))
+    with pytest.raises(ValueError, match='待复核'):
+        r.publish(i['id'], r.preview_hash(i['id']), 'editor', schedule_mail=False)
+    r.review(i['id'], [extra['entry_id']], 'deferred', 'editor')
+    client = create_app().test_client()
+    for query in ('', '?email=1'):
+        assert 'Deferred paper' not in client.get(f"/admin/research-updates/{i['id']}/preview{query}").get_data(as_text=True)
+    r.screen_issue(i['id'], 'editor')
+    assert next(x for x in r.items(i['id']) if x['entry_id'] == extra['entry_id'])['review'] == 'deferred'
+
+
+def test_later_domestic_import_joins_domestic_section_without_changing_foreign_snapshot():
+    i, _ = ready(origin='foreign', title_zh='外文研究')
+    r.set_domestic_pending(i['id'], True, 'editor', r.preview_hash(i['id']))
+    frozen = r.publish(i['id'], r.preview_hash(i['id']), 'editor', schedule_mail=False)
+    imported = r.import_payload(payload(), i['id'])
+    correction = imported['issues'][0]
+    domestic = next(x for x in r.items(correction) if x['article']['origin'] == 'domestic')
+    assert domestic['section'] == 'new' and domestic['review'] == 'pending'
+    assert r.import_payload(payload(), i['id'])['replayed']
+    assert json.loads(r.get_issue(i['id'])['snapshot']) == frozen
+
+
+def test_admin_web_only_requires_admin_csrf_and_explicit_confirmation():
+    from flask import g
+    import research_delivery as mail
+    app, host = route_app()
+    app.before_request(lambda: setattr(g, 'current_user', {'id': 'editor'}))
+    i, _ = ready()
+    data = dict(action='publish', issue_id=i['id'], preview_hash=r.preview_hash(i['id']),
+                publication_mode='web_only', confirm='yes')
+    client = app.test_client()
+    assert client.post('/admin/research-updates', data=data).status_code == 403
+    host['_require_admin'] = lambda: None
+    assert client.post('/admin/research-updates', data=data).status_code == 403
+    host['_require_management_csrf'] = lambda: None
+    client.post('/admin/research-updates', data={**data, 'confirm': ''})
+    assert r.get_issue(i['id'])['status'] == 'draft'
+    assert client.post('/admin/research-updates', data=data).status_code == 302
+    assert r.get_issue(i['id'])['status'] == 'published' and mail.get(i['id']) is None
+
+
 @pytest.mark.parametrize("metadata", [True, False])
 def test_domestic_parser_preserves_missing_and_review(metadata):
     rows, warnings = r.parse_import(payload(metadata=metadata))

@@ -108,6 +108,8 @@ def init_db() -> None:
         """)
         from research_delivery import init as init_mail
         init_mail(c)
+        if 'domestic_pending' not in {x[1] for x in c.execute('PRAGMA table_info(research_issues)')}:
+            c.execute('ALTER TABLE research_issues ADD COLUMN domestic_pending INTEGER NOT NULL DEFAULT 0')
 
 
 def parse_time(value: str) -> datetime:
@@ -265,7 +267,7 @@ def infer_issue_pages(issue_id: int, actor: str) -> int:
         changed = infer_catalogue_pages(articles)
         for row, a in zip(rows, articles):
             if dumps(a) != row["data"]:
-                c.execute("UPDATE research_items SET data=?,review=CASE WHEN review='excluded' THEN 'excluded' ELSE 'pending' END,actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
+                c.execute("UPDATE research_items SET data=?,review=CASE WHEN review IN ('excluded','deferred') THEN review ELSE 'pending' END,actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
                           (dumps(a), actor, now_text(), issue_id, row["entry_id"]))
         return changed
 
@@ -314,8 +316,12 @@ def _editable_issue(c, issue_id: int) -> int:
     cur = c.execute("INSERT INTO research_issues(period_start,period_end,parent_id,revision,created_at) VALUES(?,?,?,?,?)",
                     (issue["period_start"], issue["period_end"], issue_id, issue["revision"], now_text()))
     new_id = cur.lastrowid
+    c.execute('UPDATE research_issues SET domestic_pending=? WHERE id=?', (issue['domestic_pending'], new_id))
     for a in json.loads(issue["snapshot"]).get("articles", []):
         c.execute("INSERT INTO research_items VALUES(?,?,?,?,?,?,?)", (new_id, a["entry_id"], dumps(a), "approved", a.get("section", "new"), "snapshot", now_text()))
+    # Deferred material stays available in the same issue's next correction.
+    c.execute("INSERT OR IGNORE INTO research_items SELECT ?,entry_id,data,'deferred',section,actor,updated_at "
+              "FROM research_items WHERE issue_id=? AND review='deferred'", (new_id, issue_id))
     return new_id
 
 
@@ -402,6 +408,11 @@ def _upsert(c, issue_id: int, raw: dict) -> dict:
     target = _editable_issue(c, issue_id)
     issue = dict(c.execute("SELECT * FROM research_issues WHERE id=?", (target,)).fetchone())
     section = "correction" if issue["parent_id"] else period_section(a, issue)
+    if issue['parent_id'] and issue['domestic_pending'] and a['origin'] == 'domestic':
+        parent_snapshot = json.loads(c.execute('SELECT snapshot FROM research_issues WHERE id=?',
+                                              (issue['parent_id'],)).fetchone()[0])
+        if not any(x['entry_id'] == eid for x in parent_snapshot.get('articles', [])):
+            section = period_section(a, issue)
     if section == "future":
         section = "date_review"
     screening = "excluded" if a["content_policy"]["decision"] == "exclude" else "pending"
@@ -581,7 +592,7 @@ def screen_issue(issue_id: int, actor: str) -> dict:
             if decision == "exclude" and not overridden:
                 result["excluded"] += int(selected != "excluded")
                 selected = "excluded"
-            if selected != "excluded":
+            if selected not in {"excluded", "deferred"}:
                 result["retyped"] += int(previous_type != a["type"])
                 result["content_review"] += int(decision == "review" and not overridden)
                 if (previous_type != a["type"] or decision == "review") and not overridden:
@@ -596,7 +607,7 @@ def screen_issue(issue_id: int, actor: str) -> dict:
 def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: dict | None = None,
            section: str | None = None, pagination_decision: str | None = None,
            content_override_reason: str = "", expected_hash: str | None = None) -> None:
-    if action not in {"approved", "pending", "excluded"}:
+    if action not in {"approved", "pending", "excluded", "deferred"}:
         raise ValueError("无效审核操作")
     with connect(True) as c:
         if expected_hash is not None and preview_hash(issue_id, c) != expected_hash:
@@ -661,7 +672,19 @@ def preview_hash(issue_id: int, c=None) -> str:
         with connect() as db:
             return preview_hash(issue_id, db)
     rows = [dict(r) for r in c.execute("SELECT * FROM research_items WHERE issue_id=? ORDER BY entry_id", (issue_id,))]
-    return digest(rows)
+    issue = c.execute('SELECT domestic_pending FROM research_issues WHERE id=?', (issue_id,)).fetchone()
+    return digest({'items': rows, 'domestic_pending': bool(issue and issue[0])})
+
+
+def set_domestic_pending(issue_id: int, pending: bool, actor: str, expected_hash: str) -> None:
+    with connect(True) as c:
+        issue = c.execute('SELECT status FROM research_issues WHERE id=?', (issue_id,)).fetchone()
+        if not issue or issue['status'] != 'draft':
+            raise ValueError('只能修改草稿')
+        if preview_hash(issue_id, c) != expected_hash:
+            raise ValueError('预览已变化，请刷新并重新核对后确认')
+        c.execute('UPDATE research_issues SET domestic_pending=?,actor=? WHERE id=?',
+                  (int(pending), actor, issue_id))
 
 
 def content_confirmed(a: dict) -> bool:
@@ -671,7 +694,7 @@ def content_confirmed(a: dict) -> bool:
 
 
 def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict] | None = None,
-            scheduled_at: str | None = None) -> dict:
+            scheduled_at: str | None = None, *, schedule_mail: bool = True) -> dict:
     # recipients is retained for callers upgrading from the draft implementation.
     # Resolve the actual audience only when the confirmed schedule starts.
     import research_delivery as mail
@@ -696,15 +719,21 @@ def publish(issue_id: int, expected_hash: str, actor: str, recipients: list[dict
             raise ValueError("正式期次已有更新，请重新合并")
         revision = parent["revision"] + 1
         snapshot = {"id": target, "title": TITLE, "period_start": issue["period_start"], "period_end": issue["period_end"],
-                    "articles": articles, "revision": revision, "published_at": now_text()}
+                    "articles": articles, "revision": revision, "published_at": now_text(),
+                    "domestic_pending": bool(issue['domestic_pending'])}
         encoded = dumps(snapshot)
         c.execute("UPDATE research_issues SET status='published',snapshot=?,revision=?,published_at=?,actor=? WHERE id=?",
                   (encoded, revision, now_text(), actor, target))
         c.execute("INSERT INTO research_revisions(issue_id,revision,snapshot,actor,created_at) VALUES(?,?,?,?,?)",
                   (target, revision, encoded, actor, now_text()))
+        c.execute('UPDATE research_issues SET domestic_pending=? WHERE id=?', (issue['domestic_pending'], target))
         if issue["parent_id"]:
             c.execute("UPDATE research_issues SET status='applied' WHERE id=?", (issue_id,))
-        else:
+            # Preserve deferred edits for the next correction without changing old snapshots.
+            c.execute('DELETE FROM research_items WHERE issue_id=?', (target,))
+            c.execute('INSERT INTO research_items SELECT ?,entry_id,data,review,section,actor,updated_at '
+                      'FROM research_items WHERE issue_id=?', (target, issue_id))
+        elif schedule_mail:
             mail.reserve(c, target, snapshot, scheduled_at or mail.default_time(issue), actor)
         return snapshot
 
