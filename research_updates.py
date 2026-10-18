@@ -828,37 +828,32 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
     text = [TITLE, snapshot["period_start"] + " — " + snapshot["period_end"], "完整目录与摘要：" + url, ""]
     body = ['<div style="max-width:740px;margin:auto;background:#fffdf8;color:#211b16;padding:24px;font-family:serif">',
             "<h1>" + TITLE + "</h1><p>" + esc(text[1]) + "</p><p>共 " + str(len(snapshot["articles"])) + ' 篇。<a href="' + esc(url) + '">阅读完整周报</a></p>']
-    first_group = True
+    text.append("目录全部展开；摘要、来源与引文见各条目链接。")
+    body.append('<p>目录全部展开；摘要、来源与引文见各条目链接。</p>')
+    if snapshot.get("domestic_pending"):
+        text.append("国内文献待补充")
+        body.append('<p>国内文献待补充</p>')
     for origin, label in (("domestic", "国内研究动态"), ("foreign", "国外研究动态"), ("supplement", "补录与更正")):
         selected = [a for a in snapshot["articles"] if
                     (origin == "supplement" and a.get("section") in {"supplement", "correction"}) or
                     (a["origin"] == origin and a.get("section") not in {"supplement", "correction"})]
         if not selected:
             continue
-        body.append('<h2 style="font-size:21px;color:#7c3433;border-bottom:2px solid #7c3433;padding-bottom:8px;margin-top:30px">' + label + '</h2>')
+        body.append('<h2 style="color:#7c3433;border-bottom:2px solid #7c3433">' + label + '</h2>')
         text.append(label)
-        journals = sorted({a["journal"] for a in selected})
-        for journal in journals:
-            group = [a for a in selected if a["journal"] == journal]
+        for journal in sorted({a["journal"] for a in selected}):
             issue_groups = {}
-            for a in group:
-                issue_groups.setdefault(issue_label(a), []).append(a)
+            for a in selected:
+                if a["journal"] == journal:
+                    issue_groups.setdefault(issue_label(a), []).append(a)
             for label_issue, entries in sorted(issue_groups.items()):
                 heading = journal_display_name(journal) + ' · ' + label_issue + ' · ' + str(len(entries)) + ' 篇'
                 link = url + '?' + urlencode({'journal': journal})
-                body.append('<h3 style="font-size:16px;line-height:1.8;background:#f4f0e7;padding:10px 12px;margin:18px 0 0">' + esc(heading) + '</h3>')
+                body.append('<h3 style="font-size:16px;background:#f4f0e7;padding:10px">' + esc(heading) + '</h3><ol style="padding-left:24px;line-height:1.65">')
                 text.append(heading)
-                ordered = sorted(entries, key=lambda x: x.get("ordinal", 999999))
-                if not first_group:
-                    titles = [a.get('title_zh') or a['title'] for a in ordered[:3]]
-                    preview = '；'.join(t[:90] + ('…' if len(t) > 90 else '') for t in titles)
-                    if len(entries) > 3:
-                        preview += '；另 ' + str(len(entries) - 3) + ' 篇'
-                    text.extend([preview, '查看本刊目录：' + link, ''])
-                    body.append('<p style="font-size:13px;line-height:1.85;margin:9px 0">' + esc(preview) + '</p><p style="font:12px/1.8 sans-serif;margin:6px 0 16px"><a style="color:#7c3433" href="' + esc(link) + '">查看本刊目录与摘要 →</a></p>')
-                    continue
-                first_group = False
-                for n, a in enumerate(ordered[:5], 1):
+                # Every catalogue entry is visible in both MIME alternatives. Keep
+                # abstracts on the linked article page so long issues stay readable.
+                for n, a in enumerate(sorted(entries, key=lambda x: x.get("ordinal", 999999)), 1):
                     title = a.get("title_zh") or a["title"]
                     detail = url + "/articles/" + str(a["entry_id"])
                     summary = a.get("abstract_zh") or a.get("abstract") or ""
@@ -870,30 +865,15 @@ def render_email(snapshot: dict, recipient: dict, base_url: str) -> tuple[str, s
                     if a.get("authors_zh"):
                         names = "、".join(a["authors_zh"]) + " / " + names
                     meta = " · ".join((names, TYPE_LABELS.get(a.get("type"), "资料与其他内容"), pages, "含摘要" if summary else "仅题录"))
-                    text.extend([str(n) + ". " + title, meta, summary[:180], detail, ""])
-                    body.append('<div style="padding:15px 0;border-bottom:1px solid #e6e0d5"><p style="font-size:16px;line-height:1.65;margin:0 0 6px"><span style="color:#a99e90">' + str(n).zfill(2) + '.</span> <a style="color:#292622;text-decoration:none" href="' + esc(detail) + '">' + esc(title) + '</a></p>')
+                    text.append(str(n) + ". " + title)
+                    body.append('<li style="margin-bottom:12px"><a style="color:#292622" href="' + esc(detail) + '">' + esc(title) + '</a>')
                     if a.get("title_zh"):
-                        body.append('<p style="font:13px/1.65 Georgia;color:#7c766e;margin:3px 0">' + esc(a["title"]) + '</p>')
-                    body.append('<p style="font:12px/1.8 sans-serif;color:#7c766e;margin:6px 0">' + esc(meta) + '</p>')
-                    if summary:
-                        body.append('<p style="font-size:13px;line-height:1.85;margin:8px 0">' + esc(summary[:180]) + ('…' if len(summary) > 180 else '') + '</p>')
-                    body.append('</div>')
-                text.extend(['查看本刊全部 ' + str(len(entries)) + ' 篇：' + link, ''])
-                body.append('<p style="font:12px/1.8 sans-serif;margin:10px 0 18px"><a style="color:#7c3433" href="' + esc(link) + '">查看本刊全部 ' + str(len(entries)) + ' 篇 →</a></p>')
-    if len("".join(body).encode()) > 80000:
-        text = text[:4] + ["本期目录较长，请在网页查看全部条目。"]
-        body = body[:2] + ['<p>本期目录较长，请从以下期刊入口查看全部条目。</p>']
-        for origin, label in (("domestic", "国内研究动态"), ("foreign", "国外研究动态")):
-            journals = sorted({a["journal"] for a in snapshot["articles"] if a["origin"] == origin})
-            text.append(label)
-            body.append("<h2>" + label + "</h2><ul>")
-            for journal in journals:
-                link = url + "?" + urlencode({"journal": journal})
-                group = [a for a in snapshot["articles"] if a["origin"] == origin and a["journal"] == journal]
-                heading = journal_display_name(journal) + ' · ' + ' / '.join(sorted({issue_label(a) for a in group})) + ' · ' + str(len(group)) + ' 篇'
-                text.append(heading + "：" + link)
-                body.append('<li><a href="' + esc(link) + '">' + esc(heading) + '</a></li>')
-            body.append("</ul>")
+                        text.append(a["title"])
+                        body.append('<br><span lang="en">' + esc(a["title"]) + '</span>')
+                    text.extend([meta, detail, ""])
+                    body.append('<br><small>' + esc(meta) + '</small></li>')
+                body.append('</ol><p><a href="' + esc(link) + '">查看本刊摘要与引文 →</a></p>')
+                text.extend(['本刊摘要与引文：' + link, ''])
     unsubscribe = recipient.get("unsubscribe_token")
     research_unsubscribe = recipient.get('research_unsubscribe_token')
     if research_unsubscribe:

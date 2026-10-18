@@ -418,7 +418,8 @@ def test_mixed_abstract_catalogue_has_one_issue_header_and_collapsed_details():
     text, rich = r.render_email({"id": i["id"], "period_start": i["period_start"], "period_end": i["period_end"],
                                 "articles": [{**x["article"], "entry_id": x["entry_id"]} for x in r.items(i["id"])]}, {}, "https://example.org")
     assert rich.count("Example Journal") == 1
-    assert "原刊未提供摘要" not in rich and "仅题录" in rich and "已有摘要" in rich
+    assert "原刊未提供摘要" not in rich and "仅题录" in rich and "含摘要" in rich
+    assert "已有摘要" not in rich
     assert "5 起" in text
 
 
@@ -998,13 +999,33 @@ def test_issue_fold_headers_group_counts_and_filtered_first_group():
     assert len(filtered.select('.journal-issue'))==1 and filtered.select_one('.journal-issue').has_attr('open')
 
 
-def test_compact_email_preserves_group_counts_and_links_without_hidden_content():
+def test_full_email_preserves_group_counts_and_links_without_hidden_content():
     entries=[{**r.normalize(article(title=f'Paper {n}',journal=journal,origin='foreign',abstract=f'Abstract {n}',issue=number)), 'entry_id':n,'section':section}
              for n,(journal,number,section) in enumerate([('Ethics','1','new'),('Ethics','2','new'),('Mind','3','supplement')])]
     plain,rich=r.render_email({**issue(),'articles':entries},{'unsubscribe_token':'token'},'https://example.org')
     assert '伦理学 · Ethics · 2026 年 · 第 1 期 · 1 篇' in plain
     assert '第 2 期 · 1 篇' in plain and '心灵 · Mind' in plain and '补录与更正' in plain
-    assert 'Abstract 0' in rich and 'Abstract 1' not in rich and 'Abstract 2' not in rich
+    assert all(f'Abstract {n}' not in rich for n in range(3))
     assert all(f'Paper {n}' in rich for n in range(3))
     assert '?journal=Mind' in plain and '/journal-alerts/unsubscribe/token' in rich
     assert '<details' not in rich and 'display:none' not in rich
+
+
+def test_long_email_never_discards_catalogue_entries_or_bilingual_titles():
+    from bs4 import BeautifulSoup
+    entries = [{**r.normalize(article(title=f'Original title {n} ' + 'x' * 400,
+                title_zh=f'中文题名{n}', authors=['Author'], authors_zh=['作者'],
+                journal='Ethics' if n < 100 else 'Mind', issue=str(n % 2 + 1),
+                origin='foreign')), 'entry_id':n} for n in range(200)]
+    plain, rich = r.render_email({**issue(), 'articles':entries},
+                               {'research_unsubscribe_token':'test'}, 'https://example.org')
+    soup = BeautifulSoup(rich, 'html.parser')
+    assert len(rich.encode()) > 80000
+    assert len(soup.select('ol > li')) == len(entries)
+    for a in entries:
+        assert a['title'] in plain and a['title_zh'] in plain
+        link = soup.find('a', href=f"https://example.org/research-updates/{issue()['id']}/articles/{a['entry_id']}")
+        assert link and link.get_text() == a['title_zh']
+        assert a['title'] in link.parent.get_text()
+    assert '/research-updates/unsubscribe/test' in rich
+    assert not soup.select('details')
