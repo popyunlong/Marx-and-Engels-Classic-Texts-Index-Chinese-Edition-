@@ -661,8 +661,9 @@ def review(issue_id: int, entry_ids: list[int], action: str, actor: str, edits: 
                     raise ValueError("外文题名或摘要译文尚未完成")
                 if a["origin"] == "foreign" and len(a["keywords_zh"]) != len(a["keywords"]):
                     raise ValueError("原刊关键词译文尚未核对完整")
-            a["verified_fields"] = [k for k in ("title", "authors", "journal", "year", "volume", "issue", "pages",
-                                                "page_start", "page_end", "article_number", "doi", "url", "issn") if a.get(k)]
+            if action != 'deferred':
+                a["verified_fields"] = [k for k in ("title", "authors", "journal", "year", "volume", "issue", "pages",
+                                                    "page_start", "page_end", "article_number", "doi", "url", "issn") if a.get(k)]
             c.execute("UPDATE research_items SET data=?,review=?,section=?,actor=?,updated_at=? WHERE issue_id=? AND entry_id=?",
                       (dumps(a), action, selected, actor, now_text(), issue_id, eid))
 

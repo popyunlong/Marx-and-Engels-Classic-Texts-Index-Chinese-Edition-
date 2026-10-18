@@ -183,6 +183,7 @@ def test_web_only_still_blocks_pending_and_deferred_is_absent_from_preview():
     with pytest.raises(ValueError, match='待复核'):
         r.publish(i['id'], r.preview_hash(i['id']), 'editor', schedule_mail=False)
     r.review(i['id'], [extra['entry_id']], 'deferred', 'editor')
+    assert not next(x for x in r.items(i['id']) if x['entry_id'] == extra['entry_id'])['article'].get('verified_fields')
     client = create_app().test_client()
     for query in ('', '?email=1'):
         assert 'Deferred paper' not in client.get(f"/admin/research-updates/{i['id']}/preview{query}").get_data(as_text=True)
