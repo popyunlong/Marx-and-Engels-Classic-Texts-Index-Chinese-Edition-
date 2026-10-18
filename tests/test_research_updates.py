@@ -979,7 +979,7 @@ def test_target_journal_translations_cover_catalogue_without_changing_citations(
     assert a['journal'] == 'Ethics' and '伦理学' not in r.citation(a)
 
 
-def test_issue_fold_headers_group_counts_and_all_groups_open():
+def test_issue_fold_headers_group_counts_and_filtered_first_group():
     from bs4 import BeautifulSoup
     from scripts.research_update_preview import create_app
     i=issue()
@@ -988,7 +988,7 @@ def test_issue_fold_headers_group_counts_and_all_groups_open():
     client=create_app().test_client()
     soup=BeautifulSoup(client.get(f"/admin/research-updates/{i['id']}/preview").data,'html.parser')
     groups=soup.select('.journal-issue')
-    assert len(groups)==3 and all(g.has_attr('open') for g in groups)
+    assert len(groups)==3 and [g.has_attr('open') for g in groups]==[True,False,False]
     assert [len(g.select('.catalogue-entry')) for g in groups]==[2,1,1]
     headers=[g.select_one('summary').get_text(' ',strip=True) for g in groups]
     assert '伦理学' in headers[0] and 'Ethics' in headers[0] and '2026 年' in headers[0] and '第 1 期' in headers[0] and '2 篇' in headers[0]
