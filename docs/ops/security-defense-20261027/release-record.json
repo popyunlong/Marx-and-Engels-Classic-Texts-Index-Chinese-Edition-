@@ -38,5 +38,32 @@
     "production": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
     "live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
     "conclusion": "All remain at the verified baseline. Feature descends from this revision; no older revision selected."
-  }
+  },
+  "release_checkout": {
+    "path": "D:/CodexData/workspaces/security-production-20261027",
+    "kind": "Independent clean production checkout sharing existing Git objects; no source development here",
+    "head": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+    "other_sessions_production_worktree": "Untouched"
+  },
+  "prepared_feature_head": "070bc48",
+  "data_bindings_to_preserve": {
+    "catalog_release": {
+      "id": "catalog-repair-iv3-partial-v4-20261004",
+      "sha256": "ee62a192e006e0f4bd80376c7ae0c386ffe8808f456d4ddb366202989ecc00f9"
+    },
+    "book_data_release": {
+      "id": "user-recommended-20261014-86ebbda6",
+      "sha256": "67061de31bae36a1ecc5d0c11ab5d097ee9a305ba3279c89cb4c76af89ecb1f6"
+    },
+    "book_data_catalog": {
+      "id": "user-recommended-20261014-86ebbda6",
+      "sha256": "6efe56fa03bbd3c4de8d044c4d9e50c5f97ef8698ccddac0c860c8c94fff3809"
+    },
+    "dictionary_graph_release": {
+      "id": "dictionary-map-20261007-v1",
+      "sha256": "ccf0c8ce4567abc45b579524a27a7140e6d054352e1bdd9cdf16a53e99ede0d6",
+      "source_sha256": "42a00d1cb10f2c5d78d89eee95e9b68803f1d55f8b7d29b677bc604f92a3ddf6"
+    }
+  },
+  "data_binding_preservation_mechanism": "Existing scripts/book_import_deploy.py prepare carries book_data_release/book_data_catalog/book_import_batch from the exact live parent; verify these again on the release candidate and final runtime."
 }
