@@ -54,8 +54,15 @@ def render(path, page):
                     and info['transform'][0]>0 and info['transform'][3]>0):
                     from PIL import Image,PngImagePlugin
                     from io import BytesIO
-                    original=pdf.extract_image(info['xref'])['image']
-                    source=Image.open(BytesIO(original)).convert('RGB')
+                    # Decode embedded PDF images through the maintained PDF
+                    # renderer, never Pillow's automatic format/plugin loader.
+                    # Python 3.10 cannot yet take Pillow 13 security fixes.
+                    pix=fitz.Pixmap(pdf, info['xref'])
+                    if pix.colorspace is None or pix.colorspace.n != 3:
+                        pix=fitz.Pixmap(fitz.csRGB,pix)
+                    if pix.alpha:
+                        pix=fitz.Pixmap(pix,0)
+                    source=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
                     meta=PngImagePlugin.PngInfo();meta.add_text('ingestion_render','native_scan_pixels')
                     output=BytesIO();source.save(output,format='PNG',pnginfo=meta)
                     return output.getvalue()
@@ -68,7 +75,8 @@ def recognize(ocr, png):
     from PIL import Image
     from io import BytesIO
     started = time.monotonic()
-    source=Image.open(BytesIO(png))
+    # Only our own rendered PNGs belong here; do not auto-probe XBM/GIF/TIFF.
+    source=Image.open(BytesIO(png), formats=['PNG'])
     render_policy=source.info.get('ingestion_render','pdf_300dpi')
     array = np.array(source.convert('RGB'))
     height,width=array.shape[:2]

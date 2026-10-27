@@ -1,0 +1,6280 @@
+[
+  {
+    "package": "cryptography",
+    "id": "GHSA-537c-gmf6-5ccf",
+    "summary": "Vulnerable OpenSSL included in cryptography wheels",
+    "aliases": null,
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0.5.0"
+              },
+              {
+                "fixed": "48.0.1"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "0.5",
+          "0.5.1",
+          "0.5.2",
+          "0.5.3",
+          "0.5.4",
+          "0.6",
+          "0.6.1",
+          "0.7",
+          "0.7.1",
+          "0.7.2",
+          "0.8",
+          "0.8.1",
+          "0.8.2",
+          "0.9",
+          "0.9.1",
+          "0.9.2",
+          "0.9.3",
+          "1.0",
+          "1.0.1",
+          "1.0.2",
+          "1.1",
+          "1.1.1",
+          "1.1.2",
+          "1.2",
+          "1.2.1",
+          "1.2.2",
+          "1.2.3",
+          "1.3",
+          "1.3.1",
+          "1.3.2",
+          "1.3.3",
+          "1.3.4",
+          "1.4",
+          "1.5",
+          "1.5.1",
+          "1.5.2",
+          "1.5.3",
+          "1.6",
+          "1.7",
+          "1.7.1",
+          "1.7.2",
+          "1.8",
+          "1.8.1",
+          "1.8.2",
+          "1.9",
+          "2.0",
+          "2.0.1",
+          "2.0.2",
+          "2.0.3",
+          "2.1",
+          "2.1.1",
+          "2.1.2",
+          "2.1.3",
+          "2.1.4",
+          "2.2",
+          "2.2.1",
+          "2.2.2",
+          "2.3",
+          "2.3.1",
+          "2.4",
+          "2.4.1",
+          "2.4.2",
+          "2.5",
+          "2.6",
+          "2.6.1",
+          "2.7",
+          "2.8",
+          "2.9",
+          "2.9.1",
+          "2.9.2",
+          "3.0",
+          "3.1",
+          "3.1.1",
+          "3.2",
+          "3.2.1",
+          "3.3",
+          "3.3.1",
+          "3.3.2",
+          "3.4",
+          "3.4.1",
+          "3.4.2",
+          "3.4.3",
+          "3.4.4",
+          "3.4.5",
+          "3.4.6",
+          "3.4.7",
+          "3.4.8",
+          "35.0.0",
+          "36.0.0",
+          "36.0.1",
+          "36.0.2",
+          "37.0.0",
+          "37.0.1",
+          "37.0.2",
+          "37.0.3",
+          "37.0.4",
+          "38.0.0",
+          "38.0.1",
+          "38.0.2",
+          "38.0.3",
+          "38.0.4",
+          "39.0.0",
+          "39.0.1",
+          "39.0.2",
+          "40.0.0",
+          "40.0.1",
+          "40.0.2",
+          "41.0.0",
+          "41.0.1",
+          "41.0.2",
+          "41.0.3",
+          "41.0.4",
+          "41.0.5",
+          "41.0.6",
+          "41.0.7",
+          "42.0.0",
+          "42.0.1",
+          "42.0.2",
+          "42.0.3",
+          "42.0.4",
+          "42.0.5",
+          "42.0.6",
+          "42.0.7",
+          "42.0.8",
+          "43.0.0",
+          "43.0.1",
+          "43.0.3",
+          "44.0.0",
+          "44.0.1",
+          "44.0.2",
+          "44.0.3",
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5",
+          "46.0.6",
+          "46.0.7",
+          "47.0.0",
+          "48.0.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/06/GHSA-537c-gmf6-5ccf/GHSA-537c-gmf6-5ccf.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-537c-gmf6-5ccf"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://openssl-library.org/news/secadv/20260609.txt"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-g6cj-pr64-35w5",
+    "summary": "cryptography: PKCS#7 EnvelopedData decryption exposes a Bleichenbacher oracle through distinguishable errors and timing",
+    "aliases": [
+      "CVE-2026-69247",
+      "PYSEC-2026-3552"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "44.0.0"
+              },
+              {
+                "fixed": "50.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "44.0.0",
+          "44.0.1",
+          "44.0.2",
+          "44.0.3",
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5",
+          "46.0.6",
+          "46.0.7",
+          "47.0.0",
+          "48.0.0",
+          "48.0.1",
+          "49.0.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-g6cj-pr64-35w5/GHSA-g6cj-pr64-35w5.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/pull/15369"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/53fccd93413a8d7f07d6d8999681f27b75cffa3f"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-jwv3-5hgf-82ww",
+    "summary": "python-cryptography: Duplicate self-signed intermediates can cause exponential path-building",
+    "aliases": [
+      "CVE-2026-69249",
+      "PYSEC-2026-3553"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "42.0.0"
+              },
+              {
+                "fixed": "49.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "42.0.0",
+          "42.0.1",
+          "42.0.2",
+          "42.0.3",
+          "42.0.4",
+          "42.0.5",
+          "42.0.6",
+          "42.0.7",
+          "42.0.8",
+          "43.0.0",
+          "43.0.1",
+          "43.0.3",
+          "44.0.0",
+          "44.0.1",
+          "44.0.2",
+          "44.0.3",
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5",
+          "46.0.6",
+          "46.0.7",
+          "47.0.0",
+          "48.0.0",
+          "48.0.1"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-jwv3-5hgf-82ww/GHSA-jwv3-5hgf-82ww.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-jwv3-5hgf-82ww"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-69249"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/pull/14960"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/3763aa79b"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/4a12cf49675a184e47f912b00b04f3a629283582"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pypa/advisory-database/tree/main/vulns/cryptography/PYSEC-2026-3553.yaml"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-m2h6-j472-rp4c",
+    "summary": "python-cryptography verifier accepts wildcard DNS names allowing escape from permittedSubtrees",
+    "aliases": [
+      "CVE-2026-69248",
+      "PYSEC-2026-3554"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N/E:P"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "45.0.0"
+              },
+              {
+                "fixed": "49.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5",
+          "46.0.6",
+          "46.0.7",
+          "47.0.0",
+          "48.0.0",
+          "48.0.1"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-m2h6-j472-rp4c/GHSA-m2h6-j472-rp4c.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-m2h6-j472-rp4c"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-69248"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/pull/14888"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/286c89128"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/4d035a4225965edeffd312079a510ef25fcfdcb2"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pypa/advisory-database/tree/main/vulns/cryptography/PYSEC-2026-3554.yaml"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-m959-cc7f-wv43",
+    "summary": "cryptography has incomplete DNS name constraint enforcement on peer names",
+    "aliases": [
+      "CVE-2026-34073",
+      "PYSEC-2026-35"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N/E:U"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "46.0.6"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "0.1",
+          "0.2",
+          "0.2.1",
+          "0.2.2",
+          "0.3",
+          "0.4",
+          "0.5",
+          "0.5.1",
+          "0.5.2",
+          "0.5.3",
+          "0.5.4",
+          "0.6",
+          "0.6.1",
+          "0.7",
+          "0.7.1",
+          "0.7.2",
+          "0.8",
+          "0.8.1",
+          "0.8.2",
+          "0.9",
+          "0.9.1",
+          "0.9.2",
+          "0.9.3",
+          "1.0",
+          "1.0.1",
+          "1.0.2",
+          "1.1",
+          "1.1.1",
+          "1.1.2",
+          "1.2",
+          "1.2.1",
+          "1.2.2",
+          "1.2.3",
+          "1.3",
+          "1.3.1",
+          "1.3.2",
+          "1.3.3",
+          "1.3.4",
+          "1.4",
+          "1.5",
+          "1.5.1",
+          "1.5.2",
+          "1.5.3",
+          "1.6",
+          "1.7",
+          "1.7.1",
+          "1.7.2",
+          "1.8",
+          "1.8.1",
+          "1.8.2",
+          "1.9",
+          "2.0",
+          "2.0.1",
+          "2.0.2",
+          "2.0.3",
+          "2.1",
+          "2.1.1",
+          "2.1.2",
+          "2.1.3",
+          "2.1.4",
+          "2.2",
+          "2.2.1",
+          "2.2.2",
+          "2.3",
+          "2.3.1",
+          "2.4",
+          "2.4.1",
+          "2.4.2",
+          "2.5",
+          "2.6",
+          "2.6.1",
+          "2.7",
+          "2.8",
+          "2.9",
+          "2.9.1",
+          "2.9.2",
+          "3.0",
+          "3.1",
+          "3.1.1",
+          "3.2",
+          "3.2.1",
+          "3.3",
+          "3.3.1",
+          "3.3.2",
+          "3.4",
+          "3.4.1",
+          "3.4.2",
+          "3.4.3",
+          "3.4.4",
+          "3.4.5",
+          "3.4.6",
+          "3.4.7",
+          "3.4.8",
+          "35.0.0",
+          "36.0.0",
+          "36.0.1",
+          "36.0.2",
+          "37.0.0",
+          "37.0.1",
+          "37.0.2",
+          "37.0.3",
+          "37.0.4",
+          "38.0.0",
+          "38.0.1",
+          "38.0.2",
+          "38.0.3",
+          "38.0.4",
+          "39.0.0",
+          "39.0.1",
+          "39.0.2",
+          "40.0.0",
+          "40.0.1",
+          "40.0.2",
+          "41.0.0",
+          "41.0.1",
+          "41.0.2",
+          "41.0.3",
+          "41.0.4",
+          "41.0.5",
+          "41.0.6",
+          "41.0.7",
+          "42.0.0",
+          "42.0.1",
+          "42.0.2",
+          "42.0.3",
+          "42.0.4",
+          "42.0.5",
+          "42.0.6",
+          "42.0.7",
+          "42.0.8",
+          "43.0.0",
+          "43.0.1",
+          "43.0.3",
+          "44.0.0",
+          "44.0.1",
+          "44.0.2",
+          "44.0.3",
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/03/GHSA-m959-cc7f-wv43/GHSA-m959-cc7f-wv43.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-m959-cc7f-wv43"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-34073"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pypa/advisory-database/tree/main/vulns/cryptography/PYSEC-2026-35.yaml"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-p423-j2cm-9vmq",
+    "summary": "Cryptography vulnerable to buffer overflow if non-contiguous buffers were passed to APIs",
+    "aliases": [
+      "CVE-2026-39892",
+      "PYSEC-2026-36"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "45.0.0"
+              },
+              {
+                "fixed": "46.0.7"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4",
+          "46.0.5",
+          "46.0.6"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-p423-j2cm-9vmq/GHSA-p423-j2cm-9vmq.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-p423-j2cm-9vmq"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-39892"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pypa/advisory-database/tree/main/vulns/cryptography/PYSEC-2026-36.yaml"
+      },
+      {
+        "type": "WEB",
+        "url": "http://www.openwall.com/lists/oss-security/2026/04/08/12"
+      }
+    ]
+  },
+  {
+    "package": "cryptography",
+    "id": "GHSA-r6ph-v2qm-q3c2",
+    "summary": "cryptography Vulnerable to a Subgroup Attack Due to Missing Subgroup Validation for SECT Curves",
+    "aliases": [
+      "CVE-2026-26007",
+      "PYSEC-2026-2141"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N/E:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MAT:X/MPR:X/MUI:X/MVC:X/MVI:X/MVA:X/MSC:X/MSI:X/MSA:X/S:X/AU:X/R:X/V:X/RE:X/U:X"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "cryptography",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/cryptography"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "46.0.5"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "0.1",
+          "0.2",
+          "0.2.1",
+          "0.2.2",
+          "0.3",
+          "0.4",
+          "0.5",
+          "0.5.1",
+          "0.5.2",
+          "0.5.3",
+          "0.5.4",
+          "0.6",
+          "0.6.1",
+          "0.7",
+          "0.7.1",
+          "0.7.2",
+          "0.8",
+          "0.8.1",
+          "0.8.2",
+          "0.9",
+          "0.9.1",
+          "0.9.2",
+          "0.9.3",
+          "1.0",
+          "1.0.1",
+          "1.0.2",
+          "1.1",
+          "1.1.1",
+          "1.1.2",
+          "1.2",
+          "1.2.1",
+          "1.2.2",
+          "1.2.3",
+          "1.3",
+          "1.3.1",
+          "1.3.2",
+          "1.3.3",
+          "1.3.4",
+          "1.4",
+          "1.5",
+          "1.5.1",
+          "1.5.2",
+          "1.5.3",
+          "1.6",
+          "1.7",
+          "1.7.1",
+          "1.7.2",
+          "1.8",
+          "1.8.1",
+          "1.8.2",
+          "1.9",
+          "2.0",
+          "2.0.1",
+          "2.0.2",
+          "2.0.3",
+          "2.1",
+          "2.1.1",
+          "2.1.2",
+          "2.1.3",
+          "2.1.4",
+          "2.2",
+          "2.2.1",
+          "2.2.2",
+          "2.3",
+          "2.3.1",
+          "2.4",
+          "2.4.1",
+          "2.4.2",
+          "2.5",
+          "2.6",
+          "2.6.1",
+          "2.7",
+          "2.8",
+          "2.9",
+          "2.9.1",
+          "2.9.2",
+          "3.0",
+          "3.1",
+          "3.1.1",
+          "3.2",
+          "3.2.1",
+          "3.3",
+          "3.3.1",
+          "3.3.2",
+          "3.4",
+          "3.4.1",
+          "3.4.2",
+          "3.4.3",
+          "3.4.4",
+          "3.4.5",
+          "3.4.6",
+          "3.4.7",
+          "3.4.8",
+          "35.0.0",
+          "36.0.0",
+          "36.0.1",
+          "36.0.2",
+          "37.0.0",
+          "37.0.1",
+          "37.0.2",
+          "37.0.3",
+          "37.0.4",
+          "38.0.0",
+          "38.0.1",
+          "38.0.2",
+          "38.0.3",
+          "38.0.4",
+          "39.0.0",
+          "39.0.1",
+          "39.0.2",
+          "40.0.0",
+          "40.0.1",
+          "40.0.2",
+          "41.0.0",
+          "41.0.1",
+          "41.0.2",
+          "41.0.3",
+          "41.0.4",
+          "41.0.5",
+          "41.0.6",
+          "41.0.7",
+          "42.0.0",
+          "42.0.1",
+          "42.0.2",
+          "42.0.3",
+          "42.0.4",
+          "42.0.5",
+          "42.0.6",
+          "42.0.7",
+          "42.0.8",
+          "43.0.0",
+          "43.0.1",
+          "43.0.3",
+          "44.0.0",
+          "44.0.1",
+          "44.0.2",
+          "44.0.3",
+          "45.0.0",
+          "45.0.1",
+          "45.0.2",
+          "45.0.3",
+          "45.0.4",
+          "45.0.5",
+          "45.0.6",
+          "45.0.7",
+          "46.0.0",
+          "46.0.1",
+          "46.0.2",
+          "46.0.3",
+          "46.0.4"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 46.0.4",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/02/GHSA-r6ph-v2qm-q3c2/GHSA-r6ph-v2qm-q3c2.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-r6ph-v2qm-q3c2"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-26007"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/commit/0eebb9dbb6343d9bc1d91e5a2482ed4e054a6d8c"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/pyca/cryptography"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pyca/cryptography/releases/tag/46.0.5"
+      },
+      {
+        "type": "WEB",
+        "url": "http://www.openwall.com/lists/oss-security/2026/02/10/4"
+      }
+    ]
+  },
+  {
+    "package": "lxml",
+    "id": "GHSA-vfmq-68hx-4jfw",
+    "summary": "lxml: Default configuration of iterparse() and ETCompatXMLParser() allows XXE to local files",
+    "aliases": [
+      "CVE-2026-41066",
+      "PYSEC-2026-87"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "lxml",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/lxml"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "6.1.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.3.2",
+          "1.3.3",
+          "1.3.4",
+          "1.3.5",
+          "1.3.6",
+          "2.0",
+          "2.0.10",
+          "2.0.11",
+          "2.0.4",
+          "2.0.5",
+          "2.0.6",
+          "2.0.7",
+          "2.0.8",
+          "2.0.9",
+          "2.1",
+          "2.1.1",
+          "2.1.2",
+          "2.1.3",
+          "2.1.4",
+          "2.1.5",
+          "2.2",
+          "2.2.1",
+          "2.2.2",
+          "2.2.3",
+          "2.2.4",
+          "2.2.5",
+          "2.2.6",
+          "2.2.7",
+          "2.2.8",
+          "2.3",
+          "2.3.1",
+          "2.3.2",
+          "2.3.3",
+          "2.3.4",
+          "2.3.5",
+          "2.3.6",
+          "3.0",
+          "3.0.2",
+          "3.1.0",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.2.1",
+          "3.2.2",
+          "3.2.3",
+          "3.2.4",
+          "3.2.5",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.3.4",
+          "3.3.5",
+          "3.3.6",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "3.4.3",
+          "3.4.4",
+          "3.5.0",
+          "3.6.0",
+          "3.6.1",
+          "3.6.2",
+          "3.6.3",
+          "3.6.4",
+          "3.7.0",
+          "3.7.1",
+          "3.7.2",
+          "3.7.3",
+          "3.8.0",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.2.2",
+          "4.2.3",
+          "4.2.4",
+          "4.2.5",
+          "4.2.6",
+          "4.3.0",
+          "4.3.2",
+          "4.3.3",
+          "4.3.4",
+          "4.3.5",
+          "4.4.0",
+          "4.4.1",
+          "4.4.2",
+          "4.4.3",
+          "4.5.0",
+          "4.5.1",
+          "4.5.2",
+          "4.6.0",
+          "4.6.1",
+          "4.6.2",
+          "4.6.3",
+          "4.6.4",
+          "4.6.5",
+          "4.7.1",
+          "4.8.0",
+          "4.9.0",
+          "4.9.1",
+          "4.9.2",
+          "4.9.3",
+          "4.9.4",
+          "5.0.0",
+          "5.0.1",
+          "5.0.2",
+          "5.1.0",
+          "5.1.1",
+          "5.2.0",
+          "5.2.1",
+          "5.2.2",
+          "5.3.0",
+          "5.3.1",
+          "5.3.2",
+          "5.4.0",
+          "6.0.0",
+          "6.0.1",
+          "6.0.2",
+          "6.0.3",
+          "6.0.4"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-vfmq-68hx-4jfw/GHSA-vfmq-68hx-4jfw.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/lxml/lxml/security/advisories/GHSA-vfmq-68hx-4jfw"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-41066"
+      },
+      {
+        "type": "WEB",
+        "url": "https://bugs.launchpad.net/lxml/+bug/2146291"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/lxml/lxml"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/lxml/lxml/releases/tag/lxml-6.1.0"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/pypa/advisory-database/tree/main/vulns/lxml/PYSEC-2026-87.yaml"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-22hg-r758-rrw9",
+    "summary": "Pillow: Infinite loop in MIC n_frames when the embedded TIFF",
+    "aliases": [
+      "BIT-pillow-2026-112390",
+      "CVE-2026-112390"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "7.2.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-22hg-r758-rrw9/GHSA-22hg-r758-rrw9.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-22hg-r758-rrw9"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112390"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/26cb3ed061173b817b9ee4b6f507cb0e1e293218"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-24rc-8hj2-v98c",
+    "summary": "Pillow: BMP RLE decoder memory-amplification DoS via unbounded delta escape / absolute mode",
+    "aliases": [
+      "CVE-2026-96638"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "9.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-24rc-8hj2-v98c/GHSA-24rc-8hj2-v98c.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-24rc-8hj2-v98c"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96638"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10015"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/e7794835e323ff2691d9b3a974cade1a44301b9a"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-254f-3936-288h",
+    "summary": "Pillow: PdfParser can recurse without limit in get_value() and linearize_page_tree()",
+    "aliases": [
+      "BIT-pillow-2026-112391",
+      "CVE-2026-112391"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-254f-3936-288h/GHSA-254f-3936-288h.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-254f-3936-288h"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112391"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/94cb11c44ff7345414da17ebfea1598a529ad9cd"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-27h8-gf7j-v5hc",
+    "summary": "Pillow: NULL dereference in ImagingExpand via rank filters on zero-size images",
+    "aliases": [
+      "BIT-pillow-2026-112392",
+      "CVE-2026-112392"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-27h8-gf7j-v5hc/GHSA-27h8-gf7j-v5hc.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-27h8-gf7j-v5hc"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112392"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/443e3130a8c11594fd0e296afad497e11e678961"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-332p-7hrc-92wf",
+    "summary": "Pillow: Heap buffer overflow in _tiffWriteProc when saving TIFF to BytesIO",
+    "aliases": [
+      "BIT-pillow-2026-112393",
+      "CVE-2026-112393"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "2.0.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-332p-7hrc-92wf/GHSA-332p-7hrc-92wf.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-332p-7hrc-92wf"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112393"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/11582e5ffbdceb973d5ee593f3105af5a9852b40"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-3j72-p6qg-6xp7",
+    "summary": "Pillow: TarIO negative size field causes infinite CPU-spin loop",
+    "aliases": [
+      "CVE-2026-96642"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-3j72-p6qg-6xp7/GHSA-3j72-p6qg-6xp7.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-3j72-p6qg-6xp7"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96642"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10012"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/19b695fdcc5eddc37374e2b1645fc4185edaf71d"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-4558-3h8r-v8xp",
+    "summary": "Pillow: P;2L and P;4L decoders may read 1 to 3 bytes past the passed buffer size",
+    "aliases": [
+      "BIT-pillow-2026-112394",
+      "CVE-2026-112394"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-4558-3h8r-v8xp/GHSA-4558-3h8r-v8xp.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-4558-3h8r-v8xp"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112394"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/9723"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/392ee6f0d19a4adb766a63e9a99f3c28193b8d31"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-462x-pgg6-55fp",
+    "summary": "Pillow tiled-TIFF decoder reads past tile buffer in copy4 (Unpack.c:1290)",
+    "aliases": [
+      "BIT-pillow-2026-112395",
+      "CVE-2026-112395"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:L"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "8.2.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-462x-pgg6-55fp/GHSA-462x-pgg6-55fp.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-462x-pgg6-55fp"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112395"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/76869efdbbf2ad7dccd7536520fb61b7a00ab61e"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-4rm8-3hmm-39fg",
+    "summary": "Pillow: Reachable undefined behavior in native integer operations, potentially leading to denial of service or logic integrity compromise",
+    "aliases": [
+      "CVE-2026-96641"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-4rm8-3hmm-39fg/GHSA-4rm8-3hmm-39fg.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-4rm8-3hmm-39fg"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96641"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10010"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/80de4be9e38d3a6148dd4d8491eb80cd12b760a4"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-4rr5-89j8-mwwm",
+    "summary": "Pillow: Heap use-after-free when encoding TIFF to an in-memory buffer",
+    "aliases": [
+      "BIT-pillow-2026-112396",
+      "CVE-2026-112396"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "11.3.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-4rr5-89j8-mwwm/GHSA-4rr5-89j8-mwwm.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-4rr5-89j8-mwwm"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112396"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/dc95da20207827a062cfbf551ee9f6031465a8bb"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-58r4-6rv3-gfh8",
+    "summary": "Pillow: Out-of-bounds access in _imagingmorph on a zero-width image",
+    "aliases": [
+      "BIT-pillow-2026-112397",
+      "CVE-2026-112397"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-58r4-6rv3-gfh8/GHSA-58r4-6rv3-gfh8.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-58r4-6rv3-gfh8"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112397"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/18f7c0dfee93063c51db6ed0ca8c4da2999dcb64"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-5x8w-8jj5-q52h",
+    "summary": "Pillow: Heap buffer overflow in FlashPix (FPX) JPEG decoding leads to code execution",
+    "aliases": [
+      "BIT-pillow-2026-112398",
+      "CVE-2026-112398"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-5x8w-8jj5-q52h/GHSA-5x8w-8jj5-q52h.json",
+          "last_known_affected_version_range": "<= 12.3.0"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-5x8w-8jj5-q52h"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112398"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/242a059aedc1935097d9aa1dc3f099750467ba75"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-5xm2-6676-qcp9",
+    "summary": "Pillow: APNG background disposal allocates full canvas before decompression bomb check",
+    "aliases": [
+      "BIT-pillow-2026-112399",
+      "CVE-2026-112399"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "8.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-5xm2-6676-qcp9/GHSA-5xm2-6676-qcp9.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-5xm2-6676-qcp9"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112399"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/f1acfc54c53502948d0d14121872061df931db48"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-654x-cwwv-5j9c",
+    "summary": "Pillow: Arrow export leaks stale heap memory when PILLOW_ALIGNMENT > 1",
+    "aliases": [
+      "CVE-2026-114501"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "11.2.1"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-654x-cwwv-5j9c/GHSA-654x-cwwv-5j9c.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-654x-cwwv-5j9c"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-114501"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10172"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/19f64946eb247b973dd4560be7dea3bf979d2e6a"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-65qm-jvmh-6pqg",
+    "summary": "Pillow: GIF seek keeps rejected size after DecompressionBombError, allowing DoS",
+    "aliases": [
+      "BIT-pillow-2026-112400",
+      "CVE-2026-112400"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "9.2.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-65qm-jvmh-6pqg/GHSA-65qm-jvmh-6pqg.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-65qm-jvmh-6pqg"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112400"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/6faed707cfb760a4cbd726ddc8406f576cf35bf7"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-74r2-7ff9-mjj2",
+    "summary": "Pillow: Quadratic GIF comment concatenation allows DoS in Image.open()",
+    "aliases": [
+      "BIT-pillow-2026-112401",
+      "CVE-2026-112401"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.4.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.4.0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-74r2-7ff9-mjj2/GHSA-74r2-7ff9-mjj2.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-74r2-7ff9-mjj2"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112401"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/68a3fe957d8a4d552e8c69d96066d749f0614c7e"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-78g4-xqwv-q3g8",
+    "summary": "Pillow: Bundled libopenjp2 2.5.4 in all wheels since 11.1.0 carries OSV-2025-219 heap-buffer-overflow write reachable from Image.open().load()",
+    "aliases": null,
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "11.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-78g4-xqwv-q3g8/GHSA-78g4-xqwv-q3g8.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-78g4-xqwv-q3g8"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/5f8114c8096b181fae493543cd3837d9f9a971cc"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/d3470c327840f4c216a1610f30e7091dfd0b97c0"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/uclouvain/openjpeg/commit/91d08b11a72764f6d199f32fa0c1b1abd4edc2ad"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      },
+      {
+        "type": "WEB",
+        "url": "https://osv.dev/vulnerability/OSV-2025-219"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-7mwm-ghpf-9vrm",
+    "summary": "Pillow: Double free in ImagingScaleAffine on calloc failure via Image.transform",
+    "aliases": [
+      "BIT-pillow-2026-112402",
+      "CVE-2026-112402"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-7mwm-ghpf-9vrm/GHSA-7mwm-ghpf-9vrm.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-7mwm-ghpf-9vrm"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112402"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/aafa6c75f7cdabb9f409a8aac7c780bea31d08d9"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-8g5g-8vmr-9782",
+    "summary": "Pillow: Heap buffer overflow in ImagingJpegDecode",
+    "aliases": [
+      "BIT-pillow-2026-112403",
+      "CVE-2026-112403"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-8g5g-8vmr-9782/GHSA-8g5g-8vmr-9782.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-8g5g-8vmr-9782"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112403"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/242a059aedc1935097d9aa1dc3f099750467ba75"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-9v9v-9qvf-h2hj",
+    "summary": "Pillow: Heap over-read in WMF/EMF rendering via 16-bit dimension truncation (Windows builds)",
+    "aliases": [
+      "CVE-2026-96644"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-9v9v-9qvf-h2hj/GHSA-9v9v-9qvf-h2hj.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-9v9v-9qvf-h2hj"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96644"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10120"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/4cf46bee338304c5c8968fd7f132ba0d40c428b7"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-c6hw-5grf-ff96",
+    "summary": "Pillow: OOB read in TiffDecode.c tile and RGBA paths leaks heap memory into pixels",
+    "aliases": [
+      "BIT-pillow-2026-112404",
+      "CVE-2026-112404"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "8.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-c6hw-5grf-ff96/GHSA-c6hw-5grf-ff96.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-c6hw-5grf-ff96"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112404"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/1d4773e6cea0c4a2814e6d4cdc099bbcf56da6ce"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-cp9v-662q-vvx9",
+    "summary": "Pillow: NULL pointer dereference in Image.merge via an unvalidated band 0",
+    "aliases": [
+      "BIT-pillow-2026-112405",
+      "CVE-2026-112405"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "12.0.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-cp9v-662q-vvx9/GHSA-cp9v-662q-vvx9.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-cp9v-662q-vvx9"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112405"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/b6ee66e8b2c2c0932bdf65f963268d9f2927ef86"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-f2g6-542v-9j58",
+    "summary": "Pillow: Infinite loop in PdfParser.rewrite_pages on page tree Parent cycle",
+    "aliases": [
+      "BIT-pillow-2026-112406",
+      "CVE-2026-112406"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-f2g6-542v-9j58/GHSA-f2g6-542v-9j58.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-f2g6-542v-9j58"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112406"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/b3ebf20c694f2f12537a629c30229a1d5a53f777"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-fc9g-5qg7-mf45",
+    "summary": "Pillow: Quadratic GIF comment copying during save",
+    "aliases": [
+      "BIT-pillow-2026-112891",
+      "CVE-2026-112891"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "9.2.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-fc9g-5qg7-mf45/GHSA-fc9g-5qg7-mf45.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-fc9g-5qg7-mf45"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112891"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/68a3fe957d8a4d552e8c69d96066d749f0614c7e"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-g4qv-2jxx-769h",
+    "summary": "Pillow: PNG eXIf chunk makes EXIF parsing run in quadratic time",
+    "aliases": [
+      "CVE-2026-96643"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "11.0.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-g4qv-2jxx-769h/GHSA-g4qv-2jxx-769h.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-g4qv-2jxx-769h"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96643"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10073"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/806e38381c781f32bbd22f4cd026678acd40fd6c"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-g7cr-3p24-7wf7",
+    "summary": "Pillow: Heap buffer overflow writing JPEG comment after ICC profile fills buffer",
+    "aliases": [
+      "CVE-2026-96778"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "9.4.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-g7cr-3p24-7wf7/GHSA-g7cr-3p24-7wf7.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-g7cr-3p24-7wf7"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96778"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10124"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/02561b8dc6117d5670d4b469fecdd02c70854f9b"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-g842-9rc4-69pw",
+    "summary": "Pillow: Decompression bomb check bypass in SpiderImagePlugin.seek() leads to unbounded allocation DoS",
+    "aliases": [
+      "CVE-2026-96637"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-g842-9rc4-69pw/GHSA-g842-9rc4-69pw.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-g842-9rc4-69pw"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96637"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10076"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/7cb0e02389d8aac2a60896a490f572db0b07b841"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-gg2r-wvfm-q9rx",
+    "summary": "Pillow: MSP RLE decoder expands a tiny file into unbounded memory",
+    "aliases": [
+      "BIT-pillow-2026-112892",
+      "CVE-2026-112892"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "4.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-gg2r-wvfm-q9rx/GHSA-gg2r-wvfm-q9rx.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-gg2r-wvfm-q9rx"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112892"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/5dcb630b9798efd91929cb873d677aeee6ed0bb3"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-j4m9-6w36-pw47",
+    "summary": "Pillow: Invalid free in FreeType glyph rendering when a stroker is active",
+    "aliases": [
+      "BIT-pillow-2026-112893",
+      "CVE-2026-112893"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "10.0.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-j4m9-6w36-pw47/GHSA-j4m9-6w36-pw47.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-j4m9-6w36-pw47"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112893"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/a7416de7f3a43128179d2cf68df3240ea8dafe13"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-jg86-v3jv-hrpm",
+    "summary": "Pillow: Quadratic-time DoS in PDF save_all (PdfParser.next_object_id)",
+    "aliases": [
+      "BIT-pillow-2026-112894",
+      "CVE-2026-112894"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-jg86-v3jv-hrpm/GHSA-jg86-v3jv-hrpm.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-jg86-v3jv-hrpm"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112894"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/f6a852555f1a1bdff7781abf25f1a3b8bd6ce6cb"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-mrfp-p49p-3hf2",
+    "summary": "Pillow PDF append accepts malformed shared page-tree DAG causing resource exhaustion",
+    "aliases": [
+      "CVE-2026-96640"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-mrfp-p49p-3hf2/GHSA-mrfp-p49p-3hf2.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-mrfp-p49p-3hf2"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96640"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10093"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/6f0e7ee1f9c2fe227906f8a4b926e6622b702bc7"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-p4wg-p73j-c528",
+    "summary": "Pillow: Unbounded recursion parsing a PDF page tree or trailer chain (incomplete fix for CVE-2026-42310)",
+    "aliases": [
+      "BIT-pillow-2026-112895",
+      "CVE-2026-112895"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-p4wg-p73j-c528/GHSA-p4wg-p73j-c528.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-p4wg-p73j-c528"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112895"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/e2ae7eacad6de68c37eb28b633a97bebacf2c5bf"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-p8hx-v2p6-rp84",
+    "summary": "Pillow: Decompression-bomb protection bypass via multi-frame seek() in MPO and DCX (MpoImageFile.seek / DcxImageFile.seek)",
+    "aliases": [
+      "CVE-2026-96636"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-p8hx-v2p6-rp84/GHSA-p8hx-v2p6-rp84.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-p8hx-v2p6-rp84"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96636"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10011"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/f1acfc54c53502948d0d14121872061df931db48"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-pchr-8j38-3x4p",
+    "summary": "Pillow: TIFF encoder ColorMap plane-size mismatch causes a heap out-of-bounds read",
+    "aliases": [
+      "BIT-pillow-2026-112896",
+      "CVE-2026-112896"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-pchr-8j38-3x4p/GHSA-pchr-8j38-3x4p.json",
+          "last_known_affected_version_range": "<= 12.3.0"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-pchr-8j38-3x4p"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112896"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/d03dc3c587a9b0bdc9e4304d70d59a635a87b742"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-q45j-58j2-45rg",
+    "summary": "Pillow: TiffDecode returns uninitialized memory as pixels for short JPEG strips",
+    "aliases": [
+      "BIT-pillow-2026-112897",
+      "CVE-2026-112897"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "5.3.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-q45j-58j2-45rg/GHSA-q45j-58j2-45rg.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-q45j-58j2-45rg"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112897"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/1d4773e6cea0c4a2814e6d4cdc099bbcf56da6ce"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-rfgq-q3w2-pmv2",
+    "summary": "Pillow: Image.quantize() with empty palette leaks uninitialized stack memory",
+    "aliases": [
+      "BIT-pillow-2026-112898",
+      "CVE-2026-112898"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "9.1.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-rfgq-q3w2-pmv2/GHSA-rfgq-q3w2-pmv2.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-rfgq-q3w2-pmv2"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112898"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/13943c8f857b22f073d30f0ef9b725a0d255f1a4"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-v9pv-5gc8-w2m6",
+    "summary": "Pillow multi-frame loaders can reuse stale native image storage after mode transitions",
+    "aliases": [
+      "CVE-2026-96639"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V3",
+        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "11.0.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-v9pv-5gc8-w2m6/GHSA-v9pv-5gc8-w2m6.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-v9pv-5gc8-w2m6"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-96639"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/pull/10105"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/78d97d994579aef81aafe123773d525f40f2522a"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-vx6w-vv9f-6gvg",
+    "summary": "Pillow: EPS load(scale) lets Ghostscript render past the decompression bomb limit",
+    "aliases": [
+      "CVE-2026-112899"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "2.3.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-vx6w-vv9f-6gvg/GHSA-vx6w-vv9f-6gvg.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-vx6w-vv9f-6gvg"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/3e8cc105588d1dfe062fcada0b6058c1b5f14b65"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-w889-685w-c8fh",
+    "summary": "Pillow: Argument Injection in Ghostscript call, potentially leading into RCE",
+    "aliases": [
+      "BIT-pillow-2026-112900",
+      "CVE-2026-112900"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "2.6.0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-w889-685w-c8fh/GHSA-w889-685w-c8fh.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-w889-685w-c8fh"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112900"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/a2c363141da31a265dd536c945677db4b64f3ec9"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-xgh8-jp6q-p5x8",
+    "summary": "Pillow: ReDoS in XbmImagePlugin: 512-byte file stalls Image.open() for minutes",
+    "aliases": [
+      "BIT-pillow-2026-112901",
+      "CVE-2026-112901"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-xgh8-jp6q-p5x8/GHSA-xgh8-jp6q-p5x8.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-xgh8-jp6q-p5x8"
+      },
+      {
+        "type": "ADVISORY",
+        "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-112901"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/2852a3e3d568997ddec745fc800991f138878f4b"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  },
+  {
+    "package": "Pillow",
+    "id": "GHSA-xvh5-g6gv-559v",
+    "summary": " Pillow: Memory disclosure and segfault in libtiff encoder via crafted TIFF tags",
+    "aliases": [
+      "CVE-2026-112902"
+    ],
+    "severity": [
+      {
+        "type": "CVSS_V4",
+        "score": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    ],
+    "affected": [
+      {
+        "package": {
+          "name": "pillow",
+          "ecosystem": "PyPI",
+          "purl": "pkg:pypi/pillow"
+        },
+        "ranges": [
+          {
+            "type": "ECOSYSTEM",
+            "events": [
+              {
+                "introduced": "0"
+              },
+              {
+                "fixed": "13.0.0"
+              }
+            ]
+          }
+        ],
+        "versions": [
+          "1.0",
+          "1.1",
+          "1.2",
+          "1.3",
+          "1.4",
+          "1.5",
+          "1.6",
+          "1.7.0",
+          "1.7.1",
+          "1.7.2",
+          "1.7.3",
+          "1.7.4",
+          "1.7.5",
+          "1.7.6",
+          "1.7.7",
+          "1.7.8",
+          "10.0.0",
+          "10.0.1",
+          "10.1.0",
+          "10.2.0",
+          "10.3.0",
+          "10.4.0",
+          "11.0.0",
+          "11.1.0",
+          "11.2.1",
+          "11.3.0",
+          "12.0.0",
+          "12.1.0",
+          "12.1.1",
+          "12.2.0",
+          "12.3.0",
+          "2.0.0",
+          "2.1.0",
+          "2.2.0",
+          "2.2.1",
+          "2.2.2",
+          "2.3.0",
+          "2.3.1",
+          "2.3.2",
+          "2.4.0",
+          "2.5.0",
+          "2.5.1",
+          "2.5.2",
+          "2.5.3",
+          "2.6.0",
+          "2.6.1",
+          "2.6.2",
+          "2.7.0",
+          "2.8.0",
+          "2.8.1",
+          "2.8.2",
+          "2.9.0",
+          "3.0.0",
+          "3.1.0",
+          "3.1.0.rc1",
+          "3.1.0rc1",
+          "3.1.1",
+          "3.1.2",
+          "3.2.0",
+          "3.3.0",
+          "3.3.1",
+          "3.3.2",
+          "3.3.3",
+          "3.4.0",
+          "3.4.1",
+          "3.4.2",
+          "4.0.0",
+          "4.1.0",
+          "4.1.1",
+          "4.2.0",
+          "4.2.1",
+          "4.3.0",
+          "5.0.0",
+          "5.1.0",
+          "5.2.0",
+          "5.3.0",
+          "5.4.0",
+          "5.4.0.dev0",
+          "5.4.1",
+          "6.0.0",
+          "6.1.0",
+          "6.2.0",
+          "6.2.1",
+          "6.2.2",
+          "7.0.0",
+          "7.1.0",
+          "7.1.1",
+          "7.1.2",
+          "7.2.0",
+          "8.0.0",
+          "8.0.1",
+          "8.1.0",
+          "8.1.1",
+          "8.1.2",
+          "8.2.0",
+          "8.3.0",
+          "8.3.1",
+          "8.3.2",
+          "8.4.0",
+          "9.0.0",
+          "9.0.1",
+          "9.1.0",
+          "9.1.1",
+          "9.2.0",
+          "9.3.0",
+          "9.4.0",
+          "9.5.0"
+        ],
+        "database_specific": {
+          "last_known_affected_version_range": "<= 12.3.0",
+          "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/10/GHSA-xvh5-g6gv-559v/GHSA-xvh5-g6gv-559v.json"
+        }
+      }
+    ],
+    "references": [
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/security/advisories/GHSA-xvh5-g6gv-559v"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/commit/af56ace297b0991d02988fcc2ea933e4824b4fb3"
+      },
+      {
+        "type": "PACKAGE",
+        "url": "https://github.com/python-pillow/Pillow"
+      },
+      {
+        "type": "WEB",
+        "url": "https://github.com/python-pillow/Pillow/releases/tag/13.0.0"
+      }
+    ]
+  }
+]
