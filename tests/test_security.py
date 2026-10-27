@@ -2133,8 +2133,8 @@ class SecurityRegressionTests(unittest.TestCase):
             app_module._last_reader_auto_ban[0] = 0.0
             app_module._auto_ban_egregious_scrapers_if_due()
             banned_ips = set(app_module._reader_ip_bans(app_module._reader_bans()).keys())
-            self.assertIn(pool_ips[0], banned_ips, "IP 池中的公网匿名 IP 应被自动封")
-            self.assertIn(pool_ips[-1], banned_ips, "同一分钟同 UA 的轮换 IP 应全部写入封禁")
+            self.assertNotIn(pool_ips[0], banned_ips, "相同 UA 仅作观察，无独立异常证据不得封禁")
+            self.assertNotIn(pool_ips[-1], banned_ips, "观察模式不得批量封禁普通浏览器 IP")
             self.assertNotIn(monitor_ip, banned_ips, "监控豁免 IP 不应被自动封")
             self.assertNotIn(member_ip, banned_ips, "登录会员 actor 不应被 IP 池规则封禁")
         finally:

@@ -204,6 +204,36 @@ def delete_setting(key: str) -> None:
     _settings_cache_invalidate(key)
 
 
+def update_reader_ban_records(changes: dict, *, updated_by: str, expected: dict | None = None) -> None:
+    """Apply only changed actor records atomically; never replace another edit.
+
+    Automatic scans use a compare-and-swap per IP. Manual actions explicitly
+    replace/remove their selected actor, preserving every unrelated record.
+    """
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value_json FROM unified_settings WHERE key='reader_bans'").fetchone()
+        payload = _json_loads(row["value_json"], {}) if row else {}
+        for scope, actors in changes.items():
+            records = payload.setdefault(scope, {})
+            for actor, record in actors.items():
+                if expected is not None and records.get(actor) != expected.get(scope, {}).get(actor):
+                    continue
+                if record is None:
+                    records.pop(actor, None)
+                else:
+                    records[actor] = record
+        conn.execute("""INSERT INTO unified_settings VALUES('reader_bans',?,?,?)
+            ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,
+            updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+                     (json.dumps(payload, ensure_ascii=False, sort_keys=True), utc_now_text(), updated_by))
+        conn.commit()
+    finally:
+        conn.close()
+    _settings_cache_invalidate("reader_bans")
+
+
 def list_desktop_devices(limit: int = 80) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(

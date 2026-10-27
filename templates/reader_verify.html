@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>访问验证</title><style>body{font:18px/1.7 system-ui;max-width:32em;margin:12vh auto;padding:1.5em;color:#242424}button{padding:.6em 1.4em}a{color:#73511f}.error{color:#a22}</style></head>
+<body><h1>访问验证</h1>
+{% if enabled %}<p>当前访问较为频繁，请完成验证后继续阅读。</p>
+<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ next_path }}">
+<div class="cf-turnstile" data-sitekey="{{ site_key }}" data-action="reader-defense" data-cdata="{{ nonce }}"></div>
+<button type="submit">验证并继续</button></form>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+{% else %}<p>访问验证尚未启用。请稍后重试。</p>{% endif %}
+{% if error %}<p role="alert" class="error">{{ error }}</p>{% endif %}<p><a href="/">返回首页</a></p></body></html>

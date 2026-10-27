@@ -29,6 +29,8 @@ from fuzzy_alignment import partial_ratio_alignment
 
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
+from offset_match import literal_gap_spans
+from search_capacity import SearchBusy, bounded_search
 from citation_styles import (
     CITATION_FORMAT_KEYS,
     CITATION_STYLE_BY_KEY,
@@ -1665,6 +1667,7 @@ class Corpus:
         scope = self.citation_document_scope_for_offset(hit.source_file, hit.norm_start)
         return self._apply_document_scope(hit, scope) if scope else hit
 
+    @bounded_search
     def locate_associative_in_documents(
         self,
         scopes: Collection[DocumentScope],
@@ -1882,6 +1885,7 @@ class Corpus:
     # ------------------------------------------------------------------
     # 短词海量命中：完整聚合 + 按需物化
     # ------------------------------------------------------------------
+    @bounded_search
     def search_chaptered(
         self, q: str, book_scope: "Collection[str] | None" = None,
     ) -> dict:
@@ -2270,6 +2274,7 @@ class Corpus:
     # ------------------------------------------------------------------
     # 检索入口
     # ------------------------------------------------------------------
+    @bounded_search
     def search(self, q: str, max_results: int = 5) -> list[Hit]:
         q_norm = normalize(q)
         if len(q_norm) < MIN_QUERY_LEN:
@@ -2303,6 +2308,7 @@ class Corpus:
         fuzzy.sort(key=lambda h: (-h.score, self.book_sort_order(h.book)))
         return self._dedupe_hits(fuzzy)[:max_results]
 
+    @bounded_search
     def search_grouped(
         self,
         q: str,
@@ -2373,13 +2379,7 @@ class Corpus:
         # CPU 密集的全语料近似扫描：经并发闸限制同时进行的扫描数，护住线程池；短超时拿不到名额则
         # 降级为「无结果」（正常负载几乎不触发）。仅包住扫描循环本身，分组/分页等轻活不占名额。
         if not _FUZZY_SCAN_SEMAPHORE.acquire(timeout=_FUZZY_SCAN_ACQUIRE_TIMEOUT):
-            return {
-                "query": q,
-                "total_hits": 0,
-                "group_count": 0,
-                "truncated": False,
-                "groups": [],
-            }
+            raise SearchBusy()
         try:
             fuzzy: list[Hit] = []
             fuzzy_limit = max_hits or (group_limit * page_size * 5)
@@ -2406,6 +2406,7 @@ class Corpus:
             truncated,
         )
 
+    @bounded_search
     def search_cooccurrence_grouped(
         self,
         keywords: list[str],
@@ -2559,7 +2560,10 @@ class Corpus:
         if volumes is None:
             volumes = [v for book in self._scoped_book_keys(book_scope)
                        for v in self._scoped_volumes(book, book_scope)]
-        return index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE)
+        result = index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE)
+        if result[2] == "layout scan busy":
+            raise SearchBusy()
+        return result
 
     def _canonical_exact_positions(self, vol, q_norm, norm_start=0, norm_end=None):
         start = norm_start
@@ -2707,6 +2711,7 @@ class Corpus:
     # ------------------------------------------------------------------
     # 联想检索的接地定位（纯 Python，无 AI；AI 只在上层提供 quotes/keywords）
     # ------------------------------------------------------------------
+    @bounded_search
     def locate_quote(
         self,
         quote: str,
@@ -2771,6 +2776,7 @@ class Corpus:
                 break
         return groups
 
+    @bounded_search
     def keyword_cooccurrence(
         self,
         keywords: list[str],
@@ -2894,6 +2900,7 @@ class Corpus:
                     start = i + flen
         return hits
 
+    @bounded_search
     def fragment_search(
         self,
         fragments: list[str],
@@ -3138,6 +3145,7 @@ class Corpus:
             return False
         return (last - first + 1) <= n + 4
 
+    @bounded_search
     def chapter_focused_search(
         self,
         chapter_keywords: list[str],
@@ -3289,6 +3297,7 @@ class Corpus:
         if context:
             hit.context = context
 
+    @bounded_search
     def locate_associative(
         self,
         *,
@@ -3814,10 +3823,9 @@ class Corpus:
                 keep = [character for character in term if not _STRIP_RE.match(character)]
                 if not keep:
                     continue
-                pattern = r"\W*".join(re.escape(character) for character in keep)
                 highlight_spans.extend(
-                    (left + match.start(), left + match.end())
-                    for match in re.finditer(pattern, sentence)
+                    (left + start, left + end)
+                    for start, end in literal_gap_spans(sentence, keep)
                 )
         if not highlight_spans:
             highlight_spans = [(match_start, match_end)]
@@ -3844,17 +3852,16 @@ class Corpus:
 
     def _extract_context(self, pages: list[Page], q_raw: str, occurrence_index: int = 0) -> str:
         raw = "\n".join(p.raw_text for p in pages)
-        # 构造宽松正则：查询字之间允许出现任意非字词字符（空白、标点、换行）
+        # 原文偏移映射：保留非字词间隔及贪婪匹配语义，避免病理正则回溯。
         keep = [c for c in q_raw if not _STRIP_RE.match(c)]
         if not keep:
             return raw[:200].replace("\n", " ")
-        pattern = r"\W*".join(re.escape(c) for c in keep)
         # 同一页可能出现多处命中：高亮第 occurrence_index 处（而非永远第一处），
         # 否则同页的多处命中会渲染出完全相同的上下文，看起来像重复结果。
-        matches = list(re.finditer(pattern, raw))
+        matches = literal_gap_spans(raw, keep)
         if matches:
             idx = occurrence_index if 0 <= occurrence_index < len(matches) else 0
-            s, e = matches[idx].span()
+            s, e = matches[idx]
             a = max(0, s - CTX_PAD)
             b = min(len(raw), e + CTX_PAD)
             snippet = raw[a:s] + "[[H]]" + raw[s:e] + "[[/H]]" + raw[e:b]
@@ -3866,7 +3873,7 @@ class Corpus:
         """同段多词上下文：在所在页原文里把每个关键词的每处出现都用 [[H]] 标注，
         并以「关键词最密集的一段」为中心截取上下文。
 
-        与 _extract_context 一样用「字之间允许任意非字词字符」的宽松正则匹配（兼容
+        与 _extract_context 一样用「字之间允许任意非字词字符」的确定性偏移匹配（兼容
         OCR 在字间插入的空白/标点），故归一化命中能在原始 raw 文本上重新定位并高亮。
         """
         raw = "\n".join(p.raw_text for p in pages)
@@ -3875,8 +3882,7 @@ class Corpus:
             keep = [c for c in term if not _STRIP_RE.match(c)]
             if not keep:
                 continue
-            pattern = r"\W*".join(re.escape(c) for c in keep)
-            spans.extend((m.start(), m.end(), tid) for m in re.finditer(pattern, raw))
+            spans.extend((start, end, tid) for start, end in literal_gap_spans(raw, keep))
         if not spans:
             return raw[:200].replace("\n", " ")
         spans.sort()
@@ -3893,17 +3899,21 @@ class Corpus:
         # 同样多再比命中次数；保证「无产阶级 革命」这类多词的每个词都在截出的上下文里被高亮。
         best_idx = 0
         best_key = (-1, -1)
+        right = 0
+        counts: dict[int, int] = {}
         for i, (s, _e, _ids) in enumerate(merged):
-            ids: set = set()
-            cnt = 0
-            for (s2, _e2, ids2) in merged:
-                if s <= s2 < s + COOC_CTX_MAXLEN:
-                    ids |= ids2
-                    cnt += 1
-            key = (len(ids), cnt)
+            while right < len(merged) and merged[right][0] < s + COOC_CTX_MAXLEN:
+                for tid in merged[right][2]:
+                    counts[tid] = counts.get(tid, 0) + 1
+                right += 1
+            key = (len(counts), right - i)
             if key > best_key:
                 best_key = key
                 best_idx = i
+            for tid in _ids:
+                counts[tid] -= 1
+                if not counts[tid]:
+                    del counts[tid]
         anchor_start = merged[best_idx][0]
         a = max(0, anchor_start - CTX_PAD)
         b = min(len(raw), a + COOC_CTX_MAXLEN + CTX_PAD)

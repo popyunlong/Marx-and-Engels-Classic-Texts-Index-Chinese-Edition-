@@ -72,6 +72,7 @@ from admin_store import (
     list_desktop_devices,
     list_releases,
     set_setting,
+    update_reader_ban_records,
     touch_device_sync,
     update_desktop_device,
     update_release_status,
@@ -382,6 +383,8 @@ from static_library_web import (
 )
 import wenku_translate
 from search import ASSOC_CANDIDATE_CAP, CHAPTER_HITS_PAGE_SIZE, Corpus, DEFAULT_CITATION_TEMPLATES
+from search_capacity import SearchBusy
+from reader_security import PROTECTED_ENDPOINTS, ban_active
 from site_content import (
     SITE_TEXT_OVERRIDES_PATH,
     AutoSiteTextExtension,
@@ -670,16 +673,9 @@ READER_ENDPOINTS = {
 # Keep the pre-existing IP ceilings for newly audited endpoints. Adding an
 # endpoint to the audit must never accidentally exempt it from global limiting.
 _LEGACY_READER_RATE_ENDPOINTS = frozenset(READER_ENDPOINTS)
-READER_ENDPOINTS.update({
-    "api_pdf_page_context", "api_reader_find",
-    "wenku_home", "wenku_reader", "wenku_raw",
-    "liushi_home", "liushi_reader", "liushi_raw",
-    "api_mylib_page_text", "api_mylib_page_image", "api_mylib_book_search",
-    "journal_alerts_article", "journal_alerts_pdf",
-    "api_search_export_download", "citation_assistant_download",
-})
-# Cross-endpoint observations use the existing asynchronous audit. No new
-# combined quota is enforced during this compatibility-first rollout.
+READER_ENDPOINTS = set(PROTECTED_ENDPOINTS)
+# The canonical registry includes versioned raw-library routes and journal
+# illustrations. New combined quotas default to observe in ReaderDefense.
 CSRF_EXEMPT_ENDPOINTS = {
     "zpay_notify",
     "zpay_return",
@@ -2096,9 +2092,11 @@ def _reader_ban_status(actor: dict, policy: dict | None = None, bans: dict | Non
         if email and email in _reader_blocked_emails(policy):
             return True
         user_id = str(actor.get("user_id") or "").strip()
-        return bool(user_id and user_id in _reader_user_bans(bans))
+        records = _reader_user_bans(bans)
+        return bool(user_id and user_id in records and ban_active(records[user_id]))
     ip = str(actor.get("client_ip") or "").strip()
-    return bool(ip and ip in _reader_ip_bans(bans))
+    records = _reader_ip_bans(bans)
+    return bool(ip and ip in records and ban_active(records[ip]))
 
 
 def _feature_is_available(feature: str) -> bool:
@@ -4013,6 +4011,7 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
             anomalies = []
         exempt_ips = set(_monitoring_exemptions().get("ips") or [])
         bans = _reader_bans()
+        original_bans = json.loads(json.dumps(bans))
         ip_bans = _reader_ip_bans(bans)
         changed = False
         newly_banned: list[dict] = []
@@ -4020,13 +4019,15 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
             if str(item.get("actor_type") or "") != "ip":
                 continue  # 永不自动封登录会员(user:)与会话(session:)
             ip = str(item.get("client_ip") or "").strip()
-            if not ip or ip in ip_bans or ip in exempt_ips or not _is_public_ip(ip):
+            if not ip or (ip in ip_bans and ban_active(ip_bans[ip])) or ip in exempt_ips or not _is_public_ip(ip):
                 continue
             if int(item.get("request_count") or 0) < config["daily_min"]:
                 continue
             if int(item.get("max_minute_requests") or 0) < config["minute_min"]:
                 continue
-            ip_bans[ip] = {"banned_at": utc_now_text(), "banned_by": "auto-anticrawl"}
+            ip_bans[ip] = {"banned_at": utc_now_text(), "banned_by": "auto-anticrawl",
+                           "reason": "extreme_frequency", "rule": "reader_extreme_frequency",
+                           "expires_at": datetime.fromtimestamp(now + 7 * 86400, timezone.utc).isoformat()}
             changed = True
             newly_banned.append(
                 {
@@ -4066,7 +4067,13 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
         )
         for item in pool_candidates:
             ip = str(item.get("client_ip") or "").strip()
-            if not ip or ip in ip_bans or ip in exempt_ips or not _is_public_ip(ip):
+            if not ip or (ip in ip_bans and ban_active(ip_bans[ip])) or ip in exempt_ips or not _is_public_ip(ip):
+                continue
+            # Keep existing pool thresholds as a comparison signal. A common
+            # browser UA is not sufficient authority to ban an entire pool.
+            reader_defense.engine.record(actor="ip:" + ip, endpoint="reader_pool",
+                rule="legacy_ua_pool", outcome="risk", release=current_app_release()["id"], start=not app.testing)
+            if not reader_defense.pool_ban_eligible(ip):
                 continue
             pool_ip_count = int(item.get("pool_ip_count") or 0)
             pool_request_count = int(item.get("pool_request_count") or 0)
@@ -4080,6 +4087,8 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
                 "banned_at": utc_now_text(),
                 "banned_by": "auto-anticrawl",
                 "reason": "ip_pool_burst",
+                "rule": "reader_pool_with_independent_risk",
+                "expires_at": datetime.fromtimestamp(now + 86400, timezone.utc).isoformat(),
             }
             changed = True
             newly_banned.append(
@@ -4116,7 +4125,8 @@ def _auto_ban_egregious_scrapers_if_due() -> None:
         if changed:
             # 直接以固定 actor 落库(不经 _save_reader_bans 的 _management_actor_label，
             # 后者依赖请求上下文且会把自动封禁误记到扒站者头上)。
-            set_setting("reader_bans", bans, updated_by="auto-anticrawl")
+            update_reader_ban_records({"ips": {entry["ip"]: ip_bans[entry["ip"]] for entry in newly_banned}},
+                                      expected=original_bans, updated_by="auto-anticrawl")
             _alert_admin_auto_ban(newly_banned)
     except Exception as exc:
         LOGGER.debug("Auto-ban scan failed: %s", exc)
@@ -4204,7 +4214,7 @@ _DEFAULT_BLOCKED_BOT_UA = (
     "ccbot", "bytespider", "amazonbot", "google-extended",
     "perplexitybot", "perplexity-ai", "diffbot", "imagesiftbot",
     "omgili", "omgilibot", "dataforseobot", "applebot-extended",
-    "meta-externalagent", "meta-externalfetcher", "facebookbot",
+    "meta-externalagent", "meta-externalfetcher", "meta-webindexer", "facebookbot",
     "cohere-ai", "youbot", "petalbot", "timpibot", "scrapy",
 )
 
@@ -4603,15 +4613,22 @@ def _client_ip() -> str:
     # CLOUDFLARE_CUTOVER.md)，否则有人摸到源站 IP 直连 Caddy 可伪造该头。未上 CF 时
     # 该头不存在，自动回退到 XFF 最右项——故本函数对「上 CF 前 / 后 / DNS 切换过渡期」
     # 三种状态都给出正确的真实 IP，可在切换前先行上线、零行为变化。
-    cf_ip = (request.headers.get("CF-Connecting-IP") or "").strip()
-    if cf_ip:
-        return cf_ip
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        parts = [part.strip() for part in forwarded.split(",") if part.strip()]
-        if parts:
-            return parts[-1]
-    return (request.remote_addr or "unknown").strip() or "unknown"
+    original = request.environ.get("werkzeug.proxy_fix.orig", {}).get("REMOTE_ADDR", request.remote_addr)
+    try:
+        trusted_proxy = ipaddress.ip_address(original or "").is_loopback
+    except ValueError:
+        trusted_proxy = False
+    candidates = []
+    if trusted_proxy:
+        candidates.append(request.headers.get("CF-Connecting-IP", ""))
+        candidates.append(request.headers.get("X-Forwarded-For", "").split(",")[-1])
+    candidates.append(original or "")
+    for value in candidates:
+        try:
+            return str(ipaddress.ip_address(value.strip()))
+        except ValueError:
+            continue
+    return "unknown"
 
 
 def _prune_window(values: list[float], now: float, window_seconds: int) -> list[float]:
@@ -4753,11 +4770,15 @@ def _require_reader_not_banned_or_abort() -> None:
         policy = _load_access_policy()
         email = normalize_email(str(user.get("email") or ""))
         user_id = str(user.get("id") or "").strip()
-        if email in _reader_blocked_emails(policy) or (user_id and user_id in _reader_user_bans(bans)):
+        records = _reader_user_bans(bans)
+        if email in _reader_blocked_emails(policy) or (user_id and user_id in records and ban_active(records[user_id])):
+            g.security_rule = "account_ban"
             abort(403, description="当前账号的阅读器访问已暂停。")
         return
     ip = _client_ip()
-    if ip in _reader_ip_bans(bans):
+    records = _reader_ip_bans(bans)
+    if ip in records and ban_active(records[ip]):
+        g.security_rule = "ip_ban"
         abort(403, description="当前网络的阅读器访问已暂停。")
 
 
@@ -7126,7 +7147,9 @@ def _handle_reader_access_ban(*, remote_admin: bool):
             result = "ban"
             message = f"已暂停 {client_ip} 的阅读器访问。"
         target = client_ip
-    _save_reader_bans(bans)
+    scope, key = ("users", user_id_text) if actor_type == "user" else ("ips", client_ip)
+    update_reader_ban_records({scope: {key: bans.get(scope, {}).get(key)}},
+                              updated_by=_management_actor_label(remote_admin))
     _log_management_action(
         action="reader_access.toggle",
         target=target,
@@ -8246,11 +8269,17 @@ def audit_and_guard_reader_access():
         return
     # 已知 AI 爬虫(GPTBot 等)：对阅读/取书内容直接 403，不审计、不入异常名单。
     if _is_blocked_bot_request():
+        reader_defense.event("attempt", "bot_ua")
+        g.security_rule = "bot_ua"
         abort(403, description="Automated crawling of reader content is not permitted.")
-    _record_reader_access_event()
-    _prune_reader_audit_if_due()
-    _auto_ban_egregious_scrapers_if_due()
+    # Ban checks precede raw audit writes, behavior work and all route I/O.
+    reader_defense.event("attempt")
     _require_reader_not_banned_or_abort()
+    response = reader_defense.guard()
+    if response is not None:
+        return response
+    _record_reader_access_event()
+    reader_defense.maintenance()
 
 
 @app.before_request
@@ -17828,6 +17857,8 @@ def api_search():
         )
     payload = request.get_json(silent=True) or {}
     q = (payload.get("q") or "").strip()
+    if len(q) > 512:
+        return jsonify({"ok": False, "error": "单次查询请控制在 512 字以内。"}), 400
     try:
         requested_group_page = max(1, int(payload.get("group_page") or 1))
     except (TypeError, ValueError):
@@ -17909,6 +17940,8 @@ def api_search():
             grouped = corpus.search_grouped(
                 q, group_limit=1000000, max_hits=None, book_scope=public_search_scope
             )
+    except SearchBusy:
+        raise
     except Exception as exc:
         LOGGER.warning("Search failed for query=%r user=%s: %s", q[:80], user.get("id") if user else "guest", exc)
         return jsonify({"ok": False, "error": "查询解析失败，请调整关键词后重试。"}), 400
@@ -20271,6 +20304,8 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
         try:
             local = retrieve_textual(corpus, raw_gist, book_scope=book_scope if manual else _public_book_keys(),
                                      documents=documents)
+            if local.reason == "busy":
+                raise SearchBusy()
             hits = _fresh_hits(local.hits, exclusions)
             reliable_count = sum(h.textual_evidence["textual_reliable"] for h in hits)
             textual_meta.update(textual_reliable_count=reliable_count, textual_search_complete=local.complete,
@@ -20281,6 +20316,8 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
             if not local.complete:
                 warnings.append("近似检索尚未完成（服务繁忙或达到计算预算），本次不会自动转入大意联想，可稍后重试。")
             return response(hits)
+        except SearchBusy:
+            raise
         except Exception:
             LOGGER.exception("Textual recovery failed query=%s", _private_log_fingerprint(gist))
             textual_meta["auto_semantic"] = {"eligible": False, "reason": "search_failed"}
@@ -20384,6 +20421,8 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
                 provider_call_ids=call_ids,
             )
         return response(candidates)
+    except SearchBusy:
+        raise
     except Exception as exc:
         LOGGER.warning("Explicit associative strategy failed query=%s strategy=%s: %s",
                        _private_log_fingerprint(gist), strategy, exc)
@@ -20502,6 +20541,8 @@ def _api_search_associative_impl(*, cancel_event=None):
             preliminary_textual_candidates, _ = _merge_assoc_candidate_tiers(
                 [*preliminary_textual_primary, *preliminary_textual_backfill], []
             )
+        except SearchBusy:
+            raise
         except Exception as exc:
             LOGGER.warning("Associative textual preflight failed query=%s: %s", _private_log_fingerprint(gist), exc)
             return jsonify({"ok": False, "error": "模糊检索失败，请稍后再试。"}), 400
@@ -21437,6 +21478,9 @@ def _sse_run_with_heartbeat(
                 },
             )
         try:
+            if isinstance(holder.get("error"), SearchBusy):
+                yield _sse_event("error", {"ok": False, "busy": True, "error": "检索资源正忙，请稍后重试。"})
+                return
             payload = finalize_fn(holder.get("result"), holder.get("error"))
         except Exception:  # noqa: BLE001 — 收尾失败也要给前端一个干净的可读结果，而非半截流
             LOGGER.exception("SSE finalize failed")
@@ -22072,6 +22116,9 @@ def main() -> None:
 # Metadata research bulletin; legacy journal routes remain available.
 from research_routes import register as register_research_updates
 register_research_updates(app, globals())
+
+from reader_defense_web import ReaderDefense
+reader_defense = ReaderDefense(sys.modules[__name__])
 
 
 if __name__ == "__main__":

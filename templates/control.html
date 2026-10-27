@@ -251,6 +251,30 @@
   </style>
 </head>
 <body>
+  {% if remote_admin %}
+  <section class="card" style="margin:16px;padding:16px" aria-label="阅读防护状态">
+    <strong>阅读防护</strong> <span id="reader-defense-status">正在读取状态…</span>
+    <button type="button" id="reader-defense-observe">切回观察模式</button>
+    <button type="button" id="reader-defense-revoke">撤销全部验证凭证</button>
+    <p>启用行为拦截需至少观察 24 小时，并在审查误伤后通过管理接口确认。</p>
+  </section>
+  <script>
+  (() => {
+    const label = document.getElementById('reader-defense-status');
+    const csrf = {{ csrf_token | tojson }};
+    async function update(change) {
+      const response = await fetch('/api/admin/reader-security', change ? {
+        method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify(change)
+      } : {});
+      const data = await response.json();
+      label.textContent = response.ok ? `${data.mode === 'enforce' ? '拦截' : '观察'}；验证${data.verification === 'enabled' ? '已启用' : '未启用'}；队列丢弃 ${data.queue_dropped || 0}；写入丢弃 ${data.write_dropped || 0}` : (data.error || '状态读取失败');
+    }
+    update().catch(() => {label.textContent = '防护状态读取失败';});
+    document.getElementById('reader-defense-observe').onclick = () => update({mode:'observe'});
+    document.getElementById('reader-defense-revoke').onclick = () => update({revoke_all:true});
+  })();
+  </script>
+  {% endif %}
   <div class="page">
     <section class="hero">
       <div class="hero-row">
