@@ -166,9 +166,174 @@
       },
       "junit": "D:/CodexData/outputs/security-defense-20261027/authorized-two-fixtures.xml",
       "environment": "Python 3.10; upgraded cryptography/lxml target on D drive"
+    },
+    {
+      "id": "catalog-health-compatibility-once",
+      "scope": "New previously uncovered scenario, first execution only: public /v2/read catalog navigation must permit release curl and Python-urllib observation without reader asset audit",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_reader_defense.py::test_catalog_navigation_stays_available_for_health_observation",
+        "-q",
+        "--tb=short",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/catalog-health-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/catalog-health.xml"
+      ],
+      "started": "2026-10-27T04:14:39.108976+00:00",
+      "source_sha256": "dc6d2eeda70ebd45ad5c3fe15cafa1baa1d646793a59293edbfaec5d38d79817",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\catalog-health-compatibility-once.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T04:14:46.289315+00:00"
+    },
+    {
+      "stage": "feature-main-pre-push",
+      "authorization": "user-fixed-release-gates-20261027",
+      "started": "2026-10-27T04:08:25.452542+00:00",
+      "head": "b106574af85327f9db30a1b67853b6cc66c29043",
+      "status": "passed",
+      "exit_code": 0,
+      "finished": "2026-10-27T04:11:00.304474+00:00",
+      "id": "feature-main-pre-push-once",
+      "scope": "Authorized fixed stage once: compile tracked Python, 26 manifest/metadata tests and deployment smoke; feature-branch push defers full suite to CI",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\feature-main-push.log",
+      "summary": {
+        "passed": 26
+      }
+    },
+    {
+      "id": "main-ci-once",
+      "scope": "Authorized main CI workflow attempt 1; both Python fast gates failed deterministic pytest; browser passed, downstream integration/production skipped",
+      "head": "b106574af85327f9db30a1b67853b6cc66c29043",
+      "status": "failed",
+      "authorization": "user-fixed-release-gates-20261027",
+      "run_id": 40448337299,
+      "run_attempt": 1,
+      "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/40448337299",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\main-ci-jobs.json",
+      "jobs": [
+        {
+          "id": 122004858297,
+          "name": "AI controls browser gate",
+          "conclusion": "success"
+        },
+        {
+          "id": 122004858674,
+          "name": "Fast gate (Python 3.11)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 122004858730,
+          "name": "Fast gate (Python 3.10)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 122005253018,
+          "name": "Production lineage and rollback gate",
+          "conclusion": "skipped"
+        },
+        {
+          "id": 122005253170,
+          "name": "Main integration gate (Python 3.10)",
+          "conclusion": "skipped"
+        }
+      ],
+      "limitation": "Complete original pytest failure list unavailable. The watchdog defect is independently reproduced below; it is not asserted to be the only CI failure."
+    },
+    {
+      "authorization": "user-watchdog-single-diagnostic-20261027",
+      "scope": "tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock",
+        "-q",
+        "--tb=long",
+        "--basetemp=D:\\CodexData\\outputs\\security-defense-20261027\\watchdog-single-diagnostic-pytest",
+        "--junitxml=D:\\CodexData\\outputs\\security-defense-20261027\\watchdog-single-diagnostic.xml"
+      ],
+      "head": "b106574af85327f9db30a1b67853b6cc66c29043",
+      "source_sha256": {
+        "deploy/health_watchdog.sh": "0754e42eb0f09289d85e44b49834bc023af8052ef94342eacac45bab57eb4cb4",
+        "tests/test_candidate_review.py": "091043a8edf97af50117039ca9044678f5d06c97dad6cdcfd94b20b1004466a4"
+      },
+      "started": "2026-10-27T07:16:35.727964+00:00",
+      "status": "failed",
+      "exit_code": 1,
+      "finished": "2026-10-27T07:16:58.020284+00:00",
+      "id": "watchdog-single-diagnostic-20261027",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\watchdog-single-diagnostic-20261027.log",
+      "summary": {
+        "passed": 0,
+        "failed": 1
+      },
+      "junit": "D:\\CodexData\\outputs\\security-defense-20261027\\watchdog-single-diagnostic.xml",
+      "finding": "Confirmed AssertionError at tests/test_candidate_review.py:89: obsolete no-probe expectation conflicts with approved observe-before-recovery-lock behavior.",
+      "post_run_change": "Corrected fixture and assertions under the renamed node. Same scenario; rerun approval is still required. No post-fix rerun yet."
+    },
+    {
+      "id": "ci-evidence-first",
+      "scope": "First execution only: new CI evidence runner with simulated pytest success/failure; no old application tests executed",
+      "command": [
+        "py",
+        "-3.10",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_ci_pytest_evidence.py",
+        "-q",
+        "--tb=long",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/ci-evidence-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/ci-evidence.xml"
+      ],
+      "started": "2026-10-27T07:28:58.692732+00:00",
+      "source_sha256": "f62b10bbd3d0690d12bc21ccf8145a2496ca0b762153e153dcabc0e6eee9d665",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\ci-evidence-first.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T07:29:09.783905+00:00",
+      "summary": {
+        "passed": 2,
+        "failed": 0
+      },
+      "junit": "D:/CodexData/outputs/security-defense-20261027/ci-evidence.xml",
+      "environment": "Python 3.10 on Windows; fake pytest process only; upgraded dependency directories reused"
+    },
+    {
+      "id": "authorized-watchdog-postfix-once",
+      "scope": "Explicit user-postfix-watchdog-and-main-gates-20261027 authorization: corrected watchdog scenario once; same previously failed scenario, renamed with ledger mapping",
+      "command": [
+        "py",
+        "-3.10",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_candidate_review.py::test_watchdog_observes_without_restarting_while_release_owns_lock",
+        "-q",
+        "--tb=long",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/watchdog-postfix-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/watchdog-postfix.xml"
+      ],
+      "started": "2026-10-27T07:35:01.240239+00:00",
+      "source_sha256": "743d4a21faf8da33da12ed6976aa7de4bb39fa6a94b0023f3d3cc03b2f807f0d",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\authorized-watchdog-postfix-once.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T07:35:10.628311+00:00",
+      "authorization": "user-postfix-watchdog-and-main-gates-20261027",
+      "summary": {
+        "passed": 1,
+        "failed": 0
+      },
+      "junit": "D:/CodexData/outputs/security-defense-20261027/watchdog-postfix.xml"
     }
   ],
   "pending": [
+    "Authorized feature/main pre-push and main CI: one execution each, stop on failure",
     "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
   ],
   "not_executed": [
@@ -201,7 +366,48 @@
         "Production push CI fixed workflow once",
         "release.ps1 build and server candidate smoke once"
       ],
-      "failure_policy": "Stop on any failed gate; no automatic retries, workflow reruns or bypasses"
+      "failure_policy": "Stop on any failed gate; no automatic retries, workflow reruns or bypasses",
+      "consumed_stages": [
+        "feature-main-pre-push-once",
+        "main-ci-once"
+      ],
+      "unexecuted_stages": [
+        "Production push pre-push gate once",
+        "Production push CI fixed workflow once",
+        "release.ps1 build and server candidate smoke once"
+      ]
+    },
+    {
+      "id": "user-watchdog-single-diagnostic-20261027",
+      "source": "Explicit user answer to the scoped diagnostic question in this chat",
+      "answer": "同意仅复测这一项",
+      "nodes": [
+        "tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock"
+      ],
+      "allowed_executions": 1,
+      "consumed_by": "watchdog-single-diagnostic-20261027",
+      "excludes": "Post-fix reruns, other tests, pushes/CI and production changes"
+    },
+    {
+      "id": "user-postfix-watchdog-and-main-gates-20261027",
+      "source": "Explicit user answer to the scoped question in this chat",
+      "answer": "同意，单项复测及随后固定门禁各一次",
+      "scope": [
+        "Corrected watchdog scenario once",
+        "Feature/main pre-push fixed gate once, only after the single case passes",
+        "Main CI fixed workflow once, including Python 3.10/3.11, full integration and browser gates, only after pre-push passes"
+      ],
+      "failure_policy": "Stop on any failure; no automatic reruns or bypasses",
+      "consumed_stages": [
+        "authorized-watchdog-postfix-once"
+      ]
+    }
+  ],
+  "test_identity_changes": [
+    {
+      "original_node": "tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock",
+      "corrected_node": "tests/test_candidate_review.py::test_watchdog_observes_without_restarting_while_release_owns_lock",
+      "reason": "Name now describes the approved observation/recovery contract; this remains the same previously executed scenario and requires scoped rerun approval."
     }
   ]
 }

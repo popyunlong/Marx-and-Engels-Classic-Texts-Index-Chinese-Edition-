@@ -2,11 +2,11 @@
 
 本轮在 `codex/security-defense-20261027` 实施，工作树为 `D:/CodexData/workspaces/security-defense-20261027`。**代码已实现，尚未发布；本轮未修改生产配置、封禁数据库、Cloudflare 规则或运行进程。** 不将新代码计为线上防护能力。
 
-分阶段提交：`3cbfff0` 应用防护及检索可用性；`3e1449f` 发布事务、运维与取证；`ccefc73` 依赖及 OCR 解码收紧。提交保留在本地专用分支，未推送或触发 CI，避免未经同意触发 pre-push 中已经运行过的测试。
+分阶段提交：`3cbfff0` 应用防护及检索可用性；`3e1449f` 发布事务、运维与取证；`ccefc73` 依赖及 OCR 解码收紧。经用户明确授权，固定 pre-push 门禁执行一次并通过，main 与专用分支已推送到 `b106574`。随后 main CI 失败，production 和线上均未推进。后续修正尚未提交或推送。
 
 ## 基线与证据
 
-远端 main、production 与线上发布均为 `cb945b84cae54b98d3b4de9357f96a5d80e32f14`。线上发布号 `cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d`，进程工作目录位于该不可变发布的 app 子目录。原共享主目录落后；实施前已 fetch，在 D 盘创建独立分支和工作树。
+实施起点：远端 main、production 与线上发布均为 `cb945b84cae54b98d3b4de9357f96a5d80e32f14`。线上发布号 `cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d`，进程工作目录位于该不可变发布的 app 子目录。原共享主目录落后；实施前已 fetch，在 D 盘创建独立分支和工作树。门禁失败后的只读复核确认 main 为 `b106574`，production/线上仍为原基线，线上 PID 2209394 为 active。
 
 应用、会员、管理存储、检索、运行入口、看门狗、两份 Cloudflare 同步脚本、源站锁定样例、备份脚本共 10 个线上源文件与最新主线 SHA256 一致。完整清单见 [baseline.json](security-defense-20261027/baseline.json)。
 
@@ -74,6 +74,18 @@ smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账
 
 跳过项目、失败节点及版本以 JUnit 为准。旧 10 月 18 日病理语料重现不重跑；本轮只用新的合成文本验证确定性匹配。未进行线上攻击复现、压力测试、真实邮件发送或真实支付。新的依赖版本不是此前整个 323 项回归的运行环境，不能借旧结果宣称全套在新依赖上通过。
 
+### CI 门禁失败与修正
+
+首次固定 pre-push 门禁通过：391 个 tracked Python 文件编译、26 项发布清单/元数据测试和 deployment smoke。main CI run `40448337299` 的浏览器门禁通过；Python 3.10/3.11 均在 deterministic pytest 步骤失败，后续集成门禁跳过。Node/Ubuntu 升级提示不是已经确认的失败原因。
+
+用户随后明确批准只复测旧节点 `tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock` 一次。该次复现为 1 failed，具体为第 89 行 `assert 'UNEXPECTED' not in result.stdout`。旧夹具将所有探测标为意外输出，第 91 行还要求“推迟探测”的旧日志；新看门狗按批准计划在占锁时继续观察，只在需要恢复时取锁，因此旧测试契约已经过时。原 CI 完整失败清单尚未取得，不能声称这是唯一失败。
+
+本轮将该节点改名为 `test_watchdog_observes_without_restarting_while_release_owns_lock`，夹具隔离服务 PID、发布路径、启动时间、探测和锁，取消真实等待；断言三次失败探测发生在尝试恢复锁之前，锁忙后不重启、不写入重启时间，健康失败仍有日志。看门狗实现及正式发布的暂停/恢复流程不变。台账保留新旧节点映射，更名不视为未执行的新场景。用户随后明确授权该单项复测，以及通过后 pre-push/main CI 固定门禁各一次；单项复测为 1 passed，见 `authorized-watchdog-postfix-once`，后续门禁失败即停。
+
+另行发现的 `/v2/read` 公共目录页探测兼容问题已修正，两项 curl/urllib 新场景首次执行通过，复用其已有结果，不将其冒充上面的 CI 失败原因。
+
+后端 pytest 步骤改经 `scripts/ci_pytest.py` 单次执行，原有测试范围保留；完整日志、JUnit 和退出码记录存入 runner 临时目录，失败摘要转义后写入 check 注释。各后端 job 使用 [GitHub 官方 artifact action](https://github.com/actions/upload-artifact) 在成功或失败后归档证据 30 天，不重试、不覆盖旧证据。日志工具的新增隔离测试只模拟 pytest 进程，不执行旧业务场景；首次执行为 2 passed，覆盖成功/失败退出码、单次调用、原始日志、JUnit 和注释转义。
+
 ## 发布与回滚交接
 
 用户已明确要求复测通过后推送并平滑上线，由本会话继续协调发布。推送前再次核对 main、production、线上发布，均仍为 cb945b8；没有改用旧版本。另发现新增 shell 测试只识别本机 MARX_TEST_BASH 配置，已补 Linux CI 的 bash 自动发现；这些测试的修改将由获批发布门禁验证，未自行重跑。
@@ -83,6 +95,6 @@ smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账
 3. 确定性缺口修复可先发布，行为判断保持 observe 至少 24 小时。复查正常读者/共享出口的风险命中、各端点 403/429、页图成功交付、支付回调、AI SSE、队列丢弃与健康状态后，由管理员决定 enforce。
 4. 专用 Turnstile 密钥配置、真实服务端验证验收、Cloudflare 当前 WAF/跳过规则核查仍待完成。不要启用无法按规则排除支付回调的全站 Bot Fight Mode。[Cloudflare 限制](https://developers.cloudflare.com/waf/custom-rules/skip/options/)
 5. 确认误伤时通过后台切回 observe，必要时撤销验证 epoch。程序故障仅使用正式 `deploy/rollback_release.ps1`，传入 expected current 和 target；脚本保留记录。回到旧版本时移除本轮标记的 Caddy 防护/日志块并停用无对应源码的安全观察 timer，不覆写其他线上配置。
-6. 本轮上线记录为“未执行”，回滚记录为“未执行”；见 [release-record.json](security-defense-20261027/release-record.json)。线上现有 605 条封禁、原始证据、旧工作树和备份均保留。
+6. 本轮上线记录为“main CI 失败后停止，尚未执行生产发布”，回滚记录为“未执行”；见 [release-record.json](security-defense-20261027/release-record.json)。线上现有 605 条封禁、原始证据、旧工作树和备份均保留。
 
 本地采用 D 盘小型工作树及复用依赖，没有复制整套语料、PDF、模型或旧工作树，也没有清理 Docker、个人文件和历史聊天。运行环境新增依赖及验证日志需要保留以供发布前复核。

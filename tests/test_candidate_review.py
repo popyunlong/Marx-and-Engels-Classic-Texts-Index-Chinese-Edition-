@@ -76,19 +76,46 @@ END
     if timer_active: assert lines[-1]=='start marx-search-watchdog.timer'
 
 
-def test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock(tmp_path):
+def test_watchdog_observes_without_restarting_while_release_owns_lock(tmp_path):
     bash = os.environ.get('MARX_TEST_BASH') or shutil.which('bash')
     if not bash: pytest.skip('bash unavailable')
-    # Use an injectable shell lock outcome; the real flock is exercised by release integration.
+    # Observation stays available while a mail job owns the release lock;
+    # recovery still requires that lock. Never query the host's real services.
     script=(ROOT/'deploy/health_watchdog.sh').read_text(encoding='utf-8')
     script=script.replace('/run/lock/marx-search-release.lock',(tmp_path/'release.lock').as_posix())
     script=script.replace('/run/marx-search-watchdog.last-restart',(tmp_path/'restart-stamp').as_posix())
-    prefix='flock() { return 1; }; logger() { :; }; systemctl() { echo UNEXPECTED; return 0; }; curl() { echo UNEXPECTED; return 1; }; '
-    result=subprocess.run([bash,'--noprofile','--norc','-c',prefix+script],capture_output=True,text=True)
+    script=script.replace('/proc/uptime',(tmp_path/'uptime').as_posix())
+    (tmp_path/'uptime').write_text('10000.0 10000.0\n')
+    calls=tmp_path/'calls'
+    prefix='''
+logger() { :; }
+sleep() { :; }
+readlink() { echo /fixture/releases/current; }
+curl() { echo probe >> "$TEST_CALLS"; return 1; }
+flock() { echo recovery-lock >> "$TEST_CALLS"; return 1; }
+systemctl() {
+  printf 'systemctl %s\n' "$*" >> "$TEST_CALLS"
+  case "$*" in
+    'show marx-search -p MainPID --value') echo 123 ;;
+    'is-active --quiet marx-search') return 0 ;;
+    'show marx-search -p ActiveEnterTimestampMonotonic --value') echo 1000000 ;;
+    *) return 97 ;;
+  esac
+}
+'''
+    result=subprocess.run([bash,'--noprofile','--norc','-c',prefix+script],
+        env=dict(os.environ, TEST_CALLS=calls.as_posix()),
+        capture_output=True,text=True,timeout=5)
     assert result.returncode==0, result.stderr
-    assert 'UNEXPECTED' not in result.stdout
+    assert calls.read_text().splitlines()==[
+        'systemctl show marx-search -p MainPID --value',
+        'systemctl is-active --quiet marx-search',
+        'systemctl show marx-search -p ActiveEnterTimestampMonotonic --value',
+        'probe', 'probe', 'probe', 'recovery-lock',
+    ]
     assert not (tmp_path/'restart-stamp').exists()
-    assert 'deferring watchdog probe' in result.stdout
+    assert 'health probe failed 3x; checking recovery lock' in result.stdout
+    assert 'recovery deferred: release lock busy; health failure remains observable' in result.stdout
 
 
 def test_all_release_exit_paths_restore_watchdog_and_use_managed_script():

@@ -47,13 +47,13 @@ jobs:
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
 
       - name: Run deterministic pull-request tests
-        run: python -m pytest tests/test_geoip.py tests/test_registry_geo.py tests/test_recommendations.py tests/test_ui_order_states.py tests/test_citation_scope_limit.py tests/test_citation_agent_web_access.py tests/test_research_updates.py tests/test_research_delivery.py tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_release_health_evidence.py tests/test_catalog_probe_timing.py tests/test_release_interruption.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_catalog_snapshot.py tests/test_catalog_health.py tests/test_release_upload.py tests/test_candidate_review.py tests/test_layout_release_smoke.py tests/test_paddle_repair.py tests/test_corpus_release.py tests/test_fuzzy_alignment.py tests/test_research_citation_recovery.py tests/test_flash_compatibility.py -q
+        run: python scripts/ci_pytest.py --label deterministic -- tests/test_ci_pytest_evidence.py tests/test_geoip.py tests/test_registry_geo.py tests/test_recommendations.py tests/test_ui_order_states.py tests/test_citation_scope_limit.py tests/test_citation_agent_web_access.py tests/test_research_updates.py tests/test_research_delivery.py tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_release_health_evidence.py tests/test_catalog_probe_timing.py tests/test_release_interruption.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_catalog_snapshot.py tests/test_catalog_health.py tests/test_release_upload.py tests/test_candidate_review.py tests/test_layout_release_smoke.py tests/test_paddle_repair.py tests/test_corpus_release.py tests/test_fuzzy_alignment.py tests/test_research_citation_recovery.py tests/test_flash_compatibility.py -q
 
       - name: Check durable catalogue observation and browser progress
-        run: python -m pytest tests/test_catalog_server_observation.py tests/test_catalog_browser_review.py tests/test_prepare_mega_iv3_verified.py -q
+        run: python scripts/ci_pytest.py --label catalogue -- tests/test_catalog_server_observation.py tests/test_catalog_browser_review.py tests/test_prepare_mega_iv3_verified.py -q
 
       - name: Check isolated dictionary graph and budget controls
-        run: python -m pytest tests/test_dictionary_feature.py tests/test_dictionary_graph.py tests/test_dictionary_graph_release.py tests/test_dictionary_candidate_isolation.py -q
+        run: python scripts/ci_pytest.py --label dictionary -- tests/test_dictionary_feature.py tests/test_dictionary_graph.py tests/test_dictionary_graph_release.py tests/test_dictionary_candidate_isolation.py -q
 
       - name: Check release shell syntax
         run: |
@@ -67,6 +67,14 @@ jobs:
           bash -n deploy/install_paddle_worker.sh
           bash -n deploy/promote_new_corpus_202609.sh
           bash -n deploy/promote_corpus_repair_candidate.sh
+      - name: Preserve backend pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-fast-py${{ matrix.python-version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-evidence/
+          if-no-files-found: ignore
+          retention-days: 30
 
   browser-gate:
     name: AI controls browser gate
@@ -120,7 +128,7 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run full repository test suite
-        run: python -m pytest tests/ -q
+        run: python scripts/ci_pytest.py --label integration -- tests/ -q
 
       - name: Run application deployment smoke
         run: python scripts/deployment_smoke.py --mode server
@@ -143,6 +151,14 @@ jobs:
             --source-dir /tmp/release-repro/app --metadata /tmp/release-repro/release.json \
             --output /tmp/release-repro/package-b.tar.gz
           cmp /tmp/release-repro/package-a.tar.gz /tmp/release-repro/package-b.tar.gz
+      - name: Preserve backend pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-evidence/
+          if-no-files-found: ignore
+          retention-days: 30
 
   production-gate:
     name: Production lineage and rollback gate
@@ -179,4 +195,13 @@ jobs:
           test "$(git status --porcelain --untracked-files=all)" = ""
 
       - name: Rehearse metadata creation and tamper rejection
-        run: python -m pytest tests/test_release_metadata.py -q
+        run: python scripts/ci_pytest.py --label production-lineage -- tests/test_release_metadata.py -q
+
+      - name: Preserve backend pytest evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pytest-evidence/
+          if-no-files-found: ignore
+          retention-days: 30

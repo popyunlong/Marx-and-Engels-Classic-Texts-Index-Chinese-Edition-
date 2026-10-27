@@ -23,7 +23,7 @@ LOGGER = logging.getLogger(__name__)
 # A registry shared by audit, ban and behavioral guards. Business permission
 # checks remain in each route, before any file access or renderer invocation.
 PROTECTED_ENDPOINTS = frozenset({
-    "reader", "layout_read", "library", "dictionary", "dictionary_entry_page", "pdf_viewer",
+    "reader", "library", "dictionary", "dictionary_entry_page", "pdf_viewer",
     "serve_pdf", "page_image", "reader_cover", "api_dictionary_suggest",
     "api_library_toc_suggest", "api_library_volume_toc", "api_pdf_page_context",
     "api_reader_find", "wenku_home", "wenku_reader", "wenku_raw", "liushi_home",

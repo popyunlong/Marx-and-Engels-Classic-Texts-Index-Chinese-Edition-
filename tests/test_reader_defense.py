@@ -185,6 +185,17 @@ def test_non_reader_payment_sse_are_outside_challenge_registry():
     assert safe_return("/\\attacker.test") == "/"
 
 
+@pytest.mark.parametrize("ua", ["curl/8.0", "Python-urllib/3.10"])
+def test_catalog_navigation_stays_available_for_health_observation(client, monkeypatch, ua):
+    # /v2/read is public navigation, used by release and catalogue observers.
+    # Actual page images/raw text/downloads retain their resource guards.
+    assert "layout_read" not in PROTECTED_ENDPOINTS
+    monkeypatch.setitem(web.app.view_functions, "layout_read", lambda: "public catalog")
+    monkeypatch.setattr(web, "_record_reader_access_event", lambda **kw: pytest.fail("catalog treated as reader asset"))
+    response = client.get("/v2/read", headers={"User-Agent": ua})
+    assert response.status_code == 200 and response.text == "public catalog"
+
+
 def test_busy_response_and_started_sse_error():
     from search_capacity import SearchBusy
     with web.app.test_request_context("/api/search"):

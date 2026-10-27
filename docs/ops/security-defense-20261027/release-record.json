@@ -6,10 +6,10 @@
     "3e1449f",
     "ccefc73"
   ],
-  "push": "preparing_authorized_pre_push_gate",
+  "push": "main_and_feature_pushed_b106574; post-fix changes pending authorized gates",
   "expected_live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
   "production_changes_this_work": [],
-  "deployment": "preparing_after_explicit_user_instruction",
+  "deployment": "postfix_single_case_passed; awaiting_authorized_pre_push_and_main_ci",
   "rollback": "not_executed",
   "coordinator": "Current assistant explicitly instructed by user to push and release after the two authorized retests",
   "cloudflare_dashboard": "not_verified",
@@ -17,7 +17,7 @@
   "behavior_mode_on_next_release": "observe",
   "observation_24_hours": "not_started",
   "remaining": [
-    "Required integration/release gates; obtain scoped authorization for overlaps with already executed tests",
+    "Authorized pre-push/main CI once; only after passing proceed to unexecuted production/release gates",
     "Pillow 13 / Python 3.11 migration and compatibility validation",
     "Dedicated Turnstile keys and live verification acceptance",
     "Actual Cloudflare rules review and at least 24h behavioral observation"
@@ -33,10 +33,10 @@
     "run": "authorized-two-fixtures-20261027"
   },
   "lineage_recheck": {
-    "main": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+    "main": "b106574af85327f9db30a1b67853b6cc66c29043",
     "production": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
     "live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
-    "conclusion": "All remain at the verified baseline. Feature descends from this revision; no older revision selected."
+    "conclusion": "Read-only recheck after the CI failure: main advanced to b106574, production/live remain at the original verified baseline; live PID 2209394 active."
   },
   "release_checkout": {
     "path": "D:/CodexData/workspaces/security-production-20261027",
@@ -44,7 +44,7 @@
     "head": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
     "other_sessions_production_worktree": "Untouched"
   },
-  "prepared_feature_head": "070bc48",
+  "prepared_feature_head": "b106574af85327f9db30a1b67853b6cc66c29043",
   "data_bindings_to_preserve": {
     "catalog_release": {
       "id": "catalog-repair-iv3-partial-v4-20261004",
@@ -65,5 +65,33 @@
     }
   },
   "data_binding_preservation_mechanism": "Existing scripts/book_import_deploy.py prepare carries book_data_release/book_data_catalog/book_import_batch from the exact live parent; verify these again on the release candidate and final runtime.",
-  "fixed_release_gates_authorization": "user-fixed-release-gates-20261027: each fixed stage once; stop on failure; no bypass or automatic rerun"
+  "fixed_release_gates_authorization": "user-fixed-release-gates-20261027: each fixed stage once; stop on failure; no bypass or automatic rerun",
+  "main_ci": {
+    "run_id": 40448337299,
+    "head": "b106574af85327f9db30a1b67853b6cc66c29043",
+    "status": "failed",
+    "browser": "passed",
+    "fast_python310": "failed_deterministic_pytest",
+    "fast_python311": "failed_deterministic_pytest",
+    "integration": "skipped"
+  },
+  "confirmed_gate_defect": {
+    "node": "tests/test_candidate_review.py::test_watchdog_does_not_probe_or_record_restart_while_release_owns_lock",
+    "source": "Authorized single diagnostic rerun, 1 failed",
+    "failure": "AssertionError at tests/test_candidate_review.py:89",
+    "reason": "Old fixture expects no observations while locked; approved watchdog observes before taking recovery lock.",
+    "correction_node": "tests/test_candidate_review.py::test_watchdog_observes_without_restarting_while_release_owns_lock",
+    "correction_validation": {
+      "run": "authorized-watchdog-postfix-once",
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "ci_evidence_runner_validation": {
+    "run": "ci-evidence-first",
+    "passed": 2,
+    "failed": 0,
+    "scope": "First execution of new fake-pytest process scenarios; original tests not replayed"
+  },
+  "postfix_release_gates_authorization": "user-postfix-watchdog-and-main-gates-20261027: single case passed; pre-push and main CI authorized once, stop on failure"
 }
