@@ -169,7 +169,6 @@
     }
   ],
   "pending": [
-    "Integration/release gates before main/production advancement; rerun approval for overlapping scenarios",
     "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
   ],
   "not_executed": [
@@ -190,6 +189,19 @@
       "allowed_executions": 1,
       "excludes": "All other tests, pre-push/CI gates, deployment and production changes",
       "consumed_by": "authorized-two-fixtures-20261027"
+    },
+    {
+      "id": "user-fixed-release-gates-20261027",
+      "source": "Explicit scoped user reply in this chat",
+      "answer": "同意，固定发布门禁各执行一次",
+      "scope": [
+        "Feature/main push pre-push gate once",
+        "Main push CI fixed workflow once, Python 3.10/3.11 and integration/browser gates",
+        "Production push pre-push gate once",
+        "Production push CI fixed workflow once",
+        "release.ps1 build and server candidate smoke once"
+      ],
+      "failure_policy": "Stop on any failed gate; no automatic retries, workflow reruns or bypasses"
     }
   ]
 }

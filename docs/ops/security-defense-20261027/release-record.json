@@ -6,7 +6,7 @@
     "3e1449f",
     "ccefc73"
   ],
-  "push": "not_executed_pre_push_would_repeat_tests_without_authorization",
+  "push": "preparing_authorized_pre_push_gate",
   "expected_live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
   "production_changes_this_work": [],
   "deployment": "preparing_after_explicit_user_instruction",
@@ -17,7 +17,6 @@
   "behavior_mode_on_next_release": "observe",
   "observation_24_hours": "not_started",
   "remaining": [
-    "Scoped authorization requested for repeated fixed pre-push/CI/release gates; not yet received",
     "Required integration/release gates; obtain scoped authorization for overlaps with already executed tests",
     "Pillow 13 / Python 3.11 migration and compatibility validation",
     "Dedicated Turnstile keys and live verification acceptance",
@@ -65,5 +64,6 @@
       "source_sha256": "42a00d1cb10f2c5d78d89eee95e9b68803f1d55f8b7d29b677bc604f92a3ddf6"
     }
   },
-  "data_binding_preservation_mechanism": "Existing scripts/book_import_deploy.py prepare carries book_data_release/book_data_catalog/book_import_batch from the exact live parent; verify these again on the release candidate and final runtime."
+  "data_binding_preservation_mechanism": "Existing scripts/book_import_deploy.py prepare carries book_data_release/book_data_catalog/book_import_batch from the exact live parent; verify these again on the release candidate and final runtime.",
+  "fixed_release_gates_authorization": "user-fixed-release-gates-20261027: each fixed stage once; stop on failure; no bypass or automatic rerun"
 }
