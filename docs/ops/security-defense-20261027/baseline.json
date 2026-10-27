@@ -1,0 +1,39 @@
+{
+  "verified_at": "2026-10-27",
+  "remote_main": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+  "remote_production": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+  "live_release": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
+  "live_app_directory": "/opt/marx-search/releases/cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d/app",
+  "source_tree_sha256": "8d42edf1dd50fc496c5438044c6929f725ea6d22e0a8fa3ea57131ac2b0f69f8",
+  "matching_source_sha256": {
+    "app.py": "93d1e3d6a495f7e6bf0e5a7502e7269db21f195303475d1290b5afe356bcefbb",
+    "membership.py": "cc9fb1b89031ce053240ad190fa946d223b9fec8d9d9bfda0fd504e83bac13d3",
+    "admin_store.py": "fb8743cb214e7df06ce53a2476c540d8ad0a63dbc0e223a92861d8f629ab3986",
+    "search.py": "fd05183f6afa79c25cb8112c4fb92d61ec3124c35ff4961465c1516642bb717f",
+    "ingestion/runtime.py": "d3fee0514d57df27da64d39a10e1a55048b5cc4d1f48933e98d05d398b2f4184",
+    "deploy/health_watchdog.sh": "ecb9f66d41cbaa13d1e42a76912a5604b58ac1208dbb318016765eeced200c64",
+    "deploy/update_cf_ips.sh": "d4877cea19f603260e7e2e75ca561f271826fb06ccb6d92122f20cafb334e31f",
+    "deploy/server_helpers/update_cf_ips.sh": "d4877cea19f603260e7e2e75ca561f271826fb06ccb6d92122f20cafb334e31f",
+    "deploy/cf_origin_lock.caddy.example": "0cd62e7bf502936429e336633cb8f2220724646d61ba3ba95ba0630f8047283e",
+    "deploy/backup.sh": "0542a7ace331aca88b276f23633ece5f41e2c5fae7385be7753e438219b65d3c"
+  },
+  "live_configuration_sha256": {
+    "/etc/caddy/Caddyfile": "a4b3b0ce345749c972f52a6fce943d963f25a7df9092e5c73879c0c10cb93ef5",
+    "/etc/caddy/cf_origin_lock.caddy": "d39c163f2ae35ebced831c79534eef5a0aa1960f3eed51c2c2851b493915f14a",
+    "/usr/local/sbin/update_cf_ips.sh": "a2689d4dc82e4bb548b9d6af17c825e1d099093c4841655ed305ef43c01820d4"
+  },
+  "configuration_drift": [
+    "Installed CF snippet/helper already exclude UA exemptions; old repository generator and example did not.",
+    "Live Caddy has an AI quick-chat bridge on 8011 and separate uncompressed SSE routes; do not replace it with the generic sample.",
+    "Dedicated reader Turnstile keys absent from live process.",
+    "Cloudflare dashboard not verified."
+  ],
+  "live_runtime_distribution_versions": {
+    "Flask": "3.1.3", "Werkzeug": "3.1.9", "waitress": "3.0.2",
+    "PyMuPDF": "1.27.2.2", "Pillow": "12.3.0", "cryptography": "45.0.7",
+    "requests": "2.33.1", "lxml": "6.0.2"
+  },
+  "historical_bans_preserved": 605,
+  "historical_bans_breakdown": {"2026-09-18": 525, "2026-10-27": 80},
+  "production_mutations": []
+}

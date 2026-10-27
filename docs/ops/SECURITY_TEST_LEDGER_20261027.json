@@ -1,0 +1,152 @@
+{
+  "session": "security-defense-20261027",
+  "baseline": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+  "rule": "Each test/scenario executes once across this entire work. Failures and interruptions remain recorded; reruns require explicit scope-specific user authorization.",
+  "existing_evidence_not_rerun": [
+    {
+      "scenario": "October 18 production corpus pathological regex reproduction",
+      "result": "heartbeat stalled; timeout at 4 seconds",
+      "artifact": "D:/CodexData/temp/outage-diagnosis-20261018/reproduction-result.json",
+      "applicability": "old baseline defect only; never counts as passing new implementation"
+    },
+    {
+      "scenario": "October 26 live thread stack",
+      "result": "stuck in dynamic highlight regex",
+      "applicability": "passive evidence only; no live attack or load test"
+    }
+  ],
+  "runs": [
+    {
+      "id": "regression-once",
+      "scope": "First execution: new matcher/defense/ops plus existing security, retrieval, reader and deployment regressions; synthetic fixtures only",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_offset_match.py",
+        "tests/test_reader_defense.py",
+        "tests/test_security_ops.py",
+        "tests/test_security.py",
+        "tests/test_associative_search.py",
+        "tests/test_cooccurrence_scope.py",
+        "tests/test_search_overlap_count.py",
+        "tests/test_fuzzy_alignment.py",
+        "tests/test_reader_frontend.py",
+        "tests/test_watchdog_startup.py",
+        "tests/test_deploy_manifests.py",
+        "tests/test_release_metadata.py",
+        "-q",
+        "--tb=short",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/regression.xml"
+      ],
+      "started": "2026-10-27T03:30:32.725174+00:00",
+      "source_sha256": "27214177888500b23796e2eb5bfd9e894c9caec2e74cd77c55823b5776422062",
+      "status": "failed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\regression-once.log",
+      "exit_code": 1,
+      "finished": "2026-10-27T03:32:34.304843+00:00",
+      "summary": {
+        "passed": 323,
+        "failed": 2,
+        "skipped": 2,
+        "subtests_passed": 54
+      },
+      "junit": "D:/CodexData/outputs/security-defense-20261027/regression.xml",
+      "failures": [
+        {
+          "name": "test_untrusted_proxy_headers_do_not_change_actor",
+          "class": "tests.test_reader_defense",
+          "error": "AssertionError: assert 'unknown' == '8.8.4.4'\n  \n  - 8.8.4.4\n  + unknown"
+        },
+        {
+          "name": "test_siteverify_hostname_action_nonce_and_replay",
+          "class": "tests.test_reader_defense",
+          "error": "RuntimeError: Working outside of request context.\n\nThis typically means that you attempted to use functionality that needed\nan active HTTP request. Consult the documentation on testing for\ninformation about how to avoid this problem."
+        }
+      ],
+      "skips": [
+        {
+          "name": "test_subject_index_respects_scope",
+          "reason": "本地语料缺习近平著作群或名目索引"
+        },
+        {
+          "name": "test_thread_dump_signal_does_not_terminate_process",
+          "reason": "Linux runtime signal"
+        }
+      ],
+      "post_run_change": "Only the two failing fixture setups corrected; no rerun authorization received yet. Later dependency changes have separate first-time tests, not a repeat of this suite."
+    },
+    {
+      "id": "dependency-and-shell-once",
+      "scope": "New coverage only: upgraded crypto RSA2, lxml XXE defaults, native OCR image path, PNG-only decoder and modified shell syntax; no prior tests repeated",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_dependency_hardening.py",
+        "tests/test_security_shell_syntax.py",
+        "-q",
+        "--tb=short",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/dependency-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/dependency.xml"
+      ],
+      "started": "2026-10-27T03:39:43.096365+00:00",
+      "source_sha256": "6bbec40983e11f90662fff6a103c1af998de7ea04fc3f0494076dd2733666088",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\dependency-and-shell-once.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T03:39:48.936463+00:00",
+      "summary": {
+        "passed": 12
+      },
+      "junit": "D:/CodexData/outputs/security-defense-20261027/dependency.xml"
+    },
+    {
+      "id": "caddy-adapter-once",
+      "scope": "First read-only installed Caddy adapter check against SHA-bound live baseline; no provisioning, reload or production writes",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "scripts/check_security_caddy_adapt.py"
+      ],
+      "started": "2026-10-27T03:41:20.544029+00:00",
+      "source_sha256": "9c376da3bb46100cd17c955320f1a0bc52cc474ef01dd1dc740f35552dd689fa",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\caddy-adapter-once.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T03:41:26.087263+00:00"
+    },
+    {
+      "id": "deployment-smoke-once",
+      "scope": "First deployment smoke: template parsing, static JavaScript syntax, isolated runtime import and public navigation with upgraded dependency target",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "scripts/deployment_smoke.py",
+        "--mode",
+        "server"
+      ],
+      "started": "2026-10-27T03:42:29.083694+00:00",
+      "source_sha256": "9c376da3bb46100cd17c955320f1a0bc52cc474ef01dd1dc740f35552dd689fa",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\deployment-smoke-once.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T03:42:39.541621+00:00",
+      "wrapper_exit_code": 1,
+      "wrapper_error": "After child exit 0 and ledger save, log echo raised UnicodeEncodeError (GBK). Raw log preserved. Wrapper encoding corrected; not rerun."
+    }
+  ],
+  "pending": [
+    "Explicit scoped authorization before rerunning the two corrected fixture tests",
+    "Integration/release gates before main/production advancement; rerun approval for overlapping scenarios",
+    "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
+  ],
+  "not_executed": [
+    "Production stress/attack reproduction (prohibited)",
+    "Browser/real Turnstile and Cloudflare edge acceptance (keys and configuration unavailable)",
+    "24 hour observation (requires coordinated deployment)"
+  ]
+}
