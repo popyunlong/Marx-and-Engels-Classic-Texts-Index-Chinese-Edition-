@@ -9,16 +9,18 @@
 #   - 可选异地：在 /etc/marx-search.env 配置 RCLONE_REMOTE=remote:bucket/path 后，
 #     用 rclone 同步到对象存储（防勒索/删库/磁盘故障一锅端）。
 #
-# 退路与约束：本机保留最近 BACKUP_KEEP 份；本机备份不能替代异地备份。
+# 清理须证明两次更新发布已连续健康 30 天并可恢复归档；本脚本不按份数删除。
 set -euo pipefail
 
 APPDATA_DIR="${APPDATA_DIR:-/var/www/.marx_search_full}"
 ENV_FILE="${ENV_FILE:-/etc/marx-search.env}"
 BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/marx-search}"
-KEEP="${BACKUP_KEEP:-14}"
 JOURNAL_DATA_ROOT="${MARX_JOURNAL_DATA_ROOT:-/var/www/.marx_search_full/journal}"
 
 stamp="$(date +%Y%m%d-%H%M%S)"
+umask 077
+exec 9>/run/lock/marx-search-release.lock
+flock -w 5 9 || exit 75
 dest="${BACKUP_ROOT}/${stamp}"
 mkdir -p "${dest}"
 
@@ -41,7 +43,7 @@ s.close(); d.close()
 PY
   fi
 }
-for db in membership.sqlite3 feedback.sqlite3; do
+for db in membership.sqlite3 feedback.sqlite3 security.sqlite3; do
   src="${APPDATA_DIR}/${db}"
   if [ -f "${src}" ]; then
     backup_db "${src}" "${dest}/${db}"
@@ -65,17 +67,6 @@ if [ -d "${JOURNAL_DATA_ROOT}" ]; then
     tar --exclude='*/source.pdf' --exclude='*/doc.json.tmp' --exclude='*/provenance.json.tmp' \
       -czpf "${journal_dest}/journal-documents.tar.gz" -C "${JOURNAL_DATA_ROOT}" "${journal_rel[@]}"
   fi
-  mapfile -t old_journal < <(ls -1dt "${JOURNAL_DATA_ROOT}/backups"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) || true)
-  if [ ${#old_journal[@]} -gt 0 ]; then
-    journal_backup_root_resolved="$(realpath -m "${JOURNAL_DATA_ROOT}/backups")"
-    for old_path in "${old_journal[@]}"; do
-      old_resolved="$(realpath -m "${old_path}")"
-      case "${old_resolved}" in
-        "${journal_backup_root_resolved}"/*) rm -rf -- "${old_resolved}" ;;
-        *) echo "[backup] 拒绝清理数据盘备份目录之外的路径：${old_resolved}" >&2 ;;
-      esac
-    done
-  fi
   echo "[backup] 已在数据盘备份期刊数据库与永久文档"
 fi
 
@@ -91,12 +82,8 @@ if [ ${#rel[@]} -gt 0 ]; then
   echo "[backup] 已打包文件型数据 files.tar.gz（${#rel[@]} 项）"
 fi
 
-# 3) 清理旧备份，仅保留最近 KEEP 份
-mapfile -t old < <(ls -1dt "${BACKUP_ROOT}"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) || true)
-if [ ${#old[@]} -gt 0 ]; then
-  rm -rf "${old[@]}"
-  echo "[backup] 已清理 ${#old[@]} 份旧备份（保留 ${KEEP} 份）"
-fi
+# No automatic deletion: preserve evidence and rollback copies until reviewed.
+printf '%s\n' "$(readlink -f /opt/marx-search/current)" > "${dest}/release.txt"
 
 # 4) 可选异地备份（配置 RCLONE_REMOTE 后启用）
 if [ -n "${RCLONE_REMOTE:-}" ] && command -v rclone >/dev/null 2>&1; then
@@ -104,9 +91,11 @@ if [ -n "${RCLONE_REMOTE:-}" ] && command -v rclone >/dev/null 2>&1; then
     echo "[backup] 已异地同步到 ${RCLONE_REMOTE%/}/${stamp}"
   else
     echo "[backup] 警告：rclone 异地同步失败（本机备份已完成）" >&2
+    exit 1
   fi
 elif [ -n "${RCLONE_REMOTE:-}" ]; then
   echo "[backup] 警告：配置了 RCLONE_REMOTE 但未安装 rclone，跳过异地同步" >&2
+  exit 1
 fi
 
 echo "[backup] 完成：${dest}"

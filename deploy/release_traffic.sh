@@ -8,6 +8,13 @@ switch_caddy() {
   backup="$(mktemp /etc/caddy/Caddyfile.backup.XXXXXX)"
   cp -a "$CADDYFILE" "$backup"
   sed -E "s#^([[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\3#" "$CADDYFILE" > "$temp"
+  # A formal rollback to a pre-defense release removes only our marked blocks.
+  # Preserve every unrelated live route/header, including the AI sidecar.
+  if [ -f "${TRANSACTION_APP:-}/deploy/security_caddy.py" ]; then
+    local security_mode=()
+    [ -f "${SECURITY_CADDY_TARGET_APP:-${TARGET:-}/app}/deploy/security_caddy.py" ] || security_mode=(--remove)
+    python3 "$TRANSACTION_APP/deploy/security_caddy.py" "$temp" "$temp" "${security_mode[@]}" || { rm -f "$temp" "$backup"; return 1; }
+  fi
   caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
   install -o root -g root -m 0644 "$temp" "$CADDYFILE"
   rm -f "$temp"

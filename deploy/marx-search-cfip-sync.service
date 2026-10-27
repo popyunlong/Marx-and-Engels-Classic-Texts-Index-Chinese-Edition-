@@ -5,4 +5,4 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/update_cf_ips.sh
+ExecStart=/bin/bash /opt/marx-search/current/app/deploy/update_cf_ips.sh

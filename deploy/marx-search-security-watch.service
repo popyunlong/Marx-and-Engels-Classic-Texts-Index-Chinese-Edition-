@@ -1,0 +1,14 @@
+[Unit]
+Description=Passive security, backup and watchdog health summary
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/marx-search.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/marx-search/runtime-python /opt/marx-search/current/app/scripts/security_ops_watch.py
+TimeoutStartSec=90
+NoNewPrivileges=true
+ProtectHome=true
+UMask=0077

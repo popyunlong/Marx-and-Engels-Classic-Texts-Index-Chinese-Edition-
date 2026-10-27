@@ -51,7 +51,7 @@ systemctl() {{
     assert result.returncode == 0, result.stderr
     assert ("SYSTEMCTL restart marx-search" in result.stdout) is restart
     assert ("SYSTEMCTL kill --kill-who=main --signal=SIGUSR1 marx-search" in result.stdout) is dump
-    assert result.stdout.count("PROBE") == (0 if age < 600 else 1 if healthy else 3)
+    assert result.stdout.count("PROBE") == (0 if age < 600 else 1 if healthy else 4)
     if dump:
         assert result.stdout.index("SYSTEMCTL kill") < result.stdout.index("SYSTEMCTL restart")
     if age < 600:

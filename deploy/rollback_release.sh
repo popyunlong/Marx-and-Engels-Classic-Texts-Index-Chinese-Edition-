@@ -77,6 +77,9 @@ with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
 PY
 TRANSACTION_APP="$(readlink -f "$APP_ROOT/current/app")"
 source "$TRANSACTION_APP/deploy/release_traffic.sh"
+if [ -f "$TRANSACTION_APP/deploy/security_units.sh" ]; then
+  source "$TRANSACTION_APP/deploy/security_units.sh"
+fi
 python3 "$TRANSACTION_APP/scripts/catalog_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
 if [ -f "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" ]; then
   python3 "$TRANSACTION_APP/scripts/dictionary_graph_deploy.py" rollback --root "$APP_ROOT" --app "$TARGET/app"
@@ -160,6 +163,8 @@ restore_predecessor() {
   fi
   systemctl daemon-reload
   restore_research_units "$SERVICE_BACKUP/research-timers-before.tsv" || true
+  SECURITY_CADDY_TARGET_APP="$OLD_REAL/app"
+  if declare -F activate_security_units >/dev/null; then activate_security_units "$OLD_REAL/app" || true; fi
   systemctl restart "$MAIN_SERVICE" || true
   restart_active_citation_workers || true
   if wait_runtime "$PRIMARY_PORT" "$OLD_REAL/release.json" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
@@ -286,6 +291,7 @@ retire_candidate_if_drained "completed rollback candidate" || true
 systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true
 systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
 activate_research_units "$TARGET/app" "$OLD_REAL/research-legacy-timers.tsv"
+if declare -F activate_security_units >/dev/null; then activate_security_units "$TARGET/app"; fi
 ln -sfn -- "$OLD_REAL" "$APP_ROOT/previous"
 printf '%s\n' "$TARGET_RELEASE" > "$APP_ROOT/DEPLOYED_SHA.tmp"
 mv -f -- "$APP_ROOT/DEPLOYED_SHA.tmp" "$APP_ROOT/DEPLOYED_SHA"

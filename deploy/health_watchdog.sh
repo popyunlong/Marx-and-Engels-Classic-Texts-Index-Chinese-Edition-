@@ -23,13 +23,9 @@ STARTUP_GRACE_SECONDS=600    # 现有书库启动校验约 270s；不能在监�
 
 log() { logger -t marx-watchdog "$*" 2>/dev/null || true; echo "marx-watchdog: $*"; }
 
-# A release owns health decisions while its candidate warms and traffic drains.
-# Lock before probing or recording a restart timestamp, including legacy rollout.
-exec 9>"/run/lock/marx-search-release.lock"
-if ! flock -n 9; then
-  log "release/rollback transaction is active; deferring watchdog probe"
-  exit 0
-fi
+# Observe without the release lock, even when a background mail job holds it.
+observed_pid=$(systemctl show "$SERVICE" -p MainPID --value)
+observed_release=$(readlink -f /opt/marx-search/current 2>/dev/null || true)
 
 # 服务本就没在运行 → 交给 systemd 的 Restart=always，看门狗不插手。
 if ! systemctl is-active --quiet "$SERVICE"; then
@@ -58,6 +54,24 @@ for i in $(seq 1 "$ATTEMPTS"); do
   fi
 done
 
+log "health probe failed ${ATTEMPTS}x; checking recovery lock"
+exec 9>"/run/lock/marx-search-release.lock"
+if ! flock -n 9; then
+  log "recovery deferred: release lock busy; health failure remains observable"
+  exit 0
+fi
+current_pid=$(systemctl show "$SERVICE" -p MainPID --value)
+current_release=$(readlink -f /opt/marx-search/current 2>/dev/null || true)
+if [ "$observed_pid" != "$current_pid" ] || [ "$observed_release" != "$current_release" ] || \
+   ! systemctl is-active --quiet "$SERVICE"; then
+  log "process or release changed while observing; deferring recovery"
+  exit 0
+fi
+if curl -fsS --max-time "$CURL_TIMEOUT" -o /dev/null "$URL"; then
+  log "service recovered before restart"
+  exit 0
+fi
+
 # 走到这里 = 服务 active 但连续 ${ATTEMPTS} 次探测都失败 = 假死。
 # 重启限流：距上次自动重启不足 MIN_RESTART_INTERVAL 秒则按兵不动（宁可让它崩着、可见，
 # 也不要在崩溃循环里反复重启把日志和资源搅乱）。
@@ -84,6 +98,6 @@ if [[ "$main_pid" =~ ^[0-9]+$ ]] && [ "$main_pid" -gt 0 ]; then
   fi
 fi
 log "health probe failed ${ATTEMPTS}x (service active but unresponsive) -> restarting ${SERVICE}"
-systemctl restart "$SERVICE"
+systemctl restart "$SERVICE" || exit 1
 log "restart issued for ${SERVICE}"
 exit 0

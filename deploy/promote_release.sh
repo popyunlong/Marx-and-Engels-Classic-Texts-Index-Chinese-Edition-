@@ -300,6 +300,10 @@ switch_caddy() {
   backup="$(mktemp /etc/caddy/Caddyfile.backup.XXXXXX)"
   cp -a "$CADDYFILE" "$backup"
   sed -E "s#^([[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:)${from_port}([[:space:]]|$)#\\1${to_port}\\3#" "$CADDYFILE" > "$temp"
+  local security_mode=()
+  [ "${SECURITY_CADDY_REMOVE:-0}" = 1 ] && security_mode=(--remove)
+  python3 "$FINAL/app/deploy/security_caddy.py" "$temp" "$temp" "${security_mode[@]}" || { rm -f "$temp" "$backup"; return 1; }
+  install -d -o caddy -g caddy -m 0750 /var/log/caddy
   caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
   install -o root -g root -m 0644 "$temp" "$CADDYFILE"
   rm -f "$temp"
@@ -353,12 +357,14 @@ retire_candidate_if_drained() {
 
 abort_before_commit() {
   echo "previous primary did not drain; restoring traffic without restarting or replacing it" >&2
+  [ -f "$OLD_CURRENT/app/deploy/security_caddy.py" ] || SECURITY_CADDY_REMOVE=1
   if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
     echo "CRITICAL: could not restore the primary route; healthy candidate remains live" >&2
     return 1
   fi
   if ! wait_health "$PRIMARY_PORT" "$EXPECTED_LIVE"; then
     echo "CRITICAL: restored primary route is unhealthy; moving traffic back to the healthy candidate" >&2
+    SECURITY_CADDY_REMOVE=0
     switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT" >/dev/null 2>&1 || true
     return 1
   fi
@@ -513,6 +519,11 @@ rollback_primary() {
   fi
   systemctl daemon-reload
   restore_research_units "$FINAL/research-timers-before.tsv" || true
+  if [ -f "$FINAL/app/deploy/security_units.sh" ]; then
+    source "$FINAL/app/deploy/security_units.sh"
+    activate_security_units "$OLD_CURRENT/app" || true
+  fi
+  [ -f "$OLD_CURRENT/app/deploy/security_caddy.py" ] || SECURITY_CADDY_REMOVE=1
   systemctl restart "$MAIN_SERVICE" || true
   restart_active_citation_workers || true
   if wait_health "$PRIMARY_PORT" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
@@ -567,6 +578,8 @@ systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true
 systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
 
 activate_research_units "$FINAL/app" "$FINAL/research-timers-before.tsv"
+source "$FINAL/app/deploy/security_units.sh"
+activate_security_units "$FINAL/app"
 
 printf '%s\n' "$RELEASE_ID" > "$APP_ROOT/DEPLOYED_SHA.tmp"
 mv -f -- "$APP_ROOT/DEPLOYED_SHA.tmp" "$APP_ROOT/DEPLOYED_SHA"
