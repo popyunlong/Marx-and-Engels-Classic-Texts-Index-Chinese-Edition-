@@ -357,7 +357,7 @@ retire_candidate_if_drained() {
 
 abort_before_commit() {
   echo "previous primary did not drain; restoring traffic without restarting or replacing it" >&2
-  [ -f "$OLD_CURRENT/app/deploy/security_caddy.py" ] || SECURITY_CADDY_REMOVE=1
+  [ -f "$APP_ROOT/current/app/deploy/security_caddy.py" ] || SECURITY_CADDY_REMOVE=1
   if ! switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
     echo "CRITICAL: could not restore the primary route; healthy candidate remains live" >&2
     return 1

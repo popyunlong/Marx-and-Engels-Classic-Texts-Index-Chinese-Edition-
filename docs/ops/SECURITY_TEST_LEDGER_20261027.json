@@ -137,10 +137,38 @@
       "finished": "2026-10-27T03:42:39.541621+00:00",
       "wrapper_exit_code": 1,
       "wrapper_error": "After child exit 0 and ledger save, log echo raised UnicodeEncodeError (GBK). Raw log preserved. Wrapper encoding corrected; not rerun."
+    },
+    {
+      "id": "authorized-two-fixtures-20261027",
+      "scope": "Explicit user authorization user-two-fixtures-20261027: rerun only the two corrected fixtures once, linked to regression-once failures; current upgraded dependency target",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_reader_defense.py::test_untrusted_proxy_headers_do_not_change_actor",
+        "tests/test_reader_defense.py::test_siteverify_hostname_action_nonce_and_replay",
+        "-q",
+        "--tb=short",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/authorized-two-fixtures-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/authorized-two-fixtures.xml"
+      ],
+      "started": "2026-10-27T03:54:59.290737+00:00",
+      "source_sha256": "ceb05218fadc1b2c00e73754821aa7361bd72eb2b9fa0bddb4943252ad425cc5",
+      "status": "passed",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\authorized-two-fixtures-20261027.log",
+      "exit_code": 0,
+      "finished": "2026-10-27T03:55:07.744406+00:00",
+      "authorization": "user-two-fixtures-20261027",
+      "summary": {
+        "passed": 2,
+        "failed": 0
+      },
+      "junit": "D:/CodexData/outputs/security-defense-20261027/authorized-two-fixtures.xml",
+      "environment": "Python 3.10; upgraded cryptography/lxml target on D drive"
     }
   ],
   "pending": [
-    "Explicit scoped authorization before rerunning the two corrected fixture tests",
     "Integration/release gates before main/production advancement; rerun approval for overlapping scenarios",
     "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
   ],
@@ -148,5 +176,20 @@
     "Production stress/attack reproduction (prohibited)",
     "Browser/real Turnstile and Cloudflare edge acceptance (keys and configuration unavailable)",
     "24 hour observation (requires coordinated deployment)"
+  ],
+  "rerun_authorizations": [
+    {
+      "id": "user-two-fixtures-20261027",
+      "source": "Explicit user reply to scoped question in this chat",
+      "answer": "同意，仅复测这两项",
+      "original_run": "regression-once",
+      "nodes": [
+        "tests/test_reader_defense.py::test_untrusted_proxy_headers_do_not_change_actor",
+        "tests/test_reader_defense.py::test_siteverify_hostname_action_nonce_and_replay"
+      ],
+      "allowed_executions": 1,
+      "excludes": "All other tests, pre-push/CI gates, deployment and production changes",
+      "consumed_by": "authorized-two-fixtures-20261027"
+    }
   ]
 }

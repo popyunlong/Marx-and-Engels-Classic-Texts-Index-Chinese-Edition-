@@ -17,6 +17,7 @@ def run_helper(tmp_path, scenario, implementation='rollback'):
 set -eu
 source "$1"
 REHEARSAL_DIR="$2"
+FINAL="$REHEARSAL_DIR/candidate"
 CADDYFILE="$REHEARSAL_DIR/Caddyfile"
 CANDIDATE_UNIT=fixture-candidate.service
 CANDIDATE_PORT=8001
@@ -34,7 +35,10 @@ systemctl() {
 }
 caddy() { [ "${VALIDATE_FAIL:-0}" = 0 ]; }
 mktemp() { command mktemp "$REHEARSAL_DIR/mock.XXXXXX"; }
-install() { command cp -- "${@: -2:1}" "${@: -1}"; }
+install() { if [ "$1" = -d ]; then return 0; fi; command cp -- "${@: -2:1}" "${@: -1}"; }
+# This fixture exercises route switching only. The hostname-specific security
+# transform has its own baseline/adapter acceptance in test_security_ops.py.
+python3() { if [ "$1" = "$FINAL/app/deploy/security_caddy.py" ]; then return 0; fi; command python3 "$@"; }
 ''' + scenario
     helper = ROOT / 'deploy/release_traffic.sh'
     if implementation == 'promote':

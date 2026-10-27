@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 
 import pytest
@@ -68,7 +69,10 @@ systemctl() {{
  esac
 }}
 '''
-    result = subprocess.run([os.environ["MARX_TEST_BASH"], "--noprofile", "--norc", "-c", prefix + script],
+    bash = os.environ.get("MARX_TEST_BASH") or shutil.which("bash")
+    if not bash:
+        pytest.skip("bash unavailable")
+    result = subprocess.run([bash, "--noprofile", "--norc", "-c", prefix + script],
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert result.stdout.count("PROBE") == (4 if recovered else 3)

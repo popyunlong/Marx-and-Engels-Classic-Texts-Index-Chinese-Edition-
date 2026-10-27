@@ -65,16 +65,18 @@ OSV 查询发现 cryptography、lxml、Pillow 的新公告，原始查询及详�
 
 唯一台账是 [SECURITY_TEST_LEDGER_20261027.json](SECURITY_TEST_LEDGER_20261027.json)，每次先登记开始状态及源码摘要，再执行，失败/中断不覆盖。日志、JUnit 位于 `D:/CodexData/outputs/security-defense-20261027`。
 
-1. 首次回归：323 passed、2 failed、2 skipped、54 subtests passed。失败为新增测试夹具：未设置回环代理地址、未建立 Flask 请求上下文。夹具已修正，尚需针对这两项的明确复测同意；不将修正后结果声称为通过。
+1. 首次回归：323 passed、2 failed、2 skipped、54 subtests passed。失败为新增测试夹具：未设置回环代理地址、未建立 Flask 请求上下文。原始失败记录保留。用户随后明确批准仅复测这两项；修正夹具后的该次复测为 2 passed，详见台账 `authorized-two-fixtures-20261027`。未重跑其他项目。
 2. 依赖与 shell 新场景首次执行：12 passed。使用 D 盘独立依赖目录加载新 cryptography/lxml；未重复上面的测试。
 3. 服务器已安装 Caddy 成功 adapt 增量候选。只是解析验证，不 provision、不 reload、不改线上文件；正式发布仍需流程内 caddy validate。
 4. 新依赖环境的首次 deployment smoke：模板解析、JS 语法、隔离环境导入与公共导航通过。未装真实语料/API/支付密钥，不能当作全量生产数据、真实 AI/支付调用验收。
 
-smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账包装器在随后回显含中文的日志时发生 Windows GBK 编码错误并退出 1。此错误不是 smoke 失败。已修正未来运行的日志编码，但没有因此重跑 smoke；包装器修正后尚未单独复测。
+smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账包装器在随后回显含中文的日志时发生 Windows GBK 编码错误并退出 1。此错误不是 smoke 失败。已修正日志编码；随后执行上述获批的两项复测时，包装器正常回显并退出 0，smoke 本身未因此重跑。
 
 跳过项目、失败节点及版本以 JUnit 为准。旧 10 月 18 日病理语料重现不重跑；本轮只用新的合成文本验证确定性匹配。未进行线上攻击复现、压力测试、真实邮件发送或真实支付。新的依赖版本不是此前整个 323 项回归的运行环境，不能借旧结果宣称全套在新依赖上通过。
 
 ## 发布与回滚交接
+
+用户已明确要求复测通过后推送并平滑上线，由本会话继续协调发布。推送前再次核对 main、production、线上发布，均仍为 cb945b8；没有改用旧版本。另发现新增 shell 测试只识别本机 MARX_TEST_BASH 配置，已补 Linux CI 的 bash 自动发现；这些测试的修改将由获批发布门禁验证，未自行重跑。
 
 1. 仅指定协调者可在干净且已推送、HEAD 等于 origin/production 的 production 分支执行 `deploy/release.ps1`；先核对 main/production/live 是否仍为已确认的预期版本。通过所需集成和发布门禁后才能推进 production。若门禁与本轮已执行项目重叠，先取得复测授权，不能直接触发 pre-push/CI 自动重复。
 2. 本分支禁止直接部署。生产动作全部在现有发布锁事务内：Caddy 增量处理、服务更新、CF 同步来源切换、安全观察 timer 安装。Caddy 遇到未知站点或日志布局会拒绝修改，交回人工审查。
