@@ -45,8 +45,10 @@ def receive_command(destination, size, digest):
         raise ValueError('upload destination must be a unique release archive')
     source = base64.b64encode(RECEIVER.encode()).decode()
     code = "import base64; exec(compile(base64.b64decode('" + source + "'), '<receiver>', 'exec'))"
-    return ('flock -s -n /run/lock/marx-search-release.lock ionice -c3 nice -n19 python3 -B -c '
-            + shlex.quote(code) + ' ' + shlex.quote(destination) + ' ' + str(size) + ' ' + shlex.quote(digest))
+    return ('flock -s -w 120 -E 75 /run/lock/marx-search-release.lock ionice -c3 nice -n19 python3 -B -c '
+            + shlex.quote(code) + ' ' + shlex.quote(destination) + ' ' + str(size) + ' ' + shlex.quote(digest)
+            + ' || { result=$?; if [ "$result" -eq 75 ]; then '
+              'echo "release upload lock timed out after 120 seconds" >&2; fi; exit "$result"; }')
 
 
 def stream(source, sink, monitor, *, clock=time.monotonic, sleep=time.sleep):
@@ -87,14 +89,23 @@ class UploadRemote(Remote):
             with self.active_lock:
                 self.active = child
             try:
-                with path.open('rb') as source:
-                    stream(source, child.stdin, monitor)
-                child.stdin.close()
+                pipe_error = None
+                try:
+                    with path.open('rb') as source:
+                        stream(source, child.stdin, monitor)
+                except BrokenPipeError as exc:
+                    pipe_error = exc
+                try:
+                    child.stdin.close()
+                except BrokenPipeError as exc:
+                    pipe_error = exc
                 child.stdin = None
                 stdout, stderr = child.communicate(timeout=60)
                 monitor.check()
                 if child.returncode:
-                    raise RuntimeError('release upload failed: ' + stderr.decode(errors='replace')[-1000:])
+                    raise RuntimeError(f'release upload failed (SSH exit {child.returncode}): ' + stderr.decode(errors='replace')[-1000:]) from pipe_error
+                if pipe_error is not None:
+                    raise RuntimeError('release upload pipe closed before completion') from pipe_error
                 if json.loads(stdout) != {'bytes': size, 'sha256': expected}:
                     raise RuntimeError('remote upload verification mismatch')
                 return {'path': destination, 'bytes': size, 'sha256': expected}

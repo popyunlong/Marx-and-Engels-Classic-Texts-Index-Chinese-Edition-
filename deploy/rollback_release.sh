@@ -141,6 +141,10 @@ source "$TRANSACTION_APP/deploy/research_units.sh"
 capture_research_units "$SERVICE_BACKUP/research-timers-before.tsv"
 
 restore_predecessor() {
+  if [ "${CADDY_RESTORE_FAILED:-0}" -eq 1 ]; then
+    echo "CRITICAL: preserve current service and candidate until Caddy routing is confirmed" >&2
+    return 1
+  fi
   trap - ERR
   set +e
   # After a failed primary restart, send new traffic to the healthy rollback

@@ -70,7 +70,7 @@ if ! [[ "$DRAIN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "MARX_DEPLOY_DRAIN_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
-for command in flock python3 tar curl systemctl systemd-run caddy sha256sum ss nice ionice; do
+for command in flock python3 tar curl systemctl systemd-run caddy sha256sum ss nice ionice runuser timeout; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 2; }
 done
 [ -f "$ARCHIVE" ] || { echo "release archive not found" >&2; exit 2; }
@@ -294,6 +294,7 @@ wait_health() {
 
 switch_caddy() {
   local from_port="$1" to_port="$2" temp backup
+  CADDY_RESTORE_FAILED=0
   # Named stream matchers must follow the same cutover as the default route.
   grep -Eq "^[[:space:]]*reverse_proxy[[:space:]]+(@[^[:space:]]+[[:space:]]+)?127\\.0\\.0\\.1:${from_port}([[:space:]]|$)" "$CADDYFILE" || return 1
   temp="$(mktemp /etc/caddy/Caddyfile.release.XXXXXX)"
@@ -303,13 +304,18 @@ switch_caddy() {
   local security_mode=()
   [ "${SECURITY_CADDY_REMOVE:-0}" = 1 ] && security_mode=(--remove)
   python3 "$FINAL/app/deploy/security_caddy.py" "$temp" "$temp" "${security_mode[@]}" || { rm -f "$temp" "$backup"; return 1; }
-  install -d -o caddy -g caddy -m 0750 /var/log/caddy
-  caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
+  python3 "$FINAL/app/deploy/security_caddy.py" --prepare-log || { rm -f "$temp" "$backup"; return 1; }
+  # Provision writers as the service user; bound the admin request directly.
+  chmod 0644 "$temp"
+  timeout 30s runuser -u caddy -- caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
   install -o root -g root -m 0644 "$temp" "$CADDYFILE"
   rm -f "$temp"
-  if ! systemctl reload caddy; then
+  if ! timeout 30s runuser -u caddy -- caddy reload --config "$CADDYFILE" --force; then
     install -o root -g root -m 0644 "$backup" "$CADDYFILE"
-    systemctl reload caddy >/dev/null 2>&1 || true
+    if ! timeout 30s runuser -u caddy -- caddy reload --config "$CADDYFILE" --force >/dev/null 2>&1; then
+      CADDY_RESTORE_FAILED=1
+      echo "CRITICAL: Caddy restoration is unconfirmed; preserve both application instances" >&2
+    fi
     rm -f "$backup"
     return 1
   fi
@@ -337,6 +343,10 @@ drain_port() {
 
 retire_candidate_if_drained() {
   local label="$1"
+  if [ "${CADDY_RESTORE_FAILED:-0}" -eq 1 ]; then
+    echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT (Caddy restoration unconfirmed)" >&2
+    return 1
+  fi
   if ! drain_port "$CANDIDATE_PORT" "$label"; then
     echo "WARNING: $label still has active connections; leaving $CANDIDATE_UNIT running for manual retirement" >&2
     echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
@@ -492,6 +502,10 @@ else
 fi
 
 rollback_primary() {
+  if [ "${CADDY_RESTORE_FAILED:-0}" -eq 1 ]; then
+    echo "CRITICAL: preserve current service and candidate until Caddy routing is confirmed" >&2
+    return 1
+  fi
   trap - ERR
   set +e
   # A post-cutover health failure can occur while the primary still has live

@@ -6,21 +6,25 @@
     "3e1449f",
     "ccefc73"
   ],
-  "push": "postfix_pre_push_passed; SSH transport failed with exit 141; no remote ref advanced",
+  "push": "main, feature and production normally advanced to d2a045a; Git gates passed",
   "expected_live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
-  "production_changes_this_work": [],
-  "deployment": "not_started; awaiting_scoped_pre_push_retry_approval",
+  "production_changes_this_work": [
+    "Temporary candidate and its data acceptance receipts under formal release lock; candidate stopped after failed cutover",
+    "Root-owned empty access-log artifact retained; original Caddyfile restored with exact baseline SHA; primary PID unchanged"
+  ],
+  "deployment": "candidate_passed_but_caddy_cutover_failed; original_live_preserved; source_fix_awaits_scoped_validation",
   "rollback": "not_executed",
   "coordinator": "Current assistant explicitly instructed by user to push and release after the two authorized retests",
   "cloudflare_dashboard": "not_verified",
   "turnstile": "dedicated_keys_not_configured_on_live_process",
   "behavior_mode_on_next_release": "observe",
-  "observation_24_hours": "not_started",
+  "observation_24_hours": "not_started_on_production",
   "remaining": [
-    "Approve one pre-push retry after SSH keepalive and D-drive bytecode caching; post-fix main CI remains authorized but unexecuted; production gates stay pending",
+    "Validate and publish Caddy service-identity/log-permission/deadline fix through all formal gates after scoped rerun approval",
+    "Upload lock-race hardening remains pending; approved retry succeeded without fixing race",
     "Pillow 13 / Python 3.11 migration and compatibility validation",
-    "Dedicated Turnstile keys and live verification acceptance",
-    "Actual Cloudflare rules review and at least 24h behavioral observation"
+    "Dedicated Turnstile keys and actual Cloudflare rules review",
+    "Start at least 24h production observe after successful promotion"
   ],
   "retained_scratch": {
     "path": "D:/CodexData/temp/security-defense-20261027-smoke",
@@ -109,5 +113,165 @@
     "live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
     "pid": 2291926,
     "service": "active"
+  },
+  "latest_checked_git_sha": "d2a045a155d642f55e1302ba76608433e4b188d6",
+  "latest_main_ci": {
+    "run_id": 41041124818,
+    "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+    "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/41041124818",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "observed_at": "2026-10-30T10:33:47.255587+00:00",
+    "jobs": [
+      {
+        "id": 124013906296,
+        "name": "Fast gate (Python 3.11)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124013906583,
+        "name": "Fast gate (Python 3.10)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124013906623,
+        "name": "AI controls browser gate",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124014517722,
+        "name": "Main integration gate (Python 3.10)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124015687666,
+        "name": "Production lineage and rollback gate",
+        "status": "completed",
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "latest_production_ci": {
+    "run_id": 41042635889,
+    "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+    "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/41042635889",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "observed_at": "2026-10-30T10:46:08.630552+00:00",
+    "jobs": [
+      {
+        "id": 124018919576,
+        "name": "AI controls browser gate",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124018920054,
+        "name": "Fast gate (Python 3.10)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124018920165,
+        "name": "Fast gate (Python 3.11)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124019355130,
+        "name": "Main integration gate (Python 3.10)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 124020122095,
+        "name": "Production lineage and rollback gate",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "latest_pre_push": {
+    "feature": "passed: 26 tests and smoke",
+    "production": "passed: 26 manifest tests; full suite 1075 passed, 2 skipped, 102 subtests passed; smoke passed"
+  },
+  "release_entrypoint_failure": {
+    "log": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\release-once-20261030.log",
+    "build_started": false,
+    "upload_started": false,
+    "candidate_started": false,
+    "replacement_plan": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\release-pwsh7-plan-20261030.json"
+  },
+  "release_ps7_and_upload": {
+    "build": "passed",
+    "upload_first": "failed, retained",
+    "upload_authorized_retry": "passed",
+    "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\upload-resume-once-20261030.json"
+  },
+  "candidate_cutover_failure": {
+    "recorded_at": "2026-10-30T11:49:29.774454+00:00",
+    "attempted_release": "d2a045a155d642f55e1302ba76608433e4b188d6-20261030T105221Z-e0d23f55",
+    "current_release": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
+    "candidate_exit_code": 5,
+    "outcome": "cutover_failed_before_application_promotion; original_live_preserved",
+    "root_cause": "Root-run caddy validate created /var/log/caddy/access.log as root:root 0600. Caddy service could not open it; admin /load returned HTTP 400 permission denied.",
+    "secondary_cause": "systemctl reload remained in reloading with ControlPID=0 and ReloadResult=timeout, preventing the original restoration branch from completing.",
+    "observed_log_file": {
+      "owner": "root",
+      "group": "root",
+      "mode": "0600",
+      "bytes": 0
+    },
+    "recovery": [
+      "Closed only this task candidate browser tab and loopback SSH tunnel.",
+      "Verified original transaction PID 2388168 still owned release-lock fd9, cancelled failed reload job 17001447; original script restored its backup.",
+      "Verified restored Caddyfile exactly matched baseline SHA256; reloaded that unchanged original config as caddy within the existing release transaction coordination.",
+      "Original script drained/stopped candidate and resumed watchdog, exiting 5. No candidate cutover was accepted, no main restart, no source patch, no application rollback."
+    ],
+    "final_passive_state": {
+      "current": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
+      "deployed_sha": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
+      "main_pid": 2291926,
+      "caddy_pid": 743,
+      "ai_sync_v2_pid": 755,
+      "main_caddy_sidecar": "active/running",
+      "watchdog": "active/waiting",
+      "candidate": "inactive",
+      "release_lock": "released",
+      "caddy_sha256": "a4b3b0ce345749c972f52a6fce943d963f25a7df9092e5c73879c0c10cb93ef5",
+      "last_ledger_event": "original 2026-10-18 promote; no new promote or rollback"
+    },
+    "passed_evidence": {
+      "build": "release.ps1 via PowerShell 7; exact clean production d2a045a",
+      "upload_retry": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\upload-resume-once-20261030.json",
+      "candidate_browser": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\candidate-browser-evidence-20261030.json",
+      "corrected_receipt": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\candidate-corrected-receipt-submission-20261030.json",
+      "retained_book_evidence": "D:\\CodexData\\temp\\recommendations-20261014\\phase2-final-acceptance.json",
+      "retained_evidence_scope": "Exact unchanged book-data binding; all nine original referenced artifact hashes verified; not rerun or claimed as fresh mobile / rollback testing."
+    },
+    "transaction": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\candidate-transaction-once-20261030.json",
+    "fix_status": "edited in dedicated feature worktree only; not tested, committed, pushed, built or deployed",
+    "fix_source_sha256": {
+      "deploy/security_caddy.py": "6a845dbed0ea4becb3691d54361d4dbfed9b69ebf3ec2965ebe347072798da10",
+      "deploy/promote_release.sh": "0545e22b2dbcfcc2aaf14c78b6387264709f8272d617ebfd02a86cd531ffffa4",
+      "deploy/release_traffic.sh": "0e4a6c374fcb22faad416fa4093e3ec13f101d0f0b30d86d3e8462272a2db992",
+      "deploy/update_cf_ips.sh": "78aea5ab76ac3cf9cf839d9adcac20bd9a28858ed432a94fb00e8ec25583af67",
+      "tests/test_catalog_traffic.py": "89a79af33c11fe14c9a84b4a28c7f05b546ad0ebe31002ba166e8355966c742f",
+      "tests/test_security_ops.py": "4fa2bdd1429cf46b9d57bc2de8d7688524534fdaff6882c3ec3c8bfc64535bb3"
+    },
+    "next_authorization_required": "Scoped related regression/syntax once; feature and production pre-push once each; main and production CI once each; official build/upload/candidate/locked cutover once. Stop on failure; no automatic retries."
+  },
+  "current_fix_progress": {
+    "authorization": "请你彻查原因，一次性切换上线, direct scoped question reply",
+    "focused_regression": "25 passed, 5 POSIX skipped; require Linux CI",
+    "upload_race": "bounded shared-lock wait 120s and preserved BrokenPipe diagnostics implemented; formal validation pending",
+    "uncertain_route_recovery": "preserve both instances and immutable source, no speculative retirement",
+    "next": "feature pre-push and main CI once, then production gates once, then release.ps1 once"
   }
 }

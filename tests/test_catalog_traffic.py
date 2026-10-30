@@ -33,7 +33,24 @@ systemctl() {
   if [ "$1" = is-active ]; then return 1; fi
   if [ "$1" = reload ] && [ "${RELOAD_FAIL:-0}" = 1 ]; then return 1; fi
 }
-caddy() { [ "${VALIDATE_FAIL:-0}" = 0 ]; }
+runuser() {
+  [ "$1 $2 $3" = '-u caddy --' ] || return 91
+  shift 3
+  printf 'service-user %s\n' "$*" >> "$REHEARSAL_DIR/caddy-context"
+  "$@"
+}
+timeout() {
+  [ "$1" = 30s ] || return 92
+  shift
+  printf 'bounded %s\n' "$*" >> "$REHEARSAL_DIR/caddy-context"
+  "$@"
+}
+caddy() {
+  if [ "$1" = validate ]; then [ "${VALIDATE_FAIL:-0}" = 0 ]; return; fi
+  [ "$1" = reload ] || return 93
+  printf 'reload caddy\n' >> "$REHEARSAL_DIR/calls"
+  [ "${RELOAD_FAIL:-0}" = 0 ]
+}
 mktemp() { command mktemp "$REHEARSAL_DIR/mock.XXXXXX"; }
 install() { if [ "$1" = -d ]; then return 0; fi; command cp -- "${@: -2:1}" "${@: -1}"; }
 # This fixture exercises route switching only. The hostname-specific security
@@ -44,7 +61,7 @@ python3() { if [ "$1" = "$FINAL/app/deploy/security_caddy.py" ]; then return 0; 
     if implementation == 'promote':
         source = (ROOT / 'deploy/promote_release.sh').read_text()
         helper = tmp_path / 'promote-traffic-fixture.sh'
-        helper.write_text(source[source.index('switch_caddy() {'):source.index('retire_candidate_if_drained() {')])
+        helper.write_text(source[source.index('switch_caddy() {'):source.index('abort_before_commit() {')])
     result = subprocess.run([bash, '--noprofile', '--norc', '-c', script, '--',
                              str(helper), str(tmp_path)],
                             capture_output=True, text=True, timeout=20)
@@ -127,3 +144,24 @@ def test_failed_stream_cutover_preserves_every_original_route(tmp_path, implemen
 def test_named_stream_route_alone_can_cut_over(tmp_path, implementation):
     run_helper(tmp_path, 'printf "reverse_proxy @ai_stream 127.0.0.1:8000 {\\n}\\n" > "$CADDYFILE"\nswitch_caddy 8000 8001\n', implementation)
     assert (tmp_path / 'Caddyfile').read_text().startswith('reverse_proxy @ai_stream 127.0.0.1:8001 {')
+
+
+@pytest.mark.parametrize('implementation', ['promote', 'rollback'])
+def test_caddy_provision_and_reload_use_service_identity_and_deadline(tmp_path, implementation):
+    run_helper(tmp_path, 'switch_caddy 8000 8001\n', implementation)
+    context = (tmp_path / 'caddy-context').read_text()
+    assert 'service-user caddy validate --config ' in context
+    assert 'service-user caddy reload --config ' in context
+    assert context.count('bounded runuser -u caddy -- caddy ') == 2
+
+
+@pytest.mark.parametrize('implementation', ['promote', 'rollback'])
+def test_unconfirmed_caddy_restoration_keeps_candidate_alive(tmp_path, implementation):
+    scenario = """
+RELOAD_FAIL=1
+if switch_caddy 8000 8001; then exit 11; fi
+[ "$CADDY_RESTORE_FAILED" = 1 ]
+if retire_candidate_if_drained 'ambiguous routing'; then exit 12; fi
+"""
+    calls = run_helper(tmp_path, scenario, implementation)
+    assert 'stop fixture-candidate' not in calls

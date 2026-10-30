@@ -347,12 +347,177 @@
       "push_exit_code": 141,
       "push_failure": "SSH connection closed by remote during gate execution; remote refs unchanged. This is a transport failure, not a failing pre-push check.",
       "main_ci": "not_triggered"
+    },
+    {
+      "id": "pre-push-retry-20261030",
+      "scope": "Explicitly authorized pre-push retry once: compile, 26 manifest tests, smoke and atomic main/feature push",
+      "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+      "status": "passed",
+      "started": "2026-10-30T10:26:49.465711+00:00",
+      "finished": "2026-10-30T10:29:10.491320+00:00",
+      "authorization": "user-pre-push-retry-20261030",
+      "summary": {
+        "passed": 26
+      },
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\retry-push-20261030.log"
+    },
+    {
+      "id": "production-pre-push-once-20261030",
+      "scope": "Previously authorized production pre-push fixed pipeline once: compile, manifest tests, full suite, smoke and normal production push",
+      "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+      "status": "passed",
+      "started": "2026-10-30T10:35:12.058749+00:00",
+      "finished": "2026-10-30T10:41:33.226190+00:00",
+      "authorization": "user-fixed-release-gates-20261027",
+      "summary": {
+        "manifest_tests_passed": 26,
+        "full_suite_passed": 1075,
+        "full_suite_skipped": 2,
+        "subtests_passed": 102
+      },
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\production-push-once-20261030.log"
+    },
+    {
+      "id": "postfix-main-ci-once-20261030",
+      "scope": "Fixed CI attempt 1 only; no dispatch or rerun",
+      "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+      "status": "passed",
+      "run_id": 41041124818,
+      "attempt": 1,
+      "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/41041124818",
+      "jobs": [
+        {
+          "id": 124013906296,
+          "name": "Fast gate (Python 3.11)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124013906583,
+          "name": "Fast gate (Python 3.10)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124013906623,
+          "name": "AI controls browser gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124014517722,
+          "name": "Main integration gate (Python 3.10)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124015687666,
+          "name": "Production lineage and rollback gate",
+          "status": "completed",
+          "conclusion": "skipped"
+        }
+      ],
+      "authorization": "user-postfix-watchdog-and-main-gates-20261027",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\retry-main-ci-20261030.json"
+    },
+    {
+      "id": "production-ci-once-20261030",
+      "scope": "Fixed CI attempt 1 only; no dispatch or rerun",
+      "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+      "status": "passed",
+      "run_id": 41042635889,
+      "attempt": 1,
+      "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/41042635889",
+      "jobs": [
+        {
+          "id": 124018919576,
+          "name": "AI controls browser gate",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124018920054,
+          "name": "Fast gate (Python 3.10)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124018920165,
+          "name": "Fast gate (Python 3.11)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124019355130,
+          "name": "Main integration gate (Python 3.10)",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 124020122095,
+          "name": "Production lineage and rollback gate",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "authorization": "user-fixed-release-gates-20261027",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\production-ci-20261030.json"
+    },
+    {
+      "id": "release-launcher-blocked-20261030",
+      "scope": "Formal release entrypoint; rejected before script load",
+      "head": "d2a045a155d642f55e1302ba76608433e4b188d6",
+      "status": "failed",
+      "phase": "launcher_before_script",
+      "build_started": false,
+      "upload_started": false,
+      "candidate_started": false,
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\release-once-20261030.log",
+      "authorization": "user-fixed-release-gates-20261027"
+    },
+    {
+      "id": "formal-candidate-cutover-once-20261030",
+      "version": "d2a045a",
+      "scope": "First formal candidate acceptance and cutover after explicitly authorized upload retry",
+      "result": "candidate acceptance passed; cutover failed, exit 5; original primary unchanged",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\candidate-transaction-once-20261030.log",
+      "diagnosis": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\caddy-cutover-failure-20261030.json",
+      "repeat_status": "not rerun; new fix unverified"
+    },
+    {
+      "id": "caddy-fix-focused-once-20261030",
+      "status": "passed",
+      "scope": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "tests/test_catalog_traffic.py",
+        "tests/test_security_ops.py::test_caddy_incremental_patch_and_exact_rollback",
+        "tests/test_security_ops.py::test_backup_and_sync_keep_recovery_contract",
+        "tests/test_security_ops.py::test_access_log_preparation_preserves_evidence_and_service_permissions",
+        "tests/test_security_ops.py::test_access_log_preparation_refuses_unsafe_targets",
+        "tests/test_security_ops.py::test_root_created_log_is_repaired_without_losing_evidence",
+        "tests/test_release_upload.py::test_busy_receiver_keeps_lock_diagnostic_after_broken_pipe",
+        "tests/test_release_upload.py::test_lock_wait_is_bounded_without_automatic_upload_retries",
+        "tests/test_security_shell_syntax.py::test_new_security_shell_syntax[deploy/promote_release.sh]",
+        "tests/test_security_shell_syntax.py::test_new_security_shell_syntax[deploy/release_traffic.sh]",
+        "tests/test_security_shell_syntax.py::test_new_security_shell_syntax[deploy/update_cf_ips.sh]",
+        "-q",
+        "--tb=short",
+        "--basetemp=D:/CodexData/outputs/security-defense-20261027/caddy-fix-pytest",
+        "--junitxml=D:/CodexData/outputs/security-defense-20261027/caddy-fix.xml"
+      ],
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\caddy-fix-focused-once-20261030.spec.result.json",
+      "passed": 25,
+      "skipped": 5,
+      "junit": "D:/CodexData/outputs/security-defense-20261027/caddy-fix.xml",
+      "limitation": "Five POSIX ownership/link cases skipped on Windows; must pass Linux integration CI before release"
     }
   ],
   "pending": [
-    "New explicit approval required to execute pre-push again during a push retry; do not bypass the hook",
-    "Previously authorized post-fix main CI has not been triggered",
-    "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
+    "Scoped approval for existing PowerShell 7 release entrypoint once; reuse all Git gate results",
+    "Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
   ],
   "not_executed": [
     "Production stress/attack reproduction (prohibited)",
@@ -387,13 +552,12 @@
       "failure_policy": "Stop on any failed gate; no automatic retries, workflow reruns or bypasses",
       "consumed_stages": [
         "feature-main-pre-push-once",
-        "main-ci-once"
+        "main-ci-once",
+        "production-pre-push-once-20261030",
+        "production-ci-once-20261030",
+        "release-launcher-blocked-20261030"
       ],
-      "unexecuted_stages": [
-        "Production push pre-push gate once",
-        "Production push CI fixed workflow once",
-        "release.ps1 build and server candidate smoke once"
-      ]
+      "unexecuted_stages": []
     },
     {
       "id": "user-watchdog-single-diagnostic-20261027",
@@ -418,11 +582,32 @@
       "failure_policy": "Stop on any failure; no automatic reruns or bypasses",
       "consumed_stages": [
         "authorized-watchdog-postfix-once",
-        "postfix-feature-main-pre-push-once"
+        "postfix-feature-main-pre-push-once",
+        "postfix-main-ci-once-20261030"
       ],
-      "unexecuted_stages": [
-        "Main CI fixed workflow once, only after a successful checked push"
-      ]
+      "unexecuted_stages": []
+    },
+    {
+      "id": "user-pre-push-retry-20261030",
+      "answer": "同意，仅再执行一次 pre-push 并推送",
+      "scope": "One pre-push retry and push, no watchdog case rerun",
+      "consumed_by": "pre-push-retry-20261030"
+    },
+    {
+      "id": "user-pwsh7-release-once-20261030",
+      "answer": "同意，PowerShell 7 发布门禁执行一次",
+      "consumed_by": "formal build passed; first upload failed"
+    },
+    {
+      "id": "user-upload-retry-once-20261030",
+      "answer": "同意，仅重试上传一次后继续上线",
+      "consumed_by": "upload retry passed; first candidate accepted; first cutover failed; no automatic retry"
+    },
+    {
+      "id": "user-caddy-fix-and-release-20261030",
+      "answer": "请你彻查原因，一次性切换上线",
+      "context": "Direct answer to the exact scoped Caddy regression, feature/production pre-push, main/production CI and official release once question",
+      "failure_policy": "stop on failure; no automatic re-execution"
     }
   ],
   "test_identity_changes": [
@@ -431,5 +616,14 @@
       "corrected_node": "tests/test_candidate_review.py::test_watchdog_observes_without_restarting_while_release_owns_lock",
       "reason": "Name now describes the approved observation/recovery contract; this remains the same previously executed scenario and requires scoped rerun approval."
     }
-  ]
+  ],
+  "pending_caddy_fix_validation": {
+    "status": "focused authorized regression passed; fixed Git and release gates remain authorized once and unexecuted",
+    "related_scope": [
+      "tests/test_catalog_traffic.py",
+      "tests/test_security_ops.py Caddy patch/log/sync nodes",
+      "bash syntax: promote_release.sh, release_traffic.sh, update_cf_ips.sh"
+    ],
+    "existing_passes_apply_to": "d2a045a only, not new uncommitted deployment fix"
+  }
 }

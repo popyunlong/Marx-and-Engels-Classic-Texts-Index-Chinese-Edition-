@@ -2,7 +2,7 @@
 
 本轮在 `codex/security-defense-20261027` 实施，工作树为 `D:/CodexData/workspaces/security-defense-20261027`。**代码已实现，尚未发布；本轮未修改生产配置、封禁数据库、Cloudflare 规则或运行进程。** 不将新代码计为线上防护能力。
 
-分阶段提交：`3cbfff0` 应用防护及检索可用性；`3e1449f` 发布事务、运维与取证；`ccefc73` 依赖及 OCR 解码收紧。经用户明确授权，固定 pre-push 门禁执行一次并通过，main 与专用分支已推送到 `b106574`。随后 main CI 失败，production 和线上均未推进。后续修正尚未提交或推送。
+分阶段提交：`3cbfff0` 应用防护及检索可用性；`3e1449f` 发布事务、运维与取证；`ccefc73` 依赖及 OCR 解码收紧。经用户明确授权，固定 pre-push 门禁执行一次并通过，main 与专用分支已推送到 `b106574`。随后 main CI 失败，production 和线上均未推进。后续修正及审计提交 7fc239f、d2a045a 已正常推送，main/production CI 均通过；程序尚未上线，见下方最新进度。
 
 ## 基线与证据
 
@@ -92,6 +92,12 @@ smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账
 
 只读复核确认远端 main/功能分支仍为 `b106574`，production/线上仍为 `cb945b8` 原发布；线上 PID 2291926 为 active。本轮没有生产变更或回滚。下一次推送准备采用 Windows OpenSSH、30 秒保活和 D 盘字节码缓存，保留 pre-push 钩子。该调整尚未用于推送，不能保证消除网络中断；再次执行 pre-push 需用户另行明确授权。已通过的看门狗单项及日志工具测试直接复用，不增加复测范围。
 
+### 2026-10-30 Git 门禁通过与发布入口阻断
+
+获批 pre-push 重试通过，26 项清单/元数据测试及 smoke 成功，main 与功能分支推进至 d2a045a。main CI 41041124818 全部通过。随后使用原授权中尚未执行的生产门禁：完整本地回归 1075 passed、2 skipped、102 subtests passed，生产 pre-push 及 smoke 通过，production 仅快进至同一提交；production CI 41042635889 包括血缘门禁全部通过，各阶段均只执行获批次数。
+
+正式 release.ps1 的旧版 Windows PowerShell 入口在脚本加载前失败，未构建、上传、启动候选或切流，日志已保留。本机已有 PowerShell 7.6.5 使用 RemoteSigned，解压命令可用；已准备切换入口，不修改系统策略、不重跑 CI/pre-push，等待针对该入口继续一次的明确授权。线上仍为 cb945b8 原发布、PID 2291926 active；数据绑定与 Caddy 哈希均未变，无程序回滚。
+
 ## 发布与回滚交接
 
 用户已明确要求复测通过后推送并平滑上线，由本会话继续协调发布。推送前再次核对 main、production、线上发布，均仍为 cb945b8；没有改用旧版本。另发现新增 shell 测试只识别本机 MARX_TEST_BASH 配置，已补 Linux CI 的 bash 自动发现；这些测试的修改将由获批发布门禁验证，未自行重跑。
@@ -101,6 +107,26 @@ smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账
 3. 确定性缺口修复可先发布，行为判断保持 observe 至少 24 小时。复查正常读者/共享出口的风险命中、各端点 403/429、页图成功交付、支付回调、AI SSE、队列丢弃与健康状态后，由管理员决定 enforce。
 4. 专用 Turnstile 密钥配置、真实服务端验证验收、Cloudflare 当前 WAF/跳过规则核查仍待完成。不要启用无法按规则排除支付回调的全站 Bot Fight Mode。[Cloudflare 限制](https://developers.cloudflare.com/waf/custom-rules/skip/options/)
 5. 确认误伤时通过后台切回 observe，必要时撤销验证 epoch。程序故障仅使用正式 `deploy/rollback_release.ps1`，传入 expected current 和 target；脚本保留记录。回到旧版本时移除本轮标记的 Caddy 防护/日志块并停用无对应源码的安全观察 timer，不覆写其他线上配置。
-6. 本轮上线记录为“main CI 失败后停止，尚未执行生产发布”，回滚记录为“未执行”；见 [release-record.json](security-defense-20261027/release-record.json)。线上现有 605 条封禁、原始证据、旧工作树和备份均保留。
+6. 最新上线记录为“d2a045a 的 Git、构建、上传重试及候选门禁通过；Caddy 切流因日志权限失败，原版本、主进程和原 Caddy 配置保持”，回滚记录为“未执行”；见 [release-record.json](security-defense-20261027/release-record.json)。线上现有 605 条封禁、原始证据、旧工作树和备份均保留。
 
 本地采用 D 盘小型工作树及复用依赖，没有复制整套语料、PDF、模型或旧工作树，也没有清理 Docker、个人文件和历史聊天。运行环境新增依赖及验证日志需要保留以供发布前复核。
+
+
+### 2026-10-30 候选通过、Caddy 切流失败与修正
+
+经单独授权，PowerShell 7 正式入口构建并校验发布包。首次上传失败，保留日志；获批仅重试一次上传后，复用原包完成上传及 SHA256 校验。首次候选健康与桌面浏览器验收通过，书库、目录、词典与父版本绑定一致，安全模式 observe、验证未启用。首次验收凭据格式不全被拒绝；仅补正元数据，复用相同书库的原验收及九份已核对哈希的证据，再次提交被正式门禁接受。没有重跑书库测试、移动端验收或线上回退演练。
+
+正式首次切流失败：root 运行 caddy validate 创建了 root:root、0600、0 字节的 access.log，Caddy 服务账号无法打开，管理接口返回 HTTP 400 permission denied。systemd 卡在 reloading，ControlPID=0、ReloadResult=timeout。原受锁事务恢复备份后，以完全匹配基线 SHA 的原配置解除等待，完成候选排空/停止及看门狗恢复，退出码 5。
+
+最终只读核对：current 与 DEPLOYED_SHA 保持 cb945b8 原发布，主 PID 2291926、Caddy PID 743、AI 侧车 PID 755 均未改变，均 active/running；Caddy SHA 与发布前相同，候选 inactive、看门狗 active/waiting、锁已释放，账本没有新增 promote 或 rollback。未更换应用版本，未执行正式程序回退。
+
+修正仅在专用特性工作树：以不跟随链接的文件描述符准备日志，保留内容并确保服务所有权；使用 Caddy 账号校验和重载，直接管理请求限定 30 秒，覆盖发布、正式回滚辅助函数和 IP 同步。补充证据保留、拒绝链接、服务身份/时限场景。**修正未测试、未提交、未推送、未上线；d2a045a 的旧 CI 不能冒充修正版本验收。** 相关回归和固定发布流水线须获明确复测授权，失败即停。
+
+诊断：`D:/CodexData/outputs/security-defense-20261027/release/caddy-cutover-failure-20261030.json`。上传锁竞争尚未修复，不能将成功重试记成根因修复。生产 24 小时观察尚未开始；Cloudflare 后台、Turnstile 专用密钥和 Pillow/Python 迁移仍待完成。
+
+
+### 根因补齐与本次定向验证
+
+用户对具体复测和固定发布范围回复“请你彻查原因，一次性切换上线”，本轮按该回复继续一次授权流程。定向回归为 25 passed、5 skipped；五项 POSIX 文件所有权/链接场景在 Windows 不适用，须由 Linux 集成 CI 通过，不计为已完成。
+
+追加修复两项关联缺陷：上传端在健康基线结束后使用共享锁最多等候 120 秒，避免后台邮件任务短时占锁导致立即断管；锁超时和 SSH 错误在 BrokenPipe 后仍完整保留，不自动重试上传。若 Caddy 失败恢复也未获确认，发布/回滚保留两个实例及源目录，不误停可能仍在承接流量的候选。所有正式 gate 仍需在本次提交上各执行一次，全部通过才推进上线。

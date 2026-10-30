@@ -36,12 +36,15 @@ if source.count(needle) != 1:
 (work/'Caddyfile').write_text(source.replace(needle, 'import ' + str(work/'snippet')))
 PY
 cmp -s "$work/snippet" "$SNIPPET" && exit 0
-caddy validate --config "$work/Caddyfile" --adapter caddyfile >/dev/null
+# The service user must also be able to provision imported files and log writers.
+chmod 0755 "$work"
+chmod 0644 "$work/Caddyfile" "$work/snippet"
+timeout 30s runuser -u caddy -- caddy validate --config "$work/Caddyfile" --adapter caddyfile >/dev/null
 cp -a "$SNIPPET" "$work/previous"
 install -m 0644 "$work/snippet" "$SNIPPET"
-if ! systemctl reload caddy; then
+if ! timeout 30s runuser -u caddy -- caddy reload --config "$CADDYFILE" --force; then
   cp -a "$work/previous" "$SNIPPET"
-  systemctl reload caddy || true
+  timeout 30s runuser -u caddy -- caddy reload --config "$CADDYFILE" --force || true
   logger -t cf-ip-sync 'reload failed; restored previous snippet'
   exit 1
 fi

@@ -46,6 +46,41 @@ def patch(source, remove=False):
     return source
 
 
+def prepare_access_log(directory=Path("/var/log/caddy"), uid=None, gid=None):
+    """Preserve existing evidence; never follow links or truncate a log."""
+    import os
+    import stat
+    if uid is None or gid is None:
+        import pwd
+        account = pwd.getpwnam("caddy")
+        uid, gid = account.pw_uid, account.pw_gid
+    directory = Path(directory)
+    directory.mkdir(mode=0o750, exist_ok=True)
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if os.fstat(directory_fd).st_uid not in (0, uid):
+            raise ValueError("unexpected access-log directory owner")
+        os.fchown(directory_fd, uid, gid)
+        os.fchmod(directory_fd, 0o750)
+        log_fd = os.open("access.log", os.O_WRONLY | os.O_APPEND | os.O_CREAT |
+                         os.O_NOFOLLOW | os.O_NONBLOCK, 0o640, dir_fd=directory_fd)
+        try:
+            info = os.fstat(log_fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("access log must be a regular file with one link")
+            if info.st_uid not in (0, uid):
+                raise ValueError("unexpected access-log owner")
+            os.fchown(log_fd, uid, gid)
+            os.fchmod(log_fd, 0o640)
+        finally:
+            os.close(log_fd)
+    finally:
+        os.close(directory_fd)
+
+
 if __name__ == "__main__":
-    source, target = map(Path, sys.argv[1:3])
-    target.write_text(patch(source.read_text(encoding="utf-8"), remove="--remove" in sys.argv[3:]), encoding="utf-8")
+    if sys.argv[1:] == ["--prepare-log"]:
+        prepare_access_log()
+    else:
+        source, target = map(Path, sys.argv[1:3])
+        target.write_text(patch(source.read_text(encoding="utf-8"), remove="--remove" in sys.argv[3:]), encoding="utf-8")

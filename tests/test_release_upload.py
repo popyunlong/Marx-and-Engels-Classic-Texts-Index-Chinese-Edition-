@@ -34,7 +34,7 @@ def test_verified_upload_and_safe_locked_destination(tmp_path):
     assert receive(target, b'payload').returncode == 0
     assert target.read_bytes() == b'payload'
     command = receive_command('/var/tmp/marx-catalog-review.tar.gz', 7, 'a' * 64)
-    assert 'flock -s -n /run/lock/marx-search-release.lock ionice -c3 nice -n19' in command
+    assert 'flock -s -w 120 -E 75 /run/lock/marx-search-release.lock ionice -c3 nice -n19' in command
     with pytest.raises(ValueError):
         receive_command('/opt/marx-search/current/app.py', 7, 'a' * 64)
 
@@ -61,8 +61,41 @@ def test_transfer_paces_every_chunk_and_stops_on_health_alarm():
 
 def test_dictionary_graph_archive_uses_the_guarded_release_uploader():
     command = receive_command('/var/tmp/marx-dictionary-graph-release-v1.tar.gz', 7, 'a' * 64)
-    assert 'flock -s -n /run/lock/marx-search-release.lock' in command
+    assert 'flock -s -w 120 -E 75 /run/lock/marx-search-release.lock' in command
     for destination in ('/var/tmp/marx-dictionary-graph-../escape.tar.gz',
                         '/opt/marx-search/data/dictionary-graphs/v1/graph.sqlite'):
         with pytest.raises(ValueError):
             receive_command(destination, 7, 'a' * 64)
+
+
+def test_busy_receiver_keeps_lock_diagnostic_after_broken_pipe(tmp_path, monkeypatch):
+    from scripts.upload_release import UploadRemote
+    payload = tmp_path / "new-release.tar.gz"
+    payload.write_bytes(b"payload")
+    class BrokenSink:
+        def write(self, data):
+            raise BrokenPipeError("receiver exited")
+        def close(self):
+            raise BrokenPipeError("receiver exited")
+    class Receiver:
+        stdin = BrokenSink()
+        returncode = 75
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def communicate(self, timeout):
+            assert self.stdin is None
+            return b"", b"release upload lock timed out after 120 seconds"
+        def poll(self): return 75
+    class Monitor:
+        def check(self): pass
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Receiver())
+    with pytest.raises(RuntimeError, match="SSH exit 75.*lock timed out"):
+        UploadRemote("fixture", None, 22).upload(payload,
+            "/var/tmp/marx-search-fixture.tar.gz", Monitor())
+
+
+def test_lock_wait_is_bounded_without_automatic_upload_retries():
+    command = receive_command('/var/tmp/marx-search-fixture.tar.gz', 7, 'a' * 64)
+    assert command.count('flock ') == 1
+    assert 'flock -s -w 120 -E 75 ' in command
+    assert 'release upload lock timed out after 120 seconds' in command

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 import pytest
-from deploy.security_caddy import patch, BEGIN
+from deploy.security_caddy import patch, BEGIN, prepare_access_log
 from scripts.security_ops_watch import access_counts
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,3 +89,74 @@ def test_backup_and_sync_keep_recovery_contract():
     assert 'cp -a "$work/previous" "$SNIPPET"' in sync
     wrapper = (ROOT / "deploy/server_helpers/update_cf_ips.sh").read_text(encoding="utf-8")
     assert "curl" not in wrapper and "/current/app/deploy/update_cf_ips.sh" in wrapper
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX service ownership contract")
+def test_access_log_preparation_preserves_evidence_and_service_permissions(tmp_path):
+    directory = tmp_path / "caddy"
+    directory.mkdir()
+    log = directory / "access.log"
+    log.write_bytes(b"retained incident evidence\n")
+    log.chmod(0o600)
+    prepare_access_log(directory, os.getuid(), os.getgid())
+    assert log.read_bytes() == b"retained incident evidence\n"
+    assert log.stat().st_mode & 0o777 == 0o640
+    assert directory.stat().st_mode & 0o777 == 0o750
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file descriptor and link contract")
+@pytest.mark.parametrize("link_kind", ["symlink", "hardlink", "directory"])
+def test_access_log_preparation_refuses_unsafe_targets(tmp_path, link_kind):
+    directory = tmp_path / "caddy"
+    directory.mkdir()
+    evidence = tmp_path / "unique-evidence"
+    evidence.write_bytes(b"preserve")
+    evidence.chmod(0o600)
+    log = directory / "access.log"
+    if link_kind == "symlink":
+        log.symlink_to(evidence)
+    elif link_kind == "hardlink":
+        os.link(evidence, log)
+    else:
+        log.mkdir()
+    with pytest.raises((OSError, ValueError)):
+        prepare_access_log(directory, os.getuid(), os.getgid())
+    assert evidence.read_bytes() == b"preserve"
+    assert evidence.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Isolated Linux root/service ownership fixture")
+def test_root_created_log_is_repaired_without_losing_evidence(tmp_path):
+    import sys
+    import pwd
+    uid, gid = os.getuid(), os.getgid()
+    prefix = []
+    if uid != 0:
+        sudo = shutil.which("sudo")
+        if not sudo:
+            pytest.skip("root fixture requires noninteractive sudo")
+        prefix = [sudo, "-n"]
+    else:
+        account = pwd.getpwnam("nobody")
+        uid, gid = account.pw_uid, account.pw_gid
+    directory = tmp_path / "root-created-log"
+    script = """
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from deploy.security_caddy import prepare_access_log
+directory=Path(sys.argv[2]); directory.mkdir()
+log=directory/'access.log'; log.write_bytes(b'retained evidence'); log.chmod(0o600)
+assert log.stat().st_uid == 0
+prepare_access_log(directory, int(sys.argv[3]), int(sys.argv[4]))
+"""
+    result = subprocess.run(prefix + [sys.executable, "-B", "-c", script,
+        str(ROOT), str(directory), str(uid), str(gid)], capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr
+    log = directory / "access.log"
+    assert log.stat().st_uid == uid and log.stat().st_gid == gid
+    assert log.stat().st_mode & 0o777 == 0o640
+    assert log.read_bytes() == b"retained evidence"
+    with log.open("ab") as stream:
+        stream.write(b"; service can append")
+    assert log.read_bytes() == b"retained evidence; service can append"
