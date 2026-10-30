@@ -6,10 +6,10 @@
     "3e1449f",
     "ccefc73"
   ],
-  "push": "main_and_feature_pushed_b106574; post-fix changes pending authorized gates",
+  "push": "postfix_pre_push_passed; SSH transport failed with exit 141; no remote ref advanced",
   "expected_live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
   "production_changes_this_work": [],
-  "deployment": "postfix_single_case_passed; awaiting_authorized_pre_push_and_main_ci",
+  "deployment": "not_started; awaiting_scoped_pre_push_retry_approval",
   "rollback": "not_executed",
   "coordinator": "Current assistant explicitly instructed by user to push and release after the two authorized retests",
   "cloudflare_dashboard": "not_verified",
@@ -17,7 +17,7 @@
   "behavior_mode_on_next_release": "observe",
   "observation_24_hours": "not_started",
   "remaining": [
-    "Authorized pre-push/main CI once; only after passing proceed to unexecuted production/release gates",
+    "Approve one pre-push retry after SSH keepalive and D-drive bytecode caching; post-fix main CI remains authorized but unexecuted; production gates stay pending",
     "Pillow 13 / Python 3.11 migration and compatibility validation",
     "Dedicated Turnstile keys and live verification acceptance",
     "Actual Cloudflare rules review and at least 24h behavioral observation"
@@ -93,5 +93,21 @@
     "failed": 0,
     "scope": "First execution of new fake-pytest process scenarios; original tests not replayed"
   },
-  "postfix_release_gates_authorization": "user-postfix-watchdog-and-main-gates-20261027: single case passed; pre-push and main CI authorized once, stop on failure"
+  "postfix_release_gates_authorization": "user-postfix-watchdog-and-main-gates-20261027: single case passed; pre-push and main CI authorized once, stop on failure",
+  "local_application_commit": "7fc239f490fd6980bc01c9534e040e083faaac31",
+  "postfix_pre_push": {
+    "result": "passed",
+    "tests_passed": 26,
+    "smoke": "passed",
+    "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\postfix-feature-main-push.log",
+    "git_push_exit_code": 141,
+    "main_ci": "not_triggered"
+  },
+  "recheck_20261030": {
+    "main": "b106574af85327f9db30a1b67853b6cc66c29043",
+    "production": "cb945b84cae54b98d3b4de9357f96a5d80e32f14",
+    "live": "cb945b84cae54b98d3b4de9357f96a5d80e32f14-20261018T165407Z-a988088d",
+    "pid": 2291926,
+    "service": "active"
+  }
 }

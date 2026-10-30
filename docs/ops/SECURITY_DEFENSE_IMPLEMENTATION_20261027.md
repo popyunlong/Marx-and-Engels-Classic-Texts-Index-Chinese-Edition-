@@ -86,6 +86,12 @@ smoke 子进程退出码为 0、完成标记及原始日志均已保留；台账
 
 后端 pytest 步骤改经 `scripts/ci_pytest.py` 单次执行，原有测试范围保留；完整日志、JUnit 和退出码记录存入 runner 临时目录，失败摘要转义后写入 check 注释。各后端 job 使用 [GitHub 官方 artifact action](https://github.com/actions/upload-artifact) 在成功或失败后归档证据 30 天，不重试、不覆盖旧证据。日志工具的新增隔离测试只模拟 pytest 进程，不执行旧业务场景；首次执行为 2 passed，覆盖成功/失败退出码、单次调用、原始日志、JUnit 和注释转义。
 
+### 2026-10-30 续接核查
+
+修正提交 `7fc239f` 的获批 pre-push 已完成：源码编译、26 项发布清单/元数据测试及 deployment smoke 全部通过。但 GitHub SSH 在门禁执行期间关闭连接，git push 以 141 退出，main CI 未触发。不能把此结果写成测试失败，也不能因为推送未完成自动重复测试。
+
+只读复核确认远端 main/功能分支仍为 `b106574`，production/线上仍为 `cb945b8` 原发布；线上 PID 2291926 为 active。本轮没有生产变更或回滚。下一次推送准备采用 Windows OpenSSH、30 秒保活和 D 盘字节码缓存，保留 pre-push 钩子。该调整尚未用于推送，不能保证消除网络中断；再次执行 pre-push 需用户另行明确授权。已通过的看门狗单项及日志工具测试直接复用，不增加复测范围。
+
 ## 发布与回滚交接
 
 用户已明确要求复测通过后推送并平滑上线，由本会话继续协调发布。推送前再次核对 main、production、线上发布，均仍为 cb945b8；没有改用旧版本。另发现新增 shell 测试只识别本机 MARX_TEST_BASH 配置，已补 Linux CI 的 bash 自动发现；这些测试的修改将由获批发布门禁验证，未自行重跑。

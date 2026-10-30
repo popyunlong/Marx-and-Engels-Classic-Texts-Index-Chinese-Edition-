@@ -330,10 +330,28 @@
         "failed": 0
       },
       "junit": "D:/CodexData/outputs/security-defense-20261027/watchdog-postfix.xml"
+    },
+    {
+      "id": "postfix-feature-main-pre-push-once",
+      "scope": "Authorized pre-push once: tracked Python compilation, 26 manifest/metadata tests and deployment smoke",
+      "head": "7fc239f490fd6980bc01c9534e040e083faaac31",
+      "started": "2026-10-27T07:38:07.432559+00:00",
+      "finished": "2026-10-27T07:45:18.750552+00:00",
+      "status": "passed",
+      "authorization": "user-postfix-watchdog-and-main-gates-20261027",
+      "artifact": "D:\\CodexData\\outputs\\security-defense-20261027\\release\\postfix-feature-main-push.log",
+      "summary": {
+        "passed": 26
+      },
+      "push_status": "failed",
+      "push_exit_code": 141,
+      "push_failure": "SSH connection closed by remote during gate execution; remote refs unchanged. This is a transport failure, not a failing pre-push check.",
+      "main_ci": "not_triggered"
     }
   ],
   "pending": [
-    "Authorized feature/main pre-push and main CI: one execution each, stop on failure",
+    "New explicit approval required to execute pre-push again during a push retry; do not bypass the hook",
+    "Previously authorized post-fix main CI has not been triggered",
     "Live Cloudflare, Turnstile, 24-hour observe and Python 3.11/Pillow migration acceptance"
   ],
   "not_executed": [
@@ -399,7 +417,11 @@
       ],
       "failure_policy": "Stop on any failure; no automatic reruns or bypasses",
       "consumed_stages": [
-        "authorized-watchdog-postfix-once"
+        "authorized-watchdog-postfix-once",
+        "postfix-feature-main-pre-push-once"
+      ],
+      "unexecuted_stages": [
+        "Main CI fixed workflow once, only after a successful checked push"
       ]
     }
   ],
