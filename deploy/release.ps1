@@ -13,6 +13,8 @@ param(
     [string]$CatalogArchive = "",
     [string]$CorpusArchive = "",
     [string]$DictionaryGraphArchive = "",
+    [ValidateSet('main','mylib-ocr')][string]$Component = 'main',
+    [int]$PreviousMainPid = 0,
     [switch]$DryRun,
     [switch]$KeepArtifact
 )
@@ -124,6 +126,14 @@ try {
     Invoke-Checked -Label "Verify production commit is already integrated in origin/main" -FilePath $git -ArgumentList @(
         "merge-base", "--is-ancestor", $head, "origin/main"
     )
+
+    if ($Component -eq 'mylib-ocr') {
+        if ($CatalogArchive -or $CorpusArchive -or $DictionaryGraphArchive) { throw 'Data archives cannot accompany an OCR component release.' }
+        $ocrHost = if ($PSBoundParameters.ContainsKey('ServerHost')) { $ServerHost } else { '154.201.94.174' }
+        $ocrArtifacts = if ($ArtifactDirectory) { $ArtifactDirectory } else { 'D:\CodexData\builds\mylib-ocr' }
+        & (Join-Path $repoRoot 'deploy/mylib_ocr_component.ps1') -Operation promote -Expected $ExpectedLive -ServerHost $ocrHost -ServerUser $ServerUser -SshPort $SshPort -IdentityFile $IdentityFile -PreviousMainPid $PreviousMainPid -ArtifactDirectory $ocrArtifacts -Python $python -DryRun:$DryRun
+        return
+    }
 
     $utcStamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
     $builtAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")

@@ -28,7 +28,10 @@ _ssl_ctx: ssl.SSLContext | None = None
 
 
 class StoreError(RuntimeError):
-    """节点调用失败。调用方应捕获并落到 failed 状态 + 可读原因，不要让它冒到请求线程。"""
+    """A failed node call; HTTP status distinguishes rejection from uncertain delivery."""
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code=status_code
 
 
 def configured() -> bool:
@@ -83,7 +86,7 @@ def _request(
             detail = exc.read().decode("utf-8", "replace")[:300]
         except Exception:  # noqa: BLE001
             pass
-        raise StoreError(f"节点返回 {exc.code}：{detail or exc.reason}") from exc
+        raise StoreError(f"节点返回 {exc.code}：{detail or exc.reason}", status_code=exc.code) from exc
     except urllib.error.URLError as exc:
         raise StoreError(f"无法连接存储节点：{exc.reason}") from exc
     except (TimeoutError, OSError) as exc:
@@ -124,11 +127,11 @@ def parse(user_id: int, submission_id: int) -> dict:
     )
 
 
-def fetch_text(user_id: int, submission_id: int) -> list[dict]:
+def fetch_text(user_id: int, submission_id: int, *, run_id: str = "") -> list[dict]:
     """取回逐页文本（NDJSON），用于写入该用户的个人检索索引。"""
     payload, _ = _request(
-        "GET", "/text",
-        params={"uid": int(user_id), "sid": int(submission_id)},
+        "GET", "/ocr/text" if run_id else "/text",
+        params={"uid": int(user_id), "sid": int(submission_id), "run_id": run_id or None},
         timeout=TIMEOUT_SLOW, raw=True,
     )
     out: list[dict] = []
@@ -161,23 +164,29 @@ def prerender(user_id: int, submission_id: int, n: int = 20) -> dict:
     )
 
 
-def ocr_start(user_id: int, submission_id: int, max_pages: int = 0, *, force: bool = False) -> dict:
+def ocr_health() -> dict:
+    return _request('GET','/ocr/health',timeout=TIMEOUT_FAST)
+
+
+def ocr_start(user_id: int, submission_id: int, max_pages: int = 0, *, force: bool = False,
+              run_id: str = "", source_sha256: str = "") -> dict:
     """启动忠实 OCR。force 仅供管理员修复既有错误文字层时强制重建。"""
     return _request(
         "POST", "/ocr/start",
         params={
             "uid": int(user_id), "sid": int(submission_id),
             "max_pages": int(max_pages), "force": 1 if force else None,
+            "run_id": run_id, "source_sha256": source_sha256,
         },
         timeout=TIMEOUT_FAST,
     )
 
 
-def ocr_status(user_id: int, submission_id: int) -> dict:
+def ocr_status(user_id: int, submission_id: int, *, run_id: str = "") -> dict:
     """OCR 进度：{state: running|done|failed|unknown, done, total, error}。"""
     return _request(
         "GET", "/ocr/status",
-        params={"uid": int(user_id), "sid": int(submission_id)}, timeout=TIMEOUT_FAST,
+        params={"uid": int(user_id), "sid": int(submission_id), "run_id": run_id}, timeout=TIMEOUT_FAST,
     )
 
 

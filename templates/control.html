@@ -1839,6 +1839,9 @@
               {% endif %}
               <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" class="actions" style="margin-top:10px">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if s.source_kind == 'scanned' and s.ocr_consent and s.status in ('failed','quality_review') %}
+                <button class="btn primary" type="submit" name="action" value="resume_ocr">从断点继续OCR</button>
+                {% endif %}
                 {% if s.status == 'pending' %}
                 <button class="btn primary" type="submit" name="action" value="approve">批准</button>
                 <input type="text" name="reason" placeholder="退回原因（退回时必填）" style="min-width:200px">

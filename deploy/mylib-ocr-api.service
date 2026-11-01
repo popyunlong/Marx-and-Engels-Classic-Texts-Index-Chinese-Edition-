@@ -1,0 +1,26 @@
+[Unit]
+Description=Private library OCR queue API (no OCR models)
+After=network.target
+
+[Service]
+Type=simple
+User=minio-user
+Group=minio-user
+WorkingDirectory=/opt/mylib-ocr/current
+EnvironmentFile=/etc/mylib.env
+Environment=MYLIB_OCR_ROOT=/opt/mylib-ocr/shared PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/mylib/venv/bin/python -m mylib_ocr.api
+Restart=on-failure
+RestartSec=5
+UMask=0077
+MemoryAccounting=yes
+MemoryHigh=384M
+MemoryMax=512M
+MemorySwapMax=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/mylib-ocr/shared
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
