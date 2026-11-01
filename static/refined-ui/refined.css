@@ -37,8 +37,8 @@ body .v2kicker{font-size:11px;letter-spacing:1.7px;color:#8c755a;}
 body .v2lede{color:var(--muted);}
 body.v2 .hero.refined-hero{display:block;padding:0;overflow:hidden;border-radius:10px;background:#32231e;margin-bottom:26px;}
 .refined-hero::before{display:none;}
-.refined-portrait{height:clamp(210px,23vw,300px);overflow:hidden;position:relative;background:#36261d;}
-.refined-portrait img{width:100%;height:100%;object-fit:cover;object-position:center 19%;animation:refined-depth 20s ease-in-out infinite alternate;}
+.refined-portrait{aspect-ratio:3/1;overflow:hidden;position:relative;background:#36261d;}
+.refined-portrait img{display:block;width:100%;height:100%;object-fit:contain;object-position:center;}
 .refined-light{position:absolute;inset:-20% -40%;pointer-events:none;background:linear-gradient(110deg,transparent 25%,#edbe6e00 38%,#edbe6e20 48%,transparent 68%);mix-blend-mode:screen;animation:refined-glow 12s ease-in-out infinite alternate;}
 .refined-mote{position:absolute;width:3px;height:3px;background:#dec38e;border-radius:50%;box-shadow:0 0 7px #eaca8880;animation:refined-mote 9s ease-in-out infinite;left:calc(8% + var(--i)*16%);top:calc(15% + var(--i)*9%);animation-delay:calc(var(--i)*-1.3s);}
 .refined-motion{position:absolute!important;right:14px;bottom:12px;border:1px solid #ceb18b60;background:#2a1d15e6;color:#f3e4cf;padding:7px 12px;border-radius:5px;font-size:12px;cursor:pointer;}
@@ -75,7 +75,7 @@ input,textarea,select{max-width:100%;}
   .left-stack,.search-panel-v2,.refined-query-layout{min-width:0;}
   .left-stack,.right-stack{grid-template-columns:minmax(0,1fr);}
   .cooc-scope-row .cooc-toggle{white-space:normal;min-width:0;}
-  body.v2 .page{padding:16px 14px 88px;}.refined-portrait{height:210px;}
+  body.v2 .page{padding:16px 14px 88px;}.refined-portrait{aspect-ratio:3/1;}
   .refined-hero-copy{display:block;padding:18px;}.refined-hero-copy h1{font-size:23px;}
   .refined-hero-copy p{margin:10px 0;}.refined-hero-copy .hero-meta{line-height:1.8;}
   .refined-query-layout{display:block;}.refined-query-help{border-left:0;border-top:1px solid var(--line);padding:12px 0 0;margin-top:14px;}
