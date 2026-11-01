@@ -127,7 +127,7 @@ class Processing:
         for row in rows.values():
             sid=int(row['id'])
             run_id=row.get('processing_run_id') or ''
-            if run_id and row.get('processing_run_state')=='active' and row.get('source_kind')=='scanned':
+            if run_id and row.get('processing_run_state')=='active' and row.get('source_kind')=='scanned' and row.get('processing_run_kind')!='offline':
                 threading.Thread(target=self.run,args=(sid,run_id),kwargs={'reattach':True},
                     name=f'mylib-watch-{sid}',daemon=True).start()
             elif run_id:

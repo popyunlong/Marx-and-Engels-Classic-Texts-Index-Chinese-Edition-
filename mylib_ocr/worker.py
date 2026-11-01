@@ -132,13 +132,19 @@ def process_job(queue,storage,job,*,page_runner=run_page,memory=available_bytes,
         queue.set_dispatch(False)  # One failure stops the following books as well.
 
 
+def reconcile_startup(queue):
+    # Even a queued-only predecessor must never cause startup to dispatch work.
+    queue.set_dispatch(False)
+    queue.recover_running()
+
+
 def main():
     import fcntl
     root=Path(os.environ.get('MYLIB_OCR_ROOT','/opt/mylib-ocr/shared'))
     queue=Queue(root)
     with (root/'worker.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        queue.recover_running()
+        reconcile_startup(queue)
         verify_budget()
         stopping=False
         def stop(*_):

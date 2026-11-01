@@ -231,6 +231,7 @@ def init_personal_library_db() -> Path:
         migrations = {
             "processing_run_id": "TEXT NOT NULL DEFAULT ''",
             "processing_run_state": "TEXT NOT NULL DEFAULT ''",
+            "processing_run_kind": "TEXT NOT NULL DEFAULT ''",
             "toc_json": "TEXT NOT NULL DEFAULT '[]'",
             "toc_count": "INTEGER NOT NULL DEFAULT 0",
             "citation_ready": "INTEGER NOT NULL DEFAULT 0",
@@ -490,7 +491,11 @@ def submission_locked(function):
     return wrapped
 
 
-def begin_processing_run(submission_id: int) -> str:
+def begin_processing_run(submission_id: int, *, run_id: str | None = None, kind: str = 'node') -> str:
+    if kind not in ('node', 'offline'):
+        raise ValueError('Unknown processing source')
+    if run_id is not None and (len(run_id) != 32 or any(c not in '0123456789abcdef' for c in run_id)):
+        raise ValueError('Invalid processing run ID')
     with submission_lock(submission_id), _connect() as conn:
         conn.execute('BEGIN IMMEDIATE')
         row=conn.execute('SELECT * FROM personal_library_submissions WHERE id=?',(int(submission_id),)).fetchone()
@@ -498,8 +503,8 @@ def begin_processing_run(submission_id: int) -> str:
             raise ValueError('当前提交不可启动处理')
         if row['processing_run_state'] in ('active','finalizing'):
             raise ValueError('该书已有处理任务，请先核对其结果，不能重复启动')
-        run_id=uuid.uuid4().hex
-        conn.execute("UPDATE personal_library_submissions SET processing_run_id=?,processing_run_state='active',status='queued',fail_reason='' WHERE id=?",(run_id,int(submission_id)))
+        run_id=run_id or uuid.uuid4().hex
+        conn.execute("UPDATE personal_library_submissions SET processing_run_id=?,processing_run_state='active',processing_run_kind=?,status='queued',fail_reason='' WHERE id=?",(run_id,kind,int(submission_id)))
         return run_id
 
 

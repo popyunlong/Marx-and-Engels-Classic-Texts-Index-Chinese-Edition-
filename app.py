@@ -8203,6 +8203,8 @@ def _apply_request_body_limit():
         request.max_content_length = (release_mb + 8) * 1024 * 1024
     elif endpoint in _MEDIA_UPLOAD_ENDPOINTS:
         request.max_content_length = 40 * 1024 * 1024
+    elif endpoint == "admin_mylib_import_ocr":
+        request.max_content_length = 33 * 1024 * 1024
     elif endpoint == "api_mylib_upload":
         # 个人文库上传整本 PDF：放宽到单本上限 + 8MB 余量（multipart 头部与边界开销）。
         request.max_content_length = mylib.MAX_PDF_BYTES + 8 * 1024 * 1024
@@ -15123,6 +15125,15 @@ def _mylib_clear_page_cache(user_id: int, submission_id: int) -> None:
 def _mylib_processor():
     from personal_library_processing import Processing
     return Processing(mylib, mylib_store, mylib_corpus, _mylib_write_derivatives, _mylib_finalize_derivatives)
+
+
+# The admin import consumes a complete local text bundle, never a node OCR request.
+from personal_library_offline import register_admin_routes as _register_offline_ocr_routes
+_register_offline_ocr_routes(
+    app, library=mylib, processor=_mylib_processor, require_admin=_require_admin,
+    csrf=_require_management_csrf, audit=_log_management_action, flash=flash,
+    redirect=_management_redirect,
+)
 
 
 def _mylib_start_parse(submission_id: int, *, force_ocr: bool = False, resume_ocr: bool = False) -> None:

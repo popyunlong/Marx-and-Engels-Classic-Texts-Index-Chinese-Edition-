@@ -97,3 +97,43 @@ An interrupted finalization is never automatically repeated. The operator must
 inspect the run-specific text/index/acceptance evidence before seeking any new
 authorization. Worker startup interrupts former running jobs and pauses dispatch;
 it never restarts them. Main startup only watches an existing active run ID.
+
+
+## Complete offline OCR import
+
+An administrator can import a complete local OCR bundle without starting the node
+worker. Use the per-submission **导入本地OCR结果** form, with normal authenticated
+admin session and management CSRF protection. This path never invokes node parse,
+OCR start, or text fetch, and never replaces the original PDF or node sidecars.
+
+The UTF-8 JSONL file has one manifest line followed by exactly `total` page lines
+in PDF order, including successful empty-text pages. Maximum bundle size is
+32MiB and each line is at most 1MiB. Manifest:
+
+```json
+{"type":"mylib-offline-ocr","format_version":1,"uid":1887,"sid":42,"source_sha256":"<64 lowercase hex>","total":350,"run_id":"<32 lowercase hex>","layout_schema":3,"engine":"rapidocr-layout-v3"}
+```
+
+Each following line uses the v3 page record emitted by `mylib_ocr.page`, with
+`page`, `text`, `layout_schema`, `ocr_engine`, `ocr_profile`, `layout_blocks`, and
+`folio_candidates`. Compatible saved pages use `ocr_profile=legacy-v3`; new
+bounded pages use `bounded-page-v1`. `image_width` and `image_height` are optional
+for legacy pages. Do not include images, PDFs, base64, credentials, or invented
+publication metadata. Incoming `printed_pages` is ignored; sequence validation
+recomputes folio evidence from the v3 candidates.
+
+The main app checks owner, submission, source SHA, complete page range, schema,
+normalized coordinates, consent, quota, and absence of active processing before
+registering the run. It stores the exact input at
+`personal_library/offline-imports/<uid>/<sid>/<run_id>.jsonl` and a globally unique
+run receipt under `offline-imports/runs`. Both are private shared runtime data.
+The receipt binds the bundle hash to its inputs. Duplicate input only returns the
+original task; the same run ID with different input is rejected. An unknown or
+interrupted outcome is never automatically replayed. Read-only admin status:
+`GET /admin/library/submissions/<sid>/offline-import/<run_id>`.
+
+Only the complete, matching run can write private derivatives and execute one
+acceptance. Ordinary quality gates and metadata checks are unchanged. Main
+startup marks interrupted offline work for inspection without starting a watcher
+or accepting it again. Worker startup unconditionally pauses dispatch, including
+when its predecessor left only queued jobs.
