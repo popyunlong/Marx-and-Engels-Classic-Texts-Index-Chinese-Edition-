@@ -1837,8 +1837,22 @@
               </details>
               {% endif %}
               {% endif %}
+              {% if s.source_kind == 'scanned' and s.ocr_consent and s.status in ('failed','quality_review') %}
+              <details style="margin-top:10px">
+                <summary>导入本地OCR结果</summary>
+                <form method="post" enctype="multipart/form-data" action="{{ url_for('admin_mylib_import_ocr', submission_id=s.id) }}" style="margin-top:8px">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label class="field">完整OCR结果文件（JSONL，最多32MiB）<input type="file" name="file" accept=".jsonl,application/x-ndjson" required></label>
+                  <p class="section-note">复用已存原件，将完整识别结果导入提交者的私人文库。导入后自动验收一次，缺少出版或引文证据的仍待复核。</p>
+                  <button class="btn primary" type="submit">导入并验收一次</button>
+                </form>
+              </details>
+              {% endif %}
               <form method="post" action="{{ url_for(control_mylib_review_endpoint, submission_id=s.id) }}" class="actions" style="margin-top:10px">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                {% if s.source_kind == 'scanned' and s.ocr_consent and s.status in ('failed','quality_review') %}
+                <button class="btn primary" type="submit" name="action" value="resume_ocr">从断点继续OCR</button>
+                {% endif %}
                 {% if s.status == 'pending' %}
                 <button class="btn primary" type="submit" name="action" value="approve">批准</button>
                 <input type="text" name="reason" placeholder="退回原因（退回时必填）" style="min-width:200px">

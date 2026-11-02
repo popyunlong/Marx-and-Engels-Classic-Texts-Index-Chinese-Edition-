@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 import json
 import sqlite3
+import contextlib
+import functools
+import threading
+import uuid
 from pathlib import Path
 
 from membership import utc_now_text
@@ -225,6 +229,9 @@ def init_personal_library_db() -> Path:
             row[1] for row in conn.execute("PRAGMA table_info(personal_library_submissions)").fetchall()
         }
         migrations = {
+            "processing_run_id": "TEXT NOT NULL DEFAULT ''",
+            "processing_run_state": "TEXT NOT NULL DEFAULT ''",
+            "processing_run_kind": "TEXT NOT NULL DEFAULT ''",
             "toc_json": "TEXT NOT NULL DEFAULT '[]'",
             "toc_count": "INTEGER NOT NULL DEFAULT 0",
             "citation_ready": "INTEGER NOT NULL DEFAULT 0",
@@ -240,6 +247,7 @@ def init_personal_library_db() -> Path:
                 conn.execute(
                     f"ALTER TABLE personal_library_submissions ADD COLUMN {name} {ddl}"
                 )
+        conn.execute("CREATE TABLE IF NOT EXISTS personal_library_run_usage (run_id TEXT PRIMARY KEY, submission_id INTEGER NOT NULL, pages INTEGER NOT NULL)")
         conn.commit()
     return DB_PATH
 
@@ -419,17 +427,115 @@ def _now_day_month() -> tuple[str, str]:
     return ts[:10], ts[:7]
 
 
-def record_ocr_usage(user_id: int, submission_id: int, pages: int) -> None:
+def record_ocr_usage(user_id: int, submission_id: int, pages: int, *, run_id: str = "") -> None:
     if pages <= 0:
         return
     day, month = _now_day_month()
     with _connect() as conn:
+        if run_id:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM personal_library_run_usage WHERE run_id=?", (run_id,)).fetchone():
+                return
+            already = conn.execute("SELECT COALESCE(SUM(pages),0) FROM personal_library_ocr_usage WHERE user_id=? AND submission_id=?", (int(user_id),int(submission_id))).fetchone()[0]
+            pages = max(0, int(pages)-int(already))
+            conn.execute("INSERT INTO personal_library_run_usage VALUES(?,?,?)",(run_id,int(submission_id),pages))
+            if not pages:
+                return
         conn.execute(
             "INSERT INTO personal_library_ocr_usage "
             "(user_id, submission_id, pages, day, month, created_at) VALUES (?,?,?,?,?,?)",
             (int(user_id), int(submission_id), int(pages), day, month, utc_now_text()),
         )
         conn.commit()
+
+
+_book_locks = threading.local()
+
+
+@contextlib.contextmanager
+def submission_lock(submission_id: int):
+    """Cross-process lock for one book, reentrant within the calling thread."""
+    sid=int(submission_id)
+    held=getattr(_book_locks,'held',set())
+    if sid in held:
+        yield
+        return
+    root=PERSONAL_LIB_DIR/'processing-locks'
+    root.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with (root/f'{sid}.lock').open('a+b') as lock:
+        if os.name=='nt':
+            import msvcrt
+            if lock.tell()==0:
+                lock.write(b'0');lock.flush()
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(),msvcrt.LK_LOCK,1)
+        else:
+            import fcntl
+            fcntl.flock(lock,fcntl.LOCK_EX)
+        _book_locks.held=held|{sid}
+        try:
+            yield
+        finally:
+            _book_locks.held=held
+            if os.name=='nt':
+                lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
+            else:
+                fcntl.flock(lock,fcntl.LOCK_UN)
+
+
+def submission_locked(function):
+    @functools.wraps(function)
+    def wrapped(submission_id,*args,**kwargs):
+        with submission_lock(submission_id):
+            return function(submission_id,*args,**kwargs)
+    return wrapped
+
+
+def begin_processing_run(submission_id: int, *, run_id: str | None = None, kind: str = 'node') -> str:
+    if kind not in ('node', 'offline'):
+        raise ValueError('Unknown processing source')
+    if run_id is not None and (len(run_id) != 32 or any(c not in '0123456789abcdef' for c in run_id)):
+        raise ValueError('Invalid processing run ID')
+    with submission_lock(submission_id), _connect() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        row=conn.execute('SELECT * FROM personal_library_submissions WHERE id=?',(int(submission_id),)).fetchone()
+        if not row or row['status'] in ('deleted','rejected','storing','pending'):
+            raise ValueError('当前提交不可启动处理')
+        if row['processing_run_state'] in ('active','finalizing'):
+            raise ValueError('该书已有处理任务，请先核对其结果，不能重复启动')
+        run_id=run_id or uuid.uuid4().hex
+        conn.execute("UPDATE personal_library_submissions SET processing_run_id=?,processing_run_state='active',processing_run_kind=?,status='queued',fail_reason='' WHERE id=?",(run_id,kind,int(submission_id)))
+        return run_id
+
+
+def processing_run_current(submission_id,run_id,*,state='active'):
+    with _connect() as conn:
+        return bool(conn.execute('SELECT 1 FROM personal_library_submissions WHERE id=? AND processing_run_id=? AND processing_run_state=? AND status<>\'deleted\'',(int(submission_id),run_id,state)).fetchone())
+
+
+def processing_progress(submission_id,run_id,done,total):
+    with _connect() as conn:
+        return conn.execute("UPDATE personal_library_submissions SET status='parsing',progress_done=?,progress_total=? WHERE id=? AND processing_run_id=? AND processing_run_state='active' AND status<>'deleted'",(int(done),int(total),int(submission_id),run_id)).rowcount==1
+
+
+def fail_processing_run(submission_id,run_id,reason):
+    with submission_lock(submission_id), _connect() as conn:
+        conn.execute("UPDATE personal_library_submissions SET processing_run_state='interrupted',status='failed',fail_reason=? WHERE id=? AND processing_run_id=? AND processing_run_state IN ('active','finalizing') AND status<>'deleted'",(str(reason)[:500],int(submission_id),run_id))
+
+
+def claim_finalization(submission_id,run_id):
+    with _connect() as conn:
+        return conn.execute("UPDATE personal_library_submissions SET processing_run_state='finalizing' WHERE id=? AND processing_run_id=? AND processing_run_state='active' AND status<>'deleted'",(int(submission_id),run_id)).rowcount==1
+
+
+def complete_processing_run(submission_id,run_id):
+    with _connect() as conn:
+        conn.execute("UPDATE personal_library_submissions SET processing_run_state='completed' WHERE id=? AND processing_run_id=? AND processing_run_state='finalizing'",(int(submission_id),run_id))
+
+
+def list_processing_runs():
+    with _connect() as conn:
+        return [_row_to_dict(row) for row in conn.execute("SELECT * FROM personal_library_submissions WHERE processing_run_state IN ('active','finalizing') AND status<>'deleted' ORDER BY id").fetchall()]
 
 
 def ocr_pages_used(user_id: int | None = None, *, scope: str = "month") -> int:
@@ -895,7 +1001,7 @@ def set_page_count(submission_id: int, page_count: int, source_kind: str = "") -
 
 def mark_deleted(submission_id: int, user_id: int | None = None) -> bool:
     """软删：行留作审计，用户不再可见。真正的对象清理由调用方另行触发。"""
-    with _connect() as conn:
+    with submission_lock(submission_id), _connect() as conn:
         if user_id is None:
             cur = conn.execute(
                 "UPDATE personal_library_submissions SET status = 'deleted', searchable = 0 WHERE id = ?",

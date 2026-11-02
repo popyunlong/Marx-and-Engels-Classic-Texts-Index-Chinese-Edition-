@@ -8203,6 +8203,8 @@ def _apply_request_body_limit():
         request.max_content_length = (release_mb + 8) * 1024 * 1024
     elif endpoint in _MEDIA_UPLOAD_ENDPOINTS:
         request.max_content_length = 40 * 1024 * 1024
+    elif endpoint == "admin_mylib_import_ocr":
+        request.max_content_length = 33 * 1024 * 1024
     elif endpoint == "api_mylib_upload":
         # 个人文库上传整本 PDF：放宽到单本上限 + 8MB 余量（multipart 头部与边界开销）。
         request.max_content_length = mylib.MAX_PDF_BYTES + 8 * 1024 * 1024
@@ -12415,6 +12417,7 @@ def api_runtime():
             "issues": state["issues"],
             "management_api_enabled": state["management_api_enabled"],
             "app_release": current_app_release(),
+            "mylib_ocr_protocol_version": 2,
             "corpus_release": corpus_release.status(),
             "book_data_release": book_data_release.status(),
             "catalog_release": catalog_status(),
@@ -12662,6 +12665,13 @@ def admin_mylib_page_image(submission_id: int):
 
 @app.post("/admin/library/submissions/<int:submission_id>/review")
 def admin_mylib_review(submission_id: int):
+    _require_admin()
+    _require_management_csrf()
+    return _admin_mylib_review_locked(submission_id)
+
+
+@mylib.submission_locked
+def _admin_mylib_review_locked(submission_id: int):
     """个人文库审核：批准 / 退回 / 重试 / 下架删除。仅网站 /admin 内容运营页可用。
 
     批准后不在本请求线程里解析——解析以分钟计，会钉死 waitress 线程（参见渲染并发那次
@@ -12677,7 +12687,21 @@ def admin_mylib_review(submission_id: int):
     title = row.get("title") or submission_id
     result = "success"
 
-    if action == "approve":
+    if row.get('processing_run_state') in {'active','finalizing'}:
+        flash('该书已有活动处理任务；请先核对任务结果，不能重复启动、校正或验收。','warning')
+        return _management_redirect(True,'copy')
+
+    if action == "resume_ocr":
+        if row.get('source_kind') != 'scanned' or not row.get('ocr_consent') or row.get('status') not in {'failed','quality_review'}:
+            flash('只有已授权OCR且处于失败或待复核状态的扫描件可以从断点继续。','warning')
+            return _management_redirect(True,'copy')
+        try:
+            _mylib_start_parse(int(submission_id),resume_ocr=True)
+        except ValueError as exc:
+            flash(str(exc),'warning')
+        else:
+            flash(f'《{title}》已按原件指纹从持久断点继续OCR；未重新上传或强制重建。','success')
+    elif action == "approve":
         if row.get("status") != "pending":
             flash("该文件尚未完成安全入库，或当前已不在待审核状态，请刷新后再操作。", "warning")
             return _management_redirect(True, "copy")
@@ -12875,30 +12899,17 @@ def admin_mylib_review(submission_id: int):
                          name=f"mylib-reject-{submission_id}", daemon=True).start()
         flash(f"《{title}》已退回，并已通知上传者。", "success")
     elif action == "reocr":
-        if row.get("source_kind") != "scanned" or not row.get("ocr_consent"):
-            flash("只有已同意 OCR 的扫描书可以重建文字层。", "warning")
-            return _management_redirect(True, "copy")
-        _mylib_start_parse(int(submission_id), force_ocr=True)
-        flash(f"《{title}》正在用忠实 OCR 重建全文、目录和引文索引。", "success")
+        flash('完整OCR重建当前暂停；请使用已单独授权的“从断点继续OCR”。', 'warning')
+        return _management_redirect(True, "copy")
     elif action == "retry":
         if _mylib_staging_path(int(submission_id)).exists():
             mylib.set_status(int(submission_id), "storing", fail_reason="")
             _mylib_start_ingest(int(submission_id))
             flash(f"《{title}》已重新开始安全入库。", "success")
         else:
-            # 数据复核阶段重建扫描件属于管理员修复，不应再次扣用户 OCR 额度；
-            # 与 ready 状态下的“重建文字层”统一走 force_ocr 路径。
-            force_rebuild = bool(
-                row.get("status") == "quality_review"
-                and row.get("source_kind") == "scanned"
-                and row.get("ocr_consent")
-            )
-            _mylib_start_parse(int(submission_id), force_ocr=force_rebuild)
-            flash(
-                f"《{title}》已重新生成文字层与派生数据。"
-                if force_rebuild else f"《{title}》已重新排入解析。",
-                "success",
-            )
+            # All ordinary retry actions preserve checkpoints; explicit rebuild stays paused.
+            _mylib_start_parse(int(submission_id), resume_ocr=bool(row.get("source_kind") == "scanned" and row.get("ocr_consent")))
+            flash(f"《{title}》已进入受控处理队列；OCR断点和原件均保留。", "success")
     elif action == "reopen":
         mylib.set_status(int(submission_id), "pending")
         flash(f"《{title}》已退回待审核。", "success")
@@ -15111,84 +15122,26 @@ def _mylib_clear_page_cache(user_id: int, submission_id: int) -> None:
 
 
 # ---------- 解析流水线（后台线程，绝不占 waitress 请求线程）----------
-def _mylib_start_parse(submission_id: int, *, force_ocr: bool = False) -> None:
-    """把一本书排进解析。批准动作触发；解析耗时以分钟计，故必须离开请求线程。
-
-    这里刻意不用「跨机作业队列」：文字层抽取本身很快，节点侧同步接口足够；扫描件 OCR
-    （Phase 2）才需要真正的队列与断点续跑。
-    """
-    mylib.set_status(int(submission_id), "queued")
-    threading.Thread(target=_mylib_parse_worker, args=(int(submission_id), force_ocr),
-                     name=f"mylib-parse-{submission_id}", daemon=True).start()
+def _mylib_processor():
+    from personal_library_processing import Processing
+    return Processing(mylib, mylib_store, mylib_corpus, _mylib_write_derivatives, _mylib_finalize_derivatives)
 
 
-def _mylib_parse_worker(submission_id: int, force_ocr: bool = False) -> None:
-    sid = int(submission_id)
-    row = mylib.get_submission(sid)
-    if not row:
-        return
-    uid = int(row["user_id"])
-    try:
-        mylib.set_status(sid, "parsing")
-        result = mylib_store.parse(uid, sid)
-        total = int(result.get("pages") or row.get("page_count") or 0)
-        mylib.set_page_count(sid, total)
-        mylib.set_progress(sid, 0, total)
+# The admin import consumes a complete local text bundle, never a node OCR request.
+from personal_library_offline import register_admin_routes as _register_offline_ocr_routes
+_register_offline_ocr_routes(
+    app, library=mylib, processor=_mylib_processor, require_admin=_require_admin,
+    csrf=_require_management_csrf, audit=_log_management_action, flash=flash,
+    redirect=_management_redirect,
+)
 
-        embedded_pages: list[dict] | None = None
-        needs_ocr = bool(result.get("needs_ocr") or force_ocr)
-        if not needs_ocr:
-            embedded_pages = mylib_store.fetch_text(uid, sid)
-            text_quality = mylib_corpus.assess_text_layer_quality(embedded_pages)
-            needs_ocr = bool(text_quality.get("requires_ocr"))
-            if needs_ocr:
-                result["text_quality"] = text_quality
-                LOGGER.warning(
-                    "mylib embedded text rejected sid=%s quality=%s", sid, text_quality
-                )
 
-        if needs_ocr:
-            mylib.set_page_count(sid, total, source_kind="scanned")
-            _mylib_prerender(uid, sid)
-            # 扫描件：用户同意后才建立文字层；普通任务仍须经过三道额度闸。
-            if not row.get("ocr_consent"):
-                written = _mylib_write_derivatives(
-                    row, embedded_pages or [], result=result
-                )
-                _mylib_finalize_derivatives(sid, written)
-                return
-            # 强制 OCR 只能保留上传 PDF 自带的书签，不能把上一次自动推导的错误目录
-            # 再灌回新索引，否则“重建文字层”永远修不好目录。
-            preserved_toc = mylib.submission_toc(row) if force_ocr else None
-            pages = _mylib_run_ocr(uid, sid, total, force=force_ocr)
-            if pages > 0:
-                texts = mylib_store.fetch_text(uid, sid)
-                written = _mylib_write_derivatives(
-                    row, texts, result=result,
-                    preserve_bibliographic=force_ocr,
-                    toc_entries_override=preserved_toc,
-                )
-                if not force_ocr:
-                    mylib.record_ocr_usage(uid, sid, pages)
-                mylib.set_progress(sid, written, total or written)
-                _mylib_finalize_derivatives(sid, written)
-            else:
-                # 用户已授权 OCR 但未生成文字层时进入数据复核，不再静默标成完成。
-                fallback_pages = embedded_pages or mylib_corpus.read_book_pages(uid, sid)
-                written = _mylib_write_derivatives(row, fallback_pages, result=result)
-                _mylib_finalize_derivatives(sid, written)
-            return
+def _mylib_start_parse(submission_id: int, *, force_ocr: bool = False, resume_ocr: bool = False) -> None:
+    _mylib_processor().start(int(submission_id), force=force_ocr, resume=resume_ocr)
 
-        pages = embedded_pages if embedded_pages is not None else mylib_store.fetch_text(uid, sid)
-        written = _mylib_write_derivatives(row, pages, result=result)
-        mylib.set_progress(sid, written, total or written)
-        mylib.set_page_count(sid, total, source_kind="text_layer")
-        _mylib_prerender(uid, sid)
-        _mylib_finalize_derivatives(sid, written)
-    except Exception as exc:  # noqa: BLE001 — 任何失败都要落到可见状态，不能静默卡死
-        LOGGER.warning("mylib parse failed sid=%s: %s", sid, exc)
-        mylib.set_status(sid, "failed", fail_reason=str(exc)[:300])
 
+def _mylib_parse_worker(submission_id: int, run_id: str, *, resume_ocr: bool = False) -> None:
+    _mylib_processor().run(int(submission_id), run_id, resume=resume_ocr)
 
 def _mylib_write_derivatives(
     row: dict,
@@ -15304,48 +15257,11 @@ MYLIB_OCR_POLL_SECONDS = int(os.environ.get("MYLIB_OCR_POLL_SECONDS", "15"))
 MYLIB_OCR_MAX_MINUTES = int(os.environ.get("MYLIB_OCR_MAX_MINUTES", "180"))
 
 
-def _mylib_run_ocr(
-    user_id: int, submission_id: int, total_pages: int, *, force: bool = False
-) -> int:
-    """驱动扫描件 OCR：过成本闸 → 启动节点作业 → 轮询进度 → 返回成功页数。
-
-    OCR 以分钟计（本地逐页忠实识别），全程在后台线程里等；失败只影响「可检索」，
-    书本身仍可阅读，所以这里不把整本置为 failed。
-    """
-    uid, sid = int(user_id), int(submission_id)
-    allowed, why = (total_pages, "") if force else mylib.ocr_quota_allowance(uid, total_pages)
-    if allowed <= 0:
-        LOGGER.info("mylib OCR skipped sid=%s: %s", sid, why or "额度不足")
-        mylib.set_status(sid, "parsing", fail_reason=why or "OCR 额度不足，本书仅可阅读")
-        return 0
-    if why:
-        LOGGER.info("mylib OCR capped sid=%s to %s pages: %s", sid, allowed, why)
-    try:
-        mylib_store.ocr_start(uid, sid, max_pages=allowed, force=force)
-    except mylib_store.StoreError as exc:
-        LOGGER.warning("mylib OCR start failed sid=%s: %s", sid, exc)
-        return 0
-
-    deadline = time.time() + MYLIB_OCR_MAX_MINUTES * 60
-    done = 0
-    while time.time() < deadline:
-        time.sleep(MYLIB_OCR_POLL_SECONDS)
-        try:
-            st = mylib_store.ocr_status(uid, sid)
-        except mylib_store.StoreError as exc:
-            LOGGER.warning("mylib OCR status failed sid=%s: %s", sid, exc)
-            continue
-        done = int(st.get("done") or 0)
-        mylib.set_progress(sid, done, int(st.get("total") or allowed))
-        state = str(st.get("state") or "")
-        if state == "done":
-            return done
-        if state == "failed":
-            LOGGER.warning("mylib OCR failed sid=%s: %s", sid, st.get("error"))
-            return done
-    LOGGER.warning("mylib OCR timeout sid=%s after %s min", sid, MYLIB_OCR_MAX_MINUTES)
-    return done
-
+def _mylib_run_ocr(user_id: int, submission_id: int, total_pages: int, *, run_id: str) -> dict:
+    row = mylib.get_submission(int(submission_id))
+    if not row or int(row['user_id']) != int(user_id):
+        raise ValueError('Submission owner mismatch')
+    return _mylib_processor().wait(row, run_id, int(total_pages))
 
 def _mylib_prerender(user_id: int, submission_id: int) -> None:
     """预渲染前若干页：读者首开即出图，避免冷渲染等待（存储节点侧完成，不占本机 CPU）。"""
@@ -15356,13 +15272,8 @@ def _mylib_prerender(user_id: int, submission_id: int) -> None:
 
 
 def _mylib_resume_pending() -> None:
-    """进程重启会让 queued/parsing 的书悬空，启动时扫一遍续跑。"""
-    try:
-        for row in mylib.list_resumable():
-            _mylib_start_parse(int(row["id"]))
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("mylib resume sweep failed: %s", exc)
-
+    """Reattach to the same durable run; never re-enqueue or recheck old books."""
+    _mylib_processor().reconcile()
 
 def _mylib_resume_storing() -> None:
     """恢复进程重启前已完成本机暂存、尚未写完存储节点的上传。"""
@@ -22075,11 +21986,7 @@ if mylib_store.configured() and os.environ.get("MARX_SKIP_STARTUP_MAINTENANCE") 
         daemon=True,
     ).start()
     threading.Thread(target=_mylib_resume_pending, name="mylib-resume", daemon=True).start()
-    threading.Thread(
-        target=_mylib_backfill_derivatives,
-        name="mylib-derivative-backfill",
-        daemon=True,
-    ).start()
+    # Derivative backfill/acceptance require explicit per-book authorization.
 
 
 def _citation_maintenance_loop() -> None:
