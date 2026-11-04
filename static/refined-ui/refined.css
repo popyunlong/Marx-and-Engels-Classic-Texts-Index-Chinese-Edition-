@@ -99,3 +99,23 @@ body.v2 .v2book-cover{position:relative;}
 body.v2 .v2book-cover-fallback{display:none;font-size:11px;line-height:1.5;text-align:center;color:#746d63;padding:5px;}
 body.v2 .v2book-cover.is-cover-unavailable img{display:none;}
 body.v2 .v2book-cover.is-cover-unavailable .v2book-cover-fallback{display:block;}
+
+
+/* Reading catalogue: preserve the existing shelves and volume drawer. */
+body.v2 .has-category-navigation { display:grid; grid-template-columns:220px minmax(0,1fr); gap:24px; align-items:start; }
+.has-category-navigation > .v2sec-label { grid-column:1 / -1; }
+.reading-catalog-content { min-width:0; }
+.reading-catalog-nav { display:flex; flex-direction:column; padding:10px; border-radius:10px; background:#eeeae2; }
+.reading-category { display:flex; justify-content:space-between; gap:10px; width:100%; padding:13px 12px; border:0; border-left:3px solid transparent; border-radius:5px; background:transparent; color:#34312d; font:inherit; text-align:left; cursor:pointer; }
+.reading-category span { font-size:12px; opacity:.7; }
+.reading-category[aria-pressed="true"] { background:#fffdf8; border-left-color:#8f1d1d; color:#8f1d1d; font-weight:700; }
+.reading-category:focus-visible,.reading-catalog-mobile select:focus-visible { outline:2px solid #8f1d1d; outline-offset:2px; }
+.reading-catalog-summary { margin:0 0 18px; color:#6f665b; font-size:14px; }
+.reading-catalog-mobile { display:none; }
+#readingCatalog .v2book-cat[hidden],#readingCatalog [hidden] { display:none !important; }
+@media (max-width:767px) {
+  body.v2 .has-category-navigation { grid-template-columns:minmax(0,1fr); gap:16px; }
+  .reading-catalog-nav { display:none; }
+  .reading-catalog-mobile { display:flex; align-items:center; gap:12px; font-size:14px; }
+  .reading-catalog-mobile select { flex:1; min-width:0; padding:10px; border:1px solid #d9cfc0; border-radius:6px; background:#fffdf8; color:#34312d; font:inherit; }
+}
