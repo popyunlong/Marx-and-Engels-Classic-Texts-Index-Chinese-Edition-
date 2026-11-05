@@ -836,6 +836,30 @@ def init_membership_db() -> Path:
                 FOREIGN KEY (price_version_id) REFERENCES ai_price_versions(id)
             );
 
+            CREATE TABLE IF NOT EXISTS ai_tool_prices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool TEXT NOT NULL, effective_from TEXT NOT NULL,
+                unit_micros INTEGER NOT NULL CHECK(unit_micros >= 0),
+                UNIQUE(tool,effective_from)
+            );
+            INSERT OR IGNORE INTO ai_tool_prices(tool,effective_from,unit_micros)
+                VALUES('search','2026-10-31T16:00:00+00:00',5000),
+                      ('fetch','2026-10-31T16:00:00+00:00',5000);
+            CREATE TABLE IF NOT EXISTS ai_tool_calls (
+                request_id TEXT PRIMARY KEY, user_id INTEGER, tool TEXT NOT NULL,
+                reservation_id INTEGER, price_version_id INTEGER NOT NULL,
+                billable INTEGER NOT NULL, cost_micros INTEGER NOT NULL,
+                latency_ms INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+                occurred_at TEXT NOT NULL,
+                FOREIGN KEY(reservation_id) REFERENCES ai_budget_reservations(id),
+                FOREIGN KEY(price_version_id) REFERENCES ai_tool_prices(id)
+            );
+            CREATE TABLE IF NOT EXISTS ai_conversation_requests (
+                user_id INTEGER NOT NULL, request_id TEXT NOT NULL, digest TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'claimed', created_at TEXT NOT NULL,
+                PRIMARY KEY(user_id,request_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_ai_wallets_user_expiry
                 ON ai_wallets(user_id, status, expires_at, priority);
             CREATE INDEX IF NOT EXISTS idx_ai_wallet_ledger_user_created
@@ -4166,7 +4190,7 @@ def _policy_allows(model_policy: str | dict, model: str, effort: str, feature: s
         return False
     # DeepSeek 的非关闭思考只在研究级链路开放；普通对话不能伪造 high/max 烧掉钱包。
     if model.startswith("deepseek-") and effort != "off" and str(feature or "") not in {
-        "research_review", "research", "research-review",
+        "research_review", "research", "research-review", "comprehensive-chat",
     }:
         return False
     return effort in {str(item).strip().lower() for item in allowed}
@@ -4851,9 +4875,9 @@ def authorize_ai_selection(
     if requested_effort not in models[requested_model]:
         raise ValueError("当前权益不支持所选思考档位。")
     if requested_model.startswith("deepseek-") and requested_effort != "off" and feature not in {
-        "research_review", "research", "research-review",
+        "research_review", "research", "research-review", "comprehensive-chat",
     }:
-        raise ValueError("思考档位仅在研究级检索中开放。")
+        raise ValueError("思考档位仅在研究级检索与综合模式中开放。")
     return {
         "provider": requested_provider, "model": requested_model,
         "reasoning_effort": requested_effort, "ai_entitlements": entitlements,
@@ -4927,6 +4951,7 @@ def reserve_ai_budget(
     *, user_id: int, provider: str, model: str, reasoning_effort: str, feature: str,
     estimated_prompt_tokens: int, max_completion_tokens: int, request_id: str | None = None,
     occurred_at: str | None = None,
+    tool: str | None = None,
 ) -> dict:
     now = occurred_at or utc_now_text()
     at = _parse_utc(now) or utc_now()
@@ -4956,6 +4981,14 @@ def reserve_ai_budget(
             provider=p, model=m, prompt_tokens=estimate_prompt, completion_tokens=estimate_completion,
             occurred_at=at, conn=conn,
         )
+        if tool is not None:
+            price = conn.execute(
+                "SELECT * FROM ai_tool_prices WHERE tool=? AND effective_from<=? ORDER BY effective_from DESC LIMIT 1",
+                (tool, now),
+            ).fetchone()
+            if price is None:
+                raise ValueError("联网工具价格未配置")
+            estimated_cost = int(price["unit_micros"])
         estimated_cost = max(1, estimated_cost)
         estimate_tokens = ai_cost_to_flash_equivalent_tokens(estimated_cost)
         weekly_exhausted, limited_codes = _weekly_limited_wallets_exhausted(
@@ -5022,6 +5055,68 @@ def reserve_ai_budget(
         "id": reservation_id, "request_id": req_id,
         "reserved_micros": estimated_cost, "reserved_tokens": estimate_tokens,
     }
+
+
+def claim_ai_conversation_request(user_id: int, request_id: str, digest: str) -> bool:
+    """Durable duplicate suppression without persisting private conversation bodies."""
+    with _connect() as conn:
+        cur = conn.execute("INSERT OR IGNORE INTO ai_conversation_requests(user_id,request_id,digest,created_at) VALUES(?,?,?,?)",
+                           (user_id, request_id, digest, utc_now_text()))
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def affordable_completion_tokens(*, user_id: int, selection: dict, messages: list, requested: int) -> int:
+    """Fit a generation chunk into authorized released wallets and the weekly cap."""
+    now = utc_now_text()
+    prompt = _ceil_div(((len(json.dumps(messages, ensure_ascii=False))+1)//2)*5, 4)
+    with _connect() as conn:
+        _ensure_user_ai_wallets(conn, user_id, now)
+        rows = [r for r in conn.execute(
+            "SELECT *,released_micros-spent_micros-reserved_micros AS available_micros FROM ai_wallets "
+            "WHERE user_id=? AND status='active' AND starts_at<=? AND expires_at>?", (user_id, now, now)
+        ).fetchall() if _policy_allows(r["model_policy"], selection["model"], selection["reasoning_effort"], "comprehensive-chat")]
+        lo, hi = 0, max(0, requested)
+        while lo < hi:
+            mid = (lo+hi+1)//2
+            cost, _ = calculate_ai_cost_micros(provider=selection["provider"], model=selection["model"],
+                prompt_tokens=prompt, completion_tokens=mid, occurred_at=now, conn=conn)
+            exhausted, limited = _weekly_limited_wallets_exhausted(conn, user_id, rows, _parse_utc(now), ai_cost_to_flash_equivalent_tokens(cost))
+            available = sum(max(0, int(r["available_micros"])) for r in rows if not exhausted or r["plan_code"] not in limited)
+            if cost <= available:
+                lo = mid
+            else:
+                hi = mid-1
+        if lo < 256:
+            raise ValueError("AI 使用额度不足以继续本轮，可补充额度后继续。")
+        return lo
+
+
+def record_ai_tool_call(*, request_id: str, user_id: int | None, tool: str,
+                       reservation_id: int | None, billable: bool,
+                       occurred_at: str, latency_ms: int = 0, error: str = "") -> dict:
+    """Atomic, idempotent per-request tool billing; no fabricated model tokens."""
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT * FROM ai_tool_calls WHERE request_id=?", (request_id,)).fetchone()
+        if existing:
+            return dict(existing)
+        price = conn.execute(
+            "SELECT * FROM ai_tool_prices WHERE tool=? AND effective_from<=? ORDER BY effective_from DESC LIMIT 1",
+            (tool, occurred_at),
+        ).fetchone()
+        if price is None:
+            raise ValueError("联网工具价格未配置")
+        cost = int(price["unit_micros"]) if billable else 0
+        conn.execute(
+            "INSERT INTO ai_tool_calls VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (request_id, user_id, tool, reservation_id, int(price["id"]), int(billable),
+             cost, max(0, latency_ms), error[:500], occurred_at),
+        )
+        if reservation_id is not None:
+            _settle_reservation(conn, reservation_id, cost, occurred_at)
+        conn.commit()
+        return {"request_id": request_id, "cost_micros": cost, "billable": billable}
 
 
 def _settle_reservation(conn: sqlite3.Connection, reservation_id: int, actual_cost: int, at_text: str) -> None:

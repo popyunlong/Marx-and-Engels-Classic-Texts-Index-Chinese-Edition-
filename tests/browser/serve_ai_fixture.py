@@ -62,6 +62,20 @@ def navigation_fixture():
             '<style>body{margin:0}</style></head><body class="v2">' + nav + '</body></html>')
 
 
+@app.post("/fixture-comprehensive-stream")
+def comprehensive_stream_fixture():
+    import json
+    import time
+    from flask import Response
+    def events():
+        checkpoint = {"ok": True, "answer_markdown": "已经核验并保存的第一节。", "citations": [], "sources": [],
+                      "completion_status": "partial", "continue_request_id": "fixture-continuation"}
+        yield "event: progress\ndata: " + json.dumps({"message": "正在完成正文", "checkpoint": checkpoint}, ensure_ascii=False) + "\n\n"
+        time.sleep(3)
+        yield "event: done\ndata: " + json.dumps(checkpoint, ensure_ascii=False) + "\n\n"
+    return Response(events(), mimetype="text/event-stream")
+
+
 if __name__ == "__main__":
     server = make_server("127.0.0.1", 0, app, threaded=True)
     print(f"READY=http://127.0.0.1:{server.server_port}", flush=True)

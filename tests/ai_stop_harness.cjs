@@ -2,7 +2,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const source=fs.readFileSync('static/ai-page/ai-page.js','utf8');
-const start=source.indexOf('  function submitQuestion(text) {');
+const start=source.indexOf('  function submitQuestion(text, continueFrom) {');
 const end=source.indexOf('  // ===================== 事件绑定',start);
 assert.ok(start>=0&&end>start);
 const requests=[];
@@ -10,6 +10,7 @@ const context={AbortController,console,messages:[],sessionsReady:true,streaming:
  depth:'quick',promptEl:{value:''},sessionRefreshPending:false,
  runtimeEnabled:()=>true,depthAllowed:()=>true,buildHistory:()=>[],saveMessages:()=>{},renderMessages:()=>{},scrollToLatestQuestion:()=>{},updateSendEnabled:()=>{},
  currentScope:()=>['all'],currentProvider:()=>'',currentApiModel:()=>'',currentReasoningEffort:()=>'',currentGrounding:()=>false,
+ currentWebMode:()=> 'off',genId:()=> 'fixture-request-id',
  parseJsonResponse:r=>Promise.resolve(r.payload),
  apiFetch:()=>new Promise((resolve,reject)=>requests.push({resolve,reject})),
 };

@@ -3260,6 +3260,9 @@ class ZAIClient:
         传 True/False 可强制。
         """
         resolved_provider = provider
+        # Independent Search/Fetch grounding, shared by the three conversation modes.
+        from ai_web import augment_messages
+        messages = augment_messages(messages)
         if str(model or "").startswith("mimo-"):
             resolved_provider = "mimo"
         elif str(model or "").startswith("deepseek-"):

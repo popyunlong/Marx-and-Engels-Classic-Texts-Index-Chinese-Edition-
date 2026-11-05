@@ -89,6 +89,9 @@
         <div class="aip-controls" id="aipControls" hidden>
           {# 回答深度：快速问答（随心问）/ 研究综述（研究型检索）。整条会话连续、共享上下文。 #}
           <div class="aip-depth" role="tablist" aria-label="回答深度">
+            <button type="button" class="aip-depth-tab" data-depth="comprehensive" role="tab" aria-selected="false" hidden>
+              <strong>综合模式</strong><span>按需规划、检索与写作</span>
+            </button>
             <button type="button" class="aip-depth-tab active" data-depth="quick" role="tab" aria-selected="true">
               <strong>{{ site_text("ai_page.quick_title") }}</strong>
               <span>{{ site_text("ai_page.quick_description") }}</span>
@@ -142,10 +145,17 @@
           <textarea id="aipPrompt" rows="2" placeholder="输入你的问题，回车发送（Shift+Enter 换行）"></textarea>
           <div class="aip-actions">
             <div class="aip-mode-switch" role="group" aria-label="提问模式">
+              <button type="button" class="aip-mode-button" data-depth="comprehensive" aria-pressed="false" hidden>综合模式</button>
               <button type="button" class="aip-mode-button active" data-depth="quick" aria-pressed="true">快速问答</button>
               <button type="button" class="aip-mode-button" data-depth="research" aria-pressed="false">研究级检索</button>
             </div>
             <div class="aip-retrieval-actions">
+              <label class="aip-web-control">联网
+                <select id="aipWebMode" aria-label="联网方式"><option value="off">关闭</option><option value="auto">自动</option><option value="always">始终</option></select>
+              </label>
+              <label class="aip-web-control" id="aipGroundingModeRow" hidden>引文库
+                <select id="aipGroundingMode" aria-label="引文库检索方式"><option value="auto">自动</option><option value="always">始终</option><option value="off">关闭</option></select>
+              </label>
               <button type="button" class="aip-retrieval-toggle" id="aipComposerGrounding" aria-pressed="true">检索引文库 <span id="aipComposerGroundingState">开启</span></button>
               <button type="button" class="aip-scope-trigger" id="aipScopeToggle" aria-haspopup="dialog" aria-controls="aipScopePanel" aria-expanded="false">范围与著作 <span id="aipScopeSummary">自动</span><span aria-hidden="true"> ▾</span></button>
             </div>
