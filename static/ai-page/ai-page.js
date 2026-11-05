@@ -52,6 +52,23 @@
   var promptEl = $("#aipPrompt");
   var sendBtn = $("#aipSend");
   var stopBtn = $("#aipStop");
+  var webModeSelect = $("#aipWebMode");
+  var groundingModeSelect = $("#aipGroundingMode");
+  var groundingModeRow = $("#aipGroundingModeRow");
+  var webModes = { comprehensive: "auto", quick: "off", research: "off" };
+  function currentWebMode() { return config && config.deepseek_web_access ? webModes[depth] : "off"; }
+  function sourceLabel(source) { return source.purpose === "background" ? "联网背景参考" : "网络引用"; }
+  function acceptCheckpoint(assistant, data) {
+    assistant.content = data.answer_markdown || "";
+    assistant.citations = data.citations || [];
+    assistant.sources = data.sources || [];
+    assistant.warnings = data.warnings || [];
+    assistant.groundingScope = data.grounding_scope || null;
+    assistant.completionStatus = data.completion_status;
+    assistant.continueRequestId = data.continue_request_id;
+    assistant.actualModel = data.actual_model;
+    assistant.webStatus = data.web_status;
+  }
   var clearBtn = $("#aipClear");
   // 本地会话记录侧栏
   var sessionsEl = $("#aipSessions");
@@ -496,7 +513,7 @@
     return '<div class="sources">' + sources.map(function (source, index) {
       return '<div class="source-item"><a href="' + escAttr(source.link || "#") + '" target="_blank" rel="noopener">' +
         (index + 1) + ". " + esc(source.title || "未命名来源") + '</a><div class="source-meta">' +
-        esc(source.site || "未知站点") + (source.date ? " · " + esc(source.date) : "") + "</div></div>";
+        esc(sourceLabel(source)) + " · " + esc(source.site || "未知站点") + (source.date ? " · " + esc(source.date) : "") + "</div></div>";
     }).join("") + "</div>";
   }
   function renderWarnings(warnings) {
@@ -754,13 +771,14 @@
       message = numberMessageCitations(message);
       if (message.role === "user") return '<div class="msg user">' + esc(message.content) + "</div>";
       var isResearch = message.kind === "research";
-      if (message.pending) {
+      if (message.pending && !message.content) {
         var pendMsg = message.progress || (isResearch ? "正在检索原著并生成研究综述（较慢，请稍候）" : "AI 正在思考");
         return '<div class="msg assistant pending' + (isResearch ? " research" : "") + '" aria-live="polite">' +
           '<span class="msg-title">' + esc(pendMsg) + '</span>' +
           '<span class="typing-dots" aria-label="生成中"><span></span><span></span><span></span></span></div>';
       }
-      var kindPill = '<span class="msg-kind">' + (isResearch ? "研究综述" : "快速问答") + "</span>";
+      var kindPill = '<span class="msg-kind">' + (message.kind === "comprehensive" ? "综合模式" : isResearch ? "研究综述" : "快速问答") + "</span>";
+      if (message.actualModel) kindPill += '<span class="aip-answer-model">' + esc(modelDisplayName(message.actualModel.model, message.actualModel.reasoning_effort)) + '</span>';
       var citeTools = Array.isArray(message.citations) && message.citations.length ? citeFormatSelectHtml() : "";
       var exportTools = '<span class="aip-answer-tools">' + citeTools +
         '<span class="aip-answer-export" aria-label="下载本条 AI 回复为 Word">' +
@@ -770,7 +788,8 @@
       return '<div class="msg assistant' + (isResearch ? " research" : "") + '">' +
         '<div class="msg-head"><span class="msg-title">' + kindPill + "AI 回答</span>" + exportTools + "</div>" +
         '<div class="msg-body' + (isResearch ? " aip-essay" : "") + '">' + renderAnswerMarkdown(message, false) + "</div>" +
-        renderWarnings(message.warnings) + renderCitations(message) + renderSources(message.sources) + "</div>";
+        renderWarnings(message.warnings) + renderCitations(message) + renderSources(message.sources) +
+        (message.continueRequestId && !streaming ? '<button type="button" class="aip-secondary" data-continue-index="' + messageIndex + '">继续完成</button>' : "") + "</div>";
     }).join("");
   }
 
@@ -903,14 +922,14 @@
       var url = exportUrl(source.link || "");
       var title = esc(source.title || "未命名来源");
       return '<li>' + (url ? '<a href="' + escAttr(url) + '" target="_blank" rel="noopener noreferrer">' + title + '</a>' : title) +
-        '<small>' + esc([source.site, source.date].filter(Boolean).join(" · ")) + '</small></li>';
+        '<small>' + esc([sourceLabel(source), source.site, source.date].filter(Boolean).join(" · ")) + '</small></li>';
     }).join("") + "</ol></section>";
   }
   function exportMessageHtml(message, answerNo) {
     message = numberMessageCitations(message);
     if (!message || message.pending) return "";
     if (message.role === "user") return '<section class="turn user"><div class="turn-label">用户</div><div class="user-text">' + esc(message.content || "") + "</div></section>";
-    var kind = message.kind === "research" ? "研究综述" : "快速问答";
+    var kind = message.kind === "comprehensive" ? "综合模式" : message.kind === "research" ? "研究综述" : "快速问答";
     var warnings = Array.isArray(message.warnings) && message.warnings.length
       ? '<ul class="warnings">' + message.warnings.map(function (item) { return "<li>" + esc(item) + "</li>"; }).join("") + "</ul>" : "";
     return '<section class="turn assistant' + (message.kind === "research" ? " research" : "") + '"><div class="turn-label">' + esc(kind) + ' · AI 回复 ' + answerNo + '</div>' +
@@ -1285,6 +1304,12 @@
     if (kind !== "footnote" && kind !== "endnote") throw new Error("invalid Word note kind");
     var state = { kind: kind, citationMap: wordCitationMap(message), notes: [], message: message };
     var body = wordParagraphXml(title, state, "Title") + wordBodyXml(message, state);
+    ["citation", "background"].forEach(function (purpose) {
+      var sources = (message.sources || []).filter(function (s) { return (s.purpose || "citation") === purpose; });
+      if (!sources.length) return;
+      body += wordParagraphXml(purpose === "background" ? "联网背景参考" : "网络引用", state, "Heading2");
+      sources.forEach(function (s) { body += wordParagraphXml([s.title, s.site, s.date, s.link || s.url].filter(Boolean).join(" · "), state); });
+    });
     var isEndnote = kind === "endnote", notePart = "footnotes";
     if (isEndnote) body += wordEndnoteSectionXml(state.notes);
     var footnoteOptions = '<w:pos w:val="pageBottom"/><w:numFmt w:val="decimalEnclosedCircle"/><w:numRestart w:val="eachPage"/>';
@@ -1601,7 +1626,7 @@
   function compactSource(source) {
     if (!source || typeof source !== "object") return null;
     var out = {};
-    ["title", "link", "url", "citation", "site", "site_name", "date"].forEach(function (key) {
+    ["title", "link", "url", "citation", "site", "site_name", "date", "id", "source_id", "kind", "purpose", "verification", "retrieved_at"].forEach(function (key) {
       if (source[key] !== undefined) out[key] = source[key];
     });
     if (!out.link && out.url) out.link = out.url;
@@ -1609,13 +1634,16 @@
     return out;
   }
   function storedMessages(list, level) {
-    return (Array.isArray(list) ? list : []).filter(function (m) { return m && !m.pending; }).map(function (message) {
+    return (Array.isArray(list) ? list : []).filter(function (m) { return m && (!m.pending || m.content); }).map(function (message) {
       ensureMessageIdentity(message);
-      if (level === 0) return Object.assign({}, message);
+      if (level === 0) { var saved = Object.assign({}, message); delete saved.pending; return saved; }
       var out = {
         role: message.role,
         content: String(message.content || ""),
         kind: message.kind,
+        completionStatus: message.completionStatus, continueRequestId: message.continueRequestId,
+        originalQuestion: message.originalQuestion, requestScope: message.requestScope,
+        actualModel: message.actualModel, webStatus: message.webStatus, webMode: message.webMode,
         _mid: message._mid,
         _createdAt: message._createdAt,
       };
@@ -2318,6 +2346,7 @@
       sessionsData.current = id; rememberCurrent();
       var s = currentSession();
       messages = s ? (s.messages || []).slice() : [];
+      restoreSessionMode();
       renderMessages(); renderSidebar();
     }
     closeSessionsDrawer();
@@ -2333,6 +2362,10 @@
       enqueueSessionWrite(s, { replaceMessages: true });
     }
     messages = []; renderMessages(); renderSidebar(); closeSessionsDrawer();
+    depth = depthAllowed("comprehensive") ? "comprehensive" : "quick";
+    webModes = { comprehensive: "auto", quick: "off", research: "off" };
+    if (groundingModeSelect) groundingModeSelect.value = "auto";
+    applyDepthUI(true);
     if (promptEl) { try { promptEl.focus(); } catch (_) {} }
   }
   function deleteSession(id, options) {
@@ -2568,11 +2601,19 @@
   function hasResearch() { return !!(config && config.research_access); }
   function anyAccess() { return hasChat() || hasResearch(); }
   function runtimeEnabled() { return !!(config && config.runtime && config.runtime.enabled); }
-  function depthAllowed(d) { return d === "research" ? hasResearch() : hasChat(); }
+  function depthAllowed(d) { return d === "comprehensive" ? !!(hasChat() && config && config.comprehensive_access) : d === "research" ? hasResearch() : d === "quick" && hasChat(); }
+  function restoreSessionMode() {
+    var last = messages.slice().reverse().find(function (m) { return m.role === "assistant"; });
+    var wanted = last ? (last.kind || "quick") : "comprehensive";
+    depth = depthAllowed(wanted) ? wanted : (hasChat() ? "quick" : "research");
+    if (last && last.webMode) webModes[depth] = last.webMode;
+    if (config) applyDepthUI(true);
+  }
   function currentModelChoice() {
     return modelSelect ? modelSelect.value : "flash";
   }
   function defaultModelForDepth() {
+    if (depth === "comprehensive") return "auto";
     var defaults = config && config.ai_entitlements && config.ai_entitlements.defaults;
     var selected = defaults && defaults[depth === "research" ? "research" : "quick"];
     if (!selected || !selected.model) return "";
@@ -2584,7 +2625,8 @@
     if (!modelSelect) return;
     var research = depth === "research";
     Array.prototype.forEach.call(modelSelect.options, function (opt) {
-      var hidden = (!research && opt.getAttribute("data-research-only") === "1") ||
+      var hidden = (depth !== "comprehensive" && !research && opt.getAttribute("data-research-only") === "1") ||
+                   (opt.value === "auto" && depth !== "comprehensive") ||
                    (research && opt.getAttribute("data-research-disabled") === "1") ||
                    (opt.value === "zhipu" && !webAccess() && !glmEntitled());
       opt.hidden = hidden; opt.disabled = hidden;
@@ -2607,6 +2649,7 @@
   }
   function currentApiModel() {
     var opt = currentModelOption();
+    if (opt && opt.value === "auto") return "auto";
     if (!opt || opt.value === "zhipu") return null;
     return opt.getAttribute("data-model") || (opt.value === "pro" ? "deepseek-v4-pro" : "deepseek-v4-flash");
   }
@@ -2614,7 +2657,7 @@
     var opt = currentModelOption();
     return opt ? (opt.getAttribute("data-effort") || "off") : "off";
   }
-  function currentGrounding() { return groundingToggle ? !!groundingToggle.checked : true; }
+  function currentGrounding() { return depth === "comprehensive" ? groundingModeSelect.value !== "off" : groundingToggle ? !!groundingToggle.checked : true; }
 
   var scopeState = { mode: "auto", selected: [] };
   function saveScopeState() { try { localStorage.setItem(AI_SCOPE_KEY, JSON.stringify(scopeState)); } catch (_) {} }
@@ -2704,6 +2747,7 @@
     var research = depth === "research";
     var enabled = research || currentGrounding();
     if (composerGrounding) {
+      composerGrounding.hidden = depth === "comprehensive";
       composerGrounding.setAttribute("aria-pressed", enabled ? "true" : "false");
       composerGrounding.disabled = !available || research;
       composerGrounding.title = research ? "研究综述始终检索引文库" : "与页面上方的检索引文库选项同步；修改对下一次提问生效";
@@ -2738,6 +2782,7 @@
   function applyDepthUI(forceDefaultModel) {
     depthTabs.forEach(function (t) {
       var d = t.getAttribute("data-depth");
+      if (d === "comprehensive") t.hidden = !depthAllowed(d);
       var on = d === depth;
       t.classList.toggle("active", on);
       t.setAttribute(t.classList.contains("aip-mode-button") ? "aria-pressed" : "aria-selected", on ? "true" : "false");
@@ -2748,7 +2793,14 @@
     if (providerRow) providerRow.hidden = false;
     syncModelForDepth(!!forceDefaultModel);
     updateStatusLine();
-    if (groundingRow) groundingRow.hidden = isResearch;
+    if (groundingRow) groundingRow.hidden = isResearch || depth === "comprehensive";
+    if (groundingModeRow) groundingModeRow.hidden = depth !== "comprehensive";
+    if (webModeSelect) {
+      webModeSelect.value = currentWebMode();
+      webModeSelect.disabled = !(config && config.deepseek_web_access);
+      webModeSelect.closest("label").hidden = webModeSelect.disabled;
+      webModeSelect.title = webModeSelect.disabled ? "DeepSeek 联网尚未开放或当前账户没有有效付费 AI 权益" : "联网辅助规划，原著引文优先使用站内数据";
+    }
     if (researchNote) researchNote.hidden = !isResearch;
     if (scopeRow) scopeRow.hidden = !(runtimeEnabled() && hasAnyForDepth() && scopeRelevant());
     updateResearchQuota();
@@ -2757,7 +2809,7 @@
   }
   function hasAnyForDepth() { return depthAllowed(depth); }
   function setDepth(d) {
-    if (d !== "quick" && d !== "research") return;
+    if (d !== "quick" && d !== "research" && d !== "comprehensive") return;
     if (!depthAllowed(d)) return;   // 无权限的档不可切
     if (d === depth) return;        // 重复选中不重置用户选择的模型
     depth = d;
@@ -2822,6 +2874,9 @@
     Array.prototype.slice.call(modelSelect.options).forEach(function (opt) {
       if (opt.value !== "zhipu") modelSelect.removeChild(opt);
     });
+    var autoOption = document.createElement("option");
+    autoOption.value = "auto"; autoOption.textContent = "自动选择（限当前权益）";
+    modelSelect.insertBefore(autoOption, modelSelect.firstChild);
     keys.forEach(function (model) {
       models[model].forEach(function (effort) {
         var provider = model.indexOf("mimo-") === 0 ? "mimo" : "deepseek";
@@ -2872,9 +2927,7 @@
     mountBookScopeOnce(c.book_scope_tree);
 
     // 初始深度：记忆值（无权限则回落到有权限的一档）
-    var savedDepth = "quick";
-    try { savedDepth = localStorage.getItem(AI_DEPTH_KEY) || "quick"; } catch (_) {}
-    depth = depthAllowed(savedDepth) ? savedDepth : (hasChat() ? "quick" : "research");
+    restoreSessionMode();
 
     if (runtimeEnabled()) {
       updateStatusLine();
@@ -2924,8 +2977,10 @@
       .map(function (m) {
         var numbered = numberMessageCitations(m);
         var content = String(numbered.content || "");
-        var charCap = augmenting && m === fullAnswer ? 80000 : HISTORY_CHAR_CAP;
-        if (content.length > charCap) content = content.slice(0, charCap) + "……（此处略）";
+        var charCap = depth === "comprehensive" ? 100000 : augmenting && m === fullAnswer ? 80000 : HISTORY_CHAR_CAP;
+        if (content.length > charCap) content = depth === "comprehensive"
+          ? content.slice(0, charCap / 3) + "\n[中间内容略]\n" + content.slice(-Math.floor(charCap * 2 / 3))
+          : content.slice(0, charCap) + "……（此处略）";
         var item = { role: m.role, content: content };
         var citationRefs = historyCitationRefs(numbered);
         if (citationRefs.length) item.citation_refs = citationRefs;
@@ -2933,16 +2988,19 @@
       });
 }
 
-  function submitQuestion(text) {
+  function submitQuestion(text, continueFrom) {
     if (!sessionsReady) { showStorageWarning("会话记录仍在载入，请稍候再发送，避免新内容覆盖历史记录。"); return; }
     if (!runtimeEnabled() || !depthAllowed(depth) || streaming) return;
     var question = String(text || "").trim();
     if (!question) return;
     var history = buildHistory(question);
     var isResearch = depth === "research";
+    var isComprehensive = depth === "comprehensive";
+    var requestId = genId();
 
     messages.push({ role: "user", content: question });
-    var assistant = { role: "assistant", content: "", sources: [], citations: [], warnings: [], pending: true, kind: isResearch ? "research" : "quick" };
+    var assistant = { role: "assistant", content: "", sources: [], citations: [], warnings: [], pending: true, kind: depth,
+      originalQuestion: question, requestScope: continueFrom ? continueFrom.requestScope : currentScope(), webMode: currentWebMode() };
     messages.push(assistant);
     saveMessages();
     renderMessages();
@@ -2955,17 +3013,24 @@
     currentPendingAssistant = assistant;
     updateSendEnabled();
 
-    var req = isResearch
+    var req = isComprehensive ? apiFetch("/api/ai/comprehensive-chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: question, messages: history, request_id: requestId,
+        continue_request_id: continueFrom && continueFrom.continueRequestId,
+        model: currentApiModel(), provider: currentProvider(), reasoning_effort: currentReasoningEffort(),
+        grounding_mode: groundingModeSelect.value, scope: assistant.requestScope, web_mode: currentWebMode() }),
+      signal: abort ? abort.signal : undefined,
+    }) : isResearch
       ? apiFetch("/api/search/associative", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ q: question, gist: question, mode: "research", messages: history, scope: currentScope(), rerank: true, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort() }),
+          body: JSON.stringify({ q: question, gist: question, mode: "research", messages: history, scope: currentScope(), rerank: true, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort(), web_mode: currentWebMode() }),
           signal: abort ? abort.signal : undefined,
         })
       : apiFetch("/api/ai/search-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question: question, messages: history, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort(), grounding: currentGrounding(), scope: currentScope() }),
+          body: JSON.stringify({ question: question, messages: history, provider: currentProvider(), model: currentApiModel(), reasoning_effort: currentReasoningEffort(), grounding: currentGrounding(), scope: currentScope(), web_mode: currentWebMode() }),
           signal: abort ? abort.signal : undefined,
         });
 
@@ -2976,6 +3041,7 @@
           if (abort && abort.signal.aborted) return;
           var elapsed = Number(progress.elapsed_seconds || 0);
           assistant.progress = String(progress.message || "AI 正在生成") + (elapsed ? "（" + elapsed + "秒）" : "");
+          if (progress.checkpoint) { acceptCheckpoint(assistant, progress.checkpoint); saveMessages(); }
           renderMessages();
         });
       }
@@ -2986,6 +3052,10 @@
       if (data.ai_token_quota) updateTokenQuota(data.ai_token_quota);
       if (data.research_quota) updateResearchQuota(data.research_quota);
       if (!data.ok) throw new Error(data.error || "AI 请求失败");
+      if (continueFrom) continueFrom.continueRequestId = null;
+      assistant.webStatus = data.web_status;
+      if (isComprehensive) acceptCheckpoint(assistant, data);
+      assistant.sources = data.sources || [];
       if (isResearch) {
         assistant.content = data.review_markdown || "";
         assistant.citations = (data.review_citations || []).map(function (c) {
@@ -3007,13 +3077,14 @@
       // 用户主动「停止回答」：撤下这条待答气泡、保留提问，不显示报错，随即可开启新回答。
       if ((abort && abort.signal.aborted) || (error && error.name === "AbortError")) {
         var idx = messages.indexOf(assistant);
-        if (idx >= 0) messages.splice(idx, 1);
+        if (assistant.content && isComprehensive) { delete assistant.pending; assistant.completionStatus = "partial"; }
+        else if (idx >= 0) messages.splice(idx, 1);
         saveMessages();
         renderMessages();
         return;
       }
-      assistant.content = "请求失败：" + (error.message || "未知错误");
-      assistant.sources = []; assistant.citations = []; assistant.warnings = [];
+      if (assistant.content && isComprehensive) assistant.warnings.push("生成中断：" + error.message);
+      else { assistant.content = "请求失败：" + (error.message || "未知错误"); assistant.sources = []; assistant.citations = []; assistant.warnings = []; }
       delete assistant.pending;
       saveMessages();
       renderMessages();
@@ -3023,6 +3094,7 @@
       currentAbort = null;
       currentPendingAssistant = null;
       streaming = false;
+      renderMessages();
       updateSendEnabled();
       if (sessionRefreshPending) {
         sessionRefreshPending = false;
@@ -3037,7 +3109,9 @@
     if (!streaming || !currentAbort) return;
     try { currentAbort.abort(); } catch (_) {}
     var idx = messages.indexOf(currentPendingAssistant);
-    if (idx >= 0) messages.splice(idx, 1);
+    if (currentPendingAssistant && currentPendingAssistant.kind === "comprehensive" && currentPendingAssistant.content) {
+      delete currentPendingAssistant.pending; currentPendingAssistant.completionStatus = "partial";
+    } else if (idx >= 0) messages.splice(idx, 1);
     currentAbort = null;
     currentPendingAssistant = null;
     streaming = false;
@@ -3047,6 +3121,8 @@
   }
 
   // ===================== 事件绑定 =====================
+  if (webModeSelect) webModeSelect.addEventListener("change", function () { webModes[depth] = webModeSelect.value; });
+  if (groundingModeSelect) groundingModeSelect.addEventListener("change", syncRetrievalUI);
   depthTabs.forEach(function (t) {
     t.addEventListener("click", function () { setDepth(t.getAttribute("data-depth")); });
     t.addEventListener("keydown", function (e) {
@@ -3065,6 +3141,12 @@
     messagesEl.addEventListener("click", function (e) {
       var t = e.target;
       if (!t || !t.closest) return;
+      var continueButton = t.closest("[data-continue-index]");
+      if (continueButton) {
+        var prior = messages[Number(continueButton.getAttribute("data-continue-index"))];
+        if (prior && prior.continueRequestId) { setDepth("comprehensive"); submitQuestion(prior.originalQuestion || "继续完成", prior); }
+        return;
+      }
       var wordBtn = t.closest('[data-export-word="footnote"], [data-export-word="endnote"]');
       if (wordBtn) {
         // 两个按钮分支硬绑定，不把可变 DOM 字符串直接透传给文档生成器。
@@ -3217,6 +3299,7 @@
   sessionsLoadPromise = loadSessions().then(function (loaded) {
     messages = loaded || [];
     sessionsReady = true;
+    restoreSessionMode();
     renderMessages();
     renderSidebar();
     updateSendEnabled();
@@ -3225,6 +3308,7 @@
   }).catch(function () {
     messages = legacyLoadSessions();
     sessionsReady = true;
+    restoreSessionMode();
     renderMessages(); renderSidebar();
     updateSendEnabled();
     checkStorageCapacity();

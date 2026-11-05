@@ -7,6 +7,8 @@ import book_data_release
 from ingestion.text_highlight import locate as locate_text, locate_pages as locate_text_pages
 
 import json
+import comprehensive_web
+import ai_web
 import membership_purchase as multi_purchase
 import html
 import ipaddress
@@ -13107,6 +13109,7 @@ def api_ai_assistant_config():
             "access": access,
             "access_gate": "login" if chat_login_gated else "member",
             "web_access": bool(_ai_web_access_enabled()),
+            **comprehensive_web.capabilities(sys.modules[__name__]),
             "runtime": runtime,
             "quota": _ai_token_quota_payload() if access else {},
             "ai_entitlements": _ai_entitlements_payload(user) if user else _ai_entitlements_payload(None),
@@ -18995,6 +18998,8 @@ def _personal_grounding_candidates(question, quotes, fragments, keywords,
 def _build_chat_grounding(
     question: str, *, raw_scope: object = "auto", exclusions: dict[str, set] | None = None,
     provider_call_ids: list[int] | None = None, user_id: int | None = None,
+    supplied_plan: dict | None = None, source_limit: int | None = CHAT_GROUNDING_TOP,
+    context_char_budget: int = 100000,
 ) -> tuple[list[dict], list[dict], list[str], dict]:
     """问题 → 检索线索 → 真实命中。返回 (注入提示词用的原文清单, 前端展示用的引文清单, 提示, 范围元数据)。
 
@@ -19006,13 +19011,14 @@ def _build_chat_grounding(
     state = current_view_state()
     viewer_allowed = bool(state["pdf_enabled"] and _content_access_enabled("viewer"))
 
-    plan: dict = {}
+    plan: dict = dict(supplied_plan or {})
     try:
         with ai_call_context(
             user_id=user_id, feature="associative_internal", charge_user=False,
             provider_call_ids=provider_call_ids if provider_call_ids is not None else [],
         ):
-            plan = AI_CLIENT.expand_associative_query(question)
+            if supplied_plan is None:
+                plan = AI_CLIENT.expand_associative_query(question)
     except AIServiceError as exc:  # 抽取失败不致命：下面用原词兜底
         LOGGER.info("Search-chat grounding expand failed query=%s: %s", _private_log_fingerprint(question), exc)
 
@@ -19128,7 +19134,7 @@ def _build_chat_grounding(
 
     if ai_citations.enabled():
         candidates = [h for h in candidates if ai_citations.admissible(h.to_dict(), "", question)]
-    if not candidates and not personal_only and ai_citations.enabled() and ai_citations.augmentation_target(question, CHAT_GROUNDING_TOP):
+    if supplied_plan is None and not candidates and not personal_only and ai_citations.enabled() and ai_citations.augmentation_target(question, CHAT_GROUNDING_TOP):
         with ai_call_context(user_id=user_id, feature="associative_internal", charge_user=False,
                              provider_call_ids=provider_call_ids if provider_call_ids is not None else []):
             candidates = ai_citation_runtime.recover_empty_candidates(sys.modules[__name__], question,
@@ -19157,8 +19163,10 @@ def _build_chat_grounding(
     seen_passages: set[str] = set()
     # 不先截 candidates[:TOP]：靠前候选里可能含《文集》/《全集》不同版本的同一句。逐条构造后按
     # “实际命中所在的完整句”去重，再继续向后补足，既避免模型收到重复引文，也不减少可用材料面。
-    for hit in (candidates[:CHAT_GROUNDING_TOP * 3] if ai_citations.enabled() else candidates):
-        if len(passages) >= CHAT_GROUNDING_TOP:
+    for hit in (candidates[:source_limit * 3] if ai_citations.enabled() and source_limit is not None else candidates):
+        if source_limit is not None and len(passages) >= source_limit:
+            break
+        if sum(len(p["text"]) for p in passages) >= context_char_budget:
             break
         try:
             hit = corpus.enrich_hit_document(hit)
@@ -19395,6 +19403,19 @@ def api_ai_search_chat():
         history_issues = _previous_passages[0].get("_history_verification_issues", [])
         answer_verification.update(status="repaired" if history_issues else "verified", issues=history_issues)
 
+    quick_web = None
+    quick_request_g = dict(vars(g._get_current_object()))
+
+    @copy_current_request_context
+    def _web_slow_answer(cancel_event):
+        nonlocal quick_web
+        for key, value in quick_request_g.items():
+            setattr(g, key, value)
+        quick_web = comprehensive_web.prepare_web(sys.modules[__name__], payload, ai_selection,
+                                                  cancelled=cancel_event.is_set)
+        with ai_web.answer_context(quick_web):
+            return _slow_answer(cancel_event)
+
     def _slow_answer(cancel_event):
         # 接地长答是单次调用，取消位无处插入（一次 chat_complete），故接收但不使用 cancel_event。
         with ai_call_context(
@@ -19590,12 +19611,12 @@ def api_ai_search_chat():
             }
         if grounding_on and grounding_scope_meta.get("applied"):
             result["grounding_scope"] = grounding_scope_meta  # 供前端提示「本次范围：习近平」
-        return result
+        return comprehensive_web.finish_web(result, quick_web)
 
     return Response(
         stream_with_context(
             _sse_run_with_heartbeat(
-                _slow_answer, _finalize_search_chat,
+                _web_slow_answer, _finalize_search_chat,
                 progress_message="正在生成回答",
             )
         ),
@@ -20888,7 +20909,16 @@ def _api_search_associative_impl(*, cancel_event=None):
             finally:
                 review_timings["verification_seconds"] += time.monotonic() - started
 
+        review_web = None
         def _slow_generate_review(review_cancel_event):
+            nonlocal review_web
+            review_web = comprehensive_web.prepare_web(sys.modules[__name__], payload,
+                {"provider": review_provider or "deepseek", "model": review_model,
+                 "reasoning_effort": review_reasoning_effort}, cancelled=review_cancel_event.is_set)
+            with ai_web.answer_context(review_web):
+                return _generate_review_body(review_cancel_event)
+
+        def _generate_review_body(review_cancel_event):
             # cancel_event 由 SSE 层在客户端断开时置位；透传给生成器，使其在调用边界提前收尾、释放名额。
             with ai_call_context(
                 user_id=review_user_id, feature=RESEARCH_QUOTA_FEATURE,
@@ -21111,6 +21141,7 @@ def _api_search_associative_impl(*, cancel_event=None):
                 "research_quota": _research_quota_payload(getattr(g, "current_user", None)),
                 "ai_token_quota": _ai_token_quota_payload(getattr(g, "current_user", None)),
                 "ai_entitlements": _ai_entitlements_payload(getattr(g, "current_user", None)),
+                **comprehensive_web.finish_web({"review_markdown": review_md, "warnings": review_warnings}, review_web, "review_markdown"),
             }
 
         # 显式 research 模式已由路由外层从线索扩展开始整段保活；在同一个后台 worker 内直接完成生成，
@@ -21344,6 +21375,7 @@ _SSE_STREAM_SEMAPHORE = threading.BoundedSemaphore(_SSE_STREAM_CONCURRENCY)
 def _sse_run_with_heartbeat(
     slow_fn, finalize_fn, *, heartbeat_interval: float = 12.0,
     progress_message: str = "AI 正在生成回答",
+    progress_state: dict | None = None,
 ):
     """跑一段**慢但非流式**的活，期间周期吐 SSE 心跳保活，完成后吐一个 done 事件。
 
@@ -21374,6 +21406,7 @@ def _sse_run_with_heartbeat(
 
     worker = threading.Thread(target=_worker, daemon=True)
     started = time.monotonic()
+    last_checkpoint = None
     try:
         yield _sse_event("progress", {"message": progress_message, "elapsed_seconds": 0})
         worker.start()
@@ -21381,11 +21414,17 @@ def _sse_run_with_heartbeat(
             worker.join(timeout=heartbeat_interval)
             if not worker.is_alive():
                 break
+            progress_payload = dict(progress_state or {})
+            checkpoint = progress_payload.get("checkpoint")
+            if checkpoint is last_checkpoint:
+                progress_payload.pop("checkpoint", None)
+            last_checkpoint = checkpoint
             yield _sse_event(
                 "progress",
                 {
                     "message": progress_message,
                     "elapsed_seconds": int(time.monotonic() - started),
+                    **progress_payload,
                 },
             )
         try:
@@ -22026,6 +22065,7 @@ register_research_updates(app, globals())
 
 from reader_defense_web import ReaderDefense
 reader_defense = ReaderDefense(sys.modules[__name__])
+comprehensive_web.register(sys.modules[__name__])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,115 @@
+{
+  "task": "ai-comprehensive-20261105",
+  "base_revision": "4ee1b5d",
+  "policy": "Each test/scenario runs once in this task. Reruns require explicit user approval, including failures and interrupted runs.",
+  "prior_evidence": [
+    "docs/ops/AI_CITATIONS_FLASH_20261002.md",
+    "docs/ops/READING_CATEGORY_NAVIGATION_20261105.md"
+  ],
+  "runs": [
+    {
+      "id": "backend",
+      "started_at": "2026-11-05T09:52:19.6788082+08:00",
+      "status": "passed",
+      "source_sha256": {
+        "membership.py": "DABA5F66983A6B53FE2DAD536DDD6FE43768AD39B10BE3BEF2E4E664DF35E71E",
+        "ai_comprehensive.py": "82471890E76D8DB315D49C478BDA2E4E43F2785AAADB0D9F42A177FFD529638B",
+        "templates/ai.html": "B378A288DE9C73928845984D5E345730E2977C75096CB4309D05EB92E9761BF1",
+        "ai.py": "17BF646E2A26AA21AB98272E0624150A380472FAD45B4DCAA7DC27C31DBB4B2C",
+        "comprehensive_web.py": "0F25A92E90E942ADBC0C7DE53761BC5534A10CC46A1FA5F08BBC283ADF038AE8",
+        "ai_web.py": "FE61F0808DC0BEF5215AD565AAD18E80B571051E52B24D0E969E505270E0A6E9",
+        "static/ai-page/ai-page.js": "917F7CACFEE902B5F7E101F8F3EDF429D4EB2CD580C8A8FA2563DEF1C3456029",
+        "app.py": "C9719AED05142CAC90BA63D4FD87210B94DA4E75404EBBBB2ADC02245BE74E76"
+      },
+      "log": "D:\\CodexData\\outputs\\ai-comprehensive-20261105\\backend.log",
+      "exit_code": 0,
+      "summary": "262 passed, 1 skipped",
+      "artifacts": [
+        "D:/CodexData/outputs/ai-comprehensive-20261105/backend.xml"
+      ]
+    },
+    {
+      "id": "browser",
+      "started_at": "2026-11-05T09:55:40.1722799+08:00",
+      "status": "failed",
+      "source_sha256": {
+        "ai_comprehensive.py": "82471890E76D8DB315D49C478BDA2E4E43F2785AAADB0D9F42A177FFD529638B",
+        "ai.py": "17BF646E2A26AA21AB98272E0624150A380472FAD45B4DCAA7DC27C31DBB4B2C",
+        "comprehensive_web.py": "0F25A92E90E942ADBC0C7DE53761BC5534A10CC46A1FA5F08BBC283ADF038AE8",
+        "app.py": "C9719AED05142CAC90BA63D4FD87210B94DA4E75404EBBBB2ADC02245BE74E76",
+        "templates/ai.html": "B378A288DE9C73928845984D5E345730E2977C75096CB4309D05EB92E9761BF1",
+        "membership.py": "DABA5F66983A6B53FE2DAD536DDD6FE43768AD39B10BE3BEF2E4E664DF35E71E",
+        "static/ai-page/ai-page.js": "FD3A489CA653BACC09FCAD1CD11B3DD6A4E20AFBF0368F75D0BB1D9BCD8B659A",
+        "ai_web.py": "FE61F0808DC0BEF5215AD565AAD18E80B571051E52B24D0E969E505270E0A6E9"
+      },
+      "log": "D:\\CodexData\\outputs\\ai-comprehensive-20261105\\browser.log",
+      "exit_code": 1,
+      "summary": "28 passed, 3 failed; all 26 existing browser scenarios passed",
+      "failures": [
+        "comprehensive defaults, scope, sources, continuation and persistence 1280",
+        "comprehensive defaults, scope, sources, continuation and persistence 390",
+        "Word export retains background source URLs"
+      ]
+    },
+    {
+      "id": "stop",
+      "started_at": "2026-11-05T09:59:34.684511+08:00",
+      "status": "passed",
+      "source_sha256": {
+        "app.py": "C9719AED05142CAC90BA63D4FD87210B94DA4E75404EBBBB2ADC02245BE74E76",
+        "membership.py": "DABA5F66983A6B53FE2DAD536DDD6FE43768AD39B10BE3BEF2E4E664DF35E71E",
+        "ai.py": "17BF646E2A26AA21AB98272E0624150A380472FAD45B4DCAA7DC27C31DBB4B2C",
+        "ai_web.py": "FE61F0808DC0BEF5215AD565AAD18E80B571051E52B24D0E969E505270E0A6E9",
+        "ai_comprehensive.py": "1A7996C7D90081C447E9C335D0A3C8295463C75D18C673F86436BF2871DFD082",
+        "templates/ai.html": "B378A288DE9C73928845984D5E345730E2977C75096CB4309D05EB92E9761BF1",
+        "static/ai-page/ai-page.js": "2EBF5AC42015CDD010C42E101AEC2CDD1E969F3C8AA23395C50D6282567759AB",
+        "comprehensive_web.py": "0F25A92E90E942ADBC0C7DE53761BC5534A10CC46A1FA5F08BBC283ADF038AE8"
+      },
+      "log": "D:\\CodexData\\outputs\\ai-comprehensive-20261105\\stop.log",
+      "exit_code": 0,
+      "summary": "Passed: late/stale response isolation after stop"
+    },
+    {
+      "id": "authorized-recheck",
+      "started_at": "2026-11-05T10:01:00.0204303+08:00",
+      "status": "passed",
+      "source_sha256": {
+        "ai_comprehensive.py": "1A7996C7D90081C447E9C335D0A3C8295463C75D18C673F86436BF2871DFD082",
+        "ai_web.py": "FE61F0808DC0BEF5215AD565AAD18E80B571051E52B24D0E969E505270E0A6E9",
+        "comprehensive_web.py": "0F25A92E90E942ADBC0C7DE53761BC5534A10CC46A1FA5F08BBC283ADF038AE8",
+        "app.py": "C9719AED05142CAC90BA63D4FD87210B94DA4E75404EBBBB2ADC02245BE74E76",
+        "ai.py": "17BF646E2A26AA21AB98272E0624150A380472FAD45B4DCAA7DC27C31DBB4B2C",
+        "membership.py": "DABA5F66983A6B53FE2DAD536DDD6FE43768AD39B10BE3BEF2E4E664DF35E71E",
+        "templates/ai.html": "B378A288DE9C73928845984D5E345730E2977C75096CB4309D05EB92E9761BF1",
+        "static/ai-page/ai-page.js": "A0E4465D871F15ABE8AA99AAC6C25DAB610A69853FF278F4FFD81DD51CB329F5"
+      },
+      "log": "D:\\CodexData\\outputs\\ai-comprehensive-20261105\\authorized-recheck.log",
+      "exit_code": 0,
+      "summary": "4 authorized existing scenarios passed; 1 new context-boundary scenario first run passed",
+      "artifacts": [
+        "D:/CodexData/outputs/ai-comprehensive-20261105/history-recheck.xml",
+        "D:/CodexData/outputs/ai-comprehensive-20261105/browser-authorized-recheck.log",
+        "D:/CodexData/outputs/ai-comprehensive-20261105/comprehensive-1280.png",
+        "D:/CodexData/outputs/ai-comprehensive-20261105/comprehensive-390.png",
+        "D:/CodexData/outputs/ai-comprehensive-20261105/comprehensive-export.docx"
+      ]
+    }
+  ],
+  "retest_authorization": {
+    "answer": "同意，只复测上述最小范围",
+    "scenarios": [
+      "浏览器桌面续接",
+      "浏览器手机续接",
+      "Word 来源导出",
+      "长文上下文保留"
+    ],
+    "reason": "前三项首次失败，修复完成后的按钮重绘；长文上下文补充早期约束和引用映射保留",
+    "new_first_run": "上下文满载时保留约束与引用映射",
+    "excludes": "其余既有场景未重复执行；首次失败记录保留"
+  },
+  "verification_limits": [
+    "No full-suite rerun after targeted fixes; do not present earlier suite results as final-version reruns.",
+    "No real DeepSeek paid upstream requests or production deployment.",
+    "Screenshots reviewed from existing artifacts only; Word assertions inspect package contents, not rendered layout."
+  ]
+}
