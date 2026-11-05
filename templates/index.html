@@ -2855,16 +2855,22 @@
         {# 四页面布局·阅读页：直接陈列书目，点书名进入「内置 AI 导读」的阅读器（AI 对话本身需登录）。
            取代原先「全文阅读器 / AI 导学阅读器」两张中转入口卡。 #}
         {% if v2 and _pg == 'read' %}
-        <div class="v2read-books" aria-label="书目">
+        <div class="v2read-books" aria-label="书目" id="readingCatalog">
           {% if read_book_groups or read_foreign_books %}
           <div class="v2sec-label">
             <h2>选择书目</h2>
             <span>点书名进入阅读器阅读原著影印 · 内置 AI 导读（AI 对话需登录后使用）</span>
           </div>
+          <div class="reading-catalog-controls" hidden>
+            <label class="reading-catalog-mobile">选择书库<select id="readingCategorySelect"></select></label>
+            <nav class="reading-catalog-nav" aria-label="书库分类"></nav>
+          </div>
+          <div class="reading-catalog-content">
+          <p class="reading-catalog-summary" aria-live="polite" hidden></p>
           {# 按著作集（collection）分节，与阅读器一致：经典著作 / 马中化 / 习思想 / 党国文献 / 西马；
              每本书封面用首卷第 1 页的真实影印（/page-image）缩略图。 #}
           {% for group in (read_book_groups or []) %}
-          <section class="v2book-cat">
+          <section class="v2book-cat" data-category-label="{{ group.label }}">
             <h3 class="v2cat-title">{{ group.label }}<span class="v2cat-n">{{ group.books|length }} 部 · {{ group.volume_count }} 卷</span></h3>
             <div class="v2books">
               {% for book in group.books %}
@@ -2885,7 +2891,7 @@
                 <span class="v2book-body">
                   <span class="v2book-title">{{ book.title }}</span>
                   <span class="v2book-meta">{{ book.volumes|length }} 卷{% if book.volumes|length == 1 and book.volumes[0].page_count %} · {{ book.volumes[0].page_count }} 页{% endif %}</span>
-                  {% if book.quality_note %}<span class="v2book-meta">{{ book.quality_note }}</span>{% endif %}
+                  {% if book.quality_note and group.id != "collection:user_recommended" %}<span class="v2book-meta">{{ book.quality_note }}</span>{% endif %}
                   {% if book.recommender_name and book.recommender_email_masked %}
                   <span class="v2book-recommender">推荐人：{{ book.recommender_name }}（{{ book.recommender_email_masked }}）</span>
                   {% endif %}
@@ -2898,7 +2904,7 @@
           </section>
           {% endfor %}
           {% if read_foreign_books %}
-          <section class="v2book-cat">
+          <section class="v2book-cat" data-category-label="外文原著">
             <h3 class="v2cat-title">外文原著<span class="v2cat-n">{{ read_foreign_books|length }} 种</span></h3>
             <div class="v2books">
               {% for fb in read_foreign_books %}
@@ -2916,6 +2922,7 @@
             </div>
           </section>
           {% endif %}
+          </div>
           {% else %}
           <div class="v2read-locked">
             <p>书库暂不可用（资料包未就绪或维护中），请稍后再试。</p>
@@ -3246,7 +3253,7 @@
 
           <section class="book-recommend-card" id="bookRecommendCard" aria-label="用户荐书">
             <h2>用户荐书</h2>
-            <p class="book-recommend-intro">向网站推荐值得收录的著作，管理员审核并完成处理后永久收录，可阅读、检索原文并用于 AI 研究对话。</p>
+            <p class="book-recommend-intro">推荐值得收录的著作。</p>
             {% if current_user %}
               {% if book_recommendations_available %}
               <form class="book-recommend-form" id="bookRecommendForm" enctype="multipart/form-data">
@@ -3266,7 +3273,7 @@
                 </div>
               </form>
               {% else %}
-              <p class="book-recommend-status">荐书暂存服务尚未在本地预览环境接通；正式部署接入个人文库服务器后即可上传。</p>
+              <p class="book-recommend-status">荐书上传暂不可用，请稍后再试。</p>
               {% endif %}
             {% else %}
             <div class="feedback-actions"><a class="mini-btn" href="{{ url_for('login', next='/#bookRecommendCard') }}">登陆后上传荐书</a></div>
@@ -6286,7 +6293,7 @@
         });
       }).then(function (data) {
         status.className = 'book-recommend-status ok';
-        status.textContent = data.duplicate ? '这本书已在待审队列中。' : '已接收，正在安全转存给管理员。';
+        status.textContent = data.duplicate ? '这本书已在待审队列中。' : '荐书已提交。';
         if (!data.duplicate) {
           form.reset();
           fileLabel.textContent = '📄 选择 PDF';
