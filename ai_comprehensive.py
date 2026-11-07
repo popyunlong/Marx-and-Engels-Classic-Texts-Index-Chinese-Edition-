@@ -80,9 +80,42 @@ def plan_task(question, history, call):
         raise AIServiceError("任务规划未能完成，请重新提问；尚未执行联网或文库检索。")
 
 
+def complete_blocks(buffer, final=False):
+    """Only release sealed Markdown paragraphs; control markers stay private."""
+    boundary = 0
+    fence = None
+    quotes = []
+    pairs = {'“': '”', '「': '」', '『': '』', '"': '"', '[': ']', '(': ')'}
+    offset = 0
+    for line in buffer.splitlines(keepends=True):
+        stripped = line.strip()
+        marker = re.match(r'^(`{3,}|~{3,})', stripped)
+        if marker:
+            if fence is None:
+                fence = marker[1][0]
+            elif marker[1][0] == fence:
+                fence = None
+        elif fence is None:
+            for part in re.split(r'(`[^`]*`)', line):
+                if part.startswith('`'):
+                    continue
+                for char in part:
+                    if quotes and char == quotes[-1]:
+                        quotes.pop()
+                    elif char in pairs:
+                        quotes.append(pairs[char])
+            if not stripped and not quotes and '<section_' not in buffer[:offset]:
+                boundary = offset + len(line)
+        offset += len(line)
+    partial_marker = any(buffer.rstrip().endswith('<section_complete/>'[:i]) for i in range(1, len('<section_complete/>')))
+    if final and fence is None and not quotes and '<section_' not in buffer and not partial_marker:
+        boundary = len(buffer)
+    return buffer[:boundary], buffer[boundary:]
+
+
 def generate(question, history, plan, passages, call, *, deadline, cancelled,
-             checkpoint, verify, previous="", completed_sections=0):
-    sections = plan.get("sections") or ["完成用户任务"]
+             checkpoint, verify, previous="", completed_sections=0, stream=None, stage=lambda *_: None):
+    sections = (plan.get("sections") or ["完成用户任务"]) if plan.get("complex") else ["完整完成用户任务"]
     # Sections are model-planned semantic units, not a fixed number of mandatory headings.
     answer = previous
     source_block = json.dumps(passages, ensure_ascii=False)
@@ -99,6 +132,10 @@ def generate(question, history, plan, passages, call, *, deadline, cancelled,
             if cancelled() or time.monotonic() >= deadline:
                 break
             if done == len(sections):
+                if not plan.get("complex"):
+                    checkpoint(answer, done, "complete")
+                    return answer, done, "complete", ""
+                stage("checking", "正在检查完成情况")
                 check = call([{"role": "system", "content":
                     "核对正文是否满足用户要求。只输出 JSON：{\"complete\":true或false,\"remaining\":[尚需完成的具体部分]}。"
                     "不得以固定字数、引文条数或通用章节模板为标准；忠于用户明确约束，不得要求编造证据。"},
@@ -120,14 +157,41 @@ def generate(question, history, plan, passages, call, *, deadline, cancelled,
                       + "\n已完成正文（承接末尾，不重复）：\n" + answer[-28000:]
                       + "\n只输出本部分正式正文。若本部分写完，在末尾单独输出 <section_complete/>；"
                       "若尚未写完，不输出该标记。最后一部分结束时自然收束，其他部分不得抢先总结。")
-            chunk = call([{"role": "system", "content": instruction}, *history,
-                          {"role": "user", "content": prompt}], 32768)
-            complete = "<section_complete/>" in chunk
-            chunk = chunk.replace("<section_complete/>", "").strip()
-            if not chunk:
+            inputs = [{"role": "system", "content": instruction}, *history, {"role": "user", "content": prompt}]
+            stage("writing", "正在撰写正文")
+            chunks = stream(inputs, 32768) if stream else iter([call(inputs, 32768)])
+            buffer, complete, produced = "", False, False
+            try:
+                for chunk in chunks:
+                    if cancelled() or time.monotonic() >= deadline:
+                        break
+                    buffer += chunk
+                    if "<section_complete/>" in buffer:
+                        complete = True
+                        buffer = buffer.replace("<section_complete/>", "")
+                    ready, buffer = complete_blocks(buffer)
+                    if ready.strip():
+                        stage("verifying", "正在核验新增段落")
+                        checked = verify(ready.strip())
+                        answer = (answer + "\n\n" + checked).strip()
+                        produced = True
+                        checkpoint(answer, done, "partial")
+                        stage("writing", "正在撰写正文")
+            finally:
+                if hasattr(chunks, "close"):
+                    chunks.close()
+            if cancelled() or time.monotonic() >= deadline:
+                break
+            ready, remainder = complete_blocks(buffer, final=True)
+            if ready.strip():
+                stage("verifying", "正在核验新增段落")
+                answer = (answer + "\n\n" + verify(ready.strip())).strip()
+                produced = True
+                checkpoint(answer, done, "partial")
+            if remainder.strip():
+                return answer, done, "partial", "未闭合的末段尚未发布，可继续完成。"
+            if not produced:
                 raise AIServiceError("本轮未生成可用正文。")
-            # Verification runs before a checkpoint is released; never publish unverified raw quotes.
-            answer = verify((answer + "\n\n" + chunk).strip())
             if complete:
                 done += 1
             checkpoint(answer, done, "partial")

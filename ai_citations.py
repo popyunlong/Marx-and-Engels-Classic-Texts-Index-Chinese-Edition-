@@ -349,12 +349,14 @@ def repair_missing_references(answer: str, passages: list[dict]) -> tuple[str, l
     score establishes evidence; common short terms are not discovered this way.
     """
     from ai import _inline_quotations, _citation_unit_refs
+    from ai_quote_variants import variants
     answer, nested_issues = _repair_nested_source_spans(answer, passages)
     answer, duplicate_issues = remove_redundant_quote_intros(answer, passages)
     evidence = {int(p["index"]): p for p in passages}
     edits, issues = [], list(nested_issues + duplicate_issues)
+    variant_units = {r["answer_start"] for r in variants(answer, passages)}
     for start, unit, excluded in units(answer):
-        if excluded:
+        if excluded or start in variant_units:
             continue
         refs = [i for i in reference_ids(unit) if i in evidence]
         quoted = list(_inline_quotations(unit))
@@ -489,6 +491,8 @@ def repair_missing_references(answer: str, passages: list[dict]) -> tuple[str, l
 def ledger(answer: str, passages: list[dict]) -> dict:
     # Delayed import avoids a cycle when ai.py calls this module after generation.
     from ai import _inline_quotations
+    from ai_quote_variants import variants
+    variant_records = variants(answer, passages)
     evidence = {int(p["index"]): p for p in passages}
     records = []
     edits = []
@@ -528,6 +532,11 @@ def ledger(answer: str, passages: list[dict]) -> dict:
             records.append({"index": idx, "unit": unit.strip(), "answer_start": start,
                             "answer_end": start + len(unit), "source_ranges": source_ranges,
                             "kind": "quote" if matched else "paraphrase", "quotes": matched})
+    for variant in variant_records:
+        # Keep a mixed unit's exact quotes and its variants as separate evidence.
+        records = [r for r in records if not (r["index"] == variant["index"] and
+                   r["answer_start"] == variant["answer_start"] and r["kind"] == "paraphrase")]
+        records.append(variant)
     for record in records:
         shift = sum(len(replacement) - (b - a) for a, b, replacement in edits if b <= record["answer_start"])
         record["answer_start"] += shift
@@ -535,7 +544,7 @@ def ledger(answer: str, passages: list[dict]) -> dict:
     for a, b, replacement in reversed(edits):
         answer = answer[:a] + replacement + answer[b:]
     used = sorted({r["index"] for r in records})
-    quotes = {key(q) for r in records for q in r["quotes"]}
+    quotes = {key(q) for r in records if r["kind"] == "quote" for q in r["quotes"]}
     return {"answer_markdown": answer, "used_indices": used, "citation_records": records,
             "citation_stats": {"eligible_candidates": len(passages), "effective_sources": len(used), "direct_quotes": len(quotes)},
             "issues": ["excluded_reference_not_counted"] if edits else []}

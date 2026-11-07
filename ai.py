@@ -25,6 +25,7 @@ import yaml
 from runtime_env import APPDATA_DIR
 from ai_models import application_model, provider_model
 from ai_evidence import clean_evidence, exact_quote, PDF_WATERMARK_RE
+from ai_quote_variants import variant_session
 
 
 CONFIG_PATH = Path(
@@ -1452,6 +1453,7 @@ class ZAIClient:
         return list(dict.fromkeys(violations))
 
     @classmethod
+    @variant_session
     def repair_grounded_answer(
         cls, text: str, grounding: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
@@ -1491,6 +1493,9 @@ class ZAIClient:
         # Recover source-backed inline fragments before older quote/attribution
         # checks can strip their delimiters. The same pass at the end is idempotent.
         import ai_citations
+        from ai_quote_variants import current_matcher, restore_references
+        answer = restore_references(answer, list(evidence.values()))
+        variant_matcher = current_matcher(list(evidence.values()))
         if ai_citations.enabled():
             try:
                 answer, restored_issues = ai_citations.repair_missing_references(answer, list(evidence.values()))
@@ -1632,6 +1637,14 @@ class ZAIClient:
             quote = re.sub(r"[*_~`]", "", quote).strip().strip("“”「」『』\"")
             noisy_quote = _quote_has_ocr_noise(quote)
             valid_refs = [idx for idx in raw_refs if idx in evidence]
+            variant = variant_matcher.match(quote, valid_refs)
+            if variant:
+                block_lines.extend(markdown_quote_lines)
+                if consume_ref_line:
+                    block_lines.append(source_lines[line_index])
+                    line_index += 1
+                issues.append(variant["kind"])
+                continue
             matches = _quote_matches(quote, valid_refs)
             if not matches and valid_refs:
                 matches = _recover_repeated_quote(quote, valid_refs)
@@ -1686,6 +1699,10 @@ class ZAIClient:
                 quote.rstrip(_DIRECT_QUOTE_CLOSERS)[-1:] in _DIRECT_QUOTE_ENDERS
             ) or bool(_ATTRIBUTION_RE.search(prefix))
             if not direct_candidate:
+                return match.group(0)
+            variant = variant_matcher.match(quote, [idx for idx in raw_refs if idx in evidence])
+            if variant:
+                issues.append(variant["kind"])
                 return match.group(0)
             matches = _quote_matches(quote, [idx for idx in raw_refs if idx in evidence])
             if not matches:
@@ -3372,7 +3389,12 @@ class ZAIClient:
         web_search_query: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        http_timeout: float | None = None,
+        should_cancel=None,
+        deadline: float | None = None,
     ) -> Iterator[str]:
+        from ai_web import augment_messages
+        messages = augment_messages(messages)
         use_zhipu = provider == "zhipu"
         if use_zhipu:
             messages, grounded_sources, tool_stages = self._zhipu_grounding_or_stages(messages, web_search_query)
@@ -3386,6 +3408,7 @@ class ZAIClient:
                 yield from self._stream_chat_once(
                     messages, max_tokens, provider=provider, tools=tools, meta_out=meta_out, yielded=yielded,
                     model=model, reasoning_effort=reasoning_effort,
+                    http_timeout=http_timeout, should_cancel=should_cancel, deadline=deadline,
                 )
                 return
             except _ReasoningOnlyResponse:
@@ -3397,6 +3420,7 @@ class ZAIClient:
                         messages, max_tokens, provider=provider, tools=tools,
                         meta_out=meta_out, yielded=yielded, disable_thinking=True,
                         model=model, reasoning_effort="off",
+                        http_timeout=http_timeout, should_cancel=should_cancel, deadline=deadline,
                     )
                 except _ReasoningOnlyResponse:
                     raise AIServiceError("模型本次只产生了思考过程、未给出答案，请重试。") from None
@@ -3420,6 +3444,9 @@ class ZAIClient:
         disable_thinking: bool = False,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        http_timeout: float | None = None,
+        should_cancel=None,
+        deadline: float | None = None,
     ) -> Iterator[str]:
         resolved_provider = provider
         if str(model or "").startswith("mimo-"):
@@ -3493,10 +3520,14 @@ class ZAIClient:
         reasoning_seen = False
         last_tick = time.monotonic()
         try:
+            if (should_cancel and should_cancel()) or (deadline is not None and time.monotonic() >= deadline):
+                raise AIServiceError("任务已停止或达到时间预算。")
             with _ai_http_slot(), urllib_request.urlopen(
-                req, timeout=self.config.request_timeout_seconds
+                req, timeout=http_timeout if http_timeout is not None else self.config.request_timeout_seconds
             ) as resp:
                 for raw_line in resp:
+                    if (should_cancel and should_cancel()) or (deadline is not None and time.monotonic() >= deadline):
+                        raise AIServiceError("任务已停止或达到时间预算。")
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line or not line.startswith("data:"):
                         continue

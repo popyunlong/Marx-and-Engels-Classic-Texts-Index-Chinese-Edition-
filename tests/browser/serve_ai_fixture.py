@@ -76,6 +76,22 @@ def comprehensive_stream_fixture():
     return Response(events(), mimetype="text/event-stream")
 
 
+@app.post("/fixture-polish-stream")
+def polish_stream_fixture():
+    import json
+    import time
+    from flask import Response
+    def events():
+        result = {"ok": True, "answer_markdown": "已核验的第一段。", "citations": [], "sources": [], "completion_status": "partial"}
+        for payload in [{"message": "正在撰写第二段", "phase": "writing", "checkpoint": result, "checkpoint_version": 1},
+                        {"message": "正在核验第二段", "phase": "verifying", "elapsed_seconds": 1}]:
+            yield "event: progress\ndata: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+            time.sleep(1)
+        result.update(answer_markdown="已核验的第一段。\n\n已核验的第二段。", completion_status="complete")
+        yield "event: done\ndata: " + json.dumps(result, ensure_ascii=False) + "\n\n"
+    return Response(events(), mimetype="text/event-stream")
+
+
 if __name__ == "__main__":
     server = make_server("127.0.0.1", 0, app, threaded=True)
     print(f"READY=http://127.0.0.1:{server.server_port}", flush=True)
