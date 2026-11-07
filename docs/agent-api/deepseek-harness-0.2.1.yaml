@@ -1,0 +1,14 @@
+# Compatibility example for the installed 0.2.1-rc.2 client.
+# The launcher must supply MARX_API_KEY to the Harness process environment.
+# No key is stored in this file. Real-client acceptance is still pending.
+- id: marx-search
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: marx_search
+    transport: streamable-http
+    url: https://mazhuzuojiansuo.com/mcp
+    headers:
+      Authorization: !!js '`Bearer ${process.env.MARX_API_KEY}`'
+    toolCallTimeoutMs: 30000
+    reconnect:
+      maxAttempts: 3

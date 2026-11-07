@@ -1,0 +1,20 @@
+{
+  "name": "马恩文献检索",
+  "name_zh": "马恩文献检索",
+  "name_en": "Marx Corpus Search",
+  "description_zh": "查询已发布公共文库，读取原文上下文，核对文献版本、卷册、页码和出处。",
+  "description_en": "Search the public corpus and retrieve source passages with edition, volume, page references and citations.",
+  "source": "marx-corpus-search",
+  "type": "mcp",
+  "auth_mode": "token",
+  "version": "1.0.0",
+  "examples_zh": [
+    "查找这段引文并核对印刷页码",
+    "列出可查询的文库"
+  ],
+  "examples_en": [
+    "Locate this quotation and verify its printed page",
+    "List the available public sources"
+  ],
+  "minWorkbuddyVersion": "4.24.0"
+}

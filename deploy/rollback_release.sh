@@ -76,6 +76,11 @@ with pathlib.Path(sys.argv[1]).open("a", encoding="utf-8") as handle:
     handle.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
 PY
 TRANSACTION_APP="$(readlink -f "$APP_ROOT/current/app")"
+MCP_TRANSACTION_APP="$TRANSACTION_APP"
+MCP_CANDIDATE_RELEASE="$TARGET"
+if [ -f "$TRANSACTION_APP/deploy/agent_api_units.sh" ]; then
+  source "$TRANSACTION_APP/deploy/agent_api_units.sh"
+fi
 source "$TRANSACTION_APP/deploy/release_traffic.sh"
 if [ -f "$TRANSACTION_APP/deploy/security_units.sh" ]; then
   source "$TRANSACTION_APP/deploy/security_units.sh"
@@ -292,6 +297,9 @@ if ! target_healthy; then
   exit 8
 fi
 retire_candidate_if_drained "completed rollback candidate" || true
+if declare -F agent_api_stop >/dev/null && [ ! -f "$TARGET/app/agent_api_mcp.py" ]; then
+  agent_api_stop "$PRIMARY_PORT" || true
+fi
 systemctl disable --now marx-corpus-repair-promote.timer >/dev/null 2>&1 || true
 systemctl stop marx-corpus-repair-promote.service >/dev/null 2>&1 || true
 activate_research_units "$TARGET/app" "$OLD_REAL/research-legacy-timers.tsv"

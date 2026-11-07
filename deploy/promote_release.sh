@@ -214,6 +214,10 @@ install -d -o www-data -g www-data -m 0750 "$APP_ROOT/logs"
 install -d -o www-data -g www-data -m 0770 "$APP_ROOT/runtime-cache"
 
 mkdir -p "$FINAL/.deps"
+MCP_TRANSACTION_APP="$FINAL/app"
+MCP_CANDIDATE_RELEASE="$FINAL"
+source "$FINAL/app/deploy/agent_api_units.sh"
+agent_api_prepare "$FINAL"
 "$RUNTIME_PYTHON" -m pip install --disable-pip-version-check --no-input --no-compile \
   --target "$FINAL/.deps" -r "$FINAL/app/requirements.txt"
 PYTHONPYCACHEPREFIX="$FINAL/.pycache" PYTHONPATH="$FINAL/app:$FINAL/.deps" \
@@ -305,6 +309,7 @@ switch_caddy() {
   [ "${SECURITY_CADDY_REMOVE:-0}" = 1 ] && security_mode=(--remove)
   python3 "$FINAL/app/deploy/security_caddy.py" "$temp" "$temp" "${security_mode[@]}" || { rm -f "$temp" "$backup"; return 1; }
   python3 "$FINAL/app/deploy/security_caddy.py" --prepare-log || { rm -f "$temp" "$backup"; return 1; }
+  agent_api_switch_route "$to_port" "$temp" || { rm -f "$temp" "$backup"; return 1; }
   # Provision writers as the service user; bound the admin request directly.
   chmod 0644 "$temp"
   timeout 30s runuser -u caddy -- caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
@@ -352,6 +357,7 @@ retire_candidate_if_drained() {
     echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
     return 1
   fi
+  agent_api_stop "$CANDIDATE_PORT" || return 1
   if ! systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1; then
     echo "WARNING: failed to stop $CANDIDATE_UNIT; preserving its immutable release" >&2
     echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2

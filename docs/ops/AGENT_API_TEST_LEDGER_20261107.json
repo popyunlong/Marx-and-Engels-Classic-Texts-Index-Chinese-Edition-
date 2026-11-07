@@ -1,0 +1,459 @@
+{
+  "task": "agent-query-api-20261107",
+  "baseline": "2250993505b41b37572aa413bbeff4bfd190db40",
+  "live_baseline": "e63b257a7049a7109e0bb5cfd9561b02efc17bff",
+  "artifact_root": "D:/CodexData/outputs/agent-query-api-20261107",
+  "backend_python": "C:/Users/10108/AppData/Local/Programs/Python/Python310/python.exe",
+  "mcp_python": "D:/CodexData/dependencies/agent-api-mcp-20261107/Scripts/python.exe",
+  "policy": "Each scenario once; failure/interruption remains recorded. Any rerun requires explicit user authorization, including CI and release gates.",
+  "prior_evidence_reviewed": [
+    "SEARCH_EXPORT_TEST_LEDGER_20261107.json",
+    "AI_DIALOGUE_LIFECYCLE_TEST_LEDGER_20261107.json"
+  ],
+  "runs": [
+    {
+      "phase": "backend",
+      "status": "passed",
+      "commands": [
+        [
+          "C:/Users/10108/AppData/Local/Programs/Python/Python310/python.exe",
+          "-m",
+          "pytest",
+          "-p",
+          "no:cacheprovider",
+          "-q",
+          "tests/test_agent_api.py",
+          "tests/test_agent_api_edges.py",
+          "--basetemp=D:\\CodexData\\temp\\agent-api-20261107\\backend",
+          "--junitxml=D:\\CodexData\\outputs\\agent-query-api-20261107\\backend.xml"
+        ]
+      ],
+      "started": "2026-11-07T13:26:33.882274+00:00",
+      "source_sha256": {
+        "agent_api_contract.py": "7e045aacd45da756d0accbe9ce7cde668edbd7f1d6ed971ef00fe5714af779b8",
+        "agent_api_mcp.py": "671ae3a57ab768fdf09b861923746fede6da039d46f6e0053939725cf3934b3d",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "app.py": "a6e4ec0a1dea8b6e1479ef2c768d7260408becac640e3fae969640ffd3b00e35",
+        "search.py": "678948088f198026d458da9bee20b5bf406d878a29b2254e8b02503583cb7cfc",
+        "feature_access.py": "265bcc3ed8161dea874042512326f78ceb9ea9fb48457c95b869147c7affa272",
+        "templates/agent_api.html": "e6e77872c6c51963e330d47eb0e3e5ac8ec8765346c8f22553c58f5b729006ef",
+        "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+        "deploy/agent_api_units.sh": "d2a95b371fca5cadf92a228b7e0cd4741dff9cb79356dc4d799dcd4c05a9484d",
+        "tests/agent_api_fixture_server.py": "5449dbe1b803778a12f5b4573de2ec314b8af9eb7114df6eb3651849f7dea143",
+        "tests/agent_api_protocol_once.py": "118f27365a45767c8292aa51f797379284901321cb60aaa08ba38dba5fe15718",
+        "tests/test_agent_api.py": "0092eb84343d24bbd14f4e64b616ef9b3903e3d93e8fc9b7ada04bb003290ec2",
+        "tests/test_agent_api_edges.py": "c3aab15c126b0025b2b23eea4a3c5433a543671470d71f4078f09558291855b1"
+      },
+      "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\backend.log",
+      "exit_code": 0,
+      "finished": "2026-11-07T13:26:54.078717+00:00"
+    },
+    {
+      "phase": "protocol",
+      "status": "passed",
+      "commands": [
+        [
+          "D:/CodexData/dependencies/agent-api-mcp-20261107/Scripts/python.exe",
+          "tests/agent_api_protocol_once.py"
+        ]
+      ],
+      "started": "2026-11-07T13:27:14.403705+00:00",
+      "source_sha256": {
+        "agent_api_contract.py": "7e045aacd45da756d0accbe9ce7cde668edbd7f1d6ed971ef00fe5714af779b8",
+        "agent_api_mcp.py": "671ae3a57ab768fdf09b861923746fede6da039d46f6e0053939725cf3934b3d",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "app.py": "a6e4ec0a1dea8b6e1479ef2c768d7260408becac640e3fae969640ffd3b00e35",
+        "search.py": "678948088f198026d458da9bee20b5bf406d878a29b2254e8b02503583cb7cfc",
+        "feature_access.py": "265bcc3ed8161dea874042512326f78ceb9ea9fb48457c95b869147c7affa272",
+        "templates/agent_api.html": "e6e77872c6c51963e330d47eb0e3e5ac8ec8765346c8f22553c58f5b729006ef",
+        "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+        "deploy/agent_api_units.sh": "d2a95b371fca5cadf92a228b7e0cd4741dff9cb79356dc4d799dcd4c05a9484d",
+        "tests/agent_api_fixture_server.py": "5449dbe1b803778a12f5b4573de2ec314b8af9eb7114df6eb3651849f7dea143",
+        "tests/agent_api_protocol_once.py": "118f27365a45767c8292aa51f797379284901321cb60aaa08ba38dba5fe15718",
+        "tests/test_agent_api.py": "0092eb84343d24bbd14f4e64b616ef9b3903e3d93e8fc9b7ada04bb003290ec2",
+        "tests/test_agent_api_edges.py": "c3aab15c126b0025b2b23eea4a3c5433a543671470d71f4078f09558291855b1"
+      },
+      "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\protocol.log",
+      "exit_code": 0,
+      "finished": "2026-11-07T13:27:22.225923+00:00"
+    },
+    {
+      "phase": "main-integration",
+      "status": "passed",
+      "commands": [
+        [
+          "C:/Users/10108/AppData/Local/Programs/Python/Python310/python.exe",
+          "-m",
+          "pytest",
+          "-p",
+          "no:cacheprovider",
+          "-q",
+          "tests/test_agent_api_main_integration.py",
+          "--basetemp=D:\\CodexData\\temp\\agent-api-20261107\\main-integration",
+          "--junitxml=D:\\CodexData\\outputs\\agent-query-api-20261107\\main-integration.xml"
+        ]
+      ],
+      "started": "2026-11-07T13:29:57.046995+00:00",
+      "source_sha256": {
+        "agent_api_contract.py": "7e045aacd45da756d0accbe9ce7cde668edbd7f1d6ed971ef00fe5714af779b8",
+        "agent_api_mcp.py": "671ae3a57ab768fdf09b861923746fede6da039d46f6e0053939725cf3934b3d",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "app.py": "a6e4ec0a1dea8b6e1479ef2c768d7260408becac640e3fae969640ffd3b00e35",
+        "search.py": "678948088f198026d458da9bee20b5bf406d878a29b2254e8b02503583cb7cfc",
+        "feature_access.py": "265bcc3ed8161dea874042512326f78ceb9ea9fb48457c95b869147c7affa272",
+        "templates/agent_api.html": "e6e77872c6c51963e330d47eb0e3e5ac8ec8765346c8f22553c58f5b729006ef",
+        "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+        "deploy/agent_api_units.sh": "d2a95b371fca5cadf92a228b7e0cd4741dff9cb79356dc4d799dcd4c05a9484d",
+        "tests/agent_api_fixture_server.py": "5449dbe1b803778a12f5b4573de2ec314b8af9eb7114df6eb3651849f7dea143",
+        "tests/agent_api_protocol_once.py": "118f27365a45767c8292aa51f797379284901321cb60aaa08ba38dba5fe15718",
+        "tests/test_agent_api.py": "0092eb84343d24bbd14f4e64b616ef9b3903e3d93e8fc9b7ada04bb003290ec2",
+        "tests/test_agent_api_edges.py": "c3aab15c126b0025b2b23eea4a3c5433a543671470d71f4078f09558291855b1",
+        "tests/test_agent_api_main_integration.py": "a7ea7adb936e84872ab80cba06b43f3c9d6df5fbd0e43761142f9559f3cbdc88"
+      },
+      "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\main-integration.log",
+      "exit_code": 0,
+      "finished": "2026-11-07T13:30:03.572422+00:00"
+    },
+    {
+      "phase": "static",
+      "status": "passed",
+      "commands": [
+        [
+          "git",
+          "diff",
+          "--check"
+        ],
+        [
+          "D:/Git/bin/bash.exe",
+          "-n",
+          "deploy/agent_api_units.sh"
+        ],
+        [
+          "D:/Git/bin/bash.exe",
+          "-n",
+          "deploy/promote_release.sh"
+        ],
+        [
+          "D:/Git/bin/bash.exe",
+          "-n",
+          "deploy/rollback_release.sh"
+        ],
+        [
+          "D:/Git/bin/bash.exe",
+          "-n",
+          "deploy/release_traffic.sh"
+        ]
+      ],
+      "started": "2026-11-07T13:32:28.566941+00:00",
+      "source_sha256": {
+        "agent_api_contract.py": "7e045aacd45da756d0accbe9ce7cde668edbd7f1d6ed971ef00fe5714af779b8",
+        "agent_api_mcp.py": "671ae3a57ab768fdf09b861923746fede6da039d46f6e0053939725cf3934b3d",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "app.py": "a6e4ec0a1dea8b6e1479ef2c768d7260408becac640e3fae969640ffd3b00e35",
+        "search.py": "678948088f198026d458da9bee20b5bf406d878a29b2254e8b02503583cb7cfc",
+        "feature_access.py": "265bcc3ed8161dea874042512326f78ceb9ea9fb48457c95b869147c7affa272",
+        "templates/agent_api.html": "e6e77872c6c51963e330d47eb0e3e5ac8ec8765346c8f22553c58f5b729006ef",
+        "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+        "deploy/agent_api_units.sh": "d2a95b371fca5cadf92a228b7e0cd4741dff9cb79356dc4d799dcd4c05a9484d",
+        "tests/agent_api_fixture_server.py": "5449dbe1b803778a12f5b4573de2ec314b8af9eb7114df6eb3651849f7dea143",
+        "tests/agent_api_protocol_once.py": "118f27365a45767c8292aa51f797379284901321cb60aaa08ba38dba5fe15718",
+        "tests/test_agent_api.py": "0092eb84343d24bbd14f4e64b616ef9b3903e3d93e8fc9b7ada04bb003290ec2",
+        "tests/test_agent_api_edges.py": "c3aab15c126b0025b2b23eea4a3c5433a543671470d71f4078f09558291855b1",
+        "tests/test_agent_api_main_integration.py": "a7ea7adb936e84872ab80cba06b43f3c9d6df5fbd0e43761142f9559f3cbdc88",
+        "deploy/promote_release.sh": "c61f888920b4f8534192090b4496acf2e47b72140853c21b5439340995a33d3a",
+        "deploy/rollback_release.sh": "f48452a4551b70527f27d83b50da64d3020299e5eb4b640b47a4780aa1a88440",
+        "deploy/release_traffic.sh": "f7b78a10552d17322c22e3e647821afdcfff7445dc92afcdc85f5dc223ee1d7f",
+        "deploy/requirements-agent-api.lock": "1daf44ffb8ddae81b7be63c97648d5668d8b8d5e9829be3fe733245d48f37919",
+        ".github/workflows/ci.yml": "53e886353238ecb1c73bd559efa66987d3c15dcce6d888841b81d99cc9272594",
+        "templates/account.html": "b97f789ef6fdb1036a84eaaec1704712ae619f440283f42d287b2f1067651d21",
+        "templates/citation_agent_test.html": "3f863aacb33249d398f7a5509e224bf8404a032f341d96997fbca32b0c0a1e9b"
+      },
+      "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\static.log",
+      "exit_code": 0,
+      "finished": "2026-11-07T13:32:29.265001+00:00"
+    },
+    {
+      "phase": "authorized-contract-recheck",
+      "authorization_id": "user-approved-contract-rerun-20261107",
+      "authorization": "User explicitly agreed to the two named reruns in the preceding message.",
+      "status": "passed",
+      "started": "2026-11-07T14:02:29.593640+00:00",
+      "source_sha256": {
+        "agent_api_contract.py": "86cccb5e33f1c61daec0a8886d7461163a159ba56fcbac3bc3057b1271a8bcdd",
+        "agent_api_mcp.py": "efff1c2ce47a10a6e28d6d57c38b4c4deb8eff2f647636b531bf0eaca8351a21",
+        "tests/agent_api_protocol_once.py": "0836e0f6acc4b6c579bbb1f895df0ff81b2f7f12dfb77be12b4757ab9fe2beaa",
+        "tests/test_agent_api_main_integration.py": "a7ea7adb936e84872ab80cba06b43f3c9d6df5fbd0e43761142f9559f3cbdc88",
+        "static/agent-api/openapi.json": "7046799b4df9ff1870b0b0aacd6827d064c485acb152ba01144f0c51e7239148"
+      },
+      "attempts": [
+        {
+          "command": [
+            "D:/CodexData/dependencies/agent-api-mcp-20261107/Scripts/python.exe",
+            "tests/agent_api_protocol_once.py"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-contract-recheck\\protocol.log",
+          "exit_code": 0
+        },
+        {
+          "command": [
+            "C:/Users/10108/AppData/Local/Programs/Python/Python310/python.exe",
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            "tests/test_agent_api_main_integration.py::test_workbuddy_credentials_and_openapi_artifact_match_contract",
+            "--basetemp=D:\\CodexData\\temp\\agent-api-20261107\\authorized-contract-recheck\\contract",
+            "--junitxml=D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-contract-recheck\\contract.xml"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-contract-recheck\\contract.log",
+          "exit_code": 0
+        }
+      ],
+      "finished": "2026-11-07T14:02:44.935751+00:00"
+    },
+    {
+      "phase": "harness-real-client",
+      "status": "blocked_during_preparation",
+      "started": "2026-11-07T14:52:51.095491+00:00",
+      "client_version": "0.2.1-rc.2",
+      "scenario": "First real-client discovery, query, passage and limit display",
+      "backup": "D:\\CodexData\\outputs\\agent-query-api-20261107\\real-clients\\harness-cordis.patch.before.yml",
+      "original_config_sha256": "51d7cfe6ae7bf2a0ad6dee294ca9feeaacdbf8e2aa2d1968e265db617202d330",
+      "temporary_config_sha256": "a82760a225c3a1ada03e089bf84197d69f87e3e9dc3127f80e4c429d45569d38",
+      "synthetic_credentials_only": true,
+      "preparation_note": "Patch file only patches existing entries; temporary entry moved to custom-plugin cordis.yml before first connection. No upstream calls yet.",
+      "patch_restored": true,
+      "base_backup": "D:\\CodexData\\outputs\\agent-query-api-20261107\\real-clients\\harness-cordis.before.yml",
+      "base_original_sha256": "c300dcf2ebc5f02062d6591268d29d3db6fe45e0cb138f5467276fe2ba06076e",
+      "base_temporary_sha256": "83a386aa15f1b0e3362c0183f3e0f92cc7c2fdfe643643ea2042ca0a419f26f3",
+      "base_restored": true,
+      "finished": "2026-11-07T15:02:02.873299+00:00",
+      "query_calls_observed": 0,
+      "reason": "Computer Use screenshot/window mismatch and coordinate input geometry is unavailable; no real-client query completed.",
+      "synthetic_keys_revoked": true
+    },
+    {
+      "phase": "workbuddy-real-client",
+      "status": "blocked_during_preparation",
+      "started": "2026-11-07T15:57:35.250703+00:00",
+      "client_version": "5.9.3",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\workbuddy-client",
+      "scenario": "First native WorkBuddy MCP connection, sources, search, passage and busy error",
+      "original_config_existed": false,
+      "mcp_url": "http://127.0.0.1:58039/mcp",
+      "backend_pid": 24992,
+      "adapter_pid": 21160,
+      "temporary_entry_removed": true,
+      "fixture_stopped": true,
+      "synthetic_keys_revoked": true,
+      "fixture_finished": "2026-11-07T16:19:22.302579+00:00",
+      "query_calls_observed": 0,
+      "active_test_keys_after_cleanup": 0,
+      "reason": "Native UI navigation recovered, but editor input did not enable Send and target capture later returned unrelated Codex chat. Message was not sent. User reports no other desktop operator."
+    },
+    {
+      "phase": "bundled-sdk-first-compatibility",
+      "status": "passed",
+      "started": "2026-11-07T16:24:47.013246+00:00",
+      "attempts": [
+        {
+          "profile": "workbuddy",
+          "command": [
+            "C:/Users/10108/AppData/Local/Programs/DeepSeek Harness/DeepSeek Harness.exe",
+            "D:\\CodexData\\workspaces\\agent-query-api-20261107\\tests\\agent_api_bundled_sdk_once.cjs",
+            "workbuddy"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk\\workbuddy.log",
+          "exit_code": 0
+        },
+        {
+          "profile": "harness",
+          "command": [
+            "C:/Users/10108/AppData/Local/Programs/DeepSeek Harness/DeepSeek Harness.exe",
+            "D:\\CodexData\\workspaces\\agent-query-api-20261107\\tests\\agent_api_bundled_sdk_once.cjs",
+            "harness"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk\\harness.log",
+          "exit_code": 0
+        }
+      ],
+      "new_coverage": "Installed WorkBuddy SDK 1.29.0 and Harness SDK 2.2.0, including automatic era negotiation and SDK result/error validation; not a rerun of manual Python HTTP protocol test.",
+      "desktop_acceptance": false,
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk",
+      "source_sha256": {
+        "agent_api_contract.py": "86cccb5e33f1c61daec0a8886d7461163a159ba56fcbac3bc3057b1271a8bcdd",
+        "agent_api_mcp.py": "efff1c2ce47a10a6e28d6d57c38b4c4deb8eff2f647636b531bf0eaca8351a21",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "agent_api_bundled_sdk_once.py": "923db54e326b19c0642c85e0cd155f1564cdc5026eb02199d4d4876252d654d1",
+        "agent_api_bundled_sdk_once.cjs": "605bcf62714d0354793baa96d97d920f96da6d6725a7dfc9c36e5496b2704e9c"
+      },
+      "finished": "2026-11-07T16:24:56.705718+00:00",
+      "synthetic_keys_revoked": true
+    },
+    {
+      "phase": "legacy-mcp-retirement-first-integration",
+      "status": "passed",
+      "started": "2026-11-07T16:30:50.726713+00:00",
+      "scenario": "Restoring a pre-MCP primary must remove public MCP routing and retire the failed-promotion primary adapter.",
+      "scope": "New service-retirement integration with mocked ss/systemctl; no standalone syntax check rerun and no production action.",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\legacy-mcp-retirement",
+      "source_sha256": {
+        "deploy/agent_api_units.sh": "55b87e008110cad06f3bc9f50fbe4ede5016a7f8554f0cd77ffca458461b6a0d",
+        "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+        "tests/agent_api_legacy_retirement_once.py": "448ff54127ca88c18223da130b2ada12651dc3fb42f91aaffc72b680eac132e5"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-07T16:30:51.426870+00:00"
+    }
+  ],
+  "not_run": [
+    "WorkBuddy real client",
+    "DeepSeek Harness real client",
+    "Codex real client",
+    "Linux production release/rollback",
+    "production capacity/load"
+  ],
+  "unverified_changes": [
+    {
+      "recorded_at": "2026-11-07T13:51:14.930644+00:00",
+      "change": "Detailed per-tool response schemas, MCP output-schema selection, generated OpenAPI and corresponding protocol assertions.",
+      "status": "passed_authorized_contract_recheck",
+      "test_execution": "None; all prior runs and their source digests preserved.",
+      "source_sha256": {
+        "agent_api_contract.py": "86cccb5e33f1c61daec0a8886d7461163a159ba56fcbac3bc3057b1271a8bcdd",
+        "agent_api_mcp.py": "efff1c2ce47a10a6e28d6d57c38b4c4deb8eff2f647636b531bf0eaca8351a21",
+        "tests/agent_api_protocol_once.py": "0836e0f6acc4b6c579bbb1f895df0ff81b2f7f12dfb77be12b4757ab9fe2beaa",
+        "static/agent-api/openapi.json": "7046799b4df9ff1870b0b0aacd6827d064c485acb152ba01144f0c51e7239148"
+      },
+      "requires_explicit_rerun_authorization": [
+        "HTTP MCP/REST protocol interoperability scenario",
+        "test_workbuddy_credentials_and_openapi_artifact_match_contract"
+      ],
+      "cleanup": "Removal of task temp directory rejected by automatic approval: blocked by policy; directory retained.",
+      "validation_record": "runs: user-approved-contract-rerun-20261107; originals preserved"
+    }
+  ],
+  "client_environment_review": {
+    "WorkBuddy": {
+      "installed_version": "5.9.3",
+      "launch": "New normal-privilege process and full accessibility tree confirmed; navigation and normal restart succeeded.",
+      "acceptance": "blocked_during_preparation; 0 data calls"
+    },
+    "DeepSeek Harness": {
+      "installed_version": "0.2.1-rc.2",
+      "launch": "opened; temporary custom entry prepared; original files restored",
+      "acceptance": "blocked_during_preparation"
+    },
+    "Codex": {
+      "installed": true,
+      "acceptance": "not_started; running this chat is not an MCP client test"
+    },
+    "configuration_changes_to_user_profiles": "none",
+    "connector_package": {
+      "path": "static/agent-api/workbuddy-connector.zip",
+      "sha256": "49fcc6ad713b843b4bff8b1ad97d7aa3c024fe5bd8a19558d4169376c2e6ae56",
+      "status": "generated; client import not verified"
+    }
+  },
+  "real_client_fixture": {
+    "status": "stopped; synthetic keys revoked; user config restored",
+    "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\real-clients",
+    "purpose": "First WorkBuddy and Harness real-client acceptance; no protocol test rerun.",
+    "mcp_url": "http://127.0.0.1:53046/mcp",
+    "backend_pid": 6316,
+    "mcp_pid": 11552
+  },
+  "desktop_control_recovery_attempts": [
+    {
+      "recorded_at": "2026-11-07T15:20:27.376905+00:00",
+      "authorization": "User explicitly requested retrying desktop operations.",
+      "scope": "Desktop control recovery only; no application tests rerun and no API fixture started.",
+      "actions": [
+        "Reset node_repl and reinitialize official sky API",
+        "Refresh returned app windows",
+        "Try WorkBuddy connector navigation once",
+        "Try Harness activation, refresh target selection and retry once",
+        "Read process token elevation without changing permissions"
+      ],
+      "result": "blocked",
+      "workbuddy": "Navigation did not change page; at least two WorkBuddy processes elevated; others returned access denied (5).",
+      "harness": "failed to activate captured window after one recovery attempt",
+      "controller_elevation": "codex-computer-use and codex-computer-use-swift not elevated",
+      "config_or_credentials_changed": false
+    },
+    {
+      "recorded_at": "2026-11-07T15:31:35.595351+00:00",
+      "authorization": "User requested that the agent perform the client close/reopen itself.",
+      "workbuddy": "Alt+F4 ineffective; guarded non-forced taskkill of verified main PID 18024 denied by Windows: Access is denied. No force, elevation, or security changes.",
+      "harness": "Non-forced close request succeeded; reopened using official sky.launch_app; matching screenshot/accessibility tree and plugin navigation observed.",
+      "inspection": "Installed MCP client package 0.2.1-rc.2 and SDK client 2.2.0 confirmed from archive metadata; official installed dsh CLI help read; compatibility config provided.",
+      "application_tests_run": false,
+      "user_config_changed": false,
+      "credentials_created": false
+    },
+    {
+      "recorded_at": "2026-11-07T15:38:55.952845+00:00",
+      "trigger": "User reported WorkBuddy reopened normally.",
+      "observed": "Same main process PID 18024, created 2026-11-07 22:41:28 +08:00; same child processes. Connector navigation click still caused no page change.",
+      "result": "Old instance remains; cannot proceed to import. Earlier non-forced termination was denied by Windows.",
+      "application_tests_run": false,
+      "config_or_credentials_changed": false
+    }
+  ],
+  "validated_client_libraries": {
+    "workbuddy": {
+      "version": "1.29.0",
+      "status": "passed",
+      "summary": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk\\workbuddy-sdk-summary.json",
+      "desktop_or_agent_loop_verified": false
+    },
+    "harness": {
+      "version": "2.2.0",
+      "status": "passed",
+      "summary": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk\\harness-sdk-summary.json",
+      "desktop_or_agent_loop_verified": false
+    }
+  },
+  "final_baseline_review": {
+    "recorded_at": "2026-11-07T16:35:47.418411+00:00",
+    "main": "2250993505b41b37572aa413bbeff4bfd190db40",
+    "production": "e63b257a7049a7109e0bb5cfd9561b02efc17bff",
+    "remote_changed": false,
+    "pushed": false,
+    "deployed": false
+  },
+  "final_source_manifest": {
+    "agent_api_contract.py": "86cccb5e33f1c61daec0a8886d7461163a159ba56fcbac3bc3057b1271a8bcdd",
+    "agent_api_mcp.py": "efff1c2ce47a10a6e28d6d57c38b4c4deb8eff2f647636b531bf0eaca8351a21",
+    "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+    "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+    "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+    "app.py": "a6e4ec0a1dea8b6e1479ef2c768d7260408becac640e3fae969640ffd3b00e35",
+    "search.py": "678948088f198026d458da9bee20b5bf406d878a29b2254e8b02503583cb7cfc",
+    "feature_access.py": "265bcc3ed8161dea874042512326f78ceb9ea9fb48457c95b869147c7affa272",
+    "deploy/agent_api_units.sh": "55b87e008110cad06f3bc9f50fbe4ede5016a7f8554f0cd77ffca458461b6a0d",
+    "deploy/promote_release.sh": "c61f888920b4f8534192090b4496acf2e47b72140853c21b5439340995a33d3a",
+    "deploy/rollback_release.sh": "f48452a4551b70527f27d83b50da64d3020299e5eb4b640b47a4780aa1a88440",
+    "deploy/release_traffic.sh": "f7b78a10552d17322c22e3e647821afdcfff7445dc92afcdc85f5dc223ee1d7f",
+    "deploy/agent_api_caddy.py": "e1fd98449e04eded116d7f38cc938fda0d9d733e0530dc1e4ebb841fc4cd41da",
+    "deploy/requirements-agent-api.lock": "1daf44ffb8ddae81b7be63c97648d5668d8b8d5e9829be3fe733245d48f37919",
+    ".github/workflows/ci.yml": "53e886353238ecb1c73bd559efa66987d3c15dcce6d888841b81d99cc9272594",
+    "static/agent-api/openapi.json": "7046799b4df9ff1870b0b0aacd6827d064c485acb152ba01144f0c51e7239148",
+    "static/agent-api/workbuddy-connector.zip": "49fcc6ad713b843b4bff8b1ad97d7aa3c024fe5bd8a19558d4169376c2e6ae56"
+  }
+}
