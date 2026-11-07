@@ -2819,7 +2819,7 @@
   }
   function applyDepthUI(forceDefaultModel) {
     var description = document.getElementById("aipDepthDescription");
-    if (description) description.textContent = depth === "comprehensive" ? "管理员试用 · 按需检索与写作，正文分段呈现" : depth === "research" ? "深入研究，核验原文与出处" : "连续问答，可按需检索引文库";
+    if (description) description.textContent = depth === "comprehensive" ? "按需检索与写作，正文分段呈现 · 模型与额度依账户权益" : depth === "research" ? "深入研究，核验原文与出处 · 依研究权限及额度使用" : "连续问答，可按需检索引文库";
     depthTabs.forEach(function (t) {
       var d = t.getAttribute("data-depth");
       if (d === "comprehensive") t.hidden = !depthAllowed(d);

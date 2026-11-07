@@ -24,8 +24,13 @@ _lock = threading.Lock()
 
 
 def enabled(A):
-    return A._env_flag("AI_COMPREHENSIVE_ENABLED", False) or (
-        A._is_admin_user(getattr(g, "current_user", None)) and A._env_flag("AI_COMPREHENSIVE_ADMIN_PREVIEW", True))
+    user = getattr(g, "current_user", None)
+    if not user:
+        return False
+    # The chat feature permission remains authoritative. This new rollout flag
+    # supersedes the old admin-only preview without modifying live config.
+    return A._env_flag("AI_COMPREHENSIVE_REGISTERED_ENABLED", True) or (
+        A._is_admin_user(user) and A._env_flag("AI_COMPREHENSIVE_ADMIN_PREVIEW", True))
 
 
 def web_allowed(A):
@@ -217,10 +222,13 @@ def register(A):
                             budget = membership.affordable_completion_tokens(
                                 user_id=uid, selection=checked, messages=ai_web.augment_messages(messages), requested=max_tokens)
                         elif not A._is_admin_user(user):
-                            remaining = max(0, int(quota.get("weekly_limit") or 20000)-int(quota.get("weekly_used") or 0))
-                            budget = min(budget, remaining)
-                            if budget < 256:
-                                raise ai.AIServiceError("本周 AI 额度不足，可补充额度后继续。")
+                            limit = quota.get("weekly_limit")
+                            credit_authorized = quota.get("over_free_limit") and int(quota.get("credit_balance") or 0) > 0
+                            if limit is not None and not credit_authorized:
+                                remaining = max(0, int(limit)-int(quota.get("weekly_used") or 0))
+                                budget = min(budget, remaining)
+                                if budget < 256:
+                                    raise ai.AIServiceError("本周 AI 额度不足，可补充额度后继续。")
                         if streaming:
                             def tokens():
                                 collected = []
