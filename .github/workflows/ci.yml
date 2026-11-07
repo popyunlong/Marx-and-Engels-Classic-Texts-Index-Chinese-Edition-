@@ -93,7 +93,7 @@ jobs:
           npm install --no-save --package-lock=false playwright@1.62.1
           npx playwright install --with-deps chromium
       - name: Check AI controls in a real browser without live API calls
-        run: node --test --test-reporter=spec tests/browser/dialogue_polish.cjs tests/browser/ai_controls.cjs tests/browser/comprehensive.cjs tests/browser/citation_scope.cjs tests/browser/dictionary_map.cjs tests/browser/recommendations.cjs 2>&1 | tee /tmp/ai-controls-browser.log
+        run: node --test --test-reporter=spec tests/search_export_status.cjs tests/browser/dialogue_polish.cjs tests/browser/ai_controls.cjs tests/browser/comprehensive.cjs tests/browser/citation_scope.cjs tests/browser/dictionary_map.cjs tests/browser/recommendations.cjs 2>&1 | tee /tmp/ai-controls-browser.log
       - name: Include browser failure details in check annotations
         if: failure()
         run: |

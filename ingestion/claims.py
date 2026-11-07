@@ -57,6 +57,7 @@ def search_export(tasks, versions, worker_id, lease_seconds=None, *, corpus_vers
                       "WHERE status IN ('counting','collecting','rendering','packaging') "
                       "AND lease_expires_at IS NOT NULL AND lease_expires_at<? AND attempts" + condition + '?',
                       (status, error, stamp, stamp, tasks.MAX_ATTEMPTS))
+        tasks.retire_incompatible_jobs(c, template_version, versions)
         row = c.execute("SELECT id FROM search_export_jobs WHERE status='queued' AND expires_at>? AND attempts<? "
                         + clause + ' ORDER BY created_at LIMIT 1', (stamp,tasks.MAX_ATTEMPTS,*values)).fetchone()
         if row is None:

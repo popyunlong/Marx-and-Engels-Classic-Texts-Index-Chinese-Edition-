@@ -3473,7 +3473,10 @@
   function searchExportStatusText(job) {
     const done = Number(job.progress_done || 0);
     const total = Number(job.progress_total || job.result_count || 0);
-    if (job.status === 'queued') return '已加入导出队列，等待独立工作节点处理…';
+    if (job.status === 'queued') {
+      if (job.retryable && job.error_code === 'count_mismatch') return '检索条数核对不一致，已安排自动重新核对…';
+      return '已加入导出队列，等待独立工作节点处理…';
+    }
     if (job.status === 'counting') return '正在安全计数，确认未超过账号上限…';
     if (job.status === 'collecting') return `正在整理引文${total ? `：${done} / ${total}` : '…'}`;
     if (job.status === 'rendering') return `正在生成${job.format === 'docx' ? ' Word' : ' HTML'} 分册${total ? `：${done} / ${total}` : '…'}`;
@@ -3481,6 +3484,10 @@
     if (job.status === 'complete') return '汇编已生成，正在下载。';
     if (job.status === 'too_large') return job.error || `结果超过 ${job.result_limit || ''} 条，请缩小检索范围。`;
     if (job.status === 'expired') return '导出文件已过期，请重新创建。';
+    if (job.status === 'failed' && (job.error_code === 'count_mismatch' ||
+        (job.error || '').includes('检索数据在导出期间发生变化'))) {
+      return '导出失败：检索条数核对不一致，自动重试已结束。';
+    }
     return job.error || '导出失败，请稍后重试。';
   }
 

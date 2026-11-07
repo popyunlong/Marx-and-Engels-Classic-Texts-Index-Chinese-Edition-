@@ -13,6 +13,7 @@ import zlib
 from collections import OrderedDict
 from collections import Counter
 from difflib import SequenceMatcher
+from hashlib import sha256
 from pathlib import Path
 from statistics import median
 
@@ -2834,6 +2835,11 @@ def get_submission_corpus(user_id: int, submission_id: int) -> PersonalCorpus | 
     if not row or row.get("status") == "deleted":
         return None
     return _load_corpus_for_books(uid, [row])
+
+
+def personal_corpus_version(user_id: int) -> str:
+    """Stable data identity for a pinned export, independent of cache eviction."""
+    return sha256(_signature(plib.list_searchable_books(int(user_id))).encode('utf-8')).hexdigest()
 
 
 def get_personal_corpus(user_id: int) -> PersonalCorpus | None:

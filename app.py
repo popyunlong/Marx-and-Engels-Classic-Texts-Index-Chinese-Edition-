@@ -17392,23 +17392,32 @@ def _search_export_personal_context(job: dict, personal_ids: list[int], default_
     return personal, None
 
 
-def _search_export_count(job: dict, stop_after: int) -> int:
+def _search_export_context(job: dict) -> dict:
     public_spec, public_enabled, personal_ids, default_private = _search_export_scope_context(job)
+    check_personal = str(job.get("search_mode") or "exact") == "exact" and bool(personal_ids or default_private)
+    personal_version = mylib_corpus.personal_corpus_version(int(job["user_id"])) if check_personal else None
+    personal, personal_spec = _search_export_personal_context(job, personal_ids, default_private)
+    return {"public": corpus, "public_spec": public_spec, "public_enabled": public_enabled,
+            "personal": personal, "personal_spec": personal_spec,
+            "check_personal": check_personal, "personal_version": personal_version}
+
+
+def _search_export_count(job: dict, stop_after: int, *, context: dict | None = None) -> int:
+    context = context if context is not None else _search_export_context(job)
+    public, public_spec = context["public"], context["public_spec"]
     query = str(job.get("query_text") or "")
     mode = str(job.get("search_mode") or "exact")
     total = 0
-    if public_enabled:
+    if context["public_enabled"]:
         if mode == "cooccurrence":
-            total = corpus.count_cooccurrence_export(
+            total = public.count_cooccurrence_export(
                 _split_cooc_keywords(query), book_scope=public_spec, stop_after=stop_after,
             )
         else:
-            total = corpus.count_exact_export(query, book_scope=public_spec, stop_after=stop_after)
+            total = public.count_exact_export(query, book_scope=public_spec, stop_after=stop_after)
     if total >= stop_after or mode != "exact":
         return total
-    personal, personal_spec = _search_export_personal_context(
-        job, personal_ids, default_private,
-    )
+    personal, personal_spec = context["personal"], context["personal_spec"]
     if personal is not None:
         total += personal.count_exact_export(
             query, book_scope=personal_spec, stop_after=max(1, stop_after - total),
@@ -17449,7 +17458,7 @@ def _search_export_prepare_hit(job: dict, hit: dict, *, personal: bool = False) 
         submission_id = mylib_corpus.submission_id_from_key(str(item.get("book") or ""))
         row = mylib.get_submission(int(submission_id), int(job["user_id"])) if submission_id else None
         if not row or row.get("status") != "ready":
-            raise search_export_tasks.SearchExportError("个人文库资料在导出期间已不可用。")
+            raise search_export_tasks.ExportSourceChangedError("个人文库资料在导出期间已不可用，请重新创建任务。")
         title = str(row.get("title") or item.get("display_title") or "我的文库")
         item.update({
             "personal": True,
@@ -17462,36 +17471,40 @@ def _search_export_prepare_hit(job: dict, hit: dict, *, personal: bool = False) 
     return item
 
 
-def _search_export_iter(job: dict, limit: int):
-    public_spec, public_enabled, personal_ids, default_private = _search_export_scope_context(job)
+def _search_export_iter(job: dict, limit: int, *, context: dict | None = None):
+    if limit <= 0:
+        return
+    context = context if context is not None else _search_export_context(job)
+    public, public_spec = context["public"], context["public_spec"]
     query = str(job.get("query_text") or "")
     mode = str(job.get("search_mode") or "exact")
     emitted = 0
     # 与首页一致：个人文库单独置顶，且所有读取都重新按 job.user_id 做归属校验。
     if mode == "exact":
-        personal, personal_spec = _search_export_personal_context(job, personal_ids, default_private)
+        personal, personal_spec = context["personal"], context["personal_spec"]
         if personal is not None:
             for hit in personal.iter_exact_export_hits(query, book_scope=personal_spec, limit=limit):
                 yield _search_export_prepare_hit(job, hit, personal=True)
                 emitted += 1
                 if emitted >= limit:
                     return
-    if not public_enabled:
+    if not context["public_enabled"]:
         return
     remaining = max(0, limit - emitted)
     if mode == "cooccurrence":
-        iterator = corpus.iter_cooccurrence_export_hits(
+        iterator = public.iter_cooccurrence_export_hits(
             _split_cooc_keywords(query), book_scope=public_spec, limit=remaining,
         )
     else:
-        iterator = corpus.iter_exact_export_hits(query, book_scope=public_spec, limit=remaining)
+        iterator = public.iter_exact_export_hits(query, book_scope=public_spec, limit=remaining)
     for hit in iterator:
         yield _search_export_prepare_hit(job, hit)
 
 
 def _search_export_template_version() -> str:
     """Keep old consumers from claiming exports requiring the new layout index."""
-    base = _citation_template_version()
+    base = sha256((_citation_template_version() + '\0export:'
+                   + search_export_tasks.EXPORT_CONTENT_VERSION).encode()).hexdigest()
     index = getattr(corpus, 'layout_index', None)
     if index and index.enabled and not index.error:
         return sha256((base + '\0layout:' + index.revision).encode()).hexdigest()
@@ -17506,15 +17519,26 @@ def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
         return
     try:
         if job.get("corpus_version") != _citation_corpus_sha256():
-            raise search_export_tasks.SearchExportError("语料库版本已变更，请重新创建任务。")
+            raise search_export_tasks.ExportSourceChangedError("语料库版本已变更，请重新创建任务。")
         if job.get("template_version") != _search_export_template_version():
-            raise search_export_tasks.SearchExportError("引用模板已变更，请重新创建任务。")
+            raise search_export_tasks.ExportSourceChangedError("导出规则或引用模板已变更，请重新创建任务。")
         # 私库 token 必须在每次重试时重新验证，不能只信创建任务时的状态。
         _public_spec, _public_enabled, personal_ids, _default_private = _search_export_scope_context(job)
         if personal_ids:
             _citation_personal_scope_rows(
                 int(job["user_id"]), [f"mylib:{sid}" for sid in personal_ids],
             )
+        context = _search_export_context(job)
+
+        def validate_sources() -> None:
+            if (corpus is not context["public"]
+                    or job["corpus_version"] != _citation_corpus_sha256()
+                    or job["template_version"] != _search_export_template_version()):
+                raise search_export_tasks.ExportSourceChangedError("检索来源版本已变更，请重新创建任务。")
+            if (context["check_personal"] and mylib_corpus.personal_corpus_version(int(job["user_id"]))
+                    != context["personal_version"]):
+                raise search_export_tasks.ExportSourceChangedError("个人文库资料已变更，请重新创建任务。")
+
         consecutive_high_load = 0
 
         def resource_gate() -> bool:
@@ -17542,10 +17566,13 @@ def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
         search_export_tasks.run_job(
             job_id,
             worker_id=worker,
-            count_hits=_search_export_count,
-            iter_hits=_search_export_iter,
+            count_hits=lambda row, limit: _search_export_count(row, limit, context=context),
+            iter_hits=lambda row, limit: _search_export_iter(row, limit, context=context),
             continue_after_part=resource_gate,
+            validate_sources=validate_sources,
         )
+    except search_export_tasks.ExportSourceChangedError as exc:
+        search_export_tasks.requeue_job(job_id, str(exc), error_code="source_changed", retryable=False)
     except Exception as exc:
         search_export_tasks.requeue_job(job_id, str(exc)[:500])
 
