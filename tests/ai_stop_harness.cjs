@@ -7,6 +7,8 @@ const end=source.indexOf('  // ===================== 事件绑定',start);
 assert.ok(start>=0&&end>start);
 const requests=[];
 const context={AbortController,console,messages:[],sessionsReady:true,streaming:false,currentAbort:null,currentPendingAssistant:null,
+ currentRequest:null,sessionEpoch:0,sessionsData:{current:'fixture-session'},cloudRefreshPending:false,
+ sessionWriteQueue:Promise.resolve(),setInterval,clearInterval,ensureMessageIdentity:m=>m,showStorageWarning:()=>{},
  depth:'quick',promptEl:{value:''},sessionRefreshPending:false,
  runtimeEnabled:()=>true,depthAllowed:()=>true,buildHistory:()=>[],saveMessages:()=>{},renderMessages:()=>{},scrollToLatestQuestion:()=>{},updateSendEnabled:()=>{},
  currentScope:()=>['all'],currentProvider:()=>'',currentApiModel:()=>'',currentReasoningEffort:()=>'',currentGrounding:()=>false,

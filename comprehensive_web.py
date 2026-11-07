@@ -174,13 +174,24 @@ def register(A):
             previous = _jobs.get((uid, str(payload.get("continue_request_id") or "")))
             if payload.get("continue_request_id") and (not previous or not previous.get("finished")):
                 abort(409, description="续接任务已过期或尚未结束，请基于已保存正文重新提问。")
+            if previous and (not previous.get("state", {}).get("plan") or not previous.get("state", {}).get("answer")):
+                abort(409, description="没有可续接的已保存正文，请重新提问。")
             if previous and previous.get("scope") != request_scope:
                 abort(400, description="继续完成时请保持原检索范围。")
+            if previous and previous.get("result", {}).get("completion_status") == "complete":
+                return jsonify(previous["result"])
+            if previous and previous.get("continuation"):
+                child = _jobs.get((uid, previous["continuation"]))
+                if child and child.get("finished") and child.get("result"):
+                    return jsonify(child["result"])
+                abort(409, description="续接任务正在准备或生成，请稍候，不会重复执行。")
             if not membership.claim_ai_conversation_request(uid, request_id, digest):
                 abort(409, description="此请求已受理过，当前实例没有其结果；请查看已保存会话，不会重复执行扣费。")
             job = {"created": now, "digest": digest, "scope": request_scope, "finished": False,
                    "checkpoint": {}, "state": {}, "result": None}
             _jobs[key] = job
+            if previous:
+                previous["continuation"] = request_id
         progress = {"message": "正在排队", "phase": "queued"}
         timings = {}
         phase_started = time.monotonic()
@@ -212,7 +223,7 @@ def register(A):
                 if not slot:
                     raise ai.AIServiceError("任务已停止或排队超时。")
                 try:
-                    def call(messages, max_tokens, streaming=False):
+                    def call(messages, max_tokens, streaming=False, meta_out=None):
                         if cancel_event.is_set() or time.monotonic() >= deadline:
                             raise ai.AIServiceError("本次任务已达到时间预算，可继续完成。")
                         # Recheck authoritative rights and current balance before *every* hidden/visible call.
@@ -238,7 +249,7 @@ def register(A):
                                         upstream = A.AI_CLIENT.chat_complete_stream(messages, max_tokens=budget,
                                             provider=checked["provider"], model=checked["model"], reasoning_effort=checked["reasoning_effort"],
                                             http_timeout=max(1, min(480, deadline-time.monotonic())),
-                                            should_cancel=cancel_event.is_set, deadline=deadline)
+                                            should_cancel=cancel_event.is_set, deadline=deadline, meta_out=meta_out)
                                         try:
                                             for token in upstream:
                                                 collected.append(token)
@@ -333,7 +344,8 @@ def register(A):
                     job["state"] = {"plan": plan, "question": effective_question, "passages": passages, "citations": citations,
                         "web_sources": copy.deepcopy(web.sources) if web else [],
                         "web_cache": dict(web.cache) if web else {},
-                        "scope_meta": scope_meta, "public_books": public_books, "answer": answer, "done": done}
+                        "scope_meta": scope_meta, "public_books": public_books, "answer": answer, "done": done,
+                        "generation": copy.deepcopy(previous["state"].get("generation", {})) if previous else {}}
                     verified_parts = {}
                     located_cards = {}
                     def verify(text):
@@ -349,6 +361,7 @@ def register(A):
                         return text
                     def checkpoint(text, section, state):
                         job["state"].update(answer=text, done=section)
+                        generation = job["state"]["generation"]
                         cards = [c for c in citations if c["grounding_index"] in set(A._review_ref_indices(text))]
                         if passages and ai_citations.enabled():
                             records = []
@@ -374,7 +387,10 @@ def register(A):
                             if c["grounding_index"] in set(A._review_ref_indices(text))],
                             "warnings": list(dict.fromkeys(warnings)), "sources": [], "grounding_scope": scope_meta,
                             "actual_model": {k: selection[k] for k in ("provider", "model", "reasoning_effort")}, "completion_status": state, "request_id": request_id,
-                            "continue_request_id": request_id if state != "complete" else None}
+                            "continue_request_id": request_id if state != "complete" and text else None,
+                            "stop_reason": generation.get("stop_reason"),
+                            "section_progress": copy.deepcopy(generation.get("sections", [])),
+                            "checkpoint_version": progress.get("checkpoint_version", 0) + 1}
                         result["citations"] = cards
                         finish_web(result, web)
                         job["checkpoint"] = result
@@ -386,7 +402,8 @@ def register(A):
                         answer, done, status, warning = tasks.generate(effective_question, history, plan, passages, call,
                             deadline=deadline, cancelled=cancel_event.is_set, checkpoint=checkpoint, verify=verify,
                             previous=answer, completed_sections=done,
-                            stream=lambda messages, budget: call(messages, budget, streaming=True), stage=stage)
+                            stream=lambda messages, budget, meta_out=None: call(messages, budget, streaming=True, meta_out=meta_out),
+                            stage=stage, generation_state=job["state"]["generation"])
                     if warning:
                         warnings.append(warning)
                     if status != "complete":

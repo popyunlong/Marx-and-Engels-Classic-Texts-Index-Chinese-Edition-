@@ -3509,6 +3509,12 @@ class ZAIClient:
             "estimated_prompt_tokens": _estimate_message_tokens(messages),
             "max_completion_tokens": max_tokens,
         })
+        from ai_generation_protocol import MARKER, section_end
+        metadata = meta_out if meta_out is not None else {}
+        metadata["finish_reason"] = "unknown"
+        usage_seen, text_chars, reasoning_chars = False, 0, 0
+        control_text, drain_until = "", None
+        watchdog_done = threading.Event()
         observed_usage = {"prompt_tokens": 0, "cached_prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0}
         http_success = False
         # 思维链只保活、不下发：推理模型（如线上主通道 deepseek-v4-pro）会先流出大段
@@ -3525,6 +3531,25 @@ class ZAIClient:
             with _ai_http_slot(), urllib_request.urlopen(
                 req, timeout=http_timeout if http_timeout is not None else self.config.request_timeout_seconds
             ) as resp:
+                def watch_connection():
+                    while not watchdog_done.wait(.1):
+                        reason = ("cancelled" if should_cancel and should_cancel() else
+                                  "deadline" if deadline is not None and time.monotonic() >= deadline else
+                                  "section_complete" if drain_until is not None and time.monotonic() >= drain_until else None)
+                        if reason:
+                            metadata["finish_reason"] = reason
+                            try:
+                                import socket
+                                sock = resp.fp.raw._sock
+                                sock.shutdown(socket.SHUT_RDWR)
+                            except (AttributeError, OSError):
+                                try:
+                                    resp.close()
+                                except Exception:
+                                    pass
+                            return
+                if should_cancel or deadline is not None or metadata.get("section_control"):
+                    threading.Thread(target=watch_connection, daemon=True).start()
                 for raw_line in resp:
                     if (should_cancel and should_cancel()) or (deadline is not None and time.monotonic() >= deadline):
                         raise AIServiceError("任务已停止或达到时间预算。")
@@ -3540,26 +3565,37 @@ class ZAIClient:
                         continue
                     if payload.get("usage"):
                         observed_usage = _usage_from_payload(payload)
+                        usage_seen = True
                     if use_zhipu and meta_out is not None and payload.get("web_search"):
                         meta_out["sources"] = self._zhipu_sources_from_payload(payload)
                     for choice in payload.get("choices") or []:
+                        if choice.get("finish_reason"):
+                            metadata["finish_reason"] = choice["finish_reason"]
                         delta = choice.get("delta") or choice.get("message") or {}
                         text = (
                             self._coerce_message_content(delta.get("content"))
                             or self._coerce_message_content(choice.get("text"))
                         )
                         if text:
+                            text_chars += len(text)
+                            if metadata.get("section_control"):
+                                if drain_until is not None:
+                                    continue
+                                control_text += text
+                                if MARKER in control_text and section_end(control_text) >= 0:
+                                    drain_until = time.monotonic() + 5.0
                             yielded[0] = True
                             yield text
                             continue
                         reasoning = self._coerce_message_content(delta.get("reasoning_content"))
                         if reasoning:
+                            reasoning_chars += len(str(reasoning))
                             reasoning_seen = True
                             now = time.monotonic()
                             if now - last_tick >= 8.0:
                                 last_tick = now
                                 yield ""
-            http_success = True
+            http_success = metadata.get("finish_reason") not in {"cancelled", "deadline"}
             if not yielded[0] and reasoning_seen:
                 raise _ReasoningOnlyResponse()
         except urllib_error.HTTPError as exc:
@@ -3577,13 +3613,33 @@ class ZAIClient:
         except urllib_error.URLError as exc:
             raise AIServiceError(f"无法连接 {route['label']} 服务：{exc.reason}") from exc
         except TimeoutError as exc:
+            if metadata.get("finish_reason") == "section_complete":
+                http_success = True
+                return
             raise AIServiceError(f"{route['label']} 请求超时，请稍后重试。") from exc
+        except OSError as exc:
+            if metadata.get("finish_reason") == "section_complete":
+                http_success = True
+                return
+            raise AIServiceError(f"模型连接中断：{exc}") from exc
         finally:
+            watchdog_done.set()
+            if should_cancel and should_cancel():
+                metadata["finish_reason"] = "cancelled"
+            elif deadline is not None and time.monotonic() >= deadline:
+                metadata["finish_reason"] = "deadline"
+            if not usage_seen and (text_chars or reasoning_chars):
+                observed_usage.update(prompt_tokens=_estimate_message_tokens(messages),
+                                      completion_tokens=max(1, (text_chars + reasoning_chars + 1)//2),
+                                      reasoning_tokens=(reasoning_chars + 1)//2)
+                metadata["usage_estimated"] = True
+            metadata["usage"] = dict(observed_usage)
             try:
                 _emit_ai_call_event({
                     "phase": "after", "request_id": request_id, "provider": route["provider"],
                     "model": model_name, "reasoning_effort": effective_effort,
                     **observed_usage, "success": http_success,
+                    "error": "usage_estimated" if not usage_seen and (text_chars or reasoning_chars) else "",
                     "latency_ms": int((_call_perf_counter() - started_at) * 1000),
                     "preflight": preflight,
                 })
