@@ -1917,7 +1917,7 @@ class Corpus:
         for book in self._scoped_book_keys(book_scope):
             for vol in self._scoped_volumes(book, book_scope):
                 nf = vol.norm_full
-                supplemental = layout_matches.get(vol.source_file, [])
+                supplemental = self._exact_supplement_map(vol, layout_matches.get(vol.source_file, []))
                 if q_norm not in nf and not supplemental:
                     continue
                 # 按 chapter_pdf_page 归并：同一篇章若被物理切成多段（get_chapter_for_page
@@ -1927,8 +1927,7 @@ class Corpus:
                 vol_count = 0
                 for seg in self._chapter_segments(vol):
                     # 用重叠计数（与 chapter_hits 的 find 步进 +1 一致），保证聚合数=钻取数。
-                    cnt = self._canonical_exact_count(vol, q_norm, seg["norm_start"], seg["norm_end"])
-                    cnt += sum(seg["norm_start"] <= m["start"] and m["end"] <= seg["norm_end"] for m in supplemental)
+                    cnt = self._exact_segment_count(vol, q_norm, seg, supplemental)
                     if not cnt:
                         continue
                     vol_count += cnt
@@ -2015,12 +2014,10 @@ class Corpus:
             return out
         nf = vol.norm_full
         qlen = len(q_norm)
-        positions = [pos for seg in segments for pos in
-                     self._canonical_exact_positions(vol, q_norm, seg['norm_start'], seg['norm_end'])]
         supplements, complete, warning = self._layout_scan(q_norm, volumes=[vol])
-        extras = {m["start"]: m for m in supplements.get(vol.source_file, [])
-                  if any(seg["norm_start"] <= m["start"] and m["end"] <= seg["norm_end"] for seg in segments)}
-        positions = list(set(positions) | set(extras))
+        extras = self._exact_supplement_map(vol, supplements.get(vol.source_file, []), segments)
+        positions = [pos for seg in segments for pos in
+                     self._iter_exact_positions(vol, q_norm, extras, seg['norm_start'], seg['norm_end'])]
         out.update(exact_search_complete=complete, layout_warning=warning)
         count = len(positions)
         if not count:
@@ -2089,18 +2086,21 @@ class Corpus:
         caller's entitlement has certainly been exceeded there is no reason to
         keep scanning or allocate document state.
         """
-        aggregate = self.search_chaptered(q, book_scope=book_scope)
-        if aggregate.get('exact_search_complete') is False:
+        q_norm = normalize(q)
+        if len(q_norm) < MIN_QUERY_LEN or (stop_after is not None and stop_after <= 0):
+            return 0
+        volumes = [v for book in self.books for v in self.books.get(book, [])
+                   if self._export_scope_allows(book, int(v.volume), book_scope)]
+        supplements, complete, _warning = self._layout_scan(q_norm, volumes=volumes)
+        if not complete:
             raise RuntimeError('排版补充检索未完成，请稍后重试导出。')
         total = 0
-        for row in aggregate.get("volumes") or []:
-            if not self._export_scope_allows(
-                str(row.get("book") or ""), int(row.get("volume") or 0), book_scope
-            ):
-                continue
-            total += int(row.get("count") or 0)
-            if stop_after is not None and total >= int(stop_after):
-                return total
+        for vol in volumes:
+            extras = self._exact_supplement_map(vol, supplements.get(vol.source_file, []))
+            for seg in self._chapter_segments(vol):
+                total += self._exact_segment_count(vol, q_norm, seg, extras)
+                if stop_after is not None and total >= int(stop_after):
+                    return total
         return total
 
     def iter_exact_export_hits(
@@ -2112,7 +2112,7 @@ class Corpus:
     ) -> Iterator[dict]:
         """Yield exact hits in corpus/book/volume/page order, one object at a time."""
         q_norm = normalize(q)
-        if len(q_norm) < MIN_QUERY_LEN:
+        if len(q_norm) < MIN_QUERY_LEN or (limit is not None and limit <= 0):
             return
         volumes = [v for book in self.books for v in self.books.get(book, [])
                    if self._export_scope_allows(book, int(v.volume), book_scope)]
@@ -2126,11 +2126,9 @@ class Corpus:
                 if not self._export_scope_allows(book, int(vol.volume), book_scope):
                     continue
                 page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] = OrderedDict()
-                nf = vol.norm_full
-                extras = {m["start"]: m for m in supplements.get(vol.source_file, [])}
-                import heapq
+                extras = self._exact_supplement_map(vol, supplements.get(vol.source_file, []))
                 page_ranks: dict[int, int] = {}
-                for pos in heapq.merge(self._canonical_exact_positions(vol, q_norm), sorted(extras)):
+                for pos in self._iter_exact_positions(vol, q_norm, extras):
                     page_index = vol.page_index_at(pos)
                     rank = page_ranks.get(page_index, 0)
                     page_ranks[page_index] = rank + 1
@@ -2148,9 +2146,6 @@ class Corpus:
                     emitted += 1
                     if limit is not None and emitted >= int(limit):
                         return
-                    # Export counts deliberately use overlapping occurrences, as
-                    # does ``search_chaptered``/``chapter_hits``.
-                    start = pos + 1
 
     @staticmethod
     def _export_cooccurrence_keywords(keywords: list[str]) -> list[str]:
@@ -2564,6 +2559,45 @@ class Corpus:
         if result[2] == "layout scan busy":
             raise SearchBusy()
         return result
+
+    def _exact_range_allowed(self, vol, start, end, segments=None):
+        """One physical, chapter-bounded occurrence, shared by both hit lanes."""
+        if not 0 <= start < end <= len(vol.norm_full):
+            return False
+        segments = self._chapter_segments(vol) if segments is None else segments
+        if not any(seg['norm_start'] <= start and end <= seg['norm_end'] for seg in segments):
+            return False
+        first, last = vol.page_index_at(start), vol.page_index_at(end - 1)
+        return all(vol.pages[i + 1].pdf_page == vol.pages[i].pdf_page + 1
+                   for i in range(first, last))
+
+    def _exact_supplement_map(self, vol, matches, segments=None):
+        """Use the same start identity and layout preference as chapter details."""
+        return {m['start']: m for m in matches
+                if self._exact_range_allowed(vol, m['start'], m['end'], segments)}
+
+    def _exact_segment_count(self, vol, q_norm, seg, extras):
+        start, end = seg['norm_start'], seg['norm_end']
+        count = self._canonical_exact_count(vol, q_norm, start, end)
+        for pos, match in extras.items():
+            if start <= pos and match['end'] <= end:
+                # A valid layout hit already proves physical continuity and
+                # chapter membership for the shorter canonical occurrence.
+                if not vol.norm_full.startswith(q_norm, pos, end):
+                    count += 1
+        return count
+
+    def _iter_exact_positions(self, vol, q_norm, extras, start=0, end=None):
+        import heapq
+
+        end = len(vol.norm_full) if end is None else end
+        supplemental = sorted(pos for pos, match in extras.items()
+                              if start <= pos and match['end'] <= end)
+        previous = None
+        for pos in heapq.merge(self._canonical_exact_positions(vol, q_norm, start, end), supplemental):
+            if pos != previous:
+                yield pos
+                previous = pos
 
     def _canonical_exact_positions(self, vol, q_norm, norm_start=0, norm_end=None):
         start = norm_start

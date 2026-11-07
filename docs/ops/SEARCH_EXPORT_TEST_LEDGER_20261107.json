@@ -1,0 +1,73 @@
+{
+  "task": "search-export-consistency-20261107",
+  "baseline": "6ead2b5737eabad6b34ce373fe2eb1a145a38894",
+  "prior_runs": [],
+  "policy": "Each test scenario runs once. Failures and interruptions are retained; reruns require explicit user approval.",
+  "artifact_root": "D:/CodexData/outputs/search-export-consistency-20261107",
+  "runs": [
+    {
+      "phase": "backend",
+      "status": "passed",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_search_export_consistency.py",
+        "tests/test_layout_exact.py",
+        "tests/test_search_overlap_count.py",
+        "tests/test_cooccurrence_scope.py",
+        "--basetemp=D:\\CodexData\\outputs\\search-export-consistency-20261107\\pytest-temp",
+        "--junitxml=D:\\CodexData\\outputs\\search-export-consistency-20261107\\backend.xml"
+      ],
+      "started_at": "2026-11-07T12:56:58.534865+08:00",
+      "source_sha256": {
+        "search.py": "987d999f821a283b8a87bd61c51642185e7994d71fbf125bb6b4b9f3e1e5e443",
+        "search_exports.py": "ef1b4f3419079e70e90dd8c6d2643f06d58f2f7d86dbc12c985d4d7bc1ba43ef",
+        "app.py": "46586bca5af6a1ed2646193a1ff23c2ca2f7cdb901a699293c41a3f47ed994fe",
+        "personal_corpus.py": "a07ca7ce8b01ead81c8ab0953357ae5dc36dafb87de6b878b76c7f0f6c1eac03",
+        "ingestion/claims.py": "dd87adbe7fc3ee70d290080fb3a333fac11542039bca48c5e01b2bfd97475cba",
+        "templates/index.html": "e21ca55fac4d9f0310d9cddf939775c997b85a1083a949e4feffb9e663f271ae",
+        "tests/test_search_export_consistency.py": "d5d95e245ed0e2f348d5c5fc85119d871e619207e68dda47ccd1e3a01b7fbd44",
+        "tests/search_export_status.cjs": "b265a357b19c6ce54d7e0a8b54b2bcf00a3d119ae51bceacdd1c9e59b874f132"
+      },
+      "log": "D:\\CodexData\\outputs\\search-export-consistency-20261107\\backend.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-07T12:57:10.28935+08:00",
+      "summary": "48 passed in 6.30s; synthetic corpus; real small Word/HTML package content; large-boundary rendering stubbed"
+    },
+    {
+      "phase": "frontend",
+      "status": "passed",
+      "command": [
+        "node",
+        "--test",
+        "tests/search_export_status.cjs"
+      ],
+      "started_at": "2026-11-07T12:57:32.197108+08:00",
+      "source_sha256": {
+        "search.py": "987d999f821a283b8a87bd61c51642185e7994d71fbf125bb6b4b9f3e1e5e443",
+        "search_exports.py": "ef1b4f3419079e70e90dd8c6d2643f06d58f2f7d86dbc12c985d4d7bc1ba43ef",
+        "app.py": "46586bca5af6a1ed2646193a1ff23c2ca2f7cdb901a699293c41a3f47ed994fe",
+        "personal_corpus.py": "a07ca7ce8b01ead81c8ab0953357ae5dc36dafb87de6b878b76c7f0f6c1eac03",
+        "ingestion/claims.py": "dd87adbe7fc3ee70d290080fb3a333fac11542039bca48c5e01b2bfd97475cba",
+        "templates/index.html": "e21ca55fac4d9f0310d9cddf939775c997b85a1083a949e4feffb9e663f271ae",
+        "tests/test_search_export_consistency.py": "d5d95e245ed0e2f348d5c5fc85119d871e619207e68dda47ccd1e3a01b7fbd44",
+        "tests/search_export_status.cjs": "b265a357b19c6ce54d7e0a8b54b2bcf00a3d119ae51bceacdd1c9e59b874f132"
+      },
+      "log": "D:\\CodexData\\outputs\\search-export-consistency-20261107\\frontend.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-07T12:57:32.762238+08:00",
+      "summary": "5 passed; Node VM executes actual page status/poll functions; no real browser run"
+    }
+  ],
+  "review": {
+    "diff_check": "passed once before documentation/CI addition",
+    "functional_source_hashes": "unchanged since backend and frontend runs",
+    "cleanup": "D:/CodexData/outputs/search-export-consistency-20261107/cleanup.json",
+    "runtime": "Existing Python 3.10 with pytest 9.0.3; plugin autoload disabled",
+    "production": "not deployed"
+  }
+}

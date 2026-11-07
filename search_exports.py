@@ -44,7 +44,7 @@ MAX_QUERY_CHARS = 500
 # Bump whenever the semantic content of a result changes.  It is part of the
 # reuse fingerprint, so pre-change snippet exports cannot be served for a new
 # request after complete-sentence rendering is deployed.
-EXPORT_CONTENT_VERSION = "complete-sentence-v2:" + PAGE_LABEL_VERSION
+EXPORT_CONTENT_VERSION = "exact-consistency-v3:" + PAGE_LABEL_VERSION
 WORKER_HEARTBEAT_MAX_AGE_SECONDS = 30
 VALID_FORMATS = {"docx", "html"}
 VALID_MODES = {"exact", "cooccurrence"}
@@ -73,6 +73,16 @@ class QueueLimitError(SearchExportError):
 
 class RetryableExportError(SearchExportError):
     pass
+
+
+class ExportSourceChangedError(SearchExportError):
+    pass
+
+
+class CountMismatchError(RetryableExportError):
+    def __init__(self, expected: int, actual: int):
+        super().__init__("检索条数核对不一致，正在自动重新核对。")
+        self.expected, self.actual = expected, actual
 
 
 class PausedExportError(SearchExportError):
@@ -432,6 +442,26 @@ def update_job(job_id: str, **changes: object) -> dict | None:
     return _decode_job(row)
 
 
+def retire_incompatible_jobs(conn, template_version: str | None, corpus_versions: list[str]) -> None:
+    """Called inside the claim transaction; never steal a live worker lease."""
+    if template_version is None or not corpus_versions:
+        return
+    placeholders = ','.join('?' for _ in corpus_versions)
+    rows = conn.execute(
+        "SELECT id,manifest_json FROM search_export_jobs WHERE status='queued' "
+        f"AND corpus_version IN ({placeholders}) AND template_version!=?",
+        (*corpus_versions, template_version),
+    ).fetchall()
+    for row in rows:
+        manifest = json.loads(row['manifest_json'] or '{}')
+        manifest.update(error_code='source_changed', parts=[])
+        conn.execute(
+            "UPDATE search_export_jobs SET status='failed',error=?,manifest_json=?,"
+            "lease_owner='',lease_expires_at=NULL,output_path='',output_name='',output_size=0,updated_at=? WHERE id=?",
+            ('导出规则或引用模板已变更，请重新创建任务。', json.dumps(manifest, ensure_ascii=False), utc_text(), row['id']),
+        )
+
+
 def claim_next_job(worker_id: str, lease_seconds: int = MAX_RUNTIME_SECONDS + 60, *,
                    corpus_version: str | None = None,
                    template_version: str | None = None) -> dict | None:
@@ -465,6 +495,7 @@ def claim_next_job(worker_id: str, lease_seconds: int = MAX_RUNTIME_SECONDS + 60
                  AND lease_expires_at IS NOT NULL AND lease_expires_at<? AND attempts>=?""",
             (now_text, now_text, MAX_ATTEMPTS),
         )
+        retire_incompatible_jobs(conn, template_version, [corpus_version] if corpus_version is not None else [])
         row = conn.execute(
             "SELECT id FROM search_export_jobs "
             "WHERE status='queued' AND expires_at>? AND attempts<? "
@@ -502,16 +533,24 @@ def renew_lease(job_id: str, worker_id: str, lease_seconds: int = MAX_RUNTIME_SE
         )
 
 
-def requeue_job(job_id: str, message: str) -> dict | None:
+def requeue_job(job_id: str, message: str, *, error_code: str = "",
+                diagnostics: dict | None = None, retryable: bool = True) -> dict | None:
     job = get_job(job_id)
     if not job:
         return None
-    if int(job.get("attempts") or 0) >= MAX_ATTEMPTS:
-        return update_job(
-            job_id, status="failed", error=str(message)[:500], lease_owner="", lease_expires_at=None
-        )
+    exhausted = not retryable or int(job.get("attempts") or 0) >= MAX_ATTEMPTS
+    manifest = dict(job.get("manifest") or {})
+    manifest["error_code"] = error_code
+    if diagnostics is not None:
+        manifest["diagnostics"] = diagnostics
+    if error_code in {"count_mismatch", "source_changed"}:
+        manifest["parts"] = []
+    if exhausted and error_code == "count_mismatch":
+        message = "导出失败：检索条数核对不一致，自动重试已结束。"
     return update_job(
-        job_id, status="queued", error=str(message)[:500], lease_owner="", lease_expires_at=None
+        job_id, status="failed" if exhausted else "queued", error=str(message)[:500],
+        manifest_json=manifest, output_path="", output_name="", output_size=0,
+        lease_owner="", lease_expires_at=None,
     )
 
 
@@ -558,6 +597,12 @@ def completed_artifact(job: dict) -> Path | None:
     path = Path(raw).resolve()
     if path.parent != job_directory or not path.is_file():
         return None
+    manifest = job.get("manifest") or {}
+    if manifest.get("content_version") == EXPORT_CONTENT_VERSION:
+        if (manifest.get("verified_count") != job.get("result_count")
+                or path.stat().st_size != job.get("output_size")
+                or manifest.get("artifact_sha256") != _file_digest(path)):
+            return None
     return path
 
 
@@ -901,6 +946,28 @@ def _citation_label(style: str) -> str:
     return CITATION_FORMAT_LABELS.get(style, style)
 
 
+def _file_digest(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _part_identity(job: dict, hits: list[dict], meta: dict) -> str:
+    return request_fingerprint({
+        "content_version": EXPORT_CONTENT_VERSION,
+        "request": job["request_fingerprint"], "corpus": job["corpus_version"],
+        "template": job["template_version"], "meta": meta, "hits": hits,
+    })
+
+
+def _reusable_part(path: Path, prior: dict | None, identity: str) -> bool:
+    return bool(prior and prior.get("identity") == identity and path.is_file()
+                and path.stat().st_size == prior.get("size")
+                and prior.get("sha256") == _file_digest(path))
+
+
 def run_job(
     job_id: str,
     *,
@@ -908,6 +975,7 @@ def run_job(
     count_hits: Callable[[dict, int], int],
     iter_hits: Callable[[dict, int], Iterator[dict]],
     continue_after_part: Callable[[], bool] | None = None,
+    validate_sources: Callable[[], None] | None = None,
 ) -> dict | None:
     """Execute one claimed job.  Exceptions are contained in this job lane."""
     import time
@@ -920,10 +988,14 @@ def run_job(
     for partial in directory.glob("*.part"):
         partial.unlink(missing_ok=True)
     try:
+        if validate_sources:
+            validate_sources()
         if job.get("corpus_version") == "" or job.get("template_version") == "":
             raise SearchExportError("导出版本信息缺失。")
         result_limit = int(job.get("result_limit") or REGULAR_RESULT_LIMIT)
         count = int(count_hits(job, result_limit + 1))
+        if validate_sources:
+            validate_sources()
         if count > result_limit:
             return update_job(
                 job_id, status="too_large", result_count=count, progress_total=count,
@@ -947,6 +1019,7 @@ def run_job(
             "citation_label": _citation_label(str(job["citation_style"])),
         }
         manifest = job.get("manifest") if isinstance(job.get("manifest"), dict) else {}
+        manifest = {**manifest, "content_version": EXPORT_CONTENT_VERSION, "error_code": ""}
         valid_existing = {
             str(item.get("name")): item
             for item in manifest.get("parts") or []
@@ -965,21 +1038,26 @@ def run_job(
             filename = f"{part_number:03d}_{book_name}_{volume_name}.{extension}"
             target = directory / filename
             prior = valid_existing.get(filename)
-            if not (prior and target.is_file() and target.stat().st_size == int(prior.get("size") or -1)):
+            meta = {**base_meta, "start_index": start_index}
+            identity = _part_identity(job, part_hits, meta)
+            if validate_sources:
+                validate_sources()
+            if not _reusable_part(target, prior, identity):
                 update_job(job_id, status="rendering", progress_done=start_index - 1)
                 _write_part(
                     target, extension, part_hits,
-                    {**base_meta, "start_index": start_index},
+                    meta,
                 )
             size = target.stat().st_size
             if size > MAX_OUTPUT_BYTES:
                 raise OutputTooLargeError("单个导出文件超过 128MB，任务已停止。")
-            completed_parts.append({"name": filename, "size": size, "count": len(part_hits)})
+            completed_parts.append({"name": filename, "size": size, "count": len(part_hits),
+                                    "identity": identity, "sha256": _file_digest(target)})
             update_job(
                 job_id,
                 status="collecting",
                 progress_done=start_index + len(part_hits) - 1,
-                manifest_json={"parts": completed_parts},
+                manifest_json={**manifest, "parts": completed_parts},
             )
             renew_lease(job_id, worker_id)
             record_worker_heartbeat(worker_id, job_id)
@@ -989,14 +1067,18 @@ def run_job(
         if count <= SINGLE_FILE_HIT_LIMIT:
             hits = list(iter_hits(job, result_limit + 1))
             emitted = len(hits)
+            if validate_sources:
+                validate_sources()
             if emitted != count:
-                raise RetryableExportError("检索数据在导出期间发生变化，任务将重新核对。")
+                raise CountMismatchError(count, emitted)
             filename = f"{safe_query}_引文检索汇编.{extension}"
             target = directory / filename
             prior = valid_existing.get(filename)
-            if not (prior and target.is_file() and target.stat().st_size == int(prior.get("size") or -1)):
+            meta = {**base_meta, "start_index": 1}
+            identity = _part_identity(job, hits, meta)
+            if not _reusable_part(target, prior, identity):
                 update_job(job_id, status="rendering")
-                _write_part(target, extension, hits, {**base_meta, "start_index": 1})
+                _write_part(target, extension, hits, meta)
             if target.stat().st_size > MAX_OUTPUT_BYTES:
                 raise OutputTooLargeError("导出文件超过 128MB，任务已停止。")
             update_job(
@@ -1004,7 +1086,9 @@ def run_job(
                 status="collecting",
                 progress_done=count,
                 manifest_json={
-                    "parts": [{"name": filename, "size": target.stat().st_size, "count": count}]
+                    **manifest,
+                    "parts": [{"name": filename, "size": target.stat().st_size, "count": count,
+                               "identity": identity, "sha256": _file_digest(target)}]
                 },
             )
             renew_lease(job_id, worker_id)
@@ -1039,7 +1123,9 @@ def run_job(
                 part_number += 1
                 finish_part(part_hits, part_number, part_start, part_key or ("", "资料", 0))
             if emitted != count:
-                raise RetryableExportError("检索数据在导出期间发生变化，任务将重新核对。")
+                if validate_sources:
+                    validate_sources()
+                raise CountMismatchError(count, emitted)
             update_job(job_id, status="packaging", progress_done=count)
             part_paths = [directory / str(item["name"]) for item in completed_parts]
             output_name = f"{safe_query}_引文检索汇编_{count}条.zip"
@@ -1047,6 +1133,10 @@ def run_job(
             _zip_parts(final_path, part_paths)
             if final_path.stat().st_size > MAX_OUTPUT_BYTES:
                 raise OutputTooLargeError("压缩包超过 128MB，任务已停止。")
+        if validate_sources:
+            validate_sources()
+        final_manifest = dict((get_job(job_id) or {}).get("manifest") or {})
+        final_manifest.update(verified_count=count, artifact_sha256=_file_digest(final_path))
         completed = update_job(
             job_id,
             status="complete",
@@ -1055,6 +1145,7 @@ def run_job(
             output_path=str(final_path.resolve()),
             output_name=output_name,
             output_size=final_path.stat().st_size,
+            manifest_json=final_manifest,
             expires_at=utc_text(utc_now() + timedelta(hours=RETENTION_HOURS)),
             error="",
             lease_owner="",
@@ -1067,6 +1158,15 @@ def run_job(
         )
     except PausedExportError as exc:
         return pause_job(job_id, str(exc))
+    except ExportSourceChangedError as exc:
+        return requeue_job(job_id, str(exc), error_code="source_changed", retryable=False)
+    except CountMismatchError as exc:
+        return requeue_job(job_id, str(exc), error_code="count_mismatch", diagnostics={
+            "expected_count": exc.expected, "actual_count": exc.actual,
+            "stage": "collecting", "attempt": int(job.get("attempts") or 0),
+            "corpus_version": job["corpus_version"], "template_version": job["template_version"],
+            "content_version": EXPORT_CONTENT_VERSION,
+        })
     except RetryableExportError as exc:
         return requeue_job(job_id, str(exc))
     except Exception as exc:
@@ -1087,6 +1187,10 @@ def public_payload(job: dict) -> dict:
         "output_name": str(job.get("output_name") or ""),
         "output_size": int(job.get("output_size") or 0),
         "error": str(job.get("error") or ""),
+        "error_code": str((job.get("manifest") or {}).get("error_code") or "") if job.get("error") else "",
+        "attempts": int(job.get("attempts") or 0),
+        "max_attempts": MAX_ATTEMPTS,
+        "retryable": job.get("status") == "queued" and int(job.get("attempts") or 0) < MAX_ATTEMPTS,
         "created_at": str(job.get("created_at") or ""),
         "updated_at": str(job.get("updated_at") or ""),
         "expires_at": str(job.get("expires_at") or ""),
