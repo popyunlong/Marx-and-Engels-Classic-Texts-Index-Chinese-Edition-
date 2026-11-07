@@ -8,7 +8,7 @@
 |---|---|---|---|
 | WorkBuddy 5.9.3 | Connector ZIP、Token 表单、streamableHttp 配置 | SDK 1.29.0 首次通过，协议 2025-11-25 | 未完成；导航已恢复，编辑/发送及画面捕获受阻 |
 | DeepSeek Harness 0.2.1-rc.2 | 当前版凭据引用 YAML、旧版环境变量兼容 YAML | SDK 2.2.0 首次通过，自动协商 2026-07-28 | 未完成；临时配置已回退 |
-| Codex | 远程 MCP TOML、bearer_token_env_var | 未执行 Codex 本体验证 | 未执行 |
+| Codex 0.167.0-alpha.3.2 | 远程 MCP TOML、bearer_token_env_var | 原生 app-server 工具调用链首次通过 | 原生连接/查询/正文/限流已验证；桌面与模型工具选择未覆盖 |
 
 两项 SDK 场景通过本机安装包的官方客户端库分别完成：发现四工具 → list_sources → search_corpus → get_passage → get_api_limits → 名额忙时解析 isError、concurrency_limited 和等待秒数。证据在 outputs 下 bundled-sdk；不得把它们称为桌面导入或模型工具调用已通过。
 
@@ -34,7 +34,11 @@
 
 ## Codex
 
-合并 `codex.toml` 中的 MCP 条目，通过 bearer_token_env_var 读取个人 Key。当前聊天运行在 Codex 中不代表已连接新 MCP。未为本轮修改用户 Codex 配置，未进行 Codex UI 自动化或发起新的模型任务。
+合并 `codex.toml` 中的 MCP 条目，通过 bearer_token_env_var 读取个人 Key。当前聊天运行在 Codex 中不代表已连接新 MCP。
+
+已使用实际安装的 Codex 0.167.0-alpha.3.2 app-server，通过环境变量注入测试 Key、命令行临时覆盖服务配置，创建不持久化的测试上下文，直接执行原生 `mcpServer/tool/call`。Bearer 认证、四工具发现、来源/检索/正文/额度及繁忙错误均首次通过。没有启动模型轮次、创建用户聊天或修改 config.toml，测试进程和 Key 已收回。证据在 outputs 下 codex-native 的 summary.json 与 RPC trace。
+
+此场景验证原生 MCP 调用链；没有覆盖桌面配置导入或模型自动选工具。协议参照安装版生成的 schema 和[官方 app-server 文档](https://learn.chatgpt.com/docs/app-server)，不依赖 Codex UI 自动化。
 
 ## 后续真实客户端场景
 

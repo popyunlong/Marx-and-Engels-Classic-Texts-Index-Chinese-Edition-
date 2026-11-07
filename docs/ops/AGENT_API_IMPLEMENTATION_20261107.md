@@ -31,10 +31,13 @@ OpenAPI、逐工具输入/输出 schema、WorkBuddy Connector ZIP、Harness 当�
 | 用户明确授权的两项复测 | passed | 契约细化后的 HTTP 联调；仅 OpenAPI/WorkBuddy 配置一致性用例 1 passed |
 | WorkBuddy 安装包 SDK 1.29.0 首次兼容验证 | passed | 2025-11-25、发现四工具、来源/检索/正文/额度、结构化输出及繁忙错误 |
 | Harness 安装包 SDK 2.2.0 首次兼容验证 | passed | 自动协商 2026-07-28、相同四工具流程与错误解析 |
+| Codex 0.167.0-alpha.3.2 原生 app-server 首次验证 | passed | 环境变量 Bearer、四工具发现和直接调用、查询/正文/额度、繁忙错误；不持久化上下文，零模型轮次 |
 | 旧版主端 MCP 退役首次集成 | passed | 隔离 ss/systemctl 边界，确认回退至无 MCP 的旧版本时删除路由并停止、禁用遗留主端适配器 |
 | 原始差异/脚本语法检查 | passed | 台账 static 对应版本；未单独重跑 |
 
 两项 SDK 验证直接使用本机安装包的官方客户端库，通过既有 Electron Node 运行时调用本机隔离服务；没有重下依赖或借用会员凭证。它们不能替代桌面导入、凭据表单、模型工具选择和完整 Agent 循环验收。
+
+Codex 另完成原生 app-server 调用链验证，使用安装版生成的协议 schema 与官方 app-server 文档。临时覆盖仅在测试进程命令行，Key 经环境变量提供；没有改写 CODEX_HOME、config.toml 或创建持久聊天，没有启动模型轮次。summary 与脱敏 RPC trace 保存在 outputs/codex-native。安装版协议参考快照约 4.6 MB，保留为该次原生验证的版本证据。
 
 发布审阅补齐了一处旧版回退遗漏：恢复不含 MCP 的主端时，除删路由，还要退役失败发布留下的主端 MCP 单元。新隔离场景首次通过；它使用操作系统边界替身，不是 Linux/systemd/Caddy 发布事务实机演练。最新 helper 不沿用旧版独立语法检查结论。
 
@@ -48,7 +51,7 @@ Harness 已正常重开并恢复匹配的截图/控件树；临时条目准备�
 
 ## 尚待完成
 
-- 三个桌面/Agent 客户端的真实操作链路；WorkBuddy SDK 与 Harness SDK 已验证，桌面及 Codex 本体仍未验收。
+- WorkBuddy/Harness 桌面实际操作及三端模型自动选工具的流程；两端 SDK 与 Codex 原生工具调用链已通过，不能扩大成全桌面/Agent 循环通过。
 - Connector ZIP 实际导入及凭据表单、真实网页视觉回归。
 - Linux/Python 3.11 依赖安装、文件锁平台验证、真实 systemd/Caddy 发布与回滚、生产容量、全量集成/发布门禁。
 

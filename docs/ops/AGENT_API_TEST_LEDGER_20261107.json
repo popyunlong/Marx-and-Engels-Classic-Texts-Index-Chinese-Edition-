@@ -319,12 +319,34 @@
       },
       "exit_code": 0,
       "finished": "2026-11-07T16:30:51.426870+00:00"
+    },
+    {
+      "phase": "codex-native-app-server-first",
+      "status": "passed",
+      "started": "2026-11-07T16:43:38.969699+00:00",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\codex-native",
+      "scope": "Native installed Codex app-server: Bearer env, ephemeral context, discovery and direct MCP tool calls; no model turn, persistent chat or UI automation.",
+      "source_sha256": {
+        "agent_api_contract.py": "86cccb5e33f1c61daec0a8886d7461163a159ba56fcbac3bc3057b1271a8bcdd",
+        "agent_api_mcp.py": "efff1c2ce47a10a6e28d6d57c38b4c4deb8eff2f647636b531bf0eaca8351a21",
+        "agent_api_service.py": "42003160b9db89f780c87b19c6fcd66e5dd7cb87d3daa53aceae1c5d2c758d2c",
+        "agent_api_store.py": "6a4e665e7d3452332ff7c501f3a88c6a51a98c598251e5d408fb7ddc566b4497",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e",
+        "agent_api_codex_native_once.py": "edf0e8a8dad2ad14ccaac663a6c492674eef41ca1d813f72175c187c7a1410fa"
+      },
+      "cli_version": "codex-cli 0.167.0-alpha.3.2",
+      "ephemeral_context_created": true,
+      "finished": "2026-11-07T16:44:02.609571+00:00",
+      "synthetic_keys_revoked": true,
+      "model_turns_started": 0,
+      "persistent_chat_created": false,
+      "user_config_modified": false
     }
   ],
   "not_run": [
     "WorkBuddy real client",
     "DeepSeek Harness real client",
-    "Codex real client",
+    "Codex desktop and model-driven tool selection",
     "Linux production release/rollback",
     "production capacity/load"
   ],
@@ -361,7 +383,9 @@
     },
     "Codex": {
       "installed": true,
-      "acceptance": "not_started; running this chat is not an MCP client test"
+      "acceptance": "Native installed app-server direct MCP chain passed; desktop/model-driven flow not tested",
+      "version": "0.167.0-alpha.3.2",
+      "summary": "D:\\CodexData\\outputs\\agent-query-api-20261107\\codex-native\\summary.json"
     },
     "configuration_changes_to_user_profiles": "none",
     "connector_package": {
@@ -427,6 +451,12 @@
       "status": "passed",
       "summary": "D:\\CodexData\\outputs\\agent-query-api-20261107\\bundled-sdk\\harness-sdk-summary.json",
       "desktop_or_agent_loop_verified": false
+    },
+    "codex_native": {
+      "version": "0.167.0-alpha.3.2",
+      "status": "passed",
+      "summary": "D:\\CodexData\\outputs\\agent-query-api-20261107\\codex-native\\summary.json",
+      "coverage": "Native app-server direct MCP tools in an ephemeral context; 0 model turns; no user config changes."
     }
   },
   "final_baseline_review": {

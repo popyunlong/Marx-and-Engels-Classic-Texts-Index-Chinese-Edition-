@@ -33,6 +33,8 @@ WorkBuddy 可导入包为 `static/agent-api/workbuddy-connector.zip`；三端分
 
 本机安装包的 WorkBuddy SDK 1.29.0（2025-11-25）和 Harness SDK 2.2.0（2026-07-28）已分别首次完成四工具与限流错误兼容验证。桌面导入、模型工具选择和完整 Agent 循环仍待验收。Harness 0.2.1 安装版的环境变量配置另见 `deepseek-harness-0.2.1.yaml`，不以新文档推断旧版本支持全部凭据模板字段。
 
+Codex 0.167.0-alpha.3.2 原生 app-server 的环境变量鉴权、四工具调用及限流解析也已首次通过；使用不持久化的测试上下文，没有启动模型推理或改动用户配置。该证据验证原生调用链，不代表桌面配置和模型选工具均已通过。
+
 - [Codex 官方配置](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 - [WorkBuddy 官方连接器说明](https://open.workbuddy.cn/docs/connector)
 - [DeepSeek Harness 官方配置](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.zh.md)
