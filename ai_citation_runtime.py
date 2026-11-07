@@ -153,6 +153,7 @@ def card(A, base: dict, passage: dict, records: list[dict], viewer_allowed: bool
     evidence = []
     seen = set()
     for record in records:
+        variant = {k: record[k] for k in ("kind", "answer_text", "source_text", "differences", "edit_count", "verification_reason") if k in record} if record.get("answer_text") else {}
         spans = record.get("quotes") or []
         if not spans:
             sentence = A._best_review_cited_sentence_in_passage(source, [record["unit"]])
@@ -193,9 +194,9 @@ def card(A, base: dict, passage: dict, records: list[dict], viewer_allowed: bool
             if not matched:
                 identity = (None, C.key(span), record["kind"])
                 if identity not in seen:
-                    evidence.append({"kind": record["kind"], "context": span,
+                    evidence.append({**variant, "kind": record["kind"], "context": span,
                                      "text_verified": record["kind"] == "quote",
-                                     "quote": span if record["kind"] == "quote" else "", "location_status": "unresolved",
+                                     "quote": record.get("answer_text", span if record["kind"] == "quote" else ""), "location_status": "unresolved",
                                      "pdf_page": None, "printed_page": "", "viewer_url": "",
                                      "citation": "原文片段已匹配，具体页码待核验", "citations": {}})
                     seen.add(identity)
@@ -206,9 +207,10 @@ def card(A, base: dict, passage: dict, records: list[dict], viewer_allowed: bool
                     continue
                 seen.add(identity)
                 ev = {k: v for k, v in item.items() if k not in {"source_text", "span"}}
+                ev.update(variant)
                 ev.update(text_verified=record["kind"] == "quote",
                           context=A._review_evidence_context(item["span"], [item["span"]], metadata=base),
-                          quote=span if record["kind"] == "quote" else "", location_status="verified", viewer_url="")
+                          quote=record.get("answer_text", span if record["kind"] == "quote" else ""), location_status="verified", viewer_url="")
                 if viewer_allowed:
                     ev["viewer_url"] = A.url_for("pdf_viewer", file=item["source_file"], page=item["pdf_page"],
                                                  q=topic, h=item["span"], section=base.get("section_title") or "",

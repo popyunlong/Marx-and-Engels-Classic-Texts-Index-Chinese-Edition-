@@ -523,15 +523,33 @@
   function ctxHtml(text) {
     return esc(String(text || "")).replace(/\[\[H\]\]/g, "<mark>").replace(/\[\[\/H\]\]/g, "</mark>");
   }
+  function variantNote(ev) {
+    var changes = (ev.differences || []).map(function(d) {
+      return "回答“" + (d.answer || "（缺字）") + "” / 原文“" + (d.source || "（无此字）") + "”";
+    });
+    return [ev.verification_reason || "文字有差异，不等于逐字核验通过", changes.join("；")].filter(Boolean).join("；");
+  }
+  root.addEventListener("click", function(event) {
+    var label = event.target.closest("[data-variant-detail]");
+    if (!label) return;
+    var answer = label.closest(".msg"), citations = answer && answer.querySelector(".ai-citations");
+    if (!citations) return;
+    citations.classList.remove("aip-cites-collapsed");
+    citations.querySelector(".ai-citations-toggle").setAttribute("aria-expanded", "true");
+    citations.querySelectorAll(".aip-variant-detail").forEach(function(detail) { detail.open = true; });
+    var detail = citations.querySelector(".aip-variant-detail");
+    if (detail) detail.scrollIntoView({block:"center", behavior:"auto"});
+  });
   function renderEvidenceLinks(evidence) {
     if (!Array.isArray(evidence) || !evidence.length) return "";
     var links = [];
     for (var i = 0; i < evidence.length; i++) {
       var ev = evidence[i] || {};
-      var kindLabel = ev.kind === "paraphrase" ? "转述出处" : "逐字引文";
+      var kindLabel = window.AipQuoteVariants.labels[ev.kind] || (ev.kind === "paraphrase" ? "转述出处" : "逐字引文");
       var pageLabel = ev.printed_page ? ("第 " + ev.printed_page + " 页") : (ev.pdf_page ? ("第 " + ev.pdf_page + " 页（PDF）") : "");
       var citationText = pickCite(ev) || (kindLabel + (pageLabel ? " · " + pageLabel : " · 页码待核验"));
       links.push('<div class="aip-cite-evidence"><div' + (citeDataAttr(ev) ? ' data-citations="' + citeDataAttr(ev) + '"' : '') + '>' + esc(citationText) + '</div>' +
+        (ev.answer_text ? '<details class="aip-variant-detail"><summary>' + esc(kindLabel) + ' · 查看原文对照</summary><p>回答片段：' + esc(ev.answer_text) + '</p><p>检索原文：' + esc(ev.source_text || '') + '</p><p class="aip-variant-diff">' + esc(variantNote(ev)) + '</p></details>' : '') +
         (ev.context ? '<div class="ai-citation-ctx">' + ctxHtml(ev.context) + '</div>' : '') +
         (ev.viewer_url ? '<a class="ai-citation-open" href="' + escAttr(ev.viewer_url) + '" target="_blank" rel="noopener">' +
         esc(kindLabel + (pageLabel ? " · " + pageLabel : "")) + ' →</a>' : '') + '</div>');
@@ -620,13 +638,14 @@
       var index = citation.grounding_index || citation.review_index;
       if (!refs.has(Number(index))) return;
       (citation.evidence || []).forEach(function (ev) {
-        if (ev.kind !== "quote" || !ev.quote || !(ev.text_verified === true || ev.location_status === "verified")) return;
+        var variant = ev.kind === "approximate_quote" || ev.kind === "elided_quote";
+        if (!ev.quote || !(variant || (ev.kind === "quote" && ev.text_verified === true))) return;
         var needle = quoteDisplayMap(ev.quote).text;
         if (needle.length < 4) return;
         var at = map.text.indexOf(needle);
         while (at >= 0) {
           var left = map.starts[at], right = map.ends[at + needle.length - 1];
-          if (needle.length >= 20 || quoteBlock || (/[“「『"']/.test(text.slice(left-1,left)) && /[”」』"']/.test(text.slice(right,right+1)))) {
+          if (variant || needle.length >= 20 || quoteBlock || (/[“「『"']/.test(text.slice(left-1,left)) && /[”」』"']/.test(text.slice(right,right+1)))) {
             if (/[“「『"']/.test(text.slice(left-1,left)) && /[”」』"']/.test(text.slice(right,right+1))) { left--; right++; }
             ranges.push([left, right]);
           }
@@ -654,7 +673,7 @@
       else groups.push({text:line, prose:!barrier && !fenced});
     });
     fenced = false;
-    return groups.map(function (group) {
+    var projected = groups.map(function (group) {
       var line = group.text;
       if (/^\s*(?:```|~~~)/.test(line)) { fenced = !fenced; return line; }
       if (fenced || /^\s*#/.test(line)) return line;
@@ -666,7 +685,7 @@
         var id = Number(card.grounding_index || card.review_index);
         if (!id) return;
         (card.evidence || []).forEach(function (ev) {
-          if (ev.kind !== "quote" || !ev.quote || !(ev.text_verified === true || ev.location_status === "verified")) return;
+          if (ev.kind !== "quote" || !ev.quote || ev.text_verified !== true) return;
           var needle = quoteDisplayMap(ev.quote).text;
           if (needle.length < 4) return;
           var at = map.text.indexOf(needle);
@@ -703,6 +722,7 @@
       });
       return line;
     }).join("\n");
+    return typeof window !== "undefined" && window.AipQuoteVariants ? window.AipQuoteVariants.mark(projected, message.citations) : projected;
   }
   function renderAnswerMarkdown(message, exporting) {
     message = Object.assign({}, message, { content: quoteDisplayContent(message) });
@@ -730,10 +750,24 @@
           fragment.appendChild(document.createTextNode(text.slice(cursor))); item.node.replaceWith(fragment);
         });
       });
+      root.querySelectorAll("p,li,td").forEach(function(block) {
+        if (block.querySelector("p,li,td")) return;
+        var walker = document.createTreeWalker(block, 4), nodes = [], node;
+        while ((node = walker.nextNode())) if (!node.parentElement.closest("code,pre,a")) nodes.push(node);
+        nodes.forEach(function(node) {
+          if (!/〔(?:近似引文|节引|待核验)〕/.test(node.textContent)) return;
+          var frag=document.createDocumentFragment();
+          node.textContent.split(/(〔(?:近似引文|节引|待核验)〕)/).forEach(function(s) {
+            if (/^〔/.test(s)) {var label=document.createElement("button");label.type="button";label.className="aip-variant-label";label.textContent=s;label.setAttribute("data-variant-detail", "1");frag.appendChild(label);}
+            else frag.appendChild(document.createTextNode(s));
+          });node.replaceWith(frag);
+        });
+      });
       return root.innerHTML;
     } catch (_) { return html; }
   }
   function numberMessageCitations(message) {
+    message = window.AipQuoteVariants.project(message);
     if (!message || message.role !== "assistant" || !Array.isArray(message.citations) || !message.citations.length) return message;
     var cards = {}, ids = [], order = [], map = {};
     message.citations.forEach(function (card, i) {
@@ -788,6 +822,7 @@
       return '<div class="msg assistant' + (isResearch ? " research" : "") + '">' +
         '<div class="msg-head"><span class="msg-title">' + kindPill + "AI 回答</span>" + exportTools + "</div>" +
         '<div class="msg-body' + (isResearch ? " aip-essay" : "") + '">' + renderAnswerMarkdown(message, false) + "</div>" +
+        (message.pending ? '<div class="aip-progress" role="status">' + esc(message.progress || "正在生成后续内容") + '</div>' : '') +
         renderWarnings(message.warnings) + renderCitations(message) + renderSources(message.sources) +
         (message.continueRequestId && !streaming ? '<button type="button" class="aip-secondary" data-continue-index="' + messageIndex + '">继续完成</button>' : "") + "</div>";
     }).join("");
@@ -1111,6 +1146,7 @@
     (Array.isArray(message.citations) ? message.citations : []).forEach(function (citation, index) {
       var number = String(citation.grounding_index || citation.review_index || (index + 1));
       var text = selectedCitation(citation);
+      (citation.evidence || []).forEach(function(ev) { if(ev.answer_text) text += "；" + window.AipQuoteVariants.labels[ev.kind] + "：回答片段“" + ev.answer_text + "”；检索原文“" + ev.source_text + "”；" + variantNote(ev); });
       if (text) map[number] = text;
     });
     return map;
@@ -1612,7 +1648,7 @@
     // 上下文与 evidence。这样容量降级后仍能显示「引用原文」索引和引用格式选择。
     var keep = ["grounding_index", "review_index", "citation", "citations", "viewer_url", "book", "volume",
       "title", "source_file", "pdf_page", "pdf_pages", "printed_page", "subject_label", "review_quoted", "review_quote_unmatched",
-      "document_id", "work_title", "work_authors", "provenance_verified", "kind", "quote", "text_verified", "location_status", "printed_pages", "page_refs", "page_location", "quote_page_verified", "candidate_pdf_pages"];
+      "document_id", "work_title", "work_authors", "provenance_verified", "kind", "quote", "text_verified", "location_status", "printed_pages", "page_refs", "page_location", "quote_page_verified", "candidate_pdf_pages", "answer_text", "source_text", "differences", "edit_count", "verification_reason"];
     var out = {};
     keep.forEach(function (key) { if (citation[key] !== undefined) out[key] = citation[key]; });
     if (!textOnly && citation.context) out.context = String(citation.context).slice(0, 360);
@@ -2536,6 +2572,8 @@
     var bottom = document.querySelector("body.v2 .v2tabbar");
     root.style.setProperty("--aip-header-height", (header ? header.getBoundingClientRect().height : 0) + "px");
     root.style.setProperty("--aip-bottom-height", (bottom ? bottom.getBoundingClientRect().height : 0) + "px");
+    var composer = document.getElementById("aipComposer");
+    root.style.setProperty("--aip-composer-height", (composer ? composer.getBoundingClientRect().height : 0) + "px");
     if (!drawerMedia.matches) closeSessionsDrawer();
     positionScopePanel();
   }
@@ -2546,7 +2584,7 @@
   }
   if (window.ResizeObserver) {
     var shellObserver = new ResizeObserver(updateShellOffsets);
-    [document.querySelector("body.v2 .v2nav") || $(".aip-topbar"), document.querySelector("body.v2 .v2tabbar")].forEach(function (el) {
+    [document.querySelector("body.v2 .v2nav") || $(".aip-topbar"), document.querySelector("body.v2 .v2tabbar"), document.getElementById("aipComposer")].forEach(function (el) {
       if (el) shellObserver.observe(el);
     });
     if (scopePanel) new ResizeObserver(positionScopePanel).observe(scopePanel);
@@ -2780,6 +2818,8 @@
     syncRetrievalUI();
   }
   function applyDepthUI(forceDefaultModel) {
+    var description = document.getElementById("aipDepthDescription");
+    if (description) description.textContent = depth === "comprehensive" ? "管理员试用 · 按需检索与写作，正文分段呈现" : depth === "research" ? "深入研究，核验原文与出处" : "连续问答，可按需检索引文库";
     depthTabs.forEach(function (t) {
       var d = t.getAttribute("data-depth");
       if (d === "comprehensive") t.hidden = !depthAllowed(d);
@@ -3041,8 +3081,14 @@
           if (abort && abort.signal.aborted) return;
           var elapsed = Number(progress.elapsed_seconds || 0);
           assistant.progress = String(progress.message || "AI 正在生成") + (elapsed ? "（" + elapsed + "秒）" : "");
-          if (progress.checkpoint) { acceptCheckpoint(assistant, progress.checkpoint); saveMessages(); }
-          renderMessages();
+          if (progress.checkpoint) {
+            var scrollY = window.scrollY;
+            acceptCheckpoint(assistant, progress.checkpoint); saveMessages(); renderMessages();
+            window.scrollTo(window.scrollX, scrollY);
+          } else {
+            var status = messagesEl.querySelector('.aip-progress') || messagesEl.querySelector('.pending .msg-title');
+            if (status) status.textContent = assistant.progress;
+          }
         });
       }
       return parseJsonResponse(resp);

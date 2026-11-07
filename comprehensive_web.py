@@ -9,6 +9,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import abort, copy_current_request_context, g, jsonify, request, Response, stream_with_context
 import ai
@@ -175,7 +176,16 @@ def register(A):
             job = {"created": now, "digest": digest, "scope": request_scope, "finished": False,
                    "checkpoint": {}, "state": {}, "result": None}
             _jobs[key] = job
-        progress = {"message": "正在理解任务"}
+        progress = {"message": "正在排队", "phase": "queued"}
+        timings = {}
+        phase_started = time.monotonic()
+        def stage(phase, message):
+            nonlocal phase_started
+            now = time.monotonic()
+            old = progress.get("phase", "queued")
+            timings[old] = timings.get(old, 0) + now-phase_started
+            phase_started = now
+            progress.update(phase=phase, message=message)
         request_g = dict(vars(g._get_current_object()))
         calls, warnings = [], []
         public_books = A._public_book_keys()
@@ -197,7 +207,7 @@ def register(A):
                 if not slot:
                     raise ai.AIServiceError("任务已停止或排队超时。")
                 try:
-                    def call(messages, max_tokens):
+                    def call(messages, max_tokens, streaming=False):
                         if cancel_event.is_set() or time.monotonic() >= deadline:
                             raise ai.AIServiceError("本次任务已达到时间预算，可继续完成。")
                         # Recheck authoritative rights and current balance before *every* hidden/visible call.
@@ -211,6 +221,27 @@ def register(A):
                             budget = min(budget, remaining)
                             if budget < 256:
                                 raise ai.AIServiceError("本周 AI 额度不足，可补充额度后继续。")
+                        if streaming:
+                            def tokens():
+                                collected = []
+                                try:
+                                    with ai.research_ai_http_context(), ai.ai_call_context(
+                                        user_id=uid, feature="comprehensive-chat", charge_user=charge, provider_call_ids=calls):
+                                        upstream = A.AI_CLIENT.chat_complete_stream(messages, max_tokens=budget,
+                                            provider=checked["provider"], model=checked["model"], reasoning_effort=checked["reasoning_effort"],
+                                            http_timeout=max(1, min(480, deadline-time.monotonic())),
+                                            should_cancel=cancel_event.is_set, deadline=deadline)
+                                        try:
+                                            for token in upstream:
+                                                collected.append(token)
+                                                yield token
+                                        finally:
+                                            if hasattr(upstream, "close"):
+                                                upstream.close()
+                                finally:
+                                    if not charge and not A._is_admin_user(user):
+                                        quota["weekly_used"] = int(quota.get("weekly_used") or 0) + A._estimate_tokens_from_text(messages, "".join(collected))
+                            return tokens()
                         with ai.research_ai_http_context(), ai.ai_call_context(
                             user_id=uid, feature="comprehensive-chat", charge_user=charge, provider_call_ids=calls):
                             result = A.AI_CLIENT.chat_complete(messages, max_tokens=budget,
@@ -223,6 +254,7 @@ def register(A):
 
                     effective_question = previous["state"].get("question", question) if previous else question
                     history = tasks.history_context(payload.get("messages"), effective_question)
+                    stage("planning", "正在理解任务")
                     plan = tasks.plan_task(question, history, call) if not previous else copy.deepcopy(previous["state"]["plan"])
                     if automatic:
                         selection = A._resolve_ai_selection_or_abort(tasks.choose_model(rights, plan["complex"]), feature="comprehensive-chat")
@@ -239,10 +271,46 @@ def register(A):
                         passages, citations, scope_meta = copy.deepcopy(state["passages"]), copy.deepcopy(state["citations"]), state["scope_meta"]
                         answer, done = state.get("answer", ""), state.get("done", 0)
                         plan = copy.deepcopy(state["plan"])
-                    progress["message"] = "正在查阅背景与组织材料"
                     web_payload = {**payload, "web_mode": mode}
-                    web = prepare_web(A, web_payload, selection, plan=plan, deadline=deadline, cancelled=cancel_event.is_set,
-                                      previous_state=previous["state"] if previous else None)
+                    needs_web = mode != "off" and (mode == "always" or plan.get("needs_web"))
+                    needs_corpus = not previous and grounding != "off" and (grounding == "always" or plan["needs_corpus"] or request_scope not in ("auto", "all", None))
+                    stage("retrieving" if needs_corpus else "web" if needs_web else "writing",
+                          "\u6b63\u5728\u68c0\u7d22\u539f\u6587\u4e0e\u67e5\u9605\u80cc\u666f" if needs_corpus and needs_web else "\u6b63\u5728\u68c0\u7d22\u539f\u6587" if needs_corpus else "\u6b63\u5728\u67e5\u9605\u80cc\u666f" if needs_web else "\u6b63\u5728\u7ec4\u7ec7\u6b63\u6587")
+                    @copy_current_request_context
+                    def fetch_web():
+                        for name, value in request_g.items():
+                            setattr(g, name, value)
+                        return prepare_web(A, web_payload, selection, plan=plan, deadline=deadline,
+                            cancelled=cancel_event.is_set, previous_state=previous["state"] if previous else None)
+                    preparation = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ai-web")
+                    web_future = preparation.submit(fetch_web)
+                    try:
+                        if not previous and grounding != "off" and (grounding == "always" or plan["needs_corpus"] or request_scope not in ("auto", "all", None)):
+                            queries = plan.get("corpus_queries") or [question]
+                            for query in queries:
+                                remaining = 100000-sum(len(p["text"]) for p in passages)
+                                if remaining <= 0 or cancel_event.is_set() or time.monotonic() >= deadline:
+                                    break
+                                terms = A._split_gist_terms(query)
+                                p, c, w, sm = A._build_chat_grounding(question, raw_scope=request_scope, user_id=uid,
+                                    supplied_plan={"keywords": terms, "fragments": terms, "quotes": [], "chapter_keywords": []},
+                                    source_limit=None, context_char_budget=remaining)
+                                scope_meta = sm
+                                warnings.extend(w)
+                                for passage, citation in zip(p, c):
+                                    if any(old["text"] == passage["text"] for old in passages):
+                                        continue
+                                    index = len(passages)+1
+                                    passages.append({**passage, "index": index})
+                                    citations.append({**citation, "grounding_index": index, "source_kind": "corpus"})
+                            if not passages and (scope_meta.get("manual") or scope_meta.get("personal_only")):
+                                raise ai.AIServiceError(warnings[0] if warnings else "指定范围内没有找到可核验原文，请调整问题或范围。")
+                        web = web_future.result()
+                    except BaseException:
+                        cancel_event.set()
+                        raise
+                    finally:
+                        preparation.shutdown(wait=True, cancel_futures=True)
                     if previous and previous["state"].get("web_sources"):
                         # Keep stable W numbers across continuation; avoid replacing earlier citations.
                         if web is None:
@@ -254,37 +322,12 @@ def register(A):
                             if not any(old["url"] == source["url"] for old in web.sources):
                                 source["id"] = "W"+str(len(web.sources)+1)
                                 web.sources.append(source)
-                    if web and web.sources and not previous:
-                        # Web background improves the writing/retrieval plan before collecting corpus evidence.
-                        with ai_web.answer_context(web):
-                            plan = tasks.plan_task(question, history, call)
-                        if automatic:
-                            selection = A._resolve_ai_selection_or_abort(tasks.choose_model(rights, plan["complex"]), feature="comprehensive-chat")
-                    if not previous and grounding != "off" and (grounding == "always" or plan["needs_corpus"] or request_scope not in ("auto", "all", None)):
-                        progress["message"] = "正在检索站内原文"
-                        queries = plan.get("corpus_queries") or [question]
-                        for query in queries:
-                            remaining = 100000-sum(len(p["text"]) for p in passages)
-                            if remaining <= 0 or cancel_event.is_set() or time.monotonic() >= deadline:
-                                break
-                            terms = A._split_gist_terms(query)
-                            p, c, w, sm = A._build_chat_grounding(question, raw_scope=request_scope, user_id=uid,
-                                supplied_plan={"keywords": terms, "fragments": terms, "quotes": [], "chapter_keywords": []},
-                                source_limit=None, context_char_budget=remaining)
-                            scope_meta = sm
-                            warnings.extend(w)
-                            for passage, citation in zip(p, c):
-                                if any(old["text"] == passage["text"] for old in passages):
-                                    continue
-                                index = len(passages)+1
-                                passages.append({**passage, "index": index})
-                                citations.append({**citation, "grounding_index": index, "source_kind": "corpus"})
-                        if not passages and (scope_meta.get("manual") or scope_meta.get("personal_only")):
-                            raise ai.AIServiceError(warnings[0] if warnings else "指定范围内没有找到可核验原文，请调整问题或范围。")
                     job["state"] = {"plan": plan, "question": effective_question, "passages": passages, "citations": citations,
                         "web_sources": copy.deepcopy(web.sources) if web else [],
                         "web_cache": dict(web.cache) if web else {},
                         "scope_meta": scope_meta, "public_books": public_books, "answer": answer, "done": done}
+                    verified_parts = {}
+                    located_cards = {}
                     def verify(text):
                         if A._public_book_keys() != public_books:
                             raise ai.AIServiceError("文库公开状态已变化，请重新检索。")
@@ -293,18 +336,32 @@ def register(A):
                         repaired = A.AI_CLIENT.repair_grounded_answer(text, passages)
                         if repaired.get("issues"):
                             warnings.append("部分引文已作核验修正，请结合出处查看原文。")
-                        return repaired["answer_markdown"]
+                        text = repaired["answer_markdown"]
+                        verified_parts[text] = ai_citations.ledger(text, passages)
+                        return text
                     def checkpoint(text, section, state):
                         job["state"].update(answer=text, done=section)
                         cards = [c for c in citations if c["grounding_index"] in set(A._review_ref_indices(text))]
                         if passages and ai_citations.enabled():
-                            details = ai_citations.ledger(text, passages)
+                            records = []
+                            for part in text.split("\n\n"):
+                                if part not in verified_parts:
+                                    verified_parts[part] = ai_citations.ledger(part, passages)
+                                records.extend(verified_parts[part]["citation_records"])
+                            details = {"answer_markdown": text, "citation_records": records,
+                                       "used_indices": sorted({r["index"] for r in records})}
                             text = details["answer_markdown"]
                             view = A.current_view_state()
                             can_view = bool(view["pdf_enabled"] and A._content_access_enabled("viewer"))
-                            cards = [ai_citation_runtime.card(A, citations[p["index"]-1], p,
-                                [r for r in details["citation_records"] if r["index"] == p["index"]], can_view, effective_question)
-                                for p in passages if p["index"] in details["used_indices"]]
+                            cards = []
+                            for p in passages:
+                                if p["index"] not in details["used_indices"]:
+                                    continue
+                                records = [r for r in details["citation_records"] if r["index"] == p["index"]]
+                                key = (p["index"], can_view, json.dumps(records, ensure_ascii=False, sort_keys=True))
+                                if key not in located_cards:
+                                    located_cards[key] = ai_citation_runtime.card(A, citations[p["index"]-1], p, records, can_view, effective_question)
+                                cards.append(located_cards[key])
                         result = {"ok": True, "answer_markdown": text, "citations": [c for c in citations
                             if c["grounding_index"] in set(A._review_ref_indices(text))],
                             "warnings": list(dict.fromkeys(warnings)), "sources": [], "grounding_scope": scope_meta,
@@ -313,15 +370,20 @@ def register(A):
                         result["citations"] = cards
                         finish_web(result, web)
                         job["checkpoint"] = result
-                        progress.update(message="正在完成正文", checkpoint=result)
+                        if text and "first_visible_seconds" not in timings:
+                            timings["first_visible_seconds"] = time.monotonic()-job["created"]
+                        result["timings"] = dict(timings, total_seconds=time.monotonic()-job["created"])
+                        progress.update(checkpoint=result, checkpoint_version=progress.get("checkpoint_version", 0)+1)
                     with ai_web.answer_context(web):
                         answer, done, status, warning = tasks.generate(effective_question, history, plan, passages, call,
                             deadline=deadline, cancelled=cancel_event.is_set, checkpoint=checkpoint, verify=verify,
-                            previous=answer, completed_sections=done)
+                            previous=answer, completed_sections=done,
+                            stream=lambda messages, budget: call(messages, budget, streaming=True), stage=stage)
                     if warning:
                         warnings.append(warning)
                     if status != "complete":
                         warnings.append("本次保留已完成内容，可选择“继续完成”。")
+                    stage("complete" if status == "complete" else "partial", "回答已完成" if status == "complete" else "已保存完成内容")
                     checkpoint(answer, done, status)
                     result = dict(job["checkpoint"])
                     if answer:
@@ -351,5 +413,5 @@ def register(A):
             job["result"] = result
             return result
         return Response(stream_with_context(A._sse_run_with_heartbeat(slow, finalize,
-            progress_message="正在理解任务", heartbeat_interval=1.0, progress_state=progress)),
+            progress_message="正在排队", heartbeat_interval=1.0, progress_state=progress)),
             mimetype="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

@@ -5,7 +5,7 @@
   <title>AI 研究对话 · {{ app_name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="/static/favicon.ico">
-  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261012-compact-2">
+  <link rel="stylesheet" href="/static/ai-page/ai-page.css?v=20261106">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=20261002-inline-1">
   {% if layout_v2 %}<link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=31">{% endif %}
   {% include '_refined_assets.html' %}
@@ -93,15 +93,16 @@
               <strong>综合模式</strong><span>按需规划、检索与写作</span>
             </button>
             <button type="button" class="aip-depth-tab active" data-depth="quick" role="tab" aria-selected="true">
-              <strong>{{ site_text("ai_page.quick_title") }}</strong>
+              <strong>快速问答</strong>
               <span>{{ site_text("ai_page.quick_description") }}</span>
             </button>
             <button type="button" class="aip-depth-tab tab-research" data-depth="research" role="tab" aria-selected="false">
-              <strong>{{ site_text("ai_page.research_title") }}</strong>
+              <strong>研究综述</strong>
               <span>{{ site_text("ai_page.research_description") }}</span>
             </button>
           </div>
 
+          <p class="aip-depth-description" id="aipDepthDescription" aria-live="polite"></p>
           <div class="aip-opts">
             <div class="aip-provider-row" id="aipProviderRow" hidden>
               <label for="aipModel">模型</label>
@@ -147,7 +148,7 @@
             <div class="aip-mode-switch" role="group" aria-label="提问模式">
               <button type="button" class="aip-mode-button" data-depth="comprehensive" aria-pressed="false" hidden>综合模式</button>
               <button type="button" class="aip-mode-button active" data-depth="quick" aria-pressed="true">快速问答</button>
-              <button type="button" class="aip-mode-button" data-depth="research" aria-pressed="false">研究级检索</button>
+              <button type="button" class="aip-mode-button" data-depth="research" aria-pressed="false">研究综述</button>
             </div>
             <div class="aip-retrieval-actions">
               <label class="aip-web-control">联网
@@ -188,6 +189,7 @@
     </section>
   </div>
   <script src="/static/book-scope/book-scope.js?v=20261002-inline-1" defer></script>
-  <script src="/static/ai-page/ai-page.js?v=20261012-mode-1" defer></script>
+  <script src="/static/ai-page/quote-variants.js?v=20261106" defer></script>
+  <script src="/static/ai-page/ai-page.js?v=20261106" defer></script>
 </body>
 </html>
