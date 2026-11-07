@@ -1,0 +1,280 @@
+{
+  "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+  "scope": "Targeted phased evidence; not a full final-version regression",
+  "authorizations": [
+    "同意上述最小范围各复测一次",
+    "同意，仅复测上述范围一次",
+    "同意，仅此一项一次"
+  ],
+  "paid_model_calls": 0,
+  "production_changed": false,
+  "records": [
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\authorized-recheck.json",
+      "record": {
+        "kind": "authorized-recheck",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:11:02.444913+08:00",
+        "status": "passed",
+        "hashes": {
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4",
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\authorized-recheck.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:11:11.3253423+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\backend.json",
+      "record": {
+        "kind": "backend",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:06:08.329531+08:00",
+        "status": "failed",
+        "hashes": {
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4",
+          "tests/test_comprehensive_mode.py": "3AAF5099BE0FB142F0922EA6DBEF836D502F4C1FB9B72699C50F1A8D0F8EAE13",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB",
+          "tests/browser/serve_ai_fixture.py": "1EC311296C19238206828E47614BB9DADD6795BB5D2260097961C17A8935DA4B",
+          "ai.py": "2294709820DC4C683DCEEBB0BB0A520F11407FDF9EEE4ADDE6EAC903B17EE5BD",
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\backend.log",
+        "exit_code": 1,
+        "finished": "2026-11-07T17:06:19.6588261+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\browser-edges.json",
+      "record": {
+        "kind": "browser-edges",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:11:02.9581639+08:00",
+        "status": "passed",
+        "hashes": {
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4",
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\browser-edges.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:11:07.7875668+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\browser.json",
+      "record": {
+        "kind": "browser",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:06:09.3202264+08:00",
+        "status": "passed",
+        "hashes": {
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741",
+          "tests/test_comprehensive_mode.py": "3AAF5099BE0FB142F0922EA6DBEF836D502F4C1FB9B72699C50F1A8D0F8EAE13",
+          "ai.py": "2294709820DC4C683DCEEBB0BB0A520F11407FDF9EEE4ADDE6EAC903B17EE5BD",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "tests/browser/serve_ai_fixture.py": "1EC311296C19238206828E47614BB9DADD6795BB5D2260097961C17A8935DA4B",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB",
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\browser.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:06:16.232142+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\control-tail.json",
+      "record": {
+        "kind": "control-tail",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:15:51.6737381+08:00",
+        "status": "passed",
+        "hashes": {
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "tests/dialogue_deletion_recovery.cjs": "6F2D525BDF80DB57302183421B6667C4C6609E4F7E52C5885A6A22AB1A8184A1",
+          "ai_generation_protocol.py": "6D801DD6B3E8724C29804D72DD7555DFDCF1CC741389B3184E73EAF953D3D925",
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "tests/test_dialogue_control_tail.py": "BA2FB21BF0AD7EC73A87266B890A6AFCFAB9EC4A19AD5F5AAF40676EC359C6B8",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "tests/browser/dialogue_lifecycle_edges.cjs": "8E3DF488CD2A1C38545F113AFE80FA679256ABA49C7E083188567C0930421D92",
+          "tests/test_dialogue_transport_edges.py": "FBD6F3E66BDC10CE0372C33606C8E400F2B353EC32DEC1911D1A72D82401DC93",
+          "tests/browser/dialogue_lifecycle.cjs": "58C03A4C6F9378ADC9504A13FDF731C501DBF7FA169FEC8450310481ACE7575F",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "static/ai-page/ai-page.js": "66FA3694ED6BCD798B20871F6F56470003216AF09D7824CA00CE99217A5AD68C",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "ai_comprehensive.py": "057FC9EC4D5A7D8A68328946980D164B53A6EFE601EC24966F105E72DBBD192B"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\control-tail.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:15:56.4524152+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\deletion-recovery.json",
+      "record": {
+        "status": "passed",
+        "kind": "new deletion recovery",
+        "started": "2026-11-07T17:13:51.9601394+08:00",
+        "source_sha256": "66FA3694ED6BCD798B20871F6F56470003216AF09D7824CA00CE99217A5AD68C",
+        "exit_code": 0
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\resume-edges.json",
+      "record": {
+        "kind": "resume-edges",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:18:36.2307651+08:00",
+        "status": "failed",
+        "hashes": {
+          "tests/browser/dialogue_lifecycle.cjs": "58C03A4C6F9378ADC9504A13FDF731C501DBF7FA169FEC8450310481ACE7575F",
+          "tests/test_dialogue_control_tail.py": "BA2FB21BF0AD7EC73A87266B890A6AFCFAB9EC4A19AD5F5AAF40676EC359C6B8",
+          "ai_comprehensive.py": "057FC9EC4D5A7D8A68328946980D164B53A6EFE601EC24966F105E72DBBD192B",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "tests/test_dialogue_transport_edges.py": "FBD6F3E66BDC10CE0372C33606C8E400F2B353EC32DEC1911D1A72D82401DC93",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E",
+          "static/ai-page/ai-page.js": "66FA3694ED6BCD798B20871F6F56470003216AF09D7824CA00CE99217A5AD68C",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "tests/test_dialogue_resume_edges.py": "E6A8067AB20FE83563B8DA468290709FBDD80E1DA5FB00518F51394C8403055F",
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "comprehensive_web.py": "182E10ADFB947499625EC0F0EDCE28C1BC7BE0D0FE8359AF3A1E3ED98CBCC7F5",
+          "ai_generation_protocol.py": "6D801DD6B3E8724C29804D72DD7555DFDCF1CC741389B3184E73EAF953D3D925",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "tests/dialogue_deletion_recovery.cjs": "6F2D525BDF80DB57302183421B6667C4C6609E4F7E52C5885A6A22AB1A8184A1",
+          "ai_generation_flow.py": "0F2F117E2262DC35C4B3F45B34D1EFCD49E8A1D00BBAA2068DE568D3700BEC14",
+          "tests/browser/dialogue_lifecycle_edges.cjs": "8E3DF488CD2A1C38545F113AFE80FA679256ABA49C7E083188567C0930421D92",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\resume-edges.log",
+        "exit_code": 1,
+        "finished": "2026-11-07T17:18:44.1306588+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\scope-recheck.json",
+      "record": {
+        "kind": "scope-recheck",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:20:19.478556+08:00",
+        "status": "passed",
+        "hashes": {
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "ai_generation_protocol.py": "6D801DD6B3E8724C29804D72DD7555DFDCF1CC741389B3184E73EAF953D3D925",
+          "tests/test_dialogue_control_tail.py": "BA2FB21BF0AD7EC73A87266B890A6AFCFAB9EC4A19AD5F5AAF40676EC359C6B8",
+          "tests/test_dialogue_transport_edges.py": "FBD6F3E66BDC10CE0372C33606C8E400F2B353EC32DEC1911D1A72D82401DC93",
+          "tests/dialogue_deletion_recovery.cjs": "6F2D525BDF80DB57302183421B6667C4C6609E4F7E52C5885A6A22AB1A8184A1",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "tests/test_dialogue_resume_edges.py": "89C7F8342591C104BCB4D053C51DA90F033205B1F356B0B18278466369AADE4A",
+          "ai_generation_flow.py": "0F2F117E2262DC35C4B3F45B34D1EFCD49E8A1D00BBAA2068DE568D3700BEC14",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "ai_comprehensive.py": "057FC9EC4D5A7D8A68328946980D164B53A6EFE601EC24966F105E72DBBD192B",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "comprehensive_web.py": "182E10ADFB947499625EC0F0EDCE28C1BC7BE0D0FE8359AF3A1E3ED98CBCC7F5",
+          "tests/browser/dialogue_lifecycle_edges.cjs": "8E3DF488CD2A1C38545F113AFE80FA679256ABA49C7E083188567C0930421D92",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "static/ai-page/ai-page.js": "66FA3694ED6BCD798B20871F6F56470003216AF09D7824CA00CE99217A5AD68C",
+          "tests/browser/dialogue_lifecycle.cjs": "58C03A4C6F9378ADC9504A13FDF731C501DBF7FA169FEC8450310481ACE7575F",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\scope-recheck.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:20:27.8627511+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\syntax.json",
+      "record": {
+        "kind": "syntax",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:05:53.5933063+08:00",
+        "status": "passed",
+        "hashes": {
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "tests/browser/serve_ai_fixture.py": "1EC311296C19238206828E47614BB9DADD6795BB5D2260097961C17A8935DA4B",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "ai.py": "2294709820DC4C683DCEEBB0BB0A520F11407FDF9EEE4ADDE6EAC903B17EE5BD",
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "tests/test_comprehensive_mode.py": "3AAF5099BE0FB142F0922EA6DBEF836D502F4C1FB9B72699C50F1A8D0F8EAE13"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\syntax.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:05:54.3908386+08:00"
+      }
+    },
+    {
+      "artifact": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\transport-edges.json",
+      "record": {
+        "kind": "transport-edges",
+        "baseline": "d848df34df3056a54b245fe666da9827e71c6eeb",
+        "authorization": "同意上述最小范围各复测一次",
+        "started": "2026-11-07T17:11:02.8708174+08:00",
+        "status": "passed",
+        "hashes": {
+          "tests/test_dialogue_lifecycle.py": "2CE9BACC393D86591E275782C253616A09EECF1F70FF63F260063DCA8B6A5A9F",
+          "static/ai-page/ai-page.js": "42F51EFBB2AD11F0CE068593A6A8A762C67766853F19D57FB07D154460416779",
+          "ai_generation_protocol.py": "8CAB64ED9502E64EEE25994522F34C4787D4447F811912C183A8DC01BB0819FB",
+          "tests/browser/dialogue_lifecycle.cjs": "5268F8F7A7DB45D6E1C05DA4181A55180849015B310CACBDA62668763129D741",
+          "comprehensive_web.py": "DFB5F5B10014A8C7E16BA3C910761CB8C30AD6592FC8393430C2EA2824CC28C2",
+          "tests/browser/serve_ai_fixture.py": "31DA76686A3E722255E5BF9D6FA5F062CEF8696743B9538FE3F8A1C3A2409D32",
+          "ai.py": "C15CFB81E0B03ADF81EBA494AF2045464F2AD5E0FCC9EF72846172921B15E38E",
+          "tests/test_comprehensive_mode.py": "924EEE59290E89E50BB999D40B134D1395447ACA757B1A940E6E9160F2B857EA",
+          "ai_generation_flow.py": "632AA68244E70B61F11C74A43C9BB1208AB05F5342A7FD6A22F42CE5C591A57C",
+          "tests/test_dialogue_polish.py": "57E7582E162B24C2C70FDB6FF777FB300C28043BC65E697085DB6E61933A449C",
+          "templates/ai.html": "F5048069C92EA555D255640AE64558C2739757E63C460FC9013D42DC9A1EA856",
+          "ai_comprehensive.py": "E3032C2D56837E337509A718A449F3B9E73AD536B977FB7F4001CE80FD9E61D4"
+        },
+        "log": "D:\\CodexData\\outputs\\ai-dialogue-lifecycle-fix-20261107\\transport-edges.log",
+        "exit_code": 0,
+        "finished": "2026-11-07T17:11:13.937949+08:00"
+      }
+    }
+  ]
+}

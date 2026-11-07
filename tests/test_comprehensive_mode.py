@@ -71,8 +71,8 @@ def test_short_answer_has_no_word_floor_and_completion_is_checked():
 
 
 def test_requirement_check_requests_missing_part_without_rewriting():
-    replies = iter(["已有分析。<section_complete/>", '{"complete":false,"remaining":["用户要求的比较"]}',
-                    "补充比较。<section_complete/>", '{"complete":true,"remaining":[]}'])
+    replies = iter(["已有分析。<section_complete/>", '{"complete":false,"gaps":[{"requirement_id":"r1","existing_coverage":"已有分析","missing":"比较尚未覆盖","addition":"比较两者差异"}]}',
+                    "补充比较。<section_complete/>", '{"complete":true,"paragraphs":[{"index":0,"requirement_id":"r1","novel":true,"new_information":"两者差异"}]}'])
     result = task.generate("分析并比较", [], {**PLAN, "complex": True, "sections": ["分析"]}, [], lambda *_: next(replies),
         deadline=time.monotonic()+10, cancelled=lambda: False, checkpoint=lambda *_: None, verify=lambda t: t)
     assert result[2] == "complete" and result[0].count("已有分析") == 1 and "补充比较" in result[0]
@@ -204,7 +204,7 @@ def route_fixture(plan=PLAN, passages=None, scope_meta=None):
         calls.append(kwargs)
         if "为用户任务" in messages[0]["content"]:
             return json.dumps(plan, ensure_ascii=False)
-        if "核对正文" in messages[0]["content"]:
+        if "核对正文" in messages[0]["content"] or "只检查原始要求" in messages[0]["content"]:
             return '{"complete":true,"remaining":[]}'
         return "按需回答" + "".join(f"[{p['index']}]" for p in (passages or [])) + "。<section_complete/>"
     p = passages or []

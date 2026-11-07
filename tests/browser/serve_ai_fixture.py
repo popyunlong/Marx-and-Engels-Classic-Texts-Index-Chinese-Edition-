@@ -92,6 +92,34 @@ def polish_stream_fixture():
     return Response(events(), mimetype="text/event-stream")
 
 
+@app.post("/fixture-lifecycle-stream")
+def lifecycle_stream():
+    import json
+    import time
+    from flask import Response
+    def events():
+        result = {"ok": True, "answer_markdown": "Verified checkpoint.", "completion_status": "partial"}
+        yield "event: progress\r\ndata: " + json.dumps({"checkpoint": result, "checkpoint_version": 1}) + "\r\n\r\n"
+        time.sleep(.2)
+        result["completion_status"] = "complete"
+        yield "event: done\r\ndata: " + json.dumps(result) + "\r\n\r\n"
+        time.sleep(5)
+    return Response(events(), mimetype="text/event-stream")
+
+
+@app.post("/fixture-lifecycle-partial")
+def lifecycle_partial():
+    import json
+    import time
+    from flask import Response
+    def events():
+        result = {"ok": True, "answer_markdown": "Saved partial.", "completion_status": "partial", "continue_request_id": "saved-request"}
+        yield "event: progress\ndata: " + json.dumps({"checkpoint": result, "checkpoint_version": 1}) + "\n\n"
+        time.sleep(5)
+        yield "event: done\ndata: " + json.dumps(result) + "\n\n"
+    return Response(events(), mimetype="text/event-stream")
+
+
 if __name__ == "__main__":
     server = make_server("127.0.0.1", 0, app, threaded=True)
     print(f"READY=http://127.0.0.1:{server.server_port}", flush=True)

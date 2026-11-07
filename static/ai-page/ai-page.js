@@ -68,6 +68,8 @@
     assistant.continueRequestId = data.continue_request_id;
     assistant.actualModel = data.actual_model;
     assistant.webStatus = data.web_status;
+    assistant.stopReason = data.stop_reason;
+    assistant._revision = Number(assistant._revision || 0) + 1;
   }
   var clearBtn = $("#aipClear");
   // 本地会话记录侧栏
@@ -151,6 +153,9 @@
   var streaming = false;
   var currentAbort = null;      // 当前在飞请求的 AbortController；「停止回答」即中断它
   var currentPendingAssistant = null;
+  var currentRequest = null;
+  var cloudRefreshPending = false;
+  var sessionEpoch = 0;
   var depth = "quick";
 
   // ===================== 工具 =====================
@@ -182,7 +187,7 @@
     }
     return result;
   }
-  async function readSseResultStream(resp, onProgress) {
+  async function readSseResultStream(resp, onProgress, onActivity) {
     if (!resp.body) {
       var fallback = parseSseResult(await resp.text());
       if (!fallback) throw new Error("回答生成超时或服务繁忙，请稍后重试。");
@@ -194,7 +199,9 @@
     var result = null;
     while (true) {
       var chunk = await reader.read();
+      if (onActivity && !chunk.done) onActivity();
       buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done });
+      buffer = buffer.replace(/\r\n/g, "\n");
       var blocks = buffer.split("\n\n");
       buffer = chunk.done ? "" : (blocks.pop() || "");
       for (var bi = 0; bi < blocks.length; bi++) {
@@ -214,6 +221,7 @@
           throw new Error(data.error || "AI 请求失败");
         } else if (eventName === "done" || !eventName) {
           result = data;
+          if (eventName === "done") { reader.cancel().catch(function () {}); return result; }
         }
       }
       if (chunk.done) break;
@@ -1614,6 +1622,8 @@
       if (payloadScore(existing[key]) > payloadScore(incoming[key])) merged[key] = existing[key];
     });
     if (payloadScore(existing.groundingScope) > payloadScore(incoming.groundingScope)) merged.groundingScope = existing.groundingScope;
+    // Checkpoints are mutable versions of the same message; stale cloud copies cannot roll them back.
+    if (Number(existing._revision || 0) > Number(incoming._revision || 0)) merged = Object.assign({}, incoming, existing);
     if (existing._mid) merged._mid = existing._mid;
     var oldCreated = Number(existing._createdAt || 0), newCreated = Number(incoming._createdAt || 0);
     if (oldCreated && newCreated) merged._createdAt = Math.min(oldCreated, newCreated);
@@ -1680,6 +1690,7 @@
         completionStatus: message.completionStatus, continueRequestId: message.continueRequestId,
         originalQuestion: message.originalQuestion, requestScope: message.requestScope,
         actualModel: message.actualModel, webStatus: message.webStatus, webMode: message.webMode,
+        _revision: message._revision, stopReason: message.stopReason,
         _mid: message._mid,
         _createdAt: message._createdAt,
       };
@@ -1915,7 +1926,12 @@
     }).then(function (saved) {
       if (!saved) {
         showStorageWarning("该会话已在另一个标签页删除，本标签页的迟到写入未覆盖删除结果。");
-        removeLocalConversation(snapshot.id, nowTs()); renderSidebar();
+        preserveDeletedAnswer(snapshot.id);
+        if (streaming && sessionsData.current === snapshot.id) {
+          showStorageWarning("该会话已在另一个标签页删除；当前回答暂留页面，请先导出。");
+          sessionRefreshPending = true;
+        } else { removeLocalConversation(snapshot.id, nowTs()); }
+        renderSidebar();
         return;
       }
       updateLocalSession(saved);
@@ -1937,7 +1953,7 @@
   function saveMessages(options) {
     var s = currentSession();
     if (!s) { s = { id: genId(), title: "新会话", updatedAt: nowTs(), titleUpdatedAt: nowTs(), titleManual: false, clearedAt: 0, messages: [] }; sessionsData.sessions.unshift(s); sessionsData.current = s.id; }
-    s.messages = messages.filter(function (m) { return m && !m.pending; }).map(ensureMessageIdentity);
+    s.messages = storedMessages(messages, 0);
     var autoTitle = deriveTitle(s.messages), saveAt = nowTs();
     if (s.titleManual === undefined) s.titleManual = !!(s.title && s.title !== autoTitle && s.title !== "新会话");
     if (!s.titleManual && s.title !== autoTitle) { s.title = autoTitle; s.titleUpdatedAt = saveAt; }
@@ -2020,7 +2036,9 @@
   }
   function refreshSessionsFromDb() {
     if (!sessionDb || sessionDbFailed || streaming) return;
+    var refreshEpoch = sessionEpoch, refreshId = sessionsData.current;
     readDbSessions().then(function (records) {
+      if (streaming || refreshEpoch !== sessionEpoch || refreshId !== sessionsData.current) { sessionRefreshPending = true; return; }
       records.sort(function (a, b) { return Number(b.updatedAt || 0) - Number(a.updatedAt || 0); });
       var current = sessionsData.current;
       sessionsData = { current: current, sessions: records };
@@ -2241,7 +2259,23 @@
     });
     return cloudWriteQueue;
   }
+  function preserveDeletedAnswer(id) {
+    if (sessionsData.current !== id || !messages.some(function (m) { return m.role === "assistant" && m.content; })) return;
+    var copies = preserveDeletedAnswer.copies || (preserveDeletedAnswer.copies = {});
+    var recovered = copies[id];
+    if (!recovered) {
+      recovered = copies[id] = { id: genId(), title: "恢复的回答（原会话已删除）", titleManual: true, clearedAt: 0, messages: [] };
+      sessionsData.sessions.unshift(recovered);
+    }
+    recovered.messages = storedMessages(messages, 0);
+    recovered.updatedAt = recovered.titleUpdatedAt = nowTs();
+    writeEmergencyTextBackup(recovered);
+    if (sessionDb && !sessionDbFailed) persistDbSession(recovered, false).catch(function () {});
+    showStorageWarning("原会话已被删除；当前回答另存为本机恢复副本，可查看或导出。原会话不会恢复到云端。");
+  }
   function removeLocalConversation(id, deletedAt) {
+    preserveDeletedAnswer(id);
+    if (streaming && sessionsData.current === id) { sessionRefreshPending = true; return; }
     var idx = sessionsData.sessions.findIndex(function (s) { return s.id === id; });
     if (idx >= 0) sessionsData.sessions.splice(idx, 1);
     removeEmergencyBackup(id);
@@ -2268,9 +2302,12 @@
   function syncCloudSessions(options) {
     options = options || {};
     if (!cloudSync.available || !sessionsReady || !aiUid) return Promise.resolve();
+    if (streaming) { cloudRefreshPending = true; return Promise.resolve(); }
+    var refreshEpoch = sessionEpoch, refreshId = sessionsData.current;
     return flushCloudDeletes().then(function () {
       return apiJson("/api/ai/conversations", { headers: { Accept: "application/json" } });
     }).then(function (data) {
+      if (streaming || refreshEpoch !== sessionEpoch || refreshId !== sessionsData.current) { cloudRefreshPending = true; return; }
       cloudSync.serverNow = Number(data.server_now_ms || nowTs());
       cloudSync.retentionDays = Number(data.retention_days || cloudSync.retentionDays);
       cloudSync.warningDays = Number(data.warning_days || cloudSync.warningDays);
@@ -2379,6 +2416,7 @@
   function switchSession(id) {
     if (!sessionsReady || streaming) { closeSessionsDrawer(); return; }
     if (id !== sessionsData.current) {
+      sessionEpoch += 1;
       sessionsData.current = id; rememberCurrent();
       var s = currentSession();
       messages = s ? (s.messages || []).slice() : [];
@@ -2390,6 +2428,7 @@
   }
   function newSession() {
     if (!sessionsReady || streaming) return;
+    sessionEpoch += 1;
     var cur = currentSession();
     if (!(cur && (!cur.messages || !cur.messages.length))) {   // 当前已是空新会话则复用，不堆叠空会话
       var createdAt = nowTs();
@@ -2407,6 +2446,7 @@
   function deleteSession(id, options) {
     options = options || {};
     if (!sessionsReady) return;
+    if (streaming && sessionsData.current === id) { showStorageWarning("请先停止回答，再删除当前会话。"); return; }
     var idx = -1, i;
     for (i = 0; i < sessionsData.sessions.length; i++) if (sessionsData.sessions[i].id === id) idx = i;
     if (idx < 0) return;
@@ -3038,10 +3078,14 @@
     var isComprehensive = depth === "comprehensive";
     var requestId = genId();
 
-    messages.push({ role: "user", content: question });
+    sessionEpoch += 1;
+    streaming = true;
+    if (!continueFrom) messages.push(ensureMessageIdentity({ role: "user", content: question }));
     var assistant = { role: "assistant", content: "", sources: [], citations: [], warnings: [], pending: true, kind: depth,
       originalQuestion: question, requestScope: continueFrom ? continueFrom.requestScope : currentScope(), webMode: currentWebMode() };
-    messages.push(assistant);
+    if (continueFrom) { assistant = continueFrom; assistant.pending = true; }
+    ensureMessageIdentity(assistant);
+    if (!continueFrom) messages.push(assistant);
     saveMessages();
     renderMessages();
     scrollToLatestQuestion();
@@ -3051,6 +3095,22 @@
     var abort = (typeof AbortController !== "undefined") ? new AbortController() : null;
     currentAbort = abort;
     currentPendingAssistant = assistant;
+    var requestState = { id: requestId, session: sessionsData.current, assistant: assistant, lastActivity: Date.now(), timedOut: false };
+    currentRequest = requestState;
+    function ownsRequest() { return currentRequest === requestState && sessionsData.current === requestState.session; }
+    function activity() { requestState.lastActivity = Date.now(); }
+    function showProgress(text) {
+      assistant.progress = text;
+      var status = messagesEl.querySelector('.aip-progress') || messagesEl.querySelector('.pending .msg-title');
+      if (status) status.textContent = text;
+    }
+    var quietTimer = setInterval(function () {
+      if (!ownsRequest()) return;
+      var quiet = Date.now() - requestState.lastActivity;
+      if (quiet >= 90000) { requestState.timedOut = true; if (abort) abort.abort(); }
+      else if (quiet >= 30000) showProgress("连接等待中，已保留当前内容；可停止回答");
+    }, 1000);
+    requestState.timer = quietTimer;
     updateSendEnabled();
 
     var req = isComprehensive ? apiFetch("/api/ai/comprehensive-chat", {
@@ -3075,30 +3135,33 @@
         });
 
     req.then(function (resp) {
+      activity();
+      if (!ownsRequest()) return null;
       var ctype = (resp.headers.get("content-type") || "").toLowerCase();
       if (ctype.indexOf("text/event-stream") >= 0) {
         return readSseResultStream(resp, function (progress) {
-          if (abort && abort.signal.aborted) return;
+          if (!ownsRequest() || (abort && abort.signal.aborted)) return;
           var elapsed = Number(progress.elapsed_seconds || 0);
           assistant.progress = String(progress.message || "AI 正在生成") + (elapsed ? "（" + elapsed + "秒）" : "");
-          if (progress.checkpoint) {
+          if (progress.checkpoint && Number(progress.checkpoint_version || 0) >= Number(requestState.checkpointVersion || 0)) {
+            requestState.checkpointVersion = progress.checkpoint_version || 0;
             var scrollY = window.scrollY;
             acceptCheckpoint(assistant, progress.checkpoint); saveMessages(); renderMessages();
             window.scrollTo(window.scrollX, scrollY);
           } else {
-            var status = messagesEl.querySelector('.aip-progress') || messagesEl.querySelector('.pending .msg-title');
-            if (status) status.textContent = assistant.progress;
+            showProgress(assistant.progress);
           }
-        });
+        }, activity);
       }
+      activity();
       return parseJsonResponse(resp);
     }).then(function (data) {
-      if (abort && abort.signal.aborted) return;
+      if (!ownsRequest() || (abort && abort.signal.aborted)) return;
       if (data.ai_credits) aiCredits = data.ai_credits;
       if (data.ai_token_quota) updateTokenQuota(data.ai_token_quota);
       if (data.research_quota) updateResearchQuota(data.research_quota);
       if (!data.ok) throw new Error(data.error || "AI 请求失败");
-      if (continueFrom) continueFrom.continueRequestId = null;
+      if (continueFrom && continueFrom !== assistant) continueFrom.continueRequestId = null;
       assistant.webStatus = data.web_status;
       if (isComprehensive) acceptCheckpoint(assistant, data);
       assistant.sources = data.sources || [];
@@ -3117,11 +3180,14 @@
         assistant.groundingScope = data.grounding_scope || null;
       }
       delete assistant.pending;
+      assistant._revision = Number(assistant._revision || 0) + 1;
       saveMessages();
       renderMessages();
     }).catch(function (error) {
+      if (!ownsRequest()) return;
+      if (requestState.timedOut) error = new Error("连接长时间未返回数据，已停止等待；已核验内容已保留。");
       // 用户主动「停止回答」：撤下这条待答气泡、保留提问，不显示报错，随即可开启新回答。
-      if ((abort && abort.signal.aborted) || (error && error.name === "AbortError")) {
+      if (!requestState.timedOut && ((abort && abort.signal.aborted) || (error && error.name === "AbortError"))) {
         var idx = messages.indexOf(assistant);
         if (assistant.content && isComprehensive) { delete assistant.pending; assistant.completionStatus = "partial"; }
         else if (idx >= 0) messages.splice(idx, 1);
@@ -3132,38 +3198,52 @@
       if (assistant.content && isComprehensive) assistant.warnings.push("生成中断：" + error.message);
       else { assistant.content = "请求失败：" + (error.message || "未知错误"); assistant.sources = []; assistant.citations = []; assistant.warnings = []; }
       delete assistant.pending;
+      assistant._revision = Number(assistant._revision || 0) + 1;
       saveMessages();
       renderMessages();
-    }).then(function () {
+    }).finally(function () {
+      clearInterval(quietTimer);
       // A stopped request may finish after a new one; it must not clear that UI.
-      if (currentAbort !== abort) return;
+      if (!ownsRequest()) return;
       currentAbort = null;
+      currentRequest = null;
       currentPendingAssistant = null;
       streaming = false;
-      renderMessages();
       updateSendEnabled();
+      try { renderMessages(); } catch (_) { showStorageWarning("回答已保留，页面显示异常，请导出或刷新恢复。"); }
+      if (cloudRefreshPending) {
+        cloudRefreshPending = false;
+        sessionWriteQueue.catch(function () {}).then(function () { return syncCloudSessions({}); });
+      }
       if (sessionRefreshPending) {
         sessionRefreshPending = false;
         sessionWriteQueue.catch(function () {}).then(function () { scheduleSessionRefresh(); });
       }
-    });
+    }).catch(function () { showStorageWarning("回答显示或保存异常，请保留当前页面并导出。"); });
   }
 
   // 「停止回答」：中断当前在飞的这条请求。服务端后台生成可能仍会跑完，但客户端不再等待，
   // 待答气泡随即撤下，用户可立即开启新的提问。
   function stopStreaming() {
     if (!streaming || !currentAbort) return;
+    if (currentRequest) clearInterval(currentRequest.timer);
     try { currentAbort.abort(); } catch (_) {}
     var idx = messages.indexOf(currentPendingAssistant);
     if (currentPendingAssistant && currentPendingAssistant.kind === "comprehensive" && currentPendingAssistant.content) {
-      delete currentPendingAssistant.pending; currentPendingAssistant.completionStatus = "partial";
+      delete currentPendingAssistant.pending; currentPendingAssistant.completionStatus = "partial"; currentPendingAssistant._revision = Number(currentPendingAssistant._revision || 0) + 1;
     } else if (idx >= 0) messages.splice(idx, 1);
     currentAbort = null;
+    currentRequest = null;
+    sessionEpoch += 1;
     currentPendingAssistant = null;
     streaming = false;
     saveMessages();
     renderMessages();
     updateSendEnabled();
+    sessionWriteQueue.catch(function () {}).then(function () {
+      if (cloudRefreshPending) { cloudRefreshPending = false; syncCloudSessions({}); }
+      if (sessionRefreshPending) { sessionRefreshPending = false; scheduleSessionRefresh(); }
+    });
   }
 
   // ===================== 事件绑定 =====================
