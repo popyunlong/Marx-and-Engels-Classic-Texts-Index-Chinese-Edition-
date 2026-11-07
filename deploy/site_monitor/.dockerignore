@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!src
+!src/**
+!scripts
+!scripts/locked-run.sh

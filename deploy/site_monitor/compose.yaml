@@ -1,0 +1,16 @@
+services:
+  monitor:
+    image: ${MONITOR_CANDIDATE_IMAGE:?set immutable candidate image tag}
+    container_name: mazhu-monitor
+    restart: unless-stopped
+    env_file: /root/mazhu-monitor/.env
+    environment:
+      HEADLESS: 'true'
+      TZ: Asia/Shanghai
+    volumes:
+      - /root/mazhu-monitor/reports:/app/reports
+      - /root/mazhu-monitor/screenshots:/app/screenshots
+    cpus: 0.5
+    mem_limit: 1g
+    shm_size: 1g
+    stop_grace_period: 270s
