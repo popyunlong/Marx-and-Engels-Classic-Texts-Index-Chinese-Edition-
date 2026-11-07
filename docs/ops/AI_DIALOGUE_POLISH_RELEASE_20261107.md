@@ -20,3 +20,18 @@
 5. 发布在候选阶段完成必需检查与审批后切流；核对线上版本、发布账本与 Git 一致。需要回退时仅执行 `deploy/rollback_release.ps1` 并提供精确当前、目标发布版本。
 
 当前 C 盘低于 60 GiB 阈值；依赖继续复用，临时文件、缓存和发布产物只放 D 盘。尚未推送、创建 PR、触发 CI、推进 production 或修改线上服务。
+
+## 首次发布门禁结果与修正
+
+功能提交 `2f8b165` 已正常推送，pre-push 的 26 项发布测试及 deployment smoke 通过。PR 为 #34，首次 CI 运行 `42333607905`：浏览器通过；Python 3.10、3.11 的快速门禁各 459 通过、2 失败。main/production 尚未推进，线上未切流。
+
+失败项目均在 `tests/test_research_citation_recovery.py`：
+
+- `test_reported_numbered_original_is_recovered_without_changing_argument`
+- `test_visually_checked_corpus_page_recovers_reported_original`
+
+原因是近似匹配先把省略源内编号（1）（2）（3）的连续内容归为近似或待核验，跳过了既有逐字分句恢复。修正使仅省略源内列表编号的内容回到既有精确恢复流程；不是把删除编号后的拼接文本当作逐字原文。补丁已准备，未重跑失败测试。
+
+原始日志：`D:/CodexData/outputs/ai-dialogue-polish-20261106/pr-job-128285434005.log`、`pr-job-128285434323.log`。再次推送会触发推送门禁及 PR 全部必需检查，因此须另获明确授权；不自行重触发失败流水线。
+
+用户随后明确同意“上述最小复测及一次推送、PR门禁”。两项编号恢复场景已在本地一次复测通过（2 passed，0.32 秒），记录为 `numbered-recheck.json/log/xml`。仅修正近似匹配优先级，测试断言未放宽；后续推送和 PR 检查按此次新增授权各触发一次。

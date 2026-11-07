@@ -65,6 +65,13 @@ class Matcher:
         if any(exact_quote(text, s[1]) for s in pool):
             self.cache[cache_key] = None
             return None
+        # Numbered source clauses already have an exact recovery path. Give it
+        # priority: omitting source-internal list labels must not turn several
+        # independently verbatim clauses into one approximate/pending quote.
+        label = r"(?:^|(?<=[，,。！？!?；;：:]))\s*[（(][0-9０-９一二三四五六七八九十]+[）)]\s*"
+        if any(exact_quote(text, re.sub(label, "", s[1])) for s in pool):
+            self.cache[cache_key] = None
+            return None
         candidates = []
         for p, source, norm, positions in pool:
             if time.monotonic() >= self.deadline:
