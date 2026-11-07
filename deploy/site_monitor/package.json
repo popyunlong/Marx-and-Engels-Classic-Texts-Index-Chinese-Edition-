@@ -1,0 +1,21 @@
+{
+  "name": "mazhu-monitor",
+  "version": "1.0.0",
+  "description": "马铸作检索 (mazhuzuojiansuo.com) 站点可用性监控小程序",
+  "type": "module",
+  "scripts": {
+    "explore": "node src/explore.js",
+    "check": "node src/runAll.js",
+    "check:once": "node src/runAll.js --no-alert",
+    "daemon": "node src/daemon.js",
+    "report": "node src/report.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "nodemailer": "^8.0.10",
+    "playwright": "1.60.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

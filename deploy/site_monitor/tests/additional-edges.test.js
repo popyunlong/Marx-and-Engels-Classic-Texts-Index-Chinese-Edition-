@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {NetworkGate} from '../src/lib/control.js';
+import {planAlerts} from '../src/lib/alerts.js';
+function routeFor(path,responses){let fetched=0,fulfilled,aborted;return {request:()=>({url:()=>`https://fixture.invalid${path}`,method:()=> 'GET',postData:()=>null,headers:()=>({}),resourceType:()=> 'script'}),fetch:async()=>{const r=responses[fetched++];return {status:()=>r.status||200,headers:()=>({...r.headers}),body:async()=>Buffer.from('fixture'),dispose:async()=>{}};},fulfill:async r=>{fulfilled=r;},abort:async r=>{aborted=r;},inspect:()=>({fetched,fulfilled,aborted})};}
+test('cached static headers never replay account cookies',async()=>{const gate=new NetworkGate({baseUrl:'https://fixture.invalid'});const first=routeFor('/static/app.js',[{headers:{'set-cookie':'session=first','content-type':'application/javascript'}}]);await gate.handle(first);const second=routeFor('/static/app.js',[]);await gate.handle(second);assert.equal(first.inspect().fetched,1);assert.equal(second.inspect().fetched,0);assert.equal(second.inspect().fulfilled.headers['set-cookie'],undefined);gate.close();});
+test('redirects cannot escape origin and slow/busy responses halt subsequent admissions',async()=>{
+ const foreign=new NetworkGate({baseUrl:'https://fixture.invalid'});await foreign.handle(routeFor('/',[{status:302,headers:{location:'https://external.invalid/'}}]));assert.equal(foreign.metrics.requests,1);assert.equal(foreign.reason,'redirect_not_allowed');foreign.close();
+ for(const [status,headers,reason] of [[503,{},'http_503'],[429,{},'http_429'],[200,{'server-timing':'cfOrigin;dur=2001'},'origin_slow']]){const gate=new NetworkGate({baseUrl:'https://fixture.invalid'});await gate.handle(routeFor('/',[{status,headers}]));assert.equal(gate.reason,reason);await assert.rejects(gate.acquire());gate.close();}
+});
+test('changed AI/payment coverage does not claim old full-chain errors recovered',()=>{const old={ai:{since:'2026-11-01',lastAlert:'2026-11-01'},payment:{since:'2026-11-01',lastAlert:'2026-11-01'}};const r=planAlerts([{key:'ai-entry',status:'passed'},{key:'payment-entry',status:'passed'}],old);assert.equal(r.pending.length,0);assert.ok(r.state.items.ai.notified);assert.ok(r.state.items.payment.notified);});
