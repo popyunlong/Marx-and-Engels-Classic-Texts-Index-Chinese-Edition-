@@ -1,0 +1,1 @@
+{"mcpServers":{"marx_search":{"type":"streamableHttp","url":"https://mazhuzuojiansuo.com/mcp","headers":{"Authorization":"Bearer ${API_KEY}"},"timeout":30000}}}

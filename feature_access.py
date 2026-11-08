@@ -4,8 +4,9 @@ from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "ai", "search_chat", "associative", "research", "ai_web")
+FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "agent_api", "ai", "search_chat", "associative", "research", "ai_web")
 FEATURE_ACCESS_LABELS = {
+    "agent_api": "API 与 Agent 接入",
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
@@ -24,6 +25,7 @@ FEATURE_ACCESS_LABELS = {
 }
 # 一句话说明每项权限（控制台展示，帮助管理员区分四类 AI 能力）。
 FEATURE_ACCESS_HINTS = {
+    "agent_api": "有效会员使用个人 Key 查询公共文库；多客户端共享并发与频率额度",
     "search": "全文精确/模糊检索",
     "viewer": "查看命中所在正文页",
     "library": "独立阅读器逐卷阅读",
@@ -43,7 +45,7 @@ FEATURE_ACCESS_HINTS = {
 # 控制台权限分组：把可配置功能聚到一张子表里，避免十余项平铺难辨。
 # journal_alerts 是面向所有有效会员的固定独立栏目，故不进入套餐/个人功能开关表。
 FEATURE_ACCESS_GROUPS = (
-    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant")},
+    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant", "agent_api")},
     {"label": "AI 功能（由「AI 导学」拆分而来，可分别开放）", "features": ("ai", "search_chat", "associative", "research", "ai_web")},
 )
 # 论文插注校注已经正式上线，默认作为会员功能开放；ai_web（智谱联网通道）仍默认关闭，

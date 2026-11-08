@@ -2167,6 +2167,7 @@ class Corpus:
         keywords: list[str],
         *,
         window: int = ASSOC_KEYWORD_WINDOW,
+        check=None,
     ) -> Iterator[tuple[int, int, str]]:
         """Stream minimal non-overlapping co-occurrence windows.
 
@@ -2186,6 +2187,8 @@ class Corpus:
         latest: dict[int, int] = {}
         last_emit_end = -1
         while heap:
+            if check is not None:
+                check()
             pos, keyword_id = heapq.heappop(heap)
             keyword = keywords[keyword_id]
             latest[keyword_id] = pos
@@ -2269,6 +2272,61 @@ class Corpus:
     # ------------------------------------------------------------------
     # 检索入口
     # ------------------------------------------------------------------
+    @bounded_search
+    def query_api(self, q, *, mode, book_scope, limit, check):
+        """Bounded public API retrieval; retain the canonical hit builders.
+
+        The caller validates public scope and owns cancellation/deadline checks.
+        Never delegate to search_grouped: its automatic fuzzy fallback and full
+        grouping are deliberately not the API's explicit exact mode.
+        """
+        check()
+        q_norm = normalize(q)
+        keywords = self._export_cooccurrence_keywords(q.split()) if mode == "cooccurrence" else []
+        hits, complete = [], True
+        fuzzy_slot = False
+        try:
+            if mode == "near_text":
+                fuzzy_slot = _FUZZY_SCAN_SEMAPHORE.acquire(blocking=False)
+                if not fuzzy_slot:
+                    raise SearchBusy()
+            for book in self._scoped_book_keys(book_scope):
+                for vol in self._scoped_volumes(book, book_scope):
+                    check()
+                    if mode == "near_text":
+                        partial, _ = self._fuzzy_in_book(book, q_norm, q, limit=limit + 1 - len(hits),
+                                                       book_scope={book: {vol.volume}})
+                        for hit in partial:
+                            check()
+                            if hit.source_file == vol.source_file and self._exact_range_allowed(vol, hit.norm_start, hit.norm_end):
+                                hits.append(hit)
+                    elif mode == "cooccurrence":
+                        for start, end, anchor in self._iter_export_cooccurrence_windows(vol.norm_full, keywords, check=check):
+                            check()
+                            # A window across separate works is not evidence.
+                            if not self._exact_range_allowed(vol, start, end, self._chapter_segments(vol)):
+                                continue
+                            hits.append(self._make_hit(vol, start, end, "exact", 100, anchor, highlight_terms=keywords))
+                            if len(hits) > limit:
+                                break
+                    else:
+                        supplements, done, _ = self._layout_scan(q_norm, volumes=[vol])
+                        complete = complete and done
+                        extras = self._exact_supplement_map(vol, supplements.get(vol.source_file, []))
+                        for pos in self._iter_exact_positions(vol, q_norm, extras):
+                            check()
+                            hits.append(self._make_layout_hit(vol, extras[pos], q) if pos in extras else
+                                        self._make_hit(vol, pos, pos + len(q_norm), "exact", 100, q))
+                            if len(hits) > limit:
+                                break
+                    check()
+                    if len(hits) > limit:
+                        return hits[:limit], True, complete
+            return hits, False, complete
+        finally:
+            if fuzzy_slot:
+                _FUZZY_SCAN_SEMAPHORE.release()
+
     @bounded_search
     def search(self, q: str, max_results: int = 5) -> list[Hit]:
         q_norm = normalize(q)

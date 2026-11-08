@@ -16,7 +16,7 @@ before(async()=>{
   server=spawn(process.env.PYTHON,['-u',path.join(__dirname,'serve_ai_fixture.py')],{stdio:['ignore','pipe','pipe'],windowsHide:true});
   base=await new Promise((resolve,reject)=>{let txt='',err='';const timer=setTimeout(()=>reject(new Error(err||'fixture timeout')),20000);
     server.stderr.on('data',d=>err+=d);server.stdout.on('data',d=>{txt+=d;const m=txt.match(/READY=(http:\/\/[^\s]+)/);if(m){clearTimeout(timer);resolve(m[1]);}});server.on('error',reject);});
-  browser=await chromium.launch({headless:true,channel:'chrome'});
+  browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'chrome':undefined)});
 });
 after(async()=>{if(browser)await browser.close();if(server)server.kill();});
 async function pageFor(t,width=1280,admin=true,stream=false){

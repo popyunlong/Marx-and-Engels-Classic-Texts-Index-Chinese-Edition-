@@ -316,10 +316,11 @@ for(const researchAccess of [true,false]) test(`mode permissions agree at both e
   assert.equal(await allowed.getAttribute('aria-pressed'),'true');
 });
 
-for(const legacy of [false,true]) test(`composer uses at most two compact rows (${legacy?'legacy':'v2'})`,async t=>{
+for(const legacy of [false,true]) test(`composer keeps full-width modes above retrieval and submit rows (${legacy?'legacy':'v2'})`,async t=>{
   const fixture=await setup(t,{legacy,deviceScaleFactor:1.75});
   const {page}=fixture;
-  // Include a zoomed half-window and both sides of the one-row breakpoint.
+  // The current baseline uses equal-width modes, then retrieval, then submit.
+  // Retain the original zoom and viewport matrix; do not revert its layout.
   for(const width of [320,375,390,480,576,640,768,800,820,960,1181,1440,1920]) {
     await page.setViewportSize({width,height:900});
     await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));
@@ -328,17 +329,16 @@ for(const legacy of [false,true]) test(`composer uses at most two compact rows (
     const r=await page.locator('#aipComposer').evaluate(el=>{
       const rect=s=>el.querySelector(s).getBoundingClientRect().toJSON();
       const css=getComputedStyle(el);
-      return {width:el.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),mode:rect('.aip-mode-switch'),grounding:rect('#aipComposerGrounding'),scope:rect('#aipScopeToggle'),clear:rect('#aipClear'),send:rect('#aipSend'),actions:rect('.aip-actions')};
+      return {width:el.clientWidth-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),mode:rect('.aip-mode-switch'),grounding:rect('#aipComposerGrounding'),scope:rect('#aipScopeToggle'),clear:rect('#aipClear'),send:rect('#aipSend'),retrieval:rect('.aip-retrieval-actions'),submit:rect('.aip-submit-actions'),buttons:[...el.querySelectorAll('.aip-mode-button:not([hidden])')].map(b=>b.getBoundingClientRect().toJSON())};
     });
     const center=rect=>(rect.top+rect.bottom)/2;
-    assert.ok(r.mode.width<230,'mode switch should not stretch across the composer');
-    assert.ok(r.actions.height<=92,'toolbar is taller than two compact rows: '+JSON.stringify(r));
-    assert.ok(Math.abs(center(r.mode)-center(r.send))<2,JSON.stringify(r));
-    for(const control of [r.grounding,r.scope,r.clear]) {
-      assert.ok(Math.abs(center(control)-center(r.grounding))<2,JSON.stringify(r));
-      if(r.width>=720) assert.ok(Math.abs(center(control)-center(r.mode))<2,JSON.stringify(r));
-      else assert.ok(control.top>=r.mode.bottom,JSON.stringify(r));
-    }
+    assert.ok(Math.abs(r.mode.width-r.width)<2,'mode switch must fill the current composer');
+    assert.ok(r.buttons.length>=2&&r.buttons.every(b=>Math.abs(b.width-r.buttons[0].width)<2&&Math.abs(b.top-r.buttons[0].top)<2),'mode buttons must share one equal-width row');
+    assert.ok(r.retrieval.top>=r.mode.bottom&&r.submit.top>=r.retrieval.bottom,JSON.stringify(r));
+    if(r.width>=720) assert.ok(Math.abs(center(r.grounding)-center(r.scope))<2,JSON.stringify(r));
+    assert.ok(Math.abs(center(r.clear)-center(r.send))<2,JSON.stringify(r));
+    // Retrieval controls may wrap on a narrow viewport; mode/submit stay single-row.
+    assert.ok(r.mode.height<=48&&r.retrieval.height<=104&&r.submit.height<=48,'control groups must remain compact: '+JSON.stringify(r));
     const controls=[r.mode,r.grounding,r.scope,r.clear,r.send];
     for(let i=0;i<controls.length;i++) for(let j=i+1;j<controls.length;j++) {
       const a=controls[i],b=controls[j];
@@ -359,7 +359,7 @@ for(const legacy of [false,true]) test(`composer uses at most two compact rows (
   await page.locator('#aipSessions').evaluate(el=>el.getAnimations().forEach(a=>a.finish()));
   fixture.hold();
   await page.locator('#aipPrompt').fill('检查停止按钮占位');
-  // Stop has a longer label than send, and must still fit the same two rows.
+  // Stop has a longer label than send and must still fit the submit row.
   await page.locator('#aipSend').click();
   await page.locator('#aipStop').waitFor({state:'visible'});
   await page.evaluate(()=>scrollTo(0,document.body.scrollHeight));

@@ -47,7 +47,7 @@ jobs:
         run: git ls-files -z '*.py' | xargs -0 python -m py_compile
 
       - name: Run deterministic pull-request tests
-        run: python scripts/ci_pytest.py --label deterministic -- tests/test_dialogue_lifecycle.py tests/test_dialogue_transport_edges.py tests/test_dialogue_control_tail.py tests/test_dialogue_resume_edges.py tests/test_dialogue_polish.py tests/test_dialogue_polish_edges.py tests/test_dialogue_access.py tests/test_comprehensive_mode.py tests/test_ci_pytest_evidence.py tests/test_geoip.py tests/test_registry_geo.py tests/test_recommendations.py tests/test_ui_order_states.py tests/test_citation_scope_limit.py tests/test_citation_agent_web_access.py tests/test_research_updates.py tests/test_research_delivery.py tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_release_health_evidence.py tests/test_catalog_probe_timing.py tests/test_release_interruption.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_catalog_snapshot.py tests/test_catalog_health.py tests/test_release_upload.py tests/test_candidate_review.py tests/test_layout_release_smoke.py tests/test_paddle_repair.py tests/test_corpus_release.py tests/test_fuzzy_alignment.py tests/test_research_citation_recovery.py tests/test_flash_compatibility.py -q
+        run: python scripts/ci_pytest.py --label deterministic -- tests/test_dialogue_lifecycle.py tests/test_dialogue_transport_edges.py tests/test_dialogue_control_tail.py tests/test_dialogue_resume_edges.py tests/test_dialogue_polish.py tests/test_dialogue_polish_edges.py tests/test_dialogue_access.py tests/test_comprehensive_mode.py tests/test_ci_pytest_evidence.py tests/test_ci_browser_evidence.py tests/test_geoip.py tests/test_registry_geo.py tests/test_recommendations.py tests/test_ui_order_states.py tests/test_citation_scope_limit.py tests/test_citation_agent_web_access.py tests/test_research_updates.py tests/test_research_delivery.py tests/test_deploy_manifests.py tests/test_release_metadata.py tests/test_release_health_evidence.py tests/test_catalog_probe_timing.py tests/test_release_interruption.py tests/test_catalog_release.py tests/test_catalog_traffic.py tests/test_catalog_snapshot.py tests/test_catalog_health.py tests/test_release_upload.py tests/test_candidate_review.py tests/test_layout_release_smoke.py tests/test_paddle_repair.py tests/test_corpus_release.py tests/test_fuzzy_alignment.py tests/test_research_citation_recovery.py tests/test_flash_compatibility.py -q
 
       - name: Check durable catalogue observation and browser progress
         run: python scripts/ci_pytest.py --label catalogue -- tests/test_catalog_server_observation.py tests/test_catalog_browser_review.py tests/test_prepare_mega_iv3_verified.py -q
@@ -57,6 +57,7 @@ jobs:
 
       - name: Check release shell syntax
         run: |
+          bash -n deploy/agent_api_units.sh
           bash -n deploy/promote_release.sh
           bash -n deploy/dictionary_graph_control.sh
           bash -n deploy/rollback_release.sh
@@ -93,22 +94,34 @@ jobs:
           npm install --no-save --package-lock=false playwright@1.62.1
           npx playwright install --with-deps chromium
       - name: Check AI controls in a real browser without live API calls
-        run: node --test --test-reporter=spec tests/search_export_status.cjs tests/dialogue_deletion_recovery.cjs tests/browser/dialogue_lifecycle.cjs tests/browser/dialogue_lifecycle_edges.cjs tests/browser/dialogue_polish.cjs tests/browser/ai_controls.cjs tests/browser/comprehensive.cjs tests/browser/citation_scope.cjs tests/browser/dictionary_map.cjs tests/browser/recommendations.cjs 2>&1 | tee /tmp/ai-controls-browser.log
+        run: |
+          set -o pipefail
+          export PYTHON="$(command -v python)"
+          node --test --test-reporter=spec tests/search_export_status.cjs tests/dialogue_deletion_recovery.cjs tests/browser/dialogue_lifecycle.cjs tests/browser/dialogue_lifecycle_edges.cjs tests/browser/dialogue_polish.cjs tests/browser/ai_controls.cjs tests/browser/comprehensive.cjs tests/browser/citation_scope.cjs tests/browser/dictionary_map.cjs tests/browser/recommendations.cjs 2>&1 | tee "$RUNNER_TEMP/ai-controls-browser.log"
       - name: Include browser failure details in check annotations
         if: failure()
         run: |
           python - <<'PY'
+          import os
           from pathlib import Path
-          log = Path('/tmp/ai-controls-browser.log')
+          log = Path(os.environ['RUNNER_TEMP']) / 'ai-controls-browser.log'
           if log.exists():
               text = log.read_text()[-24000:]
               print('::error title=AI browser regression::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PY
+      - name: Preserve browser test log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ai-controls-browser.log
+          if-no-files-found: ignore
+          retention-days: 30
 
   integration-gate:
     name: Main integration gate (Python 3.10)
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production'))
-    needs: [fast-gate, browser-gate]
+    needs: [fast-gate, browser-gate, agent-api-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout complete source
@@ -157,6 +170,47 @@ jobs:
         with:
           name: pytest-integration-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pytest-evidence/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  agent-api-gate:
+    name: Public corpus API and MCP contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Prepare main-app fixture environment
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          echo "AGENT_API_BACKEND_PYTHON=$(which python)" >> "$GITHUB_ENV"
+      - name: First API/backend scenarios
+        run: python scripts/ci_pytest.py --label agent-api -- tests/test_agent_api.py tests/test_agent_api_edges.py tests/test_agent_api_main_integration.py -q
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Prepare isolated MCP SDK environment
+        run: |
+          python -m venv "$RUNNER_TEMP/agent-api-mcp"
+          "$RUNNER_TEMP/agent-api-mcp/bin/python" -m pip install -r deploy/requirements-agent-api.lock
+      - name: HTTP MCP and REST interoperability
+        env:
+          AGENT_API_TEST_OUTPUT: ${{ runner.temp }}/agent-api-protocol
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -o pipefail
+          "$RUNNER_TEMP/agent-api-mcp/bin/python" tests/agent_api_protocol_once.py 2>&1 | tee "$RUNNER_TEMP/agent-api-protocol.log"
+      - name: Preserve API evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-api-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/pytest-evidence/agent-api/
+            ${{ runner.temp }}/agent-api-protocol.log
+            ${{ runner.temp }}/agent-api-protocol/protocol-summary.json
+            ${{ runner.temp }}/agent-api-protocol/fixture-server.log
           if-no-files-found: ignore
           retention-days: 30
 

@@ -14086,6 +14086,8 @@ def api_citation_delete_job(job_id: str):
     return jsonify({"ok": True, "deleted": True})
 
 citation_agent_test_web.register_routes(app, globals())
+import agent_api_web
+agent_api_web.register_routes(app, globals())
 
 
 # Optional HTTP bridge for a parsing node that does not share the application process.

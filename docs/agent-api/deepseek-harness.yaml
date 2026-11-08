@@ -1,0 +1,10 @@
+- id: marx-search
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: marx_search
+    transport: streamable-http
+    url: https://mazhuzuojiansuo.com/mcp
+    expandTemplates: true
+    headers:
+      Authorization: 'Bearer ${credential:MARX_API_KEY}'
+    toolCallTimeoutMs: 30000

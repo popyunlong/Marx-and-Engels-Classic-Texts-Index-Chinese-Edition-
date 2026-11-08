@@ -17,6 +17,9 @@ switch_caddy() {
     [ -f "${SECURITY_CADDY_TARGET_APP:-${TARGET:-}/app}/deploy/security_caddy.py" ] || security_mode=(--remove)
     python3 "$TRANSACTION_APP/deploy/security_caddy.py" "$temp" "$temp" "${security_mode[@]}" || { rm -f "$temp" "$backup"; return 1; }
   fi
+  if declare -F agent_api_switch_route >/dev/null; then
+    agent_api_switch_route "$to_port" "$temp" || { rm -f "$temp" "$backup"; return 1; }
+  fi
   # Provision writers as the service user; bound the admin request directly.
   chmod 0644 "$temp"
   timeout 30s runuser -u caddy -- caddy validate --config "$temp" >/dev/null || { rm -f "$temp" "$backup"; return 1; }
@@ -64,6 +67,7 @@ retire_candidate_if_drained() {
     echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
     return 1
   fi
+  if declare -F agent_api_stop >/dev/null; then agent_api_stop "$CANDIDATE_PORT" || return 1; fi
   if ! systemctl stop "$CANDIDATE_UNIT" >/dev/null 2>&1; then
     echo "WARNING: failed to stop $CANDIDATE_UNIT; preserving its immutable release" >&2
     echo "CANDIDATE_RETIREMENT_DEFERRED=$CANDIDATE_UNIT" >&2
