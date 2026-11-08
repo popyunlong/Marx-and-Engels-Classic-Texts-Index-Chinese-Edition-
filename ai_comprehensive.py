@@ -9,7 +9,7 @@ from ai import AIServiceError
 
 
 def choose_model(models, complex_task=False):
-    order = [("deepseek-v4-pro", "high"), ("deepseek-v4-flash", "high"), ("deepseek-v4-flash", "off")]
+    order = [("deepseek-v4-flash", "high"), ("deepseek-v4-flash", "off")]
     if not complex_task:
         order.reverse()
     for model, effort in order:
