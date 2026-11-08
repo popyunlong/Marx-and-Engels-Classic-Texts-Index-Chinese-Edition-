@@ -526,6 +526,20 @@
     "previous_implementation_base": "2250993505b41b37572aa413bbeff4bfd190db40",
     "delta": "Comprehensive dialogue Flash-only restriction and browser asset cache key; no overlapping API implementation files.",
     "pushed": false,
+    "deployed": false,
+    "integrated_merge": "72b150f138af6390d0a7ca9fc884896a260b8fed",
+    "merged_version_tested": false,
+    "live_runtime_sha": "4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b",
+    "live_release_id": "4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b-20261108T030331Z-9988d447",
+    "runtime_observation": "Read-only GET /api/runtime; no data queries or deployment."
+  },
+  "release_preparation": {
+    "recorded_at": "2026-11-08T08:58:12.359543+00:00",
+    "pr_body": "docs/ops/AGENT_API_PR_DRAFT_20261108.md",
+    "handoff": "docs/ops/AGENT_API_RELEASE_HANDOFF_20261108.md",
+    "state": "Local review materials ready; awaiting specific repeat-test authorization for pre-push/PR CI/desktop retries.",
+    "remote_pr_created": false,
+    "pushed": false,
     "deployed": false
   }
 }
