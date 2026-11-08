@@ -1063,7 +1063,7 @@
     "recorded_at": "2026-11-08T08:58:12.359543+00:00",
     "pr_body": "docs/ops/AGENT_API_PR_DRAFT_20261108.md",
     "handoff": "docs/ops/AGENT_API_RELEASE_HANDOFF_20261108.md",
-    "state": "PR 40 head 657ff21 pushed. Backend/API gates passed, but browser log audit found 19 failures hidden by tee. Local CI/browser-fixture repairs prepared; no additional push/CI authorization, no deployment.",
+    "state": "Specific one-push/one-PR-CI consent recorded for d412b43 browser CI repair; desktop excluded.",
     "remote_pr_created": true,
     "pushed": true,
     "deployed": false,
@@ -1134,6 +1134,31 @@
         "prepush": 1,
         "pr_ci_workflow_runs": 1
       }
+    },
+    {
+      "id": "authorized-browser-gate-20261108",
+      "recorded_at": "2026-11-08T09:49:41.534422+00:00",
+      "user_answer": "同意钩子和 PR CI 各再执行一次",
+      "purpose": "Verify browser CI exit propagation/Python environment/current baseline fixture repair d412b43.",
+      "prepush": {
+        "allowed_attempts": 1,
+        "scope": [
+          "tracked Python compile",
+          "test_deploy_manifests.py",
+          "test_release_metadata.py",
+          "deployment_smoke.py --mode server"
+        ]
+      },
+      "pr_ci": {
+        "allowed_workflow_runs": 1,
+        "jobs": [
+          "fast-gate Python 3.10/3.11",
+          "browser-gate including the original 88 browser scenarios and renamed layout cases",
+          "agent-api-gate"
+        ]
+      },
+      "desktop_clients": [],
+      "automatic_retry_allowed": false
     }
   ]
 }
