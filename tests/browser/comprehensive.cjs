@@ -22,7 +22,7 @@ before(async()=>{
     server.stdout.on('data',d=>{text+=d;const m=text.match(/READY=(http:\/\/[^\s]+)/);if(m){clearTimeout(timer);resolve(m[1]);}});
     server.on('error',reject); server.on('exit',code=>{clearTimeout(timer);reject(new Error('fixture exit '+code+': '+errors));});
   });
-  browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||'chrome'});
+  browser=await chromium.launch({headless:true,channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'chrome':undefined)});
 });
 after(async()=>{if(browser)await browser.close();if(server)server.kill();});
 

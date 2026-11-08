@@ -1,5 +1,7 @@
 # PR 40：专项授权验证结果
 
+后续：用户又授权一轮推送和 CI，feature 已到 `657ff21`。后端/MCP 通过，但浏览器日志审计发现 19 项失败被 tee 掩盖，不能将 GitHub 绿色视为通过；本地修复与范围详见 `AGENT_API_PR40_BROWSER_AUDIT_20261108.md`。以下保留首轮历史记录。
+
 用户明确同意“同意三项各执行一次”。授权标识为 `authorized-three-stage-20261108`，推送钩子、PR CI、WorkBuddy 和 Harness 桌面准备/验收各一次均已消耗，未隐式重跑。
 
 ## 已完成
