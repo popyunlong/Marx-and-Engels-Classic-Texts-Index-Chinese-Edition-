@@ -150,9 +150,19 @@ def register(A):
         request_scope = payload.get("scope", "auto")
         rights = A._ai_entitlements_payload(user).get("models", {})
         automatic = payload.get("model") in {None, "", "auto"}
-        selection = tasks.choose_model(rights) if automatic else {
-            "provider": payload.get("provider", "deepseek"), "model": payload.get("model"),
-            "reasoning_effort": payload.get("reasoning_effort", "off")}
+        if automatic:
+            try:
+                selection = tasks.choose_model(rights)
+            except ai.AIServiceError as exc:
+                abort(403, description=str(exc))
+        else:
+            if payload.get("provider", "deepseek") != "deepseek" or payload.get("model") not in {
+                    "deepseek-v4-flash", "deepseek-v4-pro"}:
+                abort(400, description="综合模式仅支持 DeepSeek Flash。")
+            # Old clients may still submit Pro. Preserve the requested effort,
+            # then authorize it against Flash rights, never Pro rights.
+            selection = {"provider": "deepseek", "model": "deepseek-v4-flash",
+                         "reasoning_effort": payload.get("reasoning_effort", "off")}
         selection = A._resolve_ai_selection_or_abort(selection, feature="comprehensive-chat")
         charge = bool(selection.get("charge_user_wallet", True) and not A._is_admin_user(user))
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
