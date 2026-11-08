@@ -3,8 +3,8 @@
 ## 基线及交付位置
 
 - 独立分支：`codex/agent-query-api-20261107`；工作树：`D:/CodexData/workspaces/agent-query-api-20261107`。
-- 实施起点为最新 main `2250993505b41b37572aa413bbeff4bfd190db40`；收尾再次读取远端，main 未变化。
-- production 仍为 `e63b257a7049a7109e0bb5cfd9561b02efc17bff`，实施前线上 runtime 与它一致；未推进或部署 production。
+- 实施起点为 main `2250993505b41b37572aa413bbeff4bfd190db40`；2026-11-08 再核对时远端已推进至 `4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b`，新增综合对话 Flash 限制及资源缓存标识，无 API 改动文件重叠。
+- 实施前 production 为 `e63b257a7049a7109e0bb5cfd9561b02efc17bff`，当时线上 runtime 与它一致；最新远端 production 为 `4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b`。本任务未推进或部署 production。
 - 本地实现整理为可审阅提交；没有推送、触发 CI 或绕过钩子。提交标识以本分支 Git 记录为准。
 
 ## 已实现
@@ -33,6 +33,7 @@ OpenAPI、逐工具输入/输出 schema、WorkBuddy Connector ZIP、Harness 当�
 | Harness 安装包 SDK 2.2.0 首次兼容验证 | passed | 自动协商 2026-07-28、相同四工具流程与错误解析 |
 | Codex 0.167.0-alpha.3.2 原生 app-server 首次验证 | passed | 环境变量 Bearer、四工具发现和直接调用、查询/正文/额度、繁忙错误；不持久化上下文，零模型轮次 |
 | 旧版主端 MCP 退役首次集成 | passed | 隔离 ss/systemctl 边界，确认回退至无 MCP 的旧版本时删除路由并停止、禁用遗留主端适配器 |
+| 网页接入中心首次浏览器验收 | passed | 隔离合成语料，创建命名/轮换/撤销 Key、明文面板、空状态及三端配置展开；截图与 DOM 留存 |
 | 原始差异/脚本语法检查 | passed | 台账 static 对应版本；未单独重跑 |
 
 两项 SDK 验证直接使用本机安装包的官方客户端库，通过既有 Electron Node 运行时调用本机隔离服务；没有重下依赖或借用会员凭证。它们不能替代桌面导入、凭据表单、模型工具选择和完整 Agent 循环验收。
@@ -52,7 +53,7 @@ Harness 已正常重开并恢复匹配的截图/控件树；临时条目准备�
 ## 尚待完成
 
 - WorkBuddy/Harness 桌面实际操作及三端模型自动选工具的流程；两端 SDK 与 Codex 原生工具调用链已通过，不能扩大成全桌面/Agent 循环通过。
-- Connector ZIP 实际导入及凭据表单、真实网页视觉回归。
+- Connector ZIP 实际导入及凭据表单；网页接入中心的隔离浏览器表单与可见页面首次验收已通过，生产站整站视觉回归未覆盖。
 - Linux/Python 3.11 依赖安装、文件锁平台验证、真实 systemd/Caddy 发布与回滚、生产容量、全量集成/发布门禁。
 
 没有可用本机 WSL 发行版；未安装发行版，未使用或改动 Docker。不得把 Windows/替身结果描述为 Linux 或生产容量结论。
@@ -62,3 +63,5 @@ Harness 已正常重开并恢复匹配的截图/控件树；临时条目准备�
 只由指定协调者通过干净且已推送的 production 分支及 `deploy/release.ps1`，持有 `/run/lock/marx-search-release.lock` 发布，回滚使用既有脚本。应用、MCP 单元和路由纳入同一事务；锁及运行数据库在共享目录，旧版回退不删数据。
 
 本仓库 pre-push 会再次编译 Python、执行部署测试及 smoke；CI 也会重跑部分已执行场景。因此本轮不推送、不绕过钩子。用户“自动决策、继续验收”没有替代 AGENTS.md 要求的专项复测同意。剩余未覆盖场景可首次执行，任何重复场景先查台账并取得具体授权。
+
+2026-11-08 网页首次验收只使用合成账号与回环服务。全部测试 Key 已撤销，明文临时文件已移除，浏览器页及已核实 PID 的服务已关闭。截图为 outputs/browser-center/center-after-revoke.png。最新主线合入后不会自行重跑测试，旧通过结果仅适用于其台账所记源码，合并版本须另行授权验证。

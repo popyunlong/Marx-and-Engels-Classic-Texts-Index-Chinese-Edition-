@@ -485,5 +485,47 @@
     ".github/workflows/ci.yml": "53e886353238ecb1c73bd559efa66987d3c15dcce6d888841b81d99cc9272594",
     "static/agent-api/openapi.json": "7046799b4df9ff1870b0b0aacd6827d064c485acb152ba01144f0c51e7239148",
     "static/agent-api/workbuddy-connector.zip": "49fcc6ad713b843b4bff8b1ad97d7aa3c024fe5bd8a19558d4169376c2e6ae56"
+  },
+  "phases": {
+    "browser-center-first-ui": {
+      "status": "passed",
+      "started_at": "2026-11-08T08:53:25.102443+00:00",
+      "version": "ae88b231f5d7468adf6a0d2f4e6336b6a7804837",
+      "scenario": "First browser-rendered API center: key-management forms and three-client configuration disclosures on isolated synthetic corpus. No backend unit or protocol test rerun.",
+      "artifacts": "D:\\CodexData\\outputs\\agent-query-api-20261107\\browser-center",
+      "pid": 4816,
+      "ended_at": "2026-11-08T08:56:08.395386+00:00",
+      "coverage": [
+        "Real IAB render on synthetic loopback fixture",
+        "Named key creation with one-time plaintext panel",
+        "Rotation displays a distinct new value",
+        "Revoke removes named entry and plaintext panel",
+        "All fixture keys revoked; empty state visible",
+        "WorkBuddy/Harness/Codex and REST disclosures open"
+      ],
+      "limitations": [
+        "UI form and rendering coverage only; not a backend authorization or production test",
+        "Full-page screenshot failed in browser tooling; viewport screenshot saved successfully"
+      ],
+      "cleanup": "Closed temporary browser tab, revoked every fixture key, stopped verified owned fixture process.",
+      "source_sha256": {
+        "templates/agent_api.html": "e6e77872c6c51963e330d47eb0e3e5ac8ec8765346c8f22553c58f5b729006ef",
+        "agent_api_web.py": "d2c9547c345e829cac60d4c98704b5dc9a1560779907a6048c90ef7dae7a559e"
+      },
+      "evidence": [
+        "center-after-revoke.png",
+        "final-dom.txt",
+        "server.log"
+      ]
+    }
+  },
+  "latest_remote_review": {
+    "recorded_at": "2026-11-08T08:56:08.396739+00:00",
+    "main": "4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b",
+    "production": "4fa835ecc658cbfcf2d9dea759d7844fbcdbac8b",
+    "previous_implementation_base": "2250993505b41b37572aa413bbeff4bfd190db40",
+    "delta": "Comprehensive dialogue Flash-only restriction and browser asset cache key; no overlapping API implementation files.",
+    "pushed": false,
+    "deployed": false
   }
 }
