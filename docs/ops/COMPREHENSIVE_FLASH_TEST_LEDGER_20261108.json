@@ -1,0 +1,49 @@
+{
+  "task": "comprehensive-flash-20261108",
+  "baseline": "2250993505b41b37572aa413bbeff4bfd190db40",
+  "live": "e63b257a7049a7109e0bb5cfd9561b02efc17bff",
+  "policy": "Run each test once; preserve failed/interrupted results; explicit authorization required for reruns.",
+  "prior_evidence": [
+    "docs/ops/AI_COMPREHENSIVE_TEST_LEDGER_20261105.json",
+    "docs/ops/AI_DIALOGUE_LIFECYCLE_TEST_LEDGER_20261107.json"
+  ],
+  "summary": "39 backend tests and 6 browser scenarios passed; each suite executed once. No paid calls or production changes.",
+  "runs": [
+    {
+      "kind": "backend",
+      "baseline": "2250993505b41b37572aa413bbeff4bfd190db40",
+      "live": "e63b257a7049a7109e0bb5cfd9561b02efc17bff",
+      "started": "2026-11-08T08:37:02.3301811+08:00",
+      "status": "passed",
+      "hashes": {
+        "tests/test_comprehensive_mode.py": "AD507E623FBD80067A1F2514B8C769D5638B45507BD16BD97A20245CC6245275",
+        "tests/browser/comprehensive.cjs": "F422062D69C19ADA937906654A72ACAF6C2248C52121F09B41888E0282998948",
+        "static/ai-page/ai-page.js": "50A528E97A348AC73500DCF6DC6E6609CC8F5A3048D4ED6FEF7D788A92F9BF4E",
+        "ai_comprehensive.py": "400B19FA1E689260D713F92AA5BFF0AC2D2BDE36058A3BE74846E3DE17C2F271",
+        "comprehensive_web.py": "91F56EDF8FBEACB704D129E5F5AC3C6E6182D61E50663DC9B8FF5ECA62540B6C"
+      },
+      "log": "D:\\CodexData\\outputs\\comprehensive-flash-20261108\\backend.log",
+      "scenario": "tests/test_comprehensive_mode.py",
+      "exit_code": 0,
+      "finished": "2026-11-08T08:37:11.1755338+08:00"
+    },
+    {
+      "kind": "browser",
+      "baseline": "2250993505b41b37572aa413bbeff4bfd190db40",
+      "live": "e63b257a7049a7109e0bb5cfd9561b02efc17bff",
+      "started": "2026-11-08T08:37:11.1809675+08:00",
+      "status": "passed",
+      "hashes": {
+        "tests/test_comprehensive_mode.py": "AD507E623FBD80067A1F2514B8C769D5638B45507BD16BD97A20245CC6245275",
+        "tests/browser/comprehensive.cjs": "F422062D69C19ADA937906654A72ACAF6C2248C52121F09B41888E0282998948",
+        "static/ai-page/ai-page.js": "50A528E97A348AC73500DCF6DC6E6609CC8F5A3048D4ED6FEF7D788A92F9BF4E",
+        "ai_comprehensive.py": "400B19FA1E689260D713F92AA5BFF0AC2D2BDE36058A3BE74846E3DE17C2F271",
+        "comprehensive_web.py": "91F56EDF8FBEACB704D129E5F5AC3C6E6182D61E50663DC9B8FF5ECA62540B6C"
+      },
+      "log": "D:\\CodexData\\outputs\\comprehensive-flash-20261108\\browser.log",
+      "scenario": "tests/browser/comprehensive.cjs",
+      "exit_code": 0,
+      "finished": "2026-11-08T08:37:22.0143136+08:00"
+    }
+  ]
+}

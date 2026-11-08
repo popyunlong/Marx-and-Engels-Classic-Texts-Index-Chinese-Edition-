@@ -28,12 +28,54 @@ PLAN = {"complex": False, "needs_corpus": False, "needs_web": False, "external_f
 @pytest.mark.parametrize("models,complex_task,expected", [
     ({"deepseek-v4-flash": ["off"]}, True, ("deepseek-v4-flash", "off")),
     ({"deepseek-v4-flash": ["off", "high"]}, True, ("deepseek-v4-flash", "high")),
-    ({"deepseek-v4-flash": ["off"], "deepseek-v4-pro": ["high"]}, True, ("deepseek-v4-pro", "high")),
+    ({"deepseek-v4-flash": ["off"], "deepseek-v4-pro": ["high"]}, True, ("deepseek-v4-flash", "off")),
     ({"deepseek-v4-flash": ["off"], "deepseek-v4-pro": ["high"]}, False, ("deepseek-v4-flash", "off")),
 ])
 def test_model_router_intersects_entitlements(models, complex_task, expected):
     actual = task.choose_model(models, complex_task)
     assert (actual["model"], actual["reasoning_effort"]) == expected
+
+
+def test_comprehensive_router_cannot_fall_back_to_pro():
+    with pytest.raises(ai.AIServiceError):
+        task.choose_model({"deepseek-v4-pro": ["high"]}, True)
+
+
+@pytest.mark.parametrize("model,effort", [
+    (None, "off"), ("auto", "off"), ("deepseek-v4-pro", "high"),
+    ("deepseek-v4-flash", "off"), ("deepseek-v4-flash", "high"),
+])
+def test_comprehensive_requests_only_call_flash(model, effort):
+    with route_fixture({**PLAN, "complex": True}) as (post, calls, _):
+        result = post({"question": "复杂写作", "request_id": "flash-only-compat",
+                       "model": model, "reasoning_effort": effort})
+    assert result["ok"] and calls
+    assert all(call["model"] == "deepseek-v4-flash" for call in calls)
+    if model not in (None, "auto"):
+        assert all(call["reasoning_effort"] == effort for call in calls)
+
+
+def test_legacy_pro_must_have_flash_thinking_permission(wallet):
+    rights = {"models": {"deepseek-v4-flash": ["off"], "deepseek-v4-pro": ["high"]}}
+    def authorize(selection, **kwargs):
+        return M.authorize_ai_selection(user_id=wallet["id"], **kwargs, **selection)
+    with route_fixture() as (post, calls, _), \
+         mock.patch.object(M, "get_ai_entitlements", return_value=rights), \
+         mock.patch.object(A, "_resolve_ai_selection_or_abort", side_effect=authorize):
+        with pytest.raises(ValueError):
+            post({"question": "旧客户端", "request_id": "legacy-pro-denied",
+                  "model": "deepseek-v4-pro", "reasoning_effort": "high"})
+    assert not calls
+
+
+@pytest.mark.parametrize("model,provider", [("mimo-v2.5", "mimo"), ("glm-5.1", "zhipu")])
+def test_comprehensive_rejects_other_providers(model, provider):
+    from werkzeug.exceptions import BadRequest
+    with route_fixture() as (post, calls, _):
+        with pytest.raises(BadRequest):
+            post({"question": "其他模型", "request_id": "other-model-denied",
+                  "model": model, "provider": provider})
+    assert not calls
 
 
 def test_long_history_preserves_constraints_headings_and_tail():
@@ -251,7 +293,7 @@ def test_route_has_no_thirty_citation_cutoff_and_preserves_scope():
     assert result["ok"] and len(result["citations"]) == 45 and "[45]" in result["answer_markdown"]
     assert grounding.call_args.kwargs["source_limit"] is None
     assert grounding.call_args.kwargs["raw_scope"] == ["book:文集:1"]
-    assert calls[1]["model"] == "deepseek-v4-pro"
+    assert all(call["model"] == "deepseek-v4-flash" for call in calls)
 
 
 def test_route_explicit_scope_without_evidence_stops_generation():
@@ -276,6 +318,7 @@ def test_route_continuation_reuses_plan_and_completed_sections():
     assert first["completion_status"] == "partial" and second["completion_status"] == "complete"
     assert second["answer_markdown"].startswith(first["answer_markdown"])
     assert len(calls) == 4  # one plan, two successful sections and one completion check
+    assert all(call["model"] == "deepseek-v4-flash" for call in calls)
 
 
 def test_web_off_and_private_scope_never_make_network_calls():

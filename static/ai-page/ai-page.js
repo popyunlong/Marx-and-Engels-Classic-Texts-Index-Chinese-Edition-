@@ -2691,7 +2691,7 @@
     return modelSelect ? modelSelect.value : "flash";
   }
   function defaultModelForDepth() {
-    if (depth === "comprehensive") return "auto";
+    if (depth === "comprehensive") return "deepseek|deepseek-v4-flash|off";
     var defaults = config && config.ai_entitlements && config.ai_entitlements.defaults;
     var selected = defaults && defaults[depth === "research" ? "research" : "quick"];
     if (!selected || !selected.model) return "";
@@ -2703,8 +2703,9 @@
     if (!modelSelect) return;
     var research = depth === "research";
     Array.prototype.forEach.call(modelSelect.options, function (opt) {
-      var hidden = (depth !== "comprehensive" && !research && opt.getAttribute("data-research-only") === "1") ||
-                   (opt.value === "auto" && depth !== "comprehensive") ||
+      var hidden = (depth === "comprehensive" && opt.getAttribute("data-model") !== "deepseek-v4-flash") ||
+                   (depth !== "comprehensive" && !research && opt.getAttribute("data-research-only") === "1") ||
+                   (opt.value === "auto") ||
                    (research && opt.getAttribute("data-research-disabled") === "1") ||
                    (opt.value === "zhipu" && !webAccess() && !glmEntitled());
       opt.hidden = hidden; opt.disabled = hidden;
@@ -2954,9 +2955,6 @@
     Array.prototype.slice.call(modelSelect.options).forEach(function (opt) {
       if (opt.value !== "zhipu") modelSelect.removeChild(opt);
     });
-    var autoOption = document.createElement("option");
-    autoOption.value = "auto"; autoOption.textContent = "自动选择（限当前权益）";
-    modelSelect.insertBefore(autoOption, modelSelect.firstChild);
     keys.forEach(function (model) {
       models[model].forEach(function (effort) {
         var provider = model.indexOf("mimo-") === 0 ? "mimo" : "deepseek";
