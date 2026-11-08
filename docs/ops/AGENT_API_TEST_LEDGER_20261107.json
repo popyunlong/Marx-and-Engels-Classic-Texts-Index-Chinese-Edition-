@@ -684,7 +684,7 @@
     "recorded_at": "2026-11-08T08:58:12.359543+00:00",
     "pr_body": "docs/ops/AGENT_API_PR_DRAFT_20261108.md",
     "handoff": "docs/ops/AGENT_API_RELEASE_HANDOFF_20261108.md",
-    "state": "Draft PR 40 created; first authorized pre-push passed and one CI run failed. Local traffic fixture repair prepared; no further push or CI rerun authorized.",
+    "state": "Specific approval for one repaired-branch push gate and one new PR CI round recorded; desktop retries excluded.",
     "remote_pr_created": true,
     "pushed": true,
     "deployed": false,
@@ -725,6 +725,31 @@
         "desktop_workbuddy": 1,
         "desktop_harness": 1
       }
+    },
+    {
+      "id": "authorized-pr40-fix-20261108",
+      "recorded_at": "2026-11-08T09:22:27.209406+00:00",
+      "user_answer": "同意钩子和 PR CI 各再执行一次",
+      "purpose": "Verify traffic-fixture repair 8993b08 after PR 40 first CI failure.",
+      "prepush": {
+        "allowed_attempts": 1,
+        "scope": [
+          "tracked Python compile",
+          "test_deploy_manifests.py",
+          "test_release_metadata.py",
+          "deployment_smoke.py --mode server"
+        ]
+      },
+      "pr_ci": {
+        "allowed_workflow_runs": 1,
+        "jobs": [
+          "fast-gate Python 3.10/3.11",
+          "browser-gate",
+          "agent-api-gate"
+        ]
+      },
+      "desktop_clients": [],
+      "automatic_retry_allowed": false
     }
   ]
 }
