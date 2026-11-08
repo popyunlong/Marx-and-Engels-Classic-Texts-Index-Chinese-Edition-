@@ -36,3 +36,11 @@
 发布流程会重复已有测试，依据本次用户重新提供的 AGENTS.md，须先取得专项复测授权。最小范围为：功能推送一次；PR、main、production 各一次自动流水线（包括 Python 3.10/3.11 编译、快速测试、浏览器、main/production 全量集成与部署 smoke，以及 production 元数据门禁）；推进主线/生产分支时适用的推送钩子；一次本地制包演练和一次正式发布事务必需的编译、元数据、服务器 smoke、候选页面和健康检查。候选检查按现有发布流程进行；失败或中断保留证据，不自动重试，不追加付费模型调用、性能或耐久测试。
 
 获授权后按正常推送、PR 合并、main 门禁、production 快进及 production 门禁执行。每次事务前重新读取 ExpectedLive；制包和发布均通过 `deploy/release.ps1`，本机临时与产物目录显式指定到 D 盘，生产事务使用既有发布锁。切流后核对 runtime、current/release.json、发布账本和 production 提交一致。不得跳过门禁或使用脏源文件发布。
+
+## 首轮发布与缓存修正
+
+- 用户专项授权后，PR #38、main 和 production 三轮 CI 均通过，已检查的生产提交为 `182356d4589e0e4c66593cb279f4713fde58ea46`；一次制包演练通过。
+- 正式发布在上传前健康基线阶段主动中断，未启动服务器发布事务、候选服务或切流。服务器 current 仍为 `e63b257a7049a7109e0bb5cfd9561b02efc17bff-20261107T100856Z-8a9a0853`。中断保留为失败记录，不视为发布成功。
+- 上线前检查发现此前遗漏脚本资源版本号更新：公开脚本响应为 `Cache-Control: max-age=14400`，原 URL 仍带 `20261107-lifecycle`，已有浏览器可能继续展示旧 Pro 选项。补丁仅把 AI 脚本 URL 更新为 `20261108-comprehensive-flash`，确保重新加载页面时请求新资源。
+- 缓存修正尚未重新测试、推送或发布；原有通过记录仍对应原版本，不能声称已验证新模板。需要用户另行专项授权第二轮推送/PR/main/production 必需门禁、一次修正后制包演练和一次正式发布事务后继续。
+- 首轮 PR、main、production CI、制包、发布中断与日志均保留于 `D:/CodexData/outputs/comprehensive-flash-20261108`；不得覆盖首轮记录或自动重试。
