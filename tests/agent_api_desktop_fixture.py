@@ -4,6 +4,7 @@ Create busy.flag to hold the real cross-process API slot; create stop.flag to
 revoke the Key, stop the servers and restore only this fixture's config entry.
 This starts no pytest/protocol scenarios and never uses production credentials.
 """
+import argparse
 import json
 import os
 from pathlib import Path
@@ -26,20 +27,37 @@ NAME = 'marx_api_acceptance'
 
 
 def main():
+    global OUT, TEMP
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--client', choices=('workbuddy', 'harness'), default='workbuddy')
+    parser.add_argument('--authorization')
+    args = parser.parse_args()
     ledger = json.loads(LEDGER.read_text('utf-8'))
-    if any(r.get('phase') == 'workbuddy-real-client' for r in ledger['runs']):
+    phase = 'workbuddy-real-client'
+    if args.authorization:
+        grants = ledger.get('repeat_authorizations', [])
+        grant = next((g for g in grants if g.get('id') == args.authorization), None)
+        if not grant or grant.get('desktop_clients') != ['workbuddy', 'harness']:
+            raise SystemExit('No matching explicit desktop repeat authorization.')
+        phase = f'{args.client}-desktop-{args.authorization}'
+        OUT = OUT.parent / args.authorization / args.client
+        TEMP = TEMP.parent / args.authorization / args.client
+    elif args.client != 'workbuddy':
+        raise SystemExit('Harness repeat requires explicit authorization.')
+    if any(r.get('phase') == phase for r in ledger['runs']):
         raise SystemExit('Already attempted: inspect the ledger; never restart implicitly.')
     OUT.mkdir(parents=True, exist_ok=True)
     TEMP.mkdir(parents=True, exist_ok=True)
-    original = CONFIG.read_bytes() if CONFIG.exists() else None
+    original = CONFIG.read_bytes() if args.client == 'workbuddy' and CONFIG.exists() else None
     settings = json.loads(original) if original else {'mcpServers': {}}
     if NAME in settings.get('mcpServers', {}):
         raise SystemExit('Test server name already exists; preserving it.')
     if original is not None:
         (OUT / 'mcp.before.json').write_bytes(original)
-    record = {'phase': 'workbuddy-real-client', 'status': 'preparing',
-              'started': datetime.now(timezone.utc).isoformat(), 'client_version': '5.9.3',
-              'artifact_root': str(OUT), 'scenario': 'First native WorkBuddy MCP connection, sources, search, passage and busy error',
+    record = {'phase': phase, 'status': 'preparing',
+              'started': datetime.now(timezone.utc).isoformat(), 'client': args.client,
+              'authorization': args.authorization,
+              'artifact_root': str(OUT), 'scenario': 'Native desktop MCP connection, sources, search, passage and busy error',
               'original_config_existed': original is not None}
     ledger['runs'].append(record)
 
@@ -90,13 +108,14 @@ def main():
         settings.setdefault('mcpServers', {})[NAME] = {
             'type': 'streamableHttp', 'url': f'http://127.0.0.1:{port}/mcp',
             'headers': {'Authorization': 'Bearer ' + fixture['key']}, 'timeout': 30000}
-        CONFIG.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + '\n', 'utf-8')
-        configured = True
+        if args.client == 'workbuddy':
+            CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            CONFIG.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + '\n', 'utf-8')
+            configured = True
         record.update(status='client_configuration_ready', mcp_url=f'http://127.0.0.1:{port}/mcp',
                       backend_pid=backend.pid, adapter_pid=adapter.pid)
         save()
-        print('Native WorkBuddy temporary MCP configuration ready; no test Key printed.', flush=True)
+        print(f'Native {args.client} loopback fixture ready; no test Key printed.', flush=True)
         while not (OUT / 'stop.flag').exists():
             if backend.poll() is not None or adapter.poll() is not None:
                 raise RuntimeError('Fixture process exited')

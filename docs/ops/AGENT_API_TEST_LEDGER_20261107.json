@@ -541,5 +541,36 @@
     "remote_pr_created": false,
     "pushed": false,
     "deployed": false
-  }
+  },
+  "repeat_authorizations": [
+    {
+      "id": "authorized-three-stage-20261108",
+      "recorded_at": "2026-11-08T09:05:22.346268+00:00",
+      "user_answer": "同意三项各执行一次",
+      "scope_document": "docs/ops/AGENT_API_RELEASE_HANDOFF_20261108.md",
+      "prepush": {
+        "allowed_attempts": 1,
+        "scope": [
+          "tracked Python compile",
+          "test_deploy_manifests.py",
+          "test_release_metadata.py",
+          "deployment_smoke.py --mode server"
+        ]
+      },
+      "pr_ci": {
+        "allowed_workflow_runs": 1,
+        "jobs": [
+          "fast-gate Python 3.10/3.11",
+          "browser-gate",
+          "agent-api-gate"
+        ]
+      },
+      "desktop_clients": [
+        "workbuddy",
+        "harness"
+      ],
+      "desktop_attempts_per_client": 1,
+      "automatic_retry_allowed": false
+    }
+  ]
 }
