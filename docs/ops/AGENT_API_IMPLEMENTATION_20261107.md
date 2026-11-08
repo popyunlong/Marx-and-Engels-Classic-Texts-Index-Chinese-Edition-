@@ -1,5 +1,7 @@
 # 外部 Agent 文献查询 API：实现与验收交接
 
+2026-11-08 后续进展：专项授权后 pre-push 全通过，feature `ec26b87` 已推送并创建草稿 PR #40。首次 CI 有发布夹具缺失 MCP 钩子的失败，另有 Python 下载 504；夹具已在本地修复，新增 MCP 准备失败边界首次 2 passed，旧失败场景尚未复测。两端桌面再尝试仍受窗口控制阻断，已完整清理，未发布。最新结论以 `AGENT_API_PR40_CI_20261108.md` 和台账为准；下文是前阶段交接，不能视为 PR 已通过。
+
 ## 基线及交付位置
 
 - 独立分支：`codex/agent-query-api-20261107`；工作树：`D:/CodexData/workspaces/agent-query-api-20261107`。

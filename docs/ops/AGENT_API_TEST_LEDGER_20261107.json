@@ -341,6 +341,153 @@
       "model_turns_started": 0,
       "persistent_chat_created": false,
       "user_config_modified": false
+    },
+    {
+      "phase": "workbuddy-desktop-authorized-three-stage-20261108",
+      "status": "blocked_during_preparation",
+      "started": "2026-11-08T09:06:30.736522+00:00",
+      "client": "workbuddy",
+      "authorization": "authorized-three-stage-20261108",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-three-stage-20261108\\workbuddy",
+      "scenario": "Native desktop MCP connection, sources, search, passage and busy error",
+      "original_config_existed": true,
+      "mcp_url": "http://127.0.0.1:49210/mcp",
+      "backend_pid": 28548,
+      "adapter_pid": 28612,
+      "temporary_entry_removed": true,
+      "fixture_stopped": true,
+      "synthetic_keys_revoked": true,
+      "fixture_finished": "2026-11-08T09:07:56.159907+00:00",
+      "recorded_data_queries": 0,
+      "remaining_active_fixture_keys": 0,
+      "fixture_plaintext_file_removed": true,
+      "original_config_restored_exactly": true,
+      "reason": "WorkBuddy AX tree returned, but screenshots showed unrelated Chrome then Codex even after the exposed Raise action. No coordinate/keyboard input or Agent prompt sent.",
+      "finished": "2026-11-08T09:15:43.346745+00:00",
+      "application_test_completed": false
+    },
+    {
+      "phase": "harness-desktop-authorized-three-stage-20261108",
+      "status": "blocked_during_preparation",
+      "started": "2026-11-08T09:08:12.581370+00:00",
+      "client": "harness",
+      "authorization": "authorized-three-stage-20261108",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-three-stage-20261108\\harness",
+      "scenario": "Native desktop MCP connection, sources, search, passage and busy error",
+      "original_config_existed": false,
+      "mcp_url": "http://127.0.0.1:56205/mcp",
+      "backend_pid": 28596,
+      "adapter_pid": 13228,
+      "fixture_stopped": true,
+      "synthetic_keys_revoked": true,
+      "fixture_finished": "2026-11-08T09:09:56.468502+00:00",
+      "recorded_data_queries": 0,
+      "remaining_active_fixture_keys": 0,
+      "fixture_plaintext_file_removed": true,
+      "reason": "Harness initial screenshot matched; later target was reported minimized. Rebinding allowed AX inspection, but Plugin click failed: coordinate input geometry unavailable. New screenshot again showed unrelated Codex. No Agent prompt or user config change.",
+      "finished": "2026-11-08T09:15:43.347751+00:00",
+      "application_test_completed": false
+    },
+    {
+      "phase": "mcp-route-failure-first",
+      "status": "passed",
+      "started": "2026-11-08T09:14:23.769845+00:00",
+      "scenario": "New coverage: MCP preparation callback failure must preserve the live upstream and never validate, install or reload Caddy; promote and rollback. Does not rerun previous traffic scenarios.",
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-three-stage-20261108\\mcp-route-failure",
+      "source_base": "ec26b877a9b80c220bde37c2419a0c015d2e5796",
+      "exit_code": 0,
+      "finished": "2026-11-08T09:14:27.961501+00:00",
+      "source_sha256": {
+        "tests/test_catalog_traffic.py": "f5327d722d1a01360dfb2f4d138b77fadac38f2ad85769adf9a623f8e4ee5b87"
+      }
+    },
+    {
+      "phase": "authorized-prepush-20261108",
+      "started_at": "2026-11-08T09:05:39.039506+00:00",
+      "authorization": "authorized-three-stage-20261108",
+      "version": "ec26b877a9b80c220bde37c2419a0c015d2e5796",
+      "status": "passed",
+      "log": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-three-stage-20261108\\prepush.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-08T09:08:34.450816+00:00",
+      "conclusion": "441 tracked Python files compiled, 26 deployment manifest/metadata tests passed, server deployment smoke passed; branch pushed without bypassing hooks."
+    },
+    {
+      "phase": "authorized-pr-ci-20261108",
+      "status": "failed",
+      "authorization": "authorized-three-stage-20261108",
+      "pr": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/pull/40",
+      "head_revision": "ec26b877a9b80c220bde37c2419a0c015d2e5796",
+      "tested_merge_revision": "5fefe59240b354d43fcbfffa41cfb13bb884b2a9",
+      "run": {
+        "id": 42466115525,
+        "name": "CI",
+        "status": "completed",
+        "conclusion": "failure",
+        "attempt": 1,
+        "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/42466115525",
+        "jobs": [
+          {
+            "id": 128685909218,
+            "name": "Public corpus API and MCP contract",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Run actions/setup-python@v5"
+            ]
+          },
+          {
+            "id": 128685909446,
+            "name": "Fast gate (Python 3.10)",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Run deterministic pull-request tests"
+            ]
+          },
+          {
+            "id": 128685909474,
+            "name": "AI controls browser gate",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Run actions/setup-python@v5"
+            ]
+          },
+          {
+            "id": 128685909657,
+            "name": "Fast gate (Python 3.11)",
+            "status": "completed",
+            "conclusion": "failure",
+            "failed_steps": [
+              "Run deterministic pull-request tests"
+            ]
+          },
+          {
+            "id": 128686215471,
+            "name": "Main integration gate (Python 3.10)",
+            "status": "completed",
+            "conclusion": "skipped",
+            "failed_steps": []
+          },
+          {
+            "id": 128686215816,
+            "name": "Production lineage and rollback gate",
+            "status": "completed",
+            "conclusion": "skipped",
+            "failed_steps": []
+          }
+        ]
+      },
+      "artifact_root": "D:\\CodexData\\outputs\\agent-query-api-20261107\\authorized-three-stage-20261108",
+      "analysis": {
+        "fast_310": "488 passed, 5 failed; isolated promote traffic fixture omitted the new MCP routing hook.",
+        "fast_311": "488 passed, 5 failed; same fixture issue.",
+        "api_and_browser": "Both failed downloading Python 3.10.22 with GitHub HTTP 504; application tests not entered.",
+        "integration_and_lineage": "Skipped on PR.",
+        "automatic_reruns": 0,
+        "local_fix": "Added isolated MCP hook default plus distinct first-time MCP callback failure boundary test (2 passed). Previous failing cases remain unverified after fix."
+      }
     }
   ],
   "not_run": [
@@ -537,10 +684,11 @@
     "recorded_at": "2026-11-08T08:58:12.359543+00:00",
     "pr_body": "docs/ops/AGENT_API_PR_DRAFT_20261108.md",
     "handoff": "docs/ops/AGENT_API_RELEASE_HANDOFF_20261108.md",
-    "state": "Local review materials ready; awaiting specific repeat-test authorization for pre-push/PR CI/desktop retries.",
-    "remote_pr_created": false,
-    "pushed": false,
-    "deployed": false
+    "state": "Draft PR 40 created; first authorized pre-push passed and one CI run failed. Local traffic fixture repair prepared; no further push or CI rerun authorized.",
+    "remote_pr_created": true,
+    "pushed": true,
+    "deployed": false,
+    "pr_url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/pull/40"
   },
   "repeat_authorizations": [
     {
@@ -570,7 +718,13 @@
         "harness"
       ],
       "desktop_attempts_per_client": 1,
-      "automatic_retry_allowed": false
+      "automatic_retry_allowed": false,
+      "consumed": {
+        "prepush": 1,
+        "pr_ci_workflow_runs": 1,
+        "desktop_workbuddy": 1,
+        "desktop_harness": 1
+      }
     }
   ]
 }

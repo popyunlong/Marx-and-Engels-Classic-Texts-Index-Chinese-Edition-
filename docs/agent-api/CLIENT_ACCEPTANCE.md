@@ -4,6 +4,8 @@
 
 ## 当前证据
 
+2026-11-08 用户另授权两端桌面各重试一次；仍在准备阶段遇到目标窗口/画面不匹配，Harness 另报点击 geometry unavailable。未发送模型消息，两端 api_calls 均为 0。所有测试 Key 已撤销、服务已停止，WorkBuddy 配置按备份恢复，Harness 配置未改。该次受阻记录保留在台账及 `docs/ops/AGENT_API_PR40_CI_20261108.md`，不能将其计为桌面通过。
+
 | 客户端 | 已交付 | 安装包 SDK 兼容性 | 桌面/Agent 完整流程 |
 |---|---|---|---|
 | WorkBuddy 5.9.3 | Connector ZIP、Token 表单、streamableHttp 配置 | SDK 1.29.0 首次通过，协议 2025-11-25 | 未完成；导航已恢复，编辑/发送及画面捕获受阻 |

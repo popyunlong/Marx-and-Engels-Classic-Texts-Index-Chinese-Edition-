@@ -56,6 +56,9 @@ install() { if [ "$1" = -d ]; then return 0; fi; command cp -- "${@: -2:1}" "${@
 # This fixture exercises route switching only. The hostname-specific security
 # transform has its own baseline/adapter acceptance in test_security_ops.py.
 python3() { if [ "$1" = "$FINAL/app/deploy/security_caddy.py" ]; then return 0; fi; command python3 "$@"; }
+# These fixtures isolate Caddy traffic switching from sidecar provisioning.
+# A scenario can override the hook to exercise its failure boundary.
+agent_api_switch_route() { :; }
 ''' + scenario
     helper = ROOT / 'deploy/release_traffic.sh'
     if implementation == 'promote':
@@ -100,6 +103,20 @@ def test_successful_cutover_uses_expected_upstream(tmp_path):
     calls = run_helper(tmp_path, 'switch_caddy 8000 8001\n')
     assert (tmp_path / 'Caddyfile').read_text().strip() == 'reverse_proxy 127.0.0.1:8001'
     assert calls.count('reload caddy') == 1
+
+
+@pytest.mark.parametrize('implementation', ['promote', 'rollback'])
+def test_mcp_route_failure_aborts_cutover_before_caddy_changes(tmp_path, implementation):
+    calls = run_helper(tmp_path, '''
+agent_api_switch_route() {
+  printf 'mcp-route-failed %s\\n' "$1" >> "$REHEARSAL_DIR/calls"
+  return 1
+}
+if switch_caddy 8000 8001; then exit 11; fi
+''', implementation)
+    assert (tmp_path / 'Caddyfile').read_text().strip() == 'reverse_proxy 127.0.0.1:8000'
+    assert calls == 'mcp-route-failed 8001\n'
+    assert not (tmp_path / 'caddy-context').exists()
 
 
 STREAM_CONFIG = '''\
