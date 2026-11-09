@@ -5361,6 +5361,7 @@ def _mylib_derivative_acceptance(row: dict) -> dict:
     readonly_authorized = (
         row.get("source_kind") == "scanned" and not row.get("ocr_consent") and indexed_pages == 0
     )
+    pdf_pagination_verified = mylib.verified_pdf_pagination(row)
     text_quality = quality.get("text_layer") if isinstance(
         quality.get("text_layer"), dict
     ) else {}
@@ -5411,10 +5412,13 @@ def _mylib_derivative_acceptance(row: dict) -> dict:
 
         if (
             indexed_pages and total_pages >= 30 and not is_compilation
+            and not pdf_pagination_verified
             and not quality.get("page_segments")
             and float(quality.get("page_confidence") or 0.0) < 0.70
         ):
             block("pagination", "未形成可靠的 PDF 页与书内页码映射。")
+        if pdf_pagination_verified:
+            warn("pagination", "已核对当前原件；本件仅按明确标注的 PDF 页码引用，不宣称原版印刷页码。")
         for message in quality.get("warnings") or []:
             warn("pagination", str(message))
         source_profile = quality.get("source_profile") if isinstance(
@@ -5442,6 +5446,7 @@ def _mylib_derivative_acceptance(row: dict) -> dict:
             "page_confidence": float(quality.get("page_confidence") or 0.0),
             "citation_ready": bool(sample.get("citation")),
             "bibliographic_source": str(bibliography.get("source") or ""),
+            "pagination_basis": "pdf" if pdf_pagination_verified else "book",
         },
         "sample_pdf_page": sample_pdf_page,
         "sample_printed_page": str(sample.get("printed_page") or ""),

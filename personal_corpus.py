@@ -2556,6 +2556,7 @@ def get_book_page(
     citation = ""
     citations: dict[str, str] = {}
     section_title = ""
+    displayed_printed_page = row[0]
     if corpus is not None:
         volume = corpus.get_volume_by_source_file(src)
         page_obj = None
@@ -2563,13 +2564,17 @@ def get_book_page(
             page_obj = next((page for page in volume.pages if page.pdf_page == pno), None)
         if page_obj is None:
             page_obj = Page(pno, row[0], text, normalize(text))
+        if (corpus._pl_meta.get(key) or {}).get('pdf_pagination_verified'):
+            displayed_printed_page = None
+            page_obj.printed_page = None
+            page_obj.page_label_info = {'status': 'unnumbered', 'printed_page': None}
         citation = corpus._make_citation(key, 1, [page_obj], source_file=src)
         citations = corpus._make_citations(key, 1, [page_obj], source_file=src)
         section = corpus.get_chapter_for_page(src, pno)
         section_title = section.title if section else ""
     return {
         "pdf_page": pno,
-        "printed_page": row[0],
+        "printed_page": displayed_printed_page,
         "text": text,
         "section_title": section_title,
         "citation": citation,
@@ -2609,6 +2614,7 @@ def get_book_toc(user_id: int, submission_id: int) -> list[dict]:
     if not path.exists():
         return []
     key = personal_book_key(submission_id)
+    pdf_basis = plib.verified_pdf_pagination(plib.get_submission(submission_id, int(user_id)))
     conn = _connect(user_id)
     try:
         rows = conn.execute(
@@ -2617,7 +2623,7 @@ def get_book_toc(user_id: int, submission_id: int) -> list[dict]:
             (key,),
         ).fetchall()
         return [
-            {"title": row[0], "pdf_page": int(row[1]), "printed_page": row[2],
+            {"title": row[0], "pdf_page": int(row[1]), "printed_page": None if pdf_basis else row[2],
              "level": int(row[3] or 1), "kind": row[4] or "body",
              "sort_order": int(row[5] or 0)}
             for row in rows
@@ -2667,6 +2673,12 @@ class PersonalCorpus(Corpus):
         for key, info in self._pl_meta.items():
             for vol in self.books.get(key, []):
                 vol.display_title = info.get("title") or key
+                if info.get('pdf_pagination_verified'):
+                    vol.printed_to_pdf.clear()
+                    for page in vol.pages:
+                        page.printed_page = None
+                        page.page_label_info = {'status': 'unnumbered', 'printed_page': None,
+                                                'basis': 'verified_pdf_position'}
 
     def _load_manifest(self) -> None:
         # 个人书不在全局 manifest 里，跳过其解析（省一次大文件读），只登记本人的书库键。
@@ -2796,7 +2808,8 @@ class PersonalCorpus(Corpus):
 def _signature(books: list[dict]) -> str:
     """用户书目指纹。变了就重建 Corpus——把缓存失效变成自动行为，杜绝陈旧命中。"""
     return ",".join(
-        f"{b['id']}:{b.get('parsed_at') or ''}:{b.get('bibliographic_json') or '{}'}"
+        f"{b['id']}:{b.get('sha256') or ''}:{b.get('page_count') or ''}:"
+        f"{b.get('parsed_at') or ''}:{b.get('bibliographic_json') or '{}'}"
         for b in books
     )
 
@@ -2822,6 +2835,7 @@ def _load_corpus_for_books(user_id: int, books: list[dict]) -> PersonalCorpus | 
             "title": book.get("title") or "",
             "author": book.get("author") or "",
             "bibliographic": plib.submission_bibliographic(book),
+            "pdf_pagination_verified": plib.verified_pdf_pagination(book),
         }
         for book in books
     }
