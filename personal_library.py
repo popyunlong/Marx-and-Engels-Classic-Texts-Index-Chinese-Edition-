@@ -859,6 +859,33 @@ def submission_acceptance(row: dict | None) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def verified_pdf_pagination(row: dict | None) -> bool:
+    """Accept an administrator's PDF-only basis only for the reviewed original."""
+    if not row:
+        return False
+    bib = submission_bibliographic(row)
+    basis = bib.get('pagination_basis')
+    if not isinstance(basis, dict):
+        return False
+    sha = str(row.get('sha256') or '')
+    try:
+        confidence = float(bib.get('confidence') or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        bib.get('source') == 'manual_verified' and .9 <= confidence <= 1
+        and bib.get('reproduction_kind') in {'unpaginated_excerpt', 'electronic_reflow'}
+        and basis.get('kind') == 'pdf'
+        and basis.get('original_images_reviewed') is True
+        and bool(str(basis.get('reason') or '').strip())
+        and len(sha) == 64 and all(c in '0123456789abcdef' for c in sha)
+        and basis.get('source_sha256') == sha
+        and type(basis.get('page_count')) is int
+        and basis['page_count'] > 0
+        and basis['page_count'] == row.get('page_count')
+    )
+
+
 def set_bibliographic_metadata(submission_id: int, metadata: dict | None) -> None:
     """持久化版权页/扉页识别结果，供检索引文与阅读器共用。"""
     clean = metadata if isinstance(metadata, dict) else {}
