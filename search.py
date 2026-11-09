@@ -693,8 +693,7 @@ class Corpus:
                 )
                 for book, volume, pdf_page, printed_page, raw_text, norm_text, page_id in raw_rows
             ]
-        from catalog_release import active_catalog
-        self.catalog = active_catalog()
+        self.catalog = self._active_catalog()
         if self.catalog:
             self.catalog.verify_corpus(conn)
             self._toc_db_entries = self._catalog_entries(self.catalog)
@@ -914,6 +913,11 @@ class Corpus:
             span = lo if lo == hi else f"{lo}—{hi}"
         self._date_span_cache[key] = span
         return span
+
+    def _active_catalog(self):
+        """Public corpus catalogue; private corpora supply their own DB entries."""
+        from catalog_release import active_catalog
+        return active_catalog()
 
     def _load_toc_entries_from_db(self, conn: sqlite3.Connection) -> dict[str, list[TocEntry]]:
         table = conn.execute(

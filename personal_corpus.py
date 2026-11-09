@@ -2651,6 +2651,11 @@ class PersonalCorpus(Corpus):
     实例化。因此不存在「忘了加过滤条件就串号」这类风险——别人的实例里根本没有这些书。
     """
 
+    def _active_catalog(self):
+        # Public snapshots describe the shared corpus, never a user's private DB.
+        # Keep private TOC loading on the existing per-user SQLite path.
+        return None
+
     def __init__(self, db_path: Path, meta: dict[str, dict]) -> None:
         # 必须在 super().__init__ 之前赋值：父类构造过程中会回调 _load_manifest。
         self._pl_meta: dict[str, dict] = dict(meta)
