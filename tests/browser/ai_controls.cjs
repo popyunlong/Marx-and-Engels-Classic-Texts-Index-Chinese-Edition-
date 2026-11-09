@@ -254,6 +254,9 @@ for(const legacy of [false,true]) test(`composer mode preserves drafts, scope, p
   assert.equal(requests.at(-1).model,'deepseek-v4-pro');
   await page.reload();
   await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
+  // Entitlements and saved preferences restore asynchronously after the button
+  // becomes usable. Wait for the state being asserted, with the normal timeout.
+  await page.waitForFunction(()=>document.querySelector('.aip-mode-button[data-depth="research"]').getAttribute('aria-pressed')==='true');
   assert.equal(await research.getAttribute('aria-pressed'),'true');
   await page.locator('.aip-depth-tab[data-depth="quick"]').click();
   assert.equal(await quick.getAttribute('aria-pressed'),'true');
