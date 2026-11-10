@@ -1,0 +1,84 @@
+const {test, before, after} = require('node:test');
+const assert = require('node:assert/strict');
+const {spawn} = require('node:child_process');
+const path = require('node:path');
+const {chromium} = require('playwright');
+let server, browser, base;
+before(async () => {
+  server = spawn(process.env.PYTHON, ['-u', path.join(__dirname, 'serve_chapter_fixture.py')], {stdio:['ignore','pipe','pipe']});
+  base = await new Promise((resolve, reject) => {
+    let output = '', errors = '';
+    const timer = setTimeout(() => reject(new Error(errors || 'fixture timeout')), 45000);
+    server.stderr.on('data', d => { errors += d; });
+    server.stdout.on('data', d => { output += d; const m = output.match(/READY=(http:\/\/[^\s]+)/); if (m) {clearTimeout(timer); resolve(m[1]);} });
+    server.on('error', reject);
+    server.on('exit', code => {clearTimeout(timer); reject(new Error(`fixture exited ${code}: ${errors}`));});
+  });
+  browser = await chromium.launch({headless:true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {})});
+});
+after(async () => {if (browser) await browser.close(); if (server) server.kill();});
+async function setup(t, width) {
+  const context = await browser.newContext({viewport:{width,height:900}}), page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  t.after(async () => { await context.close(); assert.deepEqual(errors, []); });
+  return page;
+}
+test('desktop homepage lazy chapters, child selection, request scope, history and clear', async t => {
+  const page = await setup(t, 1366), requests = [];
+  page.on('request', req => { if(req.url().includes('/api/search')) requests.push(req); });
+  await page.goto(base + '/v2');
+  assert.equal(requests.filter(r => r.url().includes('/chapters')).length, 0);
+  await page.locator('.bscope-trigger').first().click();
+  const row = page.locator('.bscope-book[data-key="文集"]').first();
+  await row.locator('.bscope-chapter-box > summary').click();
+  await row.locator('.bscope-chapter-box details > summary').first().click();
+  const children = row.locator('.bscope-chapter-check');
+  await children.nth(1).check();
+  assert.match(await page.locator('.bscope-chapter-summary').first().innerText(), /内部子节/);
+  await row.locator('input[type=search]').fill('内部');
+  assert.equal(await row.locator('.bscope-chapter-row:visible').count(), 1);
+  await page.locator('#q').fill('劳动');
+  await page.locator('#submitBtn').click();
+  await page.locator('[data-action=toggle-volume]').first().waitFor();
+  const query = requests.find(r => new URL(r.url()).pathname === '/api/search').postDataJSON();
+  assert.equal(query.scope_version, 'v1'); assert.ok(query.scope[0].startsWith('chapter:'));
+  await page.locator('[data-action=toggle-volume]').first().click();
+  await Promise.all([page.waitForResponse(r => r.url().includes('/chapter-hits')),
+    page.locator('[data-action=toggle-chapter]').first().click()]);
+  const drill = requests.find(r => r.url().includes('/chapter-hits')).postDataJSON();
+  assert.deepEqual(drill.scope, query.scope); assert.equal(drill.scope_version, 'v1');
+  await page.reload();
+  await page.locator('.bscope-trigger').first().click();
+  assert.match(await page.locator('.bscope-chapter-summary').first().innerText(), /已选 1 个篇章/);
+  await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'homepage-desktop.png'),fullPage:false});
+  await page.locator('.bscope-clear').first().click();
+  assert.equal(await page.locator('.bscope-chapter-summary').first().innerText(), '');
+});
+test('mobile chapter selector keeps the viewport and marks inherited children', async t => {
+  const page = await setup(t, 390);
+  await page.goto(base + '/v2');
+  await page.locator('.bscope-trigger').first().click();
+  const row = page.locator('.bscope-book[data-key="文集"]').first();
+  await row.locator('.bscope-chapter-box > summary').click();
+  await row.locator('.bscope-chapter-box details > summary').first().click();
+  await row.locator('.bscope-chapter-check').first().check();
+  assert.equal(await row.locator('.bscope-chapter-check').nth(1).isDisabled(), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'chapter-mobile.png'),fullPage:false});
+});
+test('API guest page, old redirect and desktop/mobile independent navigation', async t => {
+  const page = await setup(t, 1366);
+  await page.goto(base + '/account/agent-api');
+  assert.ok(page.url().endsWith('/api-access'));
+  assert.equal(await page.locator('h1').innerText(), '文献 API');
+  assert.equal(await page.locator('.v2tabs-top [aria-current=page]').innerText(), '文献 API');
+  assert.equal(await page.locator('button[value=create]').count(), 0);
+  await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'api-desktop.png'),fullPage:false});
+  await page.setViewportSize({width:390,height:844});
+  const link = page.locator('.v2tabbar [aria-current=page]');
+  await link.scrollIntoViewIfNeeded();
+  assert.equal(await link.isVisible(), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+  await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'api-mobile.png'),fullPage:false});
+});

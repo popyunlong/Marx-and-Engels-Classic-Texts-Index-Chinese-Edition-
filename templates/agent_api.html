@@ -1,32 +1,39 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>API 与 Agent 接入</title>
+<title>文献 API</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='layout-v2/layout-v2.css') }}?v=31">
+{% include '_refined_assets.html' %}
 <style>
 :root{color-scheme:light;--ink:#30241d;--muted:#75685c;--line:#dfd3c6;--accent:#8f1d1d}
 *{box-sizing:border-box}body{margin:0;background:#f5f0e9;color:var(--ink);font:16px/1.7 "Microsoft YaHei",sans-serif}
-main{max-width:1000px;margin:auto;padding:32px 20px 64px}nav{display:flex;gap:24px;margin-bottom:28px}a{color:var(--accent)}
+main{max-width:1000px;margin:auto;padding:32px 20px 120px}main nav{display:flex;gap:24px;margin-bottom:28px}main a{color:var(--accent)}
 h1{font-size:32px;line-height:1.3}h2{font-size:22px;margin-top:0}.lead{max-width:760px;color:var(--muted)}
 section{background:#fffdf9;border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:24px}
 .key{border-top:1px solid var(--line);padding:16px 0;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}button,input{font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px 12px;max-width:100%}
-button{cursor:pointer;background:var(--accent);color:white}button.secondary{background:white;color:var(--accent)}input{background:white}
+main form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}main button,main input{font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px 12px;max-width:100%}
+main button{cursor:pointer;background:var(--accent);color:white}main button.secondary{background:white;color:var(--accent)}main input{background:white}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3eee7;padding:16px;border-radius:8px;font:13px/1.6 Consolas,monospace}code{overflow-wrap:anywhere}
 .notice{padding:16px;border-left:4px solid var(--accent);background:#fff3e9}small{color:var(--muted)}summary{cursor:pointer;font-weight:bold;padding:10px 0}
-</style></head><body><main>
-<nav><a href="/account">账户中心</a><a href="/citation-agent">网页插注校注 Agent</a><a href="/">文献检索</a></nav>
-<h1>把原文证据接入你的 Agent</h1>
-<p class="lead">在 WorkBuddy、DeepSeek Harness 或 Codex 中检索公共文库、核对原文与出处。论文分析与文件修改由你自己的 Agent 完成，网页插注校注功能仍可继续使用。</p>
+</style></head><body class="v2"><div class="api-nav">{% include '_appnav.html' %}</div><main>
+<h1>文献 API</h1>
+<p class="lead">通过 REST API 或 MCP 查询公共文库，获取原文、上下文与出处，供程序、研究工具及外部 Agent 使用。接口提供文献证据；论文分析、任务规划和文件修改由调用方完成。</p>
 <p>全站最多 {{ concurrency }} 个外部查询同时执行；每账号默认并发 1，每分钟 {{ per_minute }} 次。多个 Key 共用账号额度，不消耗站内 AI token。</p>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
 {% if new_key %}<section class="notice" aria-live="polite"><h2>保存你的新 Key</h2><p>明文只在本次创建响应中显示。请保存到客户端凭证设置；不要放进论文、提示词或公开仓库。</p><pre>{{ new_key }}</pre></section>{% endif %}
 <section><h2>个人 API Key</h2>
-{% if not allowed %}<p>当前账号没有接口使用资格。需要有效会员及检索、正文、API 权限。你仍可撤销已有 Key。</p><a href="/pricing">查看会员套餐</a>{% endif %}
+{% if not logged_in %}<p>登录后可管理个人 Key；使用接口需要有效会员及检索、正文、API 权限。</p><a href="{{ url_for('login', next='/api-access') }}">登录管理 Key</a>
+{% elif not allowed %}<p>当前账号没有接口使用资格。需要有效会员及检索、正文、API 权限。你仍可撤销已有 Key。</p><a href="/pricing">查看会员套餐</a>{% endif %}
 {% for key in keys %}<div class="key"><div><strong>{{ key.name }}</strong><br><small>{{ key.prefix }}…</small></div><form method="post">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="key_id" value="{{ key.id }}"><input type="hidden" name="name" value="{{ key.name }}">
 {% if allowed %}<button name="action" value="rotate" class="secondary">重新生成</button>{% endif %}<button name="action" value="revoke" class="secondary">撤销</button></form></div>{% else %}<p>尚未创建 Key。</p>{% endfor %}
 {% if allowed and keys|length < 3 %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="key-name">名称</label><input id="key-name" name="name" maxlength="60" required placeholder="例如：我的 Codex"><button name="action" value="create">创建 Key</button></form>{% endif %}
 <small>最多三个有效 Key。重新生成会立即使旧 Key 失效。</small></section>
-<section><h2>连接你的客户端</h2><p>MCP 地址：<code>{{ api_base }}/mcp</code></p>
+<section><h2>REST API</h2><p>使用 Bearer Key 调用公共文献查询接口。</p><pre>POST {{ api_base }}/api/v1/search
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+
+{"q":"生产关系","mode":"exact","scope":["book:文集"],"limit":10}</pre><a href="/static/agent-api/openapi.json">查看 OpenAPI 文档</a></section>
+<section><h2>MCP 接入</h2><p>MCP 地址：<code>{{ api_base }}/mcp</code></p>
 <details open><summary>Codex</summary><p>将 Key 保存到环境变量 <code>MARX_API_KEY</code>，在 Codex MCP 配置中添加：</p><pre>[mcp_servers.marx_search]
 url = "{{ api_base }}/mcp"
 bearer_token_env_var = "MARX_API_KEY"
@@ -50,12 +57,9 @@ tool_timeout_sec = 30</pre></details>
     headers:
       Authorization: 'Bearer ${credential:MARX_API_KEY}'
     toolCallTimeoutMs: 30000</pre></details></section>
-<section><h2>开始查询</h2><p>可以对 Agent 说：“列出可查询的文库，在《马克思恩格斯文集》中查找这段引文，并读取上下文、核对版本和印刷页码。近似命中请标为待核对。”</p>
+<section><h2>额度与调用说明</h2><p>调用示例：“列出可查询的文库，在《马克思恩格斯文集》中查找这段引文，并读取上下文、核对版本和印刷页码。近似命中请标为待核对。”</p>
 <p>工具顺序：<code>list_sources → search_corpus → get_passage</code>。近似定位须指定范围；多词共现与近似结果都是候选证据，需结合上下文判断。</p>
 <p>串行调用。遇到繁忙提示，按返回的等待时间重试，最多三次。证据引用最长保留 24 小时，过期或语料版本变化后重新检索。</p>
-<details><summary>直接使用 REST API</summary><pre>POST {{ api_base }}/api/v1/search
-Authorization: Bearer &lt;你的 API Key&gt;
-Content-Type: application/json
-
-{"q":"生产关系","mode":"exact","scope":["book:文集"],"limit":10}</pre><a href="/static/agent-api/openapi.json">OpenAPI 文档</a></details></section>
+<p>401：检查 Key；403：检查会员和接口权限；409：语料版本已变化，重新检索；429/503：按 Retry-After 等待。API 不消耗站内 AI token，多个 Key 共用账号额度。</p>
+<p><a href="/citation-agent">使用网页插注校注 Agent</a> · <a href="/account">账户中心</a></p></section>
 </main></body></html>

@@ -2610,14 +2610,15 @@ class Corpus:
     # ------------------------------------------------------------------
     # 精确匹配
     # ------------------------------------------------------------------
-    def _layout_scan(self, q_norm, book_scope=None, volumes=None):
+    def _layout_scan(self, q_norm, book_scope=None, volumes=None, document_ranges=None):
         index = getattr(self, 'layout_index', None)
         if index is None:
             return {}, True, ''
         if volumes is None:
             volumes = [v for book in self._scoped_book_keys(book_scope)
                        for v in self._scoped_volumes(book, book_scope)]
-        result = index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE)
+        result = (index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE) if document_ranges is None else
+                  index.scan(q_norm, volumes, _FUZZY_SCAN_SEMAPHORE, document_ranges=document_ranges))
         if result[2] == "layout scan busy":
             raise SearchBusy()
         return result
@@ -3871,6 +3872,7 @@ class Corpus:
         *,
         highlight_terms: list[str] | None = None,
         page_map_cache: OrderedDict[int, tuple[list[int], list[int]] | None] | None = None,
+        norm_bounds: tuple[int, int] | None = None,
     ) -> str | None:
         """Return complete sentence(s) containing an exact/co-occurrence hit.
 
@@ -3912,6 +3914,26 @@ class Corpus:
         left, right, clipped_left, clipped_right = self._export_sentence_bounds(
             raw, match_start, match_end,
         )
+        if norm_bounds is not None:
+            lower, upper = norm_bounds
+            if not lower <= norm_start < norm_end <= upper:
+                return None
+            if lower > vol.page_offsets[context_first]:
+                pi = vol.page_index_at(lower)
+                mapping = self._export_page_raw_map(vol.pages[pi], page_map_cache)
+                if mapping is None:
+                    return None
+                floor = raw_offsets[pi - context_first] + mapping[0][lower - vol.page_offsets[pi]]
+                clipped_left = clipped_left or left < floor
+                left = max(left, floor)
+            if upper < vol.page_offsets[context_last + 1]:
+                pi = vol.page_index_at(upper - 1)
+                mapping = self._export_page_raw_map(vol.pages[pi], page_map_cache)
+                if mapping is None:
+                    return None
+                ceiling = raw_offsets[pi - context_first] + mapping[1][upper - vol.page_offsets[pi] - 1]
+                clipped_right = clipped_right or right > ceiling
+                right = min(right, ceiling)
         highlight_spans: list[tuple[int, int]] = []
         if highlight_terms:
             sentence = raw[left:right]

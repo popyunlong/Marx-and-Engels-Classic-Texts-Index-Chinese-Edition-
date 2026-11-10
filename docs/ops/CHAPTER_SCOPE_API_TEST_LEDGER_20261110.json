@@ -1,0 +1,323 @@
+{
+  "task": "chapter-scope-api-20261110",
+  "baseline": "8726f2311ce8dcf9a2a6c3d1ea537152e06d7e18",
+  "policy": "Each scenario once. Failure and interruption count. No reruns, including CI or build gates, without explicit user authorization.",
+  "artifact_root": "D:/CodexData/outputs/chapter-scope-api-20261110",
+  "prior_evidence_reviewed": [
+    "docs/ops/AGENT_API_TEST_LEDGER_20261107.json",
+    "docs/ops/SEARCH_EXPORT_TEST_LEDGER_20261107.json"
+  ],
+  "planning_tests_executed": false,
+  "planned_scenarios": {
+    "backend": "New chapter boundaries, nested/same-page/multivolume scopes, stale/invalid/private scopes, canonical/layout/cooccurrence/textual/semantic retrieval, real web handlers, export snapshot and Word/HTML artifacts, API navigation and access; existing directly affected API/export regression suites once in this task.",
+    "browser": "Real homepage chapter controls, lazy directory fetch, scope in query/drill requests, reload restoration; mobile bounds and nesting; API guest page and navigation at desktop/mobile sizes.",
+    "static": "Changed-file whitespace check and new JavaScript syntax check. No full build or release gates.",
+    "edges": "First coverage: projection canonical bounds, outside-scope candidate cap, cache keys, midquery version/publication changes; test_layout_exact.py was not run by backend phase.",
+    "directory-edge": "First coverage: clear refreshes an already-open stale directory.",
+    "export-history-edge": "First coverage: book-tab export intersection and empty-history scope/version restoration."
+  },
+  "runs": [
+    {
+      "phase": "backend",
+      "status": "passed",
+      "commands": [
+        [
+          "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+          "-m",
+          "pytest",
+          "-p",
+          "no:cacheprovider",
+          "-q",
+          "tests/test_chapter_scope.py",
+          "tests/test_api_access.py",
+          "tests/test_agent_api.py",
+          "tests/test_agent_api_edges.py",
+          "tests/test_agent_api_main_integration.py",
+          "tests/test_search_export_consistency.py",
+          "tests/test_search_overlap_count.py",
+          "--basetemp=D:\\CodexData\\temp\\chapter-scope-api-20261110\\pytest",
+          "--junitxml=D:\\CodexData\\outputs\\chapter-scope-api-20261110\\backend.xml"
+        ]
+      ],
+      "started_at": "2026-11-10T09:39:57.359846+00:00",
+      "source_sha256": {
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "671ed10606b1f91a31c51fb015dab4853bcb40ede23f711ddeb85de9188559cd",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "search.py": "07934ee720a4756953c9a677424fec7577826312636ad28782ee370574417355",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "20aedb7288ef76af549e56d8bdcc1a027575e79faab64b0caf7b15933d8e28cc",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "8d1c56450f5f1b7c112f38009dcc16d39d01c36388aac51da2dbebf636bfbfc2",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "4857001f5c6263f585b278bcdabe325870520311285747a024c36e533fc21598",
+        "scripts/check_chapter_scope_once.py": "f06e33b15415259d3138dcc4bf6c3e06110f9f28c425eccb0d56fa6479ef2a8a",
+        "static/book-scope/chapter-scope.js": "e59a9f0164d84b97da0a01278477afd34ab7eb851f80a547386691f48004c28b",
+        "tests/browser/chapter_scope.cjs": "5283d750129853497fe54f5480c68991a2aad34df28157418360948c444eb48c",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\backend.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:40:42.340035+00:00"
+    },
+    {
+      "phase": "browser",
+      "status": "passed",
+      "commands": [
+        [
+          "node",
+          "--test",
+          "tests/browser/chapter_scope.cjs"
+        ]
+      ],
+      "started_at": "2026-11-10T09:41:02.007515+00:00",
+      "source_sha256": {
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "671ed10606b1f91a31c51fb015dab4853bcb40ede23f711ddeb85de9188559cd",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "search.py": "07934ee720a4756953c9a677424fec7577826312636ad28782ee370574417355",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "20aedb7288ef76af549e56d8bdcc1a027575e79faab64b0caf7b15933d8e28cc",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "8d1c56450f5f1b7c112f38009dcc16d39d01c36388aac51da2dbebf636bfbfc2",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "4857001f5c6263f585b278bcdabe325870520311285747a024c36e533fc21598",
+        "scripts/check_chapter_scope_once.py": "f06e33b15415259d3138dcc4bf6c3e06110f9f28c425eccb0d56fa6479ef2a8a",
+        "static/book-scope/chapter-scope.js": "e59a9f0164d84b97da0a01278477afd34ab7eb851f80a547386691f48004c28b",
+        "tests/browser/chapter_scope.cjs": "5283d750129853497fe54f5480c68991a2aad34df28157418360948c444eb48c",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\browser.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:41:15.747772+00:00",
+      "wrapper_exit_code": 1,
+      "wrapper_error": "Tests exited 0; after saving this result, stdout echo failed with UnicodeEncodeError in the GBK host console. Log preserved; no browser rerun. Wrapper later changed to UTF-8."
+    },
+    {
+      "phase": "edges",
+      "status": "passed",
+      "commands": [
+        [
+          "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+          "-m",
+          "pytest",
+          "-p",
+          "no:cacheprovider",
+          "-q",
+          "tests/test_chapter_edges.py",
+          "tests/test_layout_exact.py",
+          "--basetemp=D:\\CodexData\\temp\\chapter-scope-api-20261110\\edges",
+          "--junitxml=D:\\CodexData\\outputs\\chapter-scope-api-20261110\\edges.xml"
+        ]
+      ],
+      "started_at": "2026-11-10T09:46:57.442229+00:00",
+      "source_sha256": {
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "a9270fb1bb23c201d316e5e9e7931f49dbdb0ebb5b44b2fb319ba0441f0cec65",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "layout_exact.py": "c55e732ba8cb9349367b9e2a6e40e9b7e641edf5f74b49c28896890de7e7fd69",
+        "search.py": "d356550a0087e3266fd50289d73fa966003fd88aaba679a5cde9e115adb66c07",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "20aedb7288ef76af549e56d8bdcc1a027575e79faab64b0caf7b15933d8e28cc",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "8d1c56450f5f1b7c112f38009dcc16d39d01c36388aac51da2dbebf636bfbfc2",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "4761034ad372e27919ecf9c15803919a23a3f5b667c5eee1b8bf8bde10bd4f58",
+        "scripts/check_chapter_scope_once.py": "b40c3c4eb28a7872e22f0aac33b8f5940b05bf711bbdd6650e98799b23d9835c",
+        "static/book-scope/chapter-scope.js": "233a5783892d7e2cedad31375c4c654fb8361d743a8e013384f55c11db6f768d",
+        "tests/browser/chapter_scope.cjs": "5283d750129853497fe54f5480c68991a2aad34df28157418360948c444eb48c",
+        "tests/browser/chapter_stale_directory.cjs": "38281d3eb29f0ebc157a36da25538297a82cf023395bda43be45b217a938a215",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_edges.py": "57b45395a8e2ab0498478e493d16199e1cb821db1078312480186aecc61db82a",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\edges.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:47:06.018978+00:00"
+    },
+    {
+      "phase": "directory-edge",
+      "status": "passed",
+      "commands": [
+        [
+          "node",
+          "--test",
+          "tests/browser/chapter_stale_directory.cjs"
+        ]
+      ],
+      "started_at": "2026-11-10T09:47:14.584464+00:00",
+      "source_sha256": {
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "a9270fb1bb23c201d316e5e9e7931f49dbdb0ebb5b44b2fb319ba0441f0cec65",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "layout_exact.py": "c55e732ba8cb9349367b9e2a6e40e9b7e641edf5f74b49c28896890de7e7fd69",
+        "search.py": "d356550a0087e3266fd50289d73fa966003fd88aaba679a5cde9e115adb66c07",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "20aedb7288ef76af549e56d8bdcc1a027575e79faab64b0caf7b15933d8e28cc",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "8d1c56450f5f1b7c112f38009dcc16d39d01c36388aac51da2dbebf636bfbfc2",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "4761034ad372e27919ecf9c15803919a23a3f5b667c5eee1b8bf8bde10bd4f58",
+        "scripts/check_chapter_scope_once.py": "b40c3c4eb28a7872e22f0aac33b8f5940b05bf711bbdd6650e98799b23d9835c",
+        "static/book-scope/chapter-scope.js": "233a5783892d7e2cedad31375c4c654fb8361d743a8e013384f55c11db6f768d",
+        "tests/browser/chapter_scope.cjs": "5283d750129853497fe54f5480c68991a2aad34df28157418360948c444eb48c",
+        "tests/browser/chapter_stale_directory.cjs": "38281d3eb29f0ebc157a36da25538297a82cf023395bda43be45b217a938a215",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_edges.py": "57b45395a8e2ab0498478e493d16199e1cb821db1078312480186aecc61db82a",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\directory-edge.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:47:23.912394+00:00"
+    },
+    {
+      "phase": "export-history-edge",
+      "status": "passed",
+      "commands": [
+        [
+          "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+          "-m",
+          "pytest",
+          "-p",
+          "no:cacheprovider",
+          "-q",
+          "tests/test_chapter_export_filter.py",
+          "--basetemp=D:\\CodexData\\temp\\chapter-scope-api-20261110\\export-filter",
+          "--junitxml=D:\\CodexData\\outputs\\chapter-scope-api-20261110\\export-filter.xml"
+        ],
+        [
+          "node",
+          "--test",
+          "tests/chapter_empty_history.cjs"
+        ]
+      ],
+      "started_at": "2026-11-10T09:51:58.388433+00:00",
+      "source_sha256": {
+        ".github/workflows/ci.yml": "cd1c25adc161b8aeeff08c6f12946dfdaa7cd3f8229dc3d64cc507bee2cf898e",
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "5bc22901d01f4b01b6d34a5e139aad666e6a14e8a5b50c812bf991b7f640668f",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "layout_exact.py": "c55e732ba8cb9349367b9e2a6e40e9b7e641edf5f74b49c28896890de7e7fd69",
+        "search.py": "d356550a0087e3266fd50289d73fa966003fd88aaba679a5cde9e115adb66c07",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "ca8f81a8f9282cb01fc5cbd591d2374fd301fba5403faa7ef4ee15cb7cf70d01",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "c0a4846b93e659a75c8ffed487d22cc1af7200016e1993bdc46d4f5699787b3e",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "8f7da46c7ea7da86a811dd0bfd15bcde625a07c09f61d6665368d86ad786b579",
+        "scripts/check_chapter_scope_once.py": "886773f5dc6e41d6ce5829c14eb95b320f74329baa18370273ab58ee45701525",
+        "static/book-scope/chapter-scope.js": "233a5783892d7e2cedad31375c4c654fb8361d743a8e013384f55c11db6f768d",
+        "tests/browser/chapter_scope.cjs": "d667cdbe0bd292ba0e406a3f4c0bc8f9a1fb57daa1937dbf552f52cac46d12a6",
+        "tests/browser/chapter_stale_directory.cjs": "f155f459c723e0b0142fc88079ec95d6448d5f910179f70c0738eb7f488f2564",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_empty_history.cjs": "de93be2de4aa58f8e58aee07d817c9f6673ad980567a6841ec9a649cc78585fb",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_edges.py": "57b45395a8e2ab0498478e493d16199e1cb821db1078312480186aecc61db82a",
+        "tests/test_chapter_export_filter.py": "b08bfb75d4761a371256ea5de483fb183c9791f60d642067a3f948f4d87304c3",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\export-history-edge.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:52:05.427614+00:00"
+    },
+    {
+      "phase": "static",
+      "status": "passed",
+      "commands": [
+        [
+          "git",
+          "diff",
+          "--check"
+        ],
+        [
+          "node",
+          "--check",
+          "static/book-scope/chapter-scope.js"
+        ],
+        [
+          "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+          "-c",
+          "import pathlib,yaml; yaml.safe_load(pathlib.Path('.github/workflows/ci.yml').read_text('utf-8'))"
+        ]
+      ],
+      "started_at": "2026-11-10T09:55:20.163984+00:00",
+      "source_sha256": {
+        ".github/workflows/ci.yml": "cd1c25adc161b8aeeff08c6f12946dfdaa7cd3f8229dc3d64cc507bee2cf898e",
+        "agent_api_web.py": "dff167b0865eb5a52bd6930dcd623a8e81a1a793df34d3a6f9da220589b84997",
+        "app.py": "5bc22901d01f4b01b6d34a5e139aad666e6a14e8a5b50c812bf991b7f640668f",
+        "docs/agent-api/README.md": "995404d43ec3088cc54c26adcafadb927608eebd205dbed93b756f0d4fb70bab",
+        "feature_access.py": "e95585c34c25afb68bcbabe948cd606a564d59eca3b09a0005e85d230462e0df",
+        "layout_exact.py": "c55e732ba8cb9349367b9e2a6e40e9b7e641edf5f74b49c28896890de7e7fd69",
+        "search.py": "d356550a0087e3266fd50289d73fa966003fd88aaba679a5cde9e115adb66c07",
+        "search_exports.py": "e27740aaf5b777995dfa3c6a75ffe7f0c47e1117d52ac37761acd896d9dfa336",
+        "static/book-scope/book-scope.css": "b2748b38178f24025d8341685ef056ecf49a3c49fa28c75dacd4b44a415d5172",
+        "templates/_appnav.html": "24d6d85d7abc16a04789e34739cabcee90e1f15cb41ca13aadc510f85659956b",
+        "templates/account.html": "d91bf05f7083d342e24443b7be715eb06f57f6e5e9898e1f08552f574337007b",
+        "templates/agent_api.html": "ca8f81a8f9282cb01fc5cbd591d2374fd301fba5403faa7ef4ee15cb7cf70d01",
+        "templates/citation_agent_test.html": "9ff3308bc043dc2819fefc7bcf17a5e920e89b43cd71e3f32c6eb2d59fd2e600",
+        "templates/index.html": "c0a4846b93e659a75c8ffed487d22cc1af7200016e1993bdc46d4f5699787b3e",
+        "tests/test_agent_api.py": "04f268d4a2ae11cc7a3cb257f6ab5f0b8968307baa75f0cffd14f9e65c28a2d8",
+        "tests/test_agent_api_main_integration.py": "7c7a7e6d7ee0cf3bdcbe61f5cfe1484782c8444e781efa3a878ccfded0dbe912",
+        "chapter_search.py": "8f7da46c7ea7da86a811dd0bfd15bcde625a07c09f61d6665368d86ad786b579",
+        "docs/ops/CHAPTER_SCOPE_API_HANDOFF_20261110.md": "a8ae9c658ffb56983cee3cccf90ad2a4eb7991bee7dfc52df0e5c189540de898",
+        "scripts/check_chapter_scope_once.py": "ed3e43020c3acfaacc122a6418f58370ad998cf47cb82307c85af0c7f291f085",
+        "static/book-scope/chapter-scope.js": "233a5783892d7e2cedad31375c4c654fb8361d743a8e013384f55c11db6f768d",
+        "tests/browser/chapter_scope.cjs": "d667cdbe0bd292ba0e406a3f4c0bc8f9a1fb57daa1937dbf552f52cac46d12a6",
+        "tests/browser/chapter_stale_directory.cjs": "f155f459c723e0b0142fc88079ec95d6448d5f910179f70c0738eb7f488f2564",
+        "tests/browser/serve_chapter_fixture.py": "c78e1b505f2d0b3b0d82aeba42f3bb595a0b040bc6688660499fe010cce0ce87",
+        "tests/chapter_empty_history.cjs": "de93be2de4aa58f8e58aee07d817c9f6673ad980567a6841ec9a649cc78585fb",
+        "tests/chapter_fixture.py": "5bfe63534c1a19bd7789afd3e916836e63a118b03f2056ee088f50d767f93c7f",
+        "tests/test_api_access.py": "c902c49cf891c729ae75d158fe1b00b4310ff7835bc5e88862433a385ae7a3af",
+        "tests/test_chapter_edges.py": "57b45395a8e2ab0498478e493d16199e1cb821db1078312480186aecc61db82a",
+        "tests/test_chapter_export_filter.py": "b08bfb75d4761a371256ea5de483fb183c9791f60d642067a3f948f4d87304c3",
+        "tests/test_chapter_scope.py": "ac6dd43a150d45cdaa7aaff525361f4877794dd7b3c7cd29bed1d80e82f1b9d1"
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-scope-api-20261110\\static.log",
+      "exit_code": 0,
+      "finished_at": "2026-11-10T09:55:20.844850+00:00"
+    }
+  ],
+  "verification_limits": "Earlier backend/browser suites were not repeated after boundary fixes. Later source hashes and targeted new scenarios are recorded separately; no final full regression, production validation or release gates.",
+  "storage": {
+    "verified_copy_bytes": 130700811,
+    "worktree": "D:/CodexData/workspaces/chapter-scope-api-20261110",
+    "c_duplicate_cleanup": "automatic approval rejected recursive deletion: blocked by policy; duplicate remains; no C space release claimed",
+    "app_attachment": "D path not recognized as managed by attach_worktree; always use explicit D workdir"
+  }
+}

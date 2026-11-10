@@ -23,7 +23,7 @@ def test_real_application_registration_auth_and_existing_agent_entry(monkeypatch
     assert client.get("/api/citation-agent/jobs/not-a-job").status_code == 401
     with client.session_transaction() as session:
         session["user_id"] = user["id"]
-    page = client.get("/account/agent-api")
+    page = client.get("/account/agent-api", follow_redirects=True)
     assert page.status_code == 200 and "Codex" in page.get_data(as_text=True)
     assert token.encode() not in page.data
     assert "agent_api.search" in web.CSRF_EXEMPT_ENDPOINTS

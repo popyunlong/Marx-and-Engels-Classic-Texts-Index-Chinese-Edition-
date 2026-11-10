@@ -9,7 +9,7 @@ import re
 import time
 from functools import wraps
 
-from flask import Blueprint, g, jsonify, render_template, request
+from flask import Blueprint, g, jsonify, render_template, request, redirect, url_for
 from werkzeug.exceptions import HTTPException
 
 from agent_api_service import QueryService
@@ -127,8 +127,15 @@ def register_routes(app, web):
 
     @app.route("/account/agent-api", methods=["GET", "POST"])
     def agent_api_center():
-        web["_require_login_page"]()
-        user = g.current_user
+        if request.method == 'GET':
+            return redirect(url_for('api_access'))
+        return api_access()
+
+    @app.route('/api-access', methods=['GET', 'POST'])
+    def api_access():
+        if request.method == 'POST':
+            web['_require_login_page']()
+        user = getattr(g, 'current_user', None)
         allowed, new_key, error = eligible(user), "", ""
         if request.method == "POST":
             web["_require_csrf"]()
@@ -149,7 +156,9 @@ def register_routes(app, web):
             except APIError as exc:
                 error = str(exc)
         response = app.make_response(render_template("agent_api.html", allowed=allowed, new_key=new_key,
-                                     error=error, keys=store.keys(user["id"]), csrf_token=web["_ensure_csrf_token"](),
+                                     error=error, keys=store.keys(user["id"]) if user else [],
+                                     logged_in=bool(user), layout_v2=True, layout_page='api',
+                                     csrf_token=web["_ensure_csrf_token"](),
                                      api_base=service.base_url().rstrip("/"),
                                      concurrency=setting("CONCURRENCY", 1), per_minute=setting("PER_MINUTE", 30)))
         response.headers["Cache-Control"] = "private, no-store"

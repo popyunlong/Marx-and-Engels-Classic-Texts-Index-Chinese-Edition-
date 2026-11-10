@@ -6,7 +6,7 @@ from membership import get_membership_snapshot, normalize_email
 
 FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "agent_api", "ai", "search_chat", "associative", "research", "ai_web")
 FEATURE_ACCESS_LABELS = {
-    "agent_api": "API 与 Agent 接入",
+    "agent_api": "文献 API",
     "search": "检索",
     "viewer": "检索结果正文",
     "library": "单独阅读器",
