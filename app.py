@@ -17123,6 +17123,7 @@ def _bulk_volume_results(volumes: list[dict], requested_group_page: int) -> dict
                     "chapter_id": f"{volume.get('book')}|{volume.get('volume')}|{volume.get('source_file')}|chapter|{index}",
                     "section_title": chapter.get("section_title") or "未识别篇章",
                     "chapter_pdf_page": chapter.get("chapter_pdf_page"),
+                    "scope_document_id": chapter.get("scope_document_id"),
                     "printed_page": chapter.get("printed_page") or "",
                     "level": chapter.get("level") or 1,
                     "kind": chapter.get("kind") or "",
@@ -17248,6 +17249,84 @@ def _scope_book_echo(spec: object) -> str:
     return ""
 
 
+import chapter_search
+
+
+def _chapter_scope_version():
+    stamp = CORPUS_INDEX_DB_PATH.stat() if CORPUS_INDEX_DB_PATH.exists() else None
+    payload = [getattr(stamp, 'st_mtime_ns', None), getattr(stamp, 'st_size', None),
+               catalog_status()['id'], getattr(getattr(corpus, 'layout_index', None), 'revision', '')]
+    return sha256(json.dumps(payload, default=str).encode()).hexdigest()
+
+
+def _resolve_chapters(tokens, version):
+    return chapter_search.resolve(corpus, tokens, version, _chapter_scope_version(), _public_book_keys())
+
+
+def _check_chapter_selection_current(selection):
+    if (selection.version != _chapter_scope_version()
+            or not set(selection.book_scope).issubset(_public_book_keys())):
+        raise chapter_search.ChapterScopeError('篇章范围在检索期间发生变化，请重新选择。', 409)
+
+
+@app.errorhandler(chapter_search.ChapterScopeError)
+def _chapter_scope_error(exc):
+    return jsonify(ok=False, error=str(exc), code='chapter_scope_invalid'), exc.status
+
+
+@app.before_request
+def _bind_chapter_selection():
+    payload = request.get_json(silent=True) if request.is_json else None
+    if not isinstance(payload, dict) or not chapter_search.has_chapters(payload.get('scope')):
+        return
+    if request.endpoint not in {'api_search', 'api_search_associative', 'api_search_chapter_hits', 'api_search_export_create'}:
+        raise chapter_search.ChapterScopeError('此功能暂不支持篇章范围。')
+    if request.endpoint == 'api_search_associative' and (payload.get('retrieval_strategy') not in {'textual', 'semantic'} or payload.get('mode') == 'research'):
+        raise chapter_search.ChapterScopeError('篇章范围目前支持近似原文及大意联想，不支持研究对话。')
+    _require_search()
+    _require_feature('search')
+    g.chapter_selection = _resolve_chapters(payload['scope'], payload.get('scope_version'))
+
+
+@app.get('/api/search/chapters')
+def api_search_chapters():
+    _require_search()
+    _require_feature('search')
+    book, volume = request.args.get('book', ''), request.args.get('volume', type=int)
+    if book not in _public_book_keys() or volume is None:
+        raise chapter_search.ChapterScopeError('所选公共卷册不可访问。')
+    volumes = [v for v in corpus.get_volumes(book) if v.volume == volume]
+    if not volumes:
+        raise chapter_search.ChapterScopeError('所选卷册不存在。')
+    version = _chapter_scope_version()
+    rows = [{k: v for k, v in row.items() if k != 'scope'}
+            for vol in volumes for row in chapter_search.chapter_rows(corpus, vol)]
+    if version != _chapter_scope_version():
+        raise chapter_search.ChapterScopeError('目录已更新，请重新展开卷册。', 409)
+    response = jsonify(ok=True, results=rows, scope_version=version)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+def _chapter_search_payload(selection, q, mode, group_page, viewer_allowed, book_filter=''):
+    query = chapter_search.ChapterQuery(corpus, selection, q, mode)
+    agg = query.aggregate()
+    volumes = [v for v in agg['volumes'] if not book_filter or v['book'] == book_filter]
+    if book_filter and book_filter not in selection.book_scope:
+        raise chapter_search.ChapterScopeError('书库筛选不在所选篇章范围内。')
+    bulk = (_bulk_volume_results(volumes, group_page) if viewer_allowed else
+            _bulk_summary_results(volumes, group_page))
+    _check_chapter_selection_current(selection)
+    return {'ok': True, 'query': q, 'count': sum(v['count'] for v in volumes), **bulk,
+            'groups_per_page': GROUPS_PER_PAGE, 'truncated': False,
+            'display_mode': 'volume_chaptered' if viewer_allowed else 'summary',
+            'access_level': 'full' if viewer_allowed else 'summary', 'pdf_enabled': viewer_allowed,
+            'book_counts': _bulk_book_counts(agg['book_hit_counts']), 'book_filter': book_filter,
+            'personal_results': [], 'exact_search_complete': query.complete, 'layout_warning': query.warning,
+            'requested_scope': list(selection.tokens), 'scope_version': selection.version,
+            'scope_label': selection.label}
+
+
 def _standard_search_scope(payload: dict) -> object:
     """标准检索的检索范围：优先取新版 ``scope``（book:/vol:/著作群 token 列表，经 _resolve_search_scope
     统一解析为 set/dict/None），无则回落旧版单个 ``book``（→{book:None}），再无则 None（不限定，全库）。"""
@@ -17342,6 +17421,8 @@ def _search_export_base_url() -> str:
 
 def _validated_search_export_scope(payload: dict, user: dict) -> object:
     raw_scope = payload.get("scope")
+    if chapter_search.has_chapters(raw_scope):
+        return _resolve_chapters(raw_scope, payload.get('scope_version')).for_book(str(payload.get('book') or '')).snapshot()
     if raw_scope in (None, "", [], (), {}):
         return None
     if not isinstance(raw_scope, (list, tuple)):
@@ -17375,6 +17456,9 @@ def _validated_search_export_scope(payload: dict, user: dict) -> object:
 def _search_export_scope_context(job: dict) -> tuple[object, bool, list[int], bool]:
     """Return public scope/use-public and private ids/use-default-private."""
     raw_scope = job.get("scope")
+    if isinstance(raw_scope, dict) and 'tokens' in raw_scope:
+        selected = _resolve_chapters(raw_scope['tokens'], raw_scope.get('version')).for_book(raw_scope.get('book_filter'))
+        return selected.book_scope, True, [], False
     personal_ids, public_scope = _split_personal_scope(raw_scope)
     book_filter = str(job.get("book_filter") or "").strip()
     default_private = raw_scope in (None, "", [], (), {}) and not book_filter
@@ -17400,6 +17484,15 @@ def _search_export_personal_context(job: dict, personal_ids: list[int], default_
 
 
 def _search_export_context(job: dict) -> dict:
+    snapshot = job.get('scope')
+    if isinstance(snapshot, dict) and 'tokens' in snapshot:
+        selected = _resolve_chapters(snapshot['tokens'], snapshot.get('version')).for_book(snapshot.get('book_filter'))
+        query = chapter_search.ChapterQuery(corpus, selected, job['query_text'], job['search_mode'], seconds=None)
+        if not query.complete:
+            raise search_export_tasks.ExportSourceChangedError('排版补充检索未完成，请稍后重新导出。')
+        return {'chapter_query': query, 'public': corpus, 'public_spec': selected.book_scope,
+                'public_enabled': True, 'personal': None, 'personal_spec': None,
+                'check_personal': False, 'personal_version': None}
     public_spec, public_enabled, personal_ids, default_private = _search_export_scope_context(job)
     check_personal = str(job.get("search_mode") or "exact") == "exact" and bool(personal_ids or default_private)
     personal_version = mylib_corpus.personal_corpus_version(int(job["user_id"])) if check_personal else None
@@ -17411,6 +17504,8 @@ def _search_export_context(job: dict) -> dict:
 
 def _search_export_count(job: dict, stop_after: int, *, context: dict | None = None) -> int:
     context = context if context is not None else _search_export_context(job)
+    if context.get('chapter_query'):
+        return context['chapter_query'].count(stop_after)
     public, public_spec = context["public"], context["public_spec"]
     query = str(job.get("query_text") or "")
     mode = str(job.get("search_mode") or "exact")
@@ -17482,6 +17577,10 @@ def _search_export_iter(job: dict, limit: int, *, context: dict | None = None):
     if limit <= 0:
         return
     context = context if context is not None else _search_export_context(job)
+    if context.get('chapter_query'):
+        for hit in context['chapter_query'].iter_hits(limit):
+            yield _search_export_prepare_hit(job, hit)
+        return
     public, public_spec = context["public"], context["public_spec"]
     query = str(job.get("query_text") or "")
     mode = str(job.get("search_mode") or "exact")
@@ -17538,6 +17637,10 @@ def _search_export_worker(job_id: str, worker_id: str | None = None) -> None:
         context = _search_export_context(job)
 
         def validate_sources() -> None:
+            if context.get('chapter_query'):
+                selected = context['chapter_query'].selection
+                if selected.version != _chapter_scope_version() or not set(selected.book_scope).issubset(_public_book_keys()):
+                    raise search_export_tasks.ExportSourceChangedError('篇章范围已变化，请重新创建任务。')
             if (corpus is not context["public"]
                     or job["corpus_version"] != _citation_corpus_sha256()
                     or job["template_version"] != _search_export_template_version()):
@@ -17865,6 +17968,11 @@ def api_search():
                 "error": "同段多词检索请输入两个及以上关键词（用空格分隔）。",
             }), 400
 
+    if getattr(g, 'chapter_selection', None):
+        return jsonify(_chapter_search_payload(g.chapter_selection, q,
+                       'cooccurrence' if cooc else 'exact', requested_group_page, viewer_allowed,
+                       str(payload.get('book') or '')))
+
     # 短词海量命中专用通道：完整聚合全部卷/篇章的准确命中数（C 层级计数，约 0.1 秒），
     # 命中详情交由 /api/search/chapter-hits 按需分页物化，从而“全部呈现”又不拖垮服务。
     if not cooc and not DEPLOYMENT.is_desktop and len(q_norm) <= SHORT_QUERY_CHAPTER_MAX_LEN:
@@ -18045,6 +18153,13 @@ def api_search_chapter_hits():
         return jsonify({"ok": False, "error": "当前无正文权限。"}), 403
 
     q_for_viewer = " ".join(q.split())
+    if getattr(g, 'chapter_selection', None):
+        mode = 'cooccurrence' if payload.get('mode') == 'cooccurrence' else 'exact'
+        query = chapter_search.ChapterQuery(corpus, g.chapter_selection, q, mode)
+        data = query.page(str(payload.get('scope_document_id') or ''), page, CHAPTER_HITS_PAGE_SIZE)
+        data['hits'] = [_attach_viewer_payload(hit, q_for_viewer, viewer_allowed) for hit in data['hits']]
+        _check_chapter_selection_current(g.chapter_selection)
+        return jsonify(ok=True, **data, scope_version=g.chapter_selection.version)
     try:
         data = corpus.chapter_hits(
             source_file,
@@ -18450,6 +18565,8 @@ def _book_scope_tree() -> list[dict]:
                 "key": key,
                 "label": label,
                 "volumes": nums if len(nums) > 1 else [],
+                "chapter_volumes": nums,
+                "chapter_sources": [{"file": v.source_file, "volume": v.volume} for v in corpus.get_volumes(key)],
             })
         if books:
             tree.append({"id": s["id"], "label": s["label"], "books": books})
@@ -18467,6 +18584,8 @@ def _book_scope_tree() -> list[dict]:
 
 
 def _scope_label(scope_id: str) -> str:
+    if scope_id == 'chapters' and getattr(g, 'chapter_selection', None):
+        return g.chapter_selection.label
     """范围 id → 展示名（auto/空 → 空串；all → 全部著作；著作群逗号连接 → 标签顿号连接；
     单本/单卷 token ``book:<键>``/``vol:<键>:<n>`` → 《书名》/《书名》第 N 卷，同书多卷合并）。"""
     if not scope_id or scope_id == "auto":
@@ -18614,6 +18733,11 @@ def _resolve_search_scope(raw_scope: object, gist: str, plan: object) -> "tuple[
     · "all"/"全部" → 明确使用全部对当前用户开放的书库。
     · "auto"/空/无法识别 → _detect_scopes 自动判定一个或多个著作群；调用方按需回填保量。
     """
+    if chapter_search.has_chapters(raw_scope):
+        selected = getattr(g, 'chapter_selection', None)
+        if selected is None:
+            raise chapter_search.ChapterScopeError('此功能暂不支持篇章范围。')
+        return selected.book_scope, 'chapters', True
     # 归一为 token 列表：列表原样，单串拆成单元素。
     if isinstance(raw_scope, (list, tuple, set)):
         tokens = [str(x).strip() for x in raw_scope if str(x).strip()]
@@ -20191,8 +20315,22 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
                     "auto_semantic": {"eligible": False, "reason": "scope_unresolved"}} if strategy == "textual" else {}
 
     def response(hits, message=""):
+        if getattr(g, 'chapter_selection', None):
+            _check_chapter_selection_current(g.chapter_selection)
         results = []
         for hit in hits:
+            selection = getattr(g, 'chapter_selection', None)
+            if selection:
+                doc = next((d for d in selection.documents if d.source_file == hit.source_file
+                            and d.norm_start <= hit.norm_start < hit.norm_end <= d.norm_end), None)
+                if doc is None:
+                    continue
+                if hit.exact_basis != 'layout':
+                    vol = corpus.get_volume_by_source_file(hit.source_file)
+                    hit.context = corpus._extract_export_sentence_context(vol, hit.norm_start, hit.norm_end,
+                                    norm_bounds=(doc.norm_start, doc.norm_end)) or ''
+                    if not hit.context:
+                        continue
             item = _attach_viewer_payload(hit.to_dict(), retrieval_gist, viewer_allowed)
             chapter_only = bool(getattr(hit, "chapter_only", False))
             meta = metadata.get(id(hit), {})
@@ -20215,6 +20353,7 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
             "display_mode": "associative", "intent": "locate", "mode": "locate",
             "retrieval_strategy": strategy, "effective_strategy": actual_strategy,
             "requested_scope": scope_req, "semantic_ranked": ranking_ok,
+            "scope_version": getattr(getattr(g, 'chapter_selection', None), 'version', None),
             "scope": scope_meta, "warnings": warnings, "message": message,
             "results": results, "pdf_enabled": viewer_allowed,
             "access_level": "full" if viewer_allowed else "summary",
@@ -20243,7 +20382,8 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
     # an explicitly named work, while a user-selected book/volume remains binding.
     resolution = corpus.resolve_document_scopes(
         retrieval_gist, book_scope=book_scope if manual else (_public_book_keys() if strategy == "textual" else None), allow_title_subject=True,
-    )
+    ) if not getattr(g, 'chapter_selection', None) else {
+        'status': 'resolved', 'scopes': g.chapter_selection.documents, 'requested_titles': [], 'candidates': []}
     documents = list(resolution.get("scopes") or [])
     document_status = str(resolution.get("status") or "none")
     if document_status in {"not_found", "ambiguous"}:

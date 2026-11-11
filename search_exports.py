@@ -44,7 +44,7 @@ MAX_QUERY_CHARS = 500
 # Bump whenever the semantic content of a result changes.  It is part of the
 # reuse fingerprint, so pre-change snippet exports cannot be served for a new
 # request after complete-sentence rendering is deployed.
-EXPORT_CONTENT_VERSION = "exact-consistency-v3:" + PAGE_LABEL_VERSION
+EXPORT_CONTENT_VERSION = "chapter-boundaries-v4:" + PAGE_LABEL_VERSION
 WORKER_HEARTBEAT_MAX_AGE_SECONDS = 30
 VALID_FORMATS = {"docx", "html"}
 VALID_MODES = {"exact", "cooccurrence"}

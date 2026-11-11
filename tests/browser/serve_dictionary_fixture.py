@@ -82,7 +82,7 @@ graph=Graph(Path(artifact)/'graph.sqlite',json.loads((Path(artifact)/'binding.js
 dictionary_map_web.current_graph=lambda:None if request.args.get('unavailable') else graph
 app.register_blueprint(dictionary_map_web.create_blueprint(lambda _:None,context))
 for endpoint,path in {'index':'/','layout_search':'/v2','layout_read':'/v2/read','layout_ai':'/v2/ai',
-                      'layout_more':'/v2/more','citation_agent_page':'/citation-agent','research_updates.latest':'/research/latest',
+                      'layout_more':'/v2/more','citation_agent_page':'/citation-agent','api_access':'/api-access','research_updates.latest':'/research/latest',
                       'pricing':'/pricing','account':'/account','login':'/login','register':'/register','logout':'/logout'}.items():
     app.add_url_rule(path,endpoint,lambda:'<p>本地验收页面</p>')
 

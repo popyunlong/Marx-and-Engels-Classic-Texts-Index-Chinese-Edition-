@@ -91,20 +91,53 @@ class Projection:
             i += 1
         return out if covered == length else []
 
-    def find(self, query, deadline):
+    def projected_ranges(self, intervals):
+        """Map canonical half-open ranges without scanning unrelated projections."""
+        for lower, upper in intervals:
+            lo, hi = 0, self.count
+            while lo < hi:
+                mid = (lo + hi) // 2
+                _, original, size = self.run(mid)
+                if original + size <= lower:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            first = lo
+            lo, hi = first, self.count
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if self.run(mid)[1] < upper:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            last = lo - 1
+            if first > last or first >= self.count:
+                continue
+            ps, original, size = self.run(first)
+            start = ps + max(0, lower - original)
+            ps, original, size = self.run(last)
+            end = ps + min(size, upper - original)
+            if start < end:
+                yield start * 4, end * 4
+
+    def find(self, query, deadline, intervals=None):
         needle = query.encode('utf-32-le')
-        start = 0
+        ranges = iter([(0, len(self.text))] if intervals is None else self.projected_ranges(intervals))
+        start, scan_end = next(ranges, (0, 0))
         last_yield = time.monotonic()
         emitted = 0
         while True:
+            if start >= scan_end:
+                following_range = next(ranges, None)
+                if following_range is None:
+                    break
+                start, scan_end = following_range
             if time.monotonic() >= deadline:
                 raise TimeoutError('layout scan budget exceeded')
             # Bounded C searches avoid holding the GIL over a whole large volume.
-            boundary = min(len(self.text), start + 256 * 1024)
-            pos = self.text.find(needle, start, min(len(self.text), boundary + len(needle) - 4))
+            boundary = min(scan_end, start + 256 * 1024)
+            pos = self.text.find(needle, start, min(scan_end, boundary + len(needle) - 4))
             if pos < 0:
-                if boundary >= len(self.text):
-                    break
                 start = boundary
             else:
                 start = pos + 4
@@ -186,8 +219,10 @@ class LayoutIndex:
                 p.close()
             self.projections.clear()
 
-    def scan(self, query, volumes, semaphore):
-        key = (query, tuple(v.source_file for v in volumes))
+    def scan(self, query, volumes, semaphore, document_ranges=None):
+        key = (query, tuple(v.source_file for v in volumes),
+               None if document_ranges is None else tuple(sorted(
+                   (source, tuple(ranges)) for source, ranges in document_ranges.items())))
         with self.lock:
             cached = self.cache.get(key)
         if cached is not None:
@@ -204,7 +239,9 @@ class LayoutIndex:
             for vol in volumes:
                 projection = self.projections.get(vol.source_file)
                 if projection:
-                    found[vol.source_file] = list(projection.find(query, deadline))
+                    ranges = document_ranges.get(vol.source_file, []) if document_ranges is not None else None
+                    found[vol.source_file] = list(projection.find(query, deadline) if ranges is None else
+                                                  projection.find(query, deadline, ranges))
             result = (found, True, '')
             if sum(len(matches) for matches in found.values()) <= 2000:
                 with self.lock:

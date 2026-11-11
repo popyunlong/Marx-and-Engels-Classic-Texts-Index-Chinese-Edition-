@@ -1,6 +1,10 @@
 # 公共文献查询 API v1
 
-有效会员在网站「账户中心 → API 与 Agent 接入」领取个人 Key。REST 根路径为 `/api/v1`，MCP 为 `/mcp`。三个客户端使用同一 Key 体系，每账号最多三个有效 Key，全部共享并发和短窗额度。不要把 Key 放在提示词、论文、URL 或公开仓库中。
+有效会员在网站独立栏目「API/MCP 数据调用」（`/api-access`）领取个人 Key，账户中心与会员功能页也提供入口。访客可阅读接口说明，管理 Key 需要登录及相应权限。原 `/account/agent-api` 页面跳转至新入口，旧 POST 继续兼容。REST 根路径为 `/api/v1`，MCP 为 `/mcp`。三个客户端使用同一 Key 体系，每账号最多三个有效 Key，全部共享并发和短窗额度。不要把 Key 放在提示词、论文、URL 或公开仓库中。
+
+API/MCP 数据调用 提供原文证据；网页插注校注 Agent 独立提供论文处理流程，两者权限独立。网页检索新增的篇章范围目前不属于 REST/MCP v1 的范围协议；外部调用仍使用 `book:`、`vol:`。
+
+截至 2026-11-11，MCP 已有调用成功记录；最近一次公网 REST 验证返回 Cloudflare 403 / 1010，修复验收尚未完成。本次栏目上线不代表公网 REST 已恢复。
 
 ## 使用流程
 
@@ -24,6 +28,62 @@
 REST 错误为 `{"ok":false,"error":{"code":"concurrency_limited","message":"…","retryable":true,"retry_after_seconds":2}}`；MCP 在 `structuredContent` 和文字内容中返回同一错误，并设置 `isError`。REST 429/503 同时提供 `Retry-After`。遵守等待时间并添加少量随机延迟，最多重试三次；400/401/403/404/409/504 应先修正输入、凭证或范围，不盲目重试。
 
 客户端断开不会释放仍在运行的服务器查询名额；计算实际结束或进程退出后释放。MCP 与 REST 的数据查询在主站统一扣额，不重复计数。API Key 失效、会员过期和权限撤销在下一次请求生效。Key 管理页面继续要求会话登录和 CSRF。
+
+### REST 调用示例
+
+设置本机环境变量 `MARX_API_KEY` 后，用 Python 发送带有客户端标识的请求。示例保留 HTTP 状态、请求标识和有限错误摘要，便于区分站点鉴权与边缘拒绝。
+
+```python
+import json
+import os
+import urllib.error
+import urllib.request
+
+BASE = "https://mazhuzuojiansuo.com/api/v1"
+KEY = os.environ["MARX_API_KEY"]
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(NoRedirect())
+
+def call(path, body=None):
+    headers = {"Authorization": f"Bearer {KEY}",
+               "Accept": "application/json",
+               "User-Agent": "MarxCitationClient/1.0"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(BASE + path, data=data, headers=headers)
+    try:
+        with opener.open(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            details = {"status": error.code}
+            for name in ("CF-Ray", "X-Request-ID", "Content-Type", "Retry-After"):
+                details[name] = error.headers.get(name, "").replace(KEY, "[REDACTED]")[:200]
+            details["summary"] = error.read(4096).decode("utf-8", errors="replace").replace(KEY, "[REDACTED]")[:300]
+            raise SystemExit(json.dumps(details, ensure_ascii=False))
+
+sources = call("/sources")
+book = next((s for s in sources["sources"] if s["book"] == "文集"), None)
+if book is None:
+    raise SystemExit("当前公开书目没有文集，请从 /sources 中选择可用范围。")
+hits = call("/search", {"q": "生产关系", "mode": "exact",
+                        "scope": [book["scope"]], "limit": 10})
+print("搜索完整：", hits["search_complete"], "结果截断：", hits["truncated"])
+if hits["results"]:
+    passage = call("/passages/" + hits["results"][0]["evidence_id"])
+    print(json.dumps(passage["result"], ensure_ascii=False, indent=2))
+else:
+    print("所选范围无结果；请调整查询，不自动扩大范围。")
+print(json.dumps(call("/limits"), ensure_ascii=False, indent=2))
+```
+
+Cloudflare 返回 `403` 且正文为 `error code: 1010` 时，向站点管理员提供请求时间和 `CF-Ray`，以便核对边缘安全事件。 [Cloudflare 1010 说明](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-1xxx-errors/error-1010/)
 
 ## 客户端
 

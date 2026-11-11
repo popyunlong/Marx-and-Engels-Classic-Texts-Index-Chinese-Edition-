@@ -3066,6 +3066,11 @@
            旧首页 legacy（not v2）照常渲染全部卡片。 #}
         {% if (not v2) or _pg == 'more' %}
         <div class="reader-entry-grid{% if v2 and _pg == 'more' %} v2more-grid{% endif %}" aria-label="功能卡">
+          {% if show_more %}<section class="journal-bar" aria-label="API/MCP 数据调用">
+            <div class="feature-copy"><div class="feature-kicker">程序接入</div><h2>API/MCP 数据调用</h2>
+              <p>通过 REST 或 MCP 查询公共文库的原文、上下文与出处，独立管理个人 API Key。</p></div>
+            <a class="feature-action" href="{{ url_for('api_access') }}">查看API/MCP 数据调用</a>
+          </section>{% endif %}
           {% for card in feature_cards %}
           {% set _more_card = card.key == 'liushi' %}
           {% if (not v2) or _more_card %}
@@ -3323,8 +3328,9 @@
   {# 主检索脚本取 #searchForm/#q 时无空值保护，故只在有检索面板的页面加载。
      后面几段脚本（使用提示/篇章直达/注册分布/赞助）本身都有空值早返回，可全局保留。 #}
   {% if show_search %}
-  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=2">
+  <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=chapters-1">
   <script src="/static/book-scope/book-scope.js?v=4"></script>
+  <script src="/static/book-scope/chapter-scope.js?v=1"></script>
   <script>
   const requestToken = {{ request_token | tojson }};
   const csrfToken = {{ csrf_token | tojson }};
@@ -3455,6 +3461,7 @@
         ? payload.requested_scope.slice()
         : (Array.isArray(payload.requested_book_scope) ? payload.requested_book_scope.slice() : null),
       book: payload.book_filter || ''
+      ,scope_version: payload.scope_version || null
     };
     if (searchExportControls) searchExportControls.hidden = false;
   }
@@ -3710,6 +3717,13 @@
   const quitBtn = document.getElementById('quitBtn');
 
   function apiFetch(url, options = {}) {
+    if (typeof options.body === 'string' && url.startsWith('/api/search')) {
+      const body = JSON.parse(options.body);
+      if (hasChapterScope(body.scope) && !Object.prototype.hasOwnProperty.call(body, 'scope_version')) {
+        body.scope_version = bookScopeCtl && bookScopeCtl.getScopeVersion ? bookScopeCtl.getScopeVersion() : null;
+        options = Object.assign({}, options, { body: JSON.stringify(body) });
+      }
+    }
     const headers = Object.assign({}, options.headers || {});
     if (requestToken) {
       headers['X-App-Token'] = requestToken;
@@ -4227,6 +4241,7 @@
   function standardVisibleBookCounts(payload) {
     if (payload && Array.isArray(payload.visible_book_counts)) return payload.visible_book_counts;
     const counts = (payload && Array.isArray(payload.book_counts)) ? payload.book_counts : [];
+    if (hasChapterScope(payload && payload.requested_scope)) return counts;
     const keys = standardRequestedBookKeys(payload);
     return keys.size ? counts.filter(item => keys.has(String(item.key || ''))) : counts;
   }
@@ -4243,6 +4258,7 @@
   }
 
   function standardScopeLabel(payload) {
+    if (payload && payload.scope_label) return payload.scope_label;
     if (payload && payload.search_scope && payload.search_scope.label) return payload.search_scope.label;
     const requested = payload && payload.requested_scope != null
       ? (Array.isArray(payload.requested_scope) ? payload.requested_scope : [payload.requested_scope])
@@ -4347,17 +4363,18 @@
       renderResearchReview(deepCopySafe(entry.payload), false);
     } else if (entry.kind === 'assoc' && entry.payload) {
       applySearchMode(entry.payload.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative');
-      restoreSearchScope(entry.payload.requested_scope);
+      restoreSearchScope(entry.payload.requested_scope, entry.payload.scope_version);
       renderAssociativeResults(deepCopySafe(entry.payload));
     } else {
       applySearchMode('standard');
       if (entry.payload) restoreSearchScope(entry.payload.requested_scope != null
-        ? entry.payload.requested_scope : (entry.payload.requested_book_scope || []));
+        ? entry.payload.requested_scope : (entry.payload.requested_book_scope || []), entry.payload.scope_version);
       if (coocCheckbox) coocCheckbox.checked = !!entry.searchCooc;
       if (entry.empty || !entry.payload) {
         renderEmpty('未找到匹配结果。');
         updateBookTabs(null);
-        saveSearchState({ query: entry.query || '', mode: 'empty', searchCooc: !!entry.searchCooc });
+        saveSearchState(Object.assign({}, entry.payload || {}, {
+          query: entry.query || '', mode: 'empty', searchCooc: !!entry.searchCooc }));
       } else {
         const payload = deepCopySafe(entry.payload);
         renderResults(payload);
@@ -4511,6 +4528,10 @@
           q: query,
           source_file: volume.source_file,
           chapter_pdf_page: chapter.chapter_pdf_page,
+          scope_document_id: chapter.scope_document_id,
+          scope: stored && stored.requested_scope,
+          scope_version: stored && stored.scope_version,
+          mode: stored && stored.searchCooc ? 'cooccurrence' : 'exact',
           page
         })
       });
@@ -4519,6 +4540,7 @@
         chapter.hits_cache[page] = Array.isArray(data.hits) ? data.hits : [];
         if (typeof data.count === 'number') chapter.count = data.count;
       } else {
+        if (data && data.error) showSearchExportStatus(data.error, true);
         chapter.hits_cache[page] = [];
       }
     } catch (_) {
@@ -4769,8 +4791,9 @@
       const requestedScope = deepCopySafe(
         options.scope !== undefined ? options.scope : currentSearchScope('standard')
       );
-      const apiScope = book ? [`book:${book}`] : requestedScope;
+      const apiScope = book && !hasChapterScope(requestedScope) ? [`book:${book}`] : requestedScope;
       const searchBody = { q: text, group_page: groupPage, book, mode };
+      if (options.scopeVersion !== undefined) searchBody.scope_version = options.scopeVersion;
       if (apiScope != null) searchBody.scope = apiScope;
       const resp = await apiFetch('/api/search', {
         method: 'POST',
@@ -4800,9 +4823,9 @@
         if (data.exact_search_complete !== false && shouldAutoFuzzy(text, options, isCooc)) {
           // 结果链路已经切换为模糊检索，顶部标签/范围控件也必须同步，
           // 避免在「精确检索」外观下展示模糊结果。
-          const fallbackScope = book ? [`book:${book}`] : deepCopySafe(selectedSearchScope());
+          const fallbackScope = hasChapterScope(requestedScope) ? requestedScope : book ? [`book:${book}`] : deepCopySafe(selectedSearchScope());
           applySearchMode('fuzzy');
-          restoreSearchScope(fallbackScope);
+          restoreSearchScope(fallbackScope, data.scope_version);
           await doAssociativeSearch(text, 'locate', { fallbackFrom: text, strategy: 'textual', scope: fallbackScope, runId });
           return;
         }
@@ -4981,7 +5004,8 @@
   // 「精选到书/卷」多选控件：挂在检索框下方（所有模式可见）；有选择即覆盖著作群 chips（D2）。
   (function initBookScope() {
     if (bookScopeMount && window.BookScope && Array.isArray(BOOK_SCOPE_TREE) && BOOK_SCOPE_TREE.length) {
-      bookScopeCtl = BookScope.mount(bookScopeMount, BOOK_SCOPE_TREE, { storageKey: 'marx-book-scope-index-v1' });
+      bookScopeCtl = BookScope.mount(bookScopeMount, BOOK_SCOPE_TREE, { storageKey: 'marx-book-scope-index-v1',
+        chapters: true, fetch: apiFetch, onChange: invalidateSearchRequest });
     }
   })();
 
@@ -5578,12 +5602,15 @@
   }
 
   // 检索模式：standard（精确）/ fuzzy（近似原文）/ associative（大意／篇章联想）。
-  function restoreSearchScope(scope) {
+  function hasChapterScope(scope) {
+    return Array.isArray(scope) && scope.some(token => String(token).startsWith('chapter:'));
+  }
+  function restoreSearchScope(scope, version) {
     if (scope == null) return; // Older histories did not store the requested scope.
     const tokens = Array.isArray(scope) ? scope : [scope];
-    const books = tokens.filter(token => /^(book:|vol:)/.test(String(token)));
-    if (bookScopeCtl && bookScopeCtl.setTokens) bookScopeCtl.setTokens(books);
-    const ids = tokens.filter(token => !/^(book:|vol:)/.test(String(token)) && token !== 'auto' && token !== 'all');
+    const books = tokens.filter(token => /^(book:|vol:|chapter:)/.test(String(token)));
+    if (bookScopeCtl && bookScopeCtl.setTokens) bookScopeCtl.setTokens(books, version);
+    const ids = tokens.filter(token => !/^(book:|vol:|chapter:)/.test(String(token)) && token !== 'auto' && token !== 'all');
     searchScopeState = { mode: tokens.includes('all') ? 'all' : ids.length ? 'custom' : 'auto', selected: ids };
     paintSearchChips();
   }
@@ -5781,7 +5808,7 @@
       const mode = (payload && payload.searchCooc) ? 'cooccurrence' : '';
       const scope = payload.requested_scope !== undefined
         ? payload.requested_scope : (payload.requested_book_scope || currentSearchScope('standard'));
-      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode, scope });
+      await doSearch(query, { groupPage: 1, book: tab.dataset.book || '', mode, scope, scopeVersion: payload.scope_version });
     });
   }
 
@@ -5877,7 +5904,7 @@
       const mode = payload.searchCooc ? 'cooccurrence' : '';
       const scope = payload.requested_scope !== undefined
         ? payload.requested_scope : (payload.requested_book_scope || currentSearchScope('standard'));
-      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '', mode, scope });
+      await doSearch(query, { groupPage: nextPage, book: payload.book_filter || '', mode, scope, scopeVersion: payload.scope_version });
       return;
     }
 
@@ -5902,7 +5929,7 @@
       q.value = saved.query || '';
       applySearchMode('standard');
       if (coocCheckbox) coocCheckbox.checked = !!saved.searchCooc;
-      restoreSearchScope(saved.requested_scope != null ? saved.requested_scope : (saved.requested_book_scope || []));
+      restoreSearchScope(saved.requested_scope != null ? saved.requested_scope : (saved.requested_book_scope || []), saved.scope_version);
       if (saved.mode === 'empty') renderEmpty(saved.message || '未找到匹配结果。');
       else renderResults(saved);
       updateBookTabs(saved);
@@ -5910,7 +5937,7 @@
     }
     if (saved.kind !== 'assoc' || !saved.retrieval_strategy) return;
     q.value = saved.query || '';
-    restoreSearchScope(saved.requested_scope);
+    restoreSearchScope(saved.requested_scope, saved.scope_version);
     applySearchMode(saved.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative');
     renderAssociativeResults(saved);
   });

@@ -172,7 +172,8 @@ def test_routes_membership_csrf_cookie_boundary_and_shared_busy(tmp_path, corpus
     client = app.test_client()
     assert client.post("/api/v1/search", json={"q": "生产关系"}).status_code == 401
     assert client.post("/account/agent-api", data={"action": "create", "name": "x"}).status_code == 403
-    assert client.get("/account/agent-api").status_code == 200
+    assert client.get("/account/agent-api").status_code == 302
+    assert client.get("/account/agent-api").location.endswith('/api-access')
     response = client.post("/api/v1/search", json={"q": "生产关系"}, headers=headers)
     assert response.status_code == 200 and response.json["results"]
     for field, value in (("member", False), ("agent_api", False), ("viewer", False), ("is_active", 0)):
