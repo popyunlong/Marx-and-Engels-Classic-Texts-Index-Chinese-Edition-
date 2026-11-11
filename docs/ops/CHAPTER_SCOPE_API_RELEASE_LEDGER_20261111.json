@@ -1865,6 +1865,32 @@
       "wrapper_error": "After all checks passed and result was saved, console GBK encoding failed on browser checkmark. Tests not repeated; stdout encoding corrected for later stages.",
       "record": "D:\\CodexData\\outputs\\chapter-api-release-20261111\\authorized-example-retest-and-browser.json",
       "log": "D:\\CodexData\\outputs\\chapter-api-release-20261111\\authorized-example-retest-and-browser.log"
+    },
+    {
+      "phase": "PR CI attempt 1",
+      "head": "5f464f2043de0dd68ebeeea44d5f2ee530eaa5e4",
+      "run_id": 43027016349,
+      "status": "failed",
+      "passed_jobs": [
+        "Fast gate Python 3.10",
+        "Fast gate Python 3.11",
+        "Public corpus API and MCP contract"
+      ],
+      "browser": {
+        "passed": 65,
+        "failed": 28,
+        "diagnosis": "All 28 dictionary-map cases use standalone Flask fixture missing api_access endpoint required by new shared navigation. Added the missing fixture route; production route already exists. No assertions weakened."
+      },
+      "log": "D:\\CodexData\\outputs\\chapter-api-release-20261111\\pr-browser-full.log",
+      "retest": "Authorized by user. Local dictionary browser 28 passed; feature pre-push and updated PR CI each authorized once."
+    },
+    {
+      "phase": "authorized dictionary browser retest",
+      "passed": 28,
+      "failed": 0,
+      "status": "passed",
+      "record": "D:/CodexData/outputs/chapter-api-release-20261111/authorized-dictionary-retest.json",
+      "log": "D:/CodexData/outputs/chapter-api-release-20261111/authorized-dictionary-retest.log"
     }
   ],
   "release_status": "not_deployed"
