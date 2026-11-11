@@ -1,0 +1,47 @@
+import json
+import os
+import urllib.error
+import urllib.request
+
+BASE = "{{ api_base }}/api/v1"
+KEY = os.environ["MARX_API_KEY"]
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(NoRedirect())
+
+def call(path, body=None):
+    headers = {"Authorization": f"Bearer {KEY}",
+               "Accept": "application/json",
+               "User-Agent": "MarxCitationClient/1.0"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(BASE + path, data=data, headers=headers)
+    try:
+        with opener.open(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            details = {"status": error.code}
+            for name in ("CF-Ray", "X-Request-ID", "Content-Type", "Retry-After"):
+                details[name] = error.headers.get(name, "").replace(KEY, "[REDACTED]")[:200]
+            details["summary"] = error.read(4096).decode("utf-8", errors="replace").replace(KEY, "[REDACTED]")[:300]
+            raise SystemExit(json.dumps(details, ensure_ascii=False))
+
+sources = call("/sources")
+book = next((s for s in sources["sources"] if s["book"] == "文集"), None)
+if book is None:
+    raise SystemExit("当前公开书目没有文集，请从 /sources 中选择可用范围。")
+hits = call("/search", {"q": "生产关系", "mode": "exact",
+                        "scope": [book["scope"]], "limit": 10})
+print("搜索完整：", hits["search_complete"], "结果截断：", hits["truncated"])
+if hits["results"]:
+    passage = call("/passages/" + hits["results"][0]["evidence_id"])
+    print(json.dumps(passage["result"], ensure_ascii=False, indent=2))
+else:
+    print("所选范围无结果；请调整查询，不自动扩大范围。")
+print(json.dumps(call("/limits"), ensure_ascii=False, indent=2))

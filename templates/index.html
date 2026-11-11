@@ -3066,10 +3066,10 @@
            旧首页 legacy（not v2）照常渲染全部卡片。 #}
         {% if (not v2) or _pg == 'more' %}
         <div class="reader-entry-grid{% if v2 and _pg == 'more' %} v2more-grid{% endif %}" aria-label="功能卡">
-          {% if show_more %}<section class="journal-bar" aria-label="文献 API">
-            <div class="feature-copy"><div class="feature-kicker">程序接入</div><h2>文献 API</h2>
+          {% if show_more %}<section class="journal-bar" aria-label="API/MCP 数据调用">
+            <div class="feature-copy"><div class="feature-kicker">程序接入</div><h2>API/MCP 数据调用</h2>
               <p>通过 REST 或 MCP 查询公共文库的原文、上下文与出处，独立管理个人 API Key。</p></div>
-            <a class="feature-action" href="{{ url_for('api_access') }}">查看文献 API</a>
+            <a class="feature-action" href="{{ url_for('api_access') }}">查看API/MCP 数据调用</a>
           </section>{% endif %}
           {% for card in feature_cards %}
           {% set _more_card = card.key == 'liushi' %}

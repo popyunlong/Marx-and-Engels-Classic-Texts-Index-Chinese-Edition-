@@ -71,10 +71,16 @@ test('API guest page, old redirect and desktop/mobile independent navigation', a
   const page = await setup(t, 1366);
   await page.goto(base + '/account/agent-api');
   assert.ok(page.url().endsWith('/api-access'));
-  assert.equal(await page.locator('h1').innerText(), '文献 API');
-  assert.equal(await page.locator('.v2tabs-top [aria-current=page]').innerText(), '文献 API');
+  assert.equal(await page.locator('h1').innerText(), 'API/MCP 数据调用');
+  assert.equal(await page.locator('.v2tabs-top [aria-current=page]').innerText(), 'API/MCP 数据调用');
   assert.equal(await page.locator('button[value=create]').count(), 0);
+  assert.match(await page.locator('#rest').innerText(), /printed_pages/);
+  assert.match(await page.locator('#mcp').innerText(), /get_api_limits/);
+  assert.match(await page.locator('#intro').innerText(), /修复验收尚未完成/);
   await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'api-desktop.png'),fullPage:false});
+  await page.setViewportSize({width:1024,height:768});
+  await page.locator('.v2tabs-top [aria-current=page]').scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
   await page.setViewportSize({width:390,height:844});
   const link = page.locator('.v2tabbar [aria-current=page]');
   await link.scrollIntoViewIfNeeded();
