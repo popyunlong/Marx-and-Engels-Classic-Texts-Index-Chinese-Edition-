@@ -372,6 +372,7 @@
         {% if state.ai_entitlements and state.ai_entitlements.wallets %}
         <article class="card">
           <h2>AI 研学额度</h2>
+          {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
           <p class="muted">MiMo 与 DeepSeek 按模型和实际用量从共享额度中折算；缓存、思考深度与请求长度会影响可用量。内部结算金额仅在管理后台记录。</p>
           <div class="list">
             {% for wallet in state.ai_entitlements.wallets %}

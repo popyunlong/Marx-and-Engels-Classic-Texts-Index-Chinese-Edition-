@@ -9,6 +9,7 @@ let server, browser, base;
 const output = process.env.AI_COMPREHENSIVE_OUTPUT;
 const config = {
   ok:true, access:true, research_access:true, comprehensive_access:true, deepseek_web_access:true,
+  deepseek_web_quota:{limit:20,remaining:20,message:"今日联网剩余 20/20 次，费用从 AI 钱包扣除。"},
   runtime:{enabled:true}, quota:{unlimited:true}, research_quota:{unlimited:true},
   ai_entitlements:{models:{'deepseek-v4-flash':['off','high'],'deepseek-v4-pro':['high']},
     defaults:{quick:{model:'deepseek-v4-flash',reasoning_effort:'off'},research:{model:'deepseek-v4-pro',reasoning_effort:'high'}}},
@@ -134,4 +135,26 @@ test('stopping SSE preserves the checkpoint and continuation action',async t=>{
   assert.equal(await page.locator('[data-continue-index]').count(),1);
   await page.reload();await page.waitForFunction(()=>!document.getElementById('aipSend').disabled);
   assert.match(await page.locator('#aipMessages').innerText(),/已经核验并保存的第一节/);
+});
+
+
+test('member daily quota and quota-blocked partial answer survive reload', async t => {
+  const {page} = await setup(t, 390);
+  assert.match(await page.locator('#aipWebQuota').innerText(), /20\/20/);
+  await page.route('**/api/ai/comprehensive-chat', route => route.fulfill({json: {
+    ok:true, answer_markdown:'已经核验的会员正文。', citations:[], sources:[],
+    completion_status:'partial', stop_reason:'wallet_quota', recoverable:false,
+    continue_request_id:null, warnings:['AI 可用额度不足，请补充额度后继续。'],
+    deepseek_web_quota:{limit:20,remaining:19,message:'今日联网剩余 19/20 次，费用从 AI 钱包扣除。'}
+  }}));
+  await page.locator('#aipPrompt').fill('继续完成会员文章');
+  await page.locator('#aipSend').click();
+  await page.waitForFunction(() => !document.getElementById('aipSend').disabled);
+  assert.match(await page.locator('#aipMessages').innerText(), /已经核验/);
+  assert.match(await page.locator('#aipMessages').innerText(), /额度不足/);
+  assert.equal(await page.locator('[data-continue-index]').count(), 0);
+  assert.match(await page.locator('#aipWebQuota').innerText(), /19\/20/);
+  await page.reload();
+  await page.waitForFunction(() => !document.getElementById('aipSend').disabled);
+  assert.match(await page.locator('#aipMessages').innerText(), /已经核验/);
 });

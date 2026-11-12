@@ -2136,6 +2136,7 @@
                 <label class="field">周期月 <input type="number" name="interval_months" value="{{ plan.interval_months }}" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="{{ plan.sort_order }}"></label>
                 <label class="field" title="智谱 GLM 联网通道的每日 token 子配额：留空＝跟随智能服务里的全局默认，0＝不限">智谱每日限额 <input type="number" name="daily_zhipu_token_limit" value="{{ plan.daily_zhipu_token_limit if plan.daily_zhipu_token_limit is not none else '' }}" min="0" step="1000" placeholder="留空跟随全局默认"></label>
+                <label class="field">DeepSeek 联网每日次数（0＝关闭） <input type="number" name="daily_deepseek_web_limit" value="{{ plan.daily_deepseek_web_limit }}" min="0" step="1"></label>
                 <label class="field">角标/促销标签 <input type="text" name="badge" value="{{ plan.badge | default('', true) }}" placeholder="如「最受欢迎」，留空不显示"></label>
                 <label class="field" title="membership=按月会员；credit_pack=一次性购买的次数资源包（不开会员，付款记入次数台账）">类型
                   <select name="kind">
@@ -2166,6 +2167,7 @@
                 <label class="field">周期月 <input type="number" name="interval_months" value="1" min="1"></label>
                 <label class="field">排序 <input type="number" name="sort_order" value="50"></label>
                 <label class="field" title="智谱 GLM 联网通道的每日 token 子配额：留空＝跟随智能服务里的全局默认，0＝不限">智谱每日限额 <input type="number" name="daily_zhipu_token_limit" min="0" step="1000" placeholder="留空跟随全局默认"></label>
+                <label class="field">DeepSeek 联网每日次数（0＝关闭） <input type="number" name="daily_deepseek_web_limit" value="0" min="0" step="1"></label>
                 <label class="field">角标/促销标签 <input type="text" name="badge" placeholder="如「最受欢迎」，留空不显示"></label>
                 <label class="field" title="membership=按月会员；credit_pack=一次性购买的次数资源包">类型
                   <select name="kind">

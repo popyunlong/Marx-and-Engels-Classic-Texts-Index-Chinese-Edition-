@@ -11,7 +11,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import abort, copy_current_request_context, g, jsonify, request, Response, stream_with_context
+from flask import has_request_context, abort, copy_current_request_context, g, jsonify, request, Response, stream_with_context
 import ai
 import ai_comprehensive as tasks
 import ai_web
@@ -40,12 +40,26 @@ def web_allowed(A):
     if A._is_admin_user(user):
         return A._env_flag("DEEPSEEK_WEB_ADMIN_PREVIEW", True)
     rights = membership.get_ai_entitlements(int(user["id"]))
-    return bool(A._env_flag("DEEPSEEK_WEB_ENABLED", False) and rights.get("models") and rights.get("wallets"))
+    return bool(A._env_flag("DEEPSEEK_WEB_ENABLED", True) and rights.get("models") and rights.get("wallets")
+                and membership.get_deepseek_web_quota(int(user["id"]))["entitled"])
+
+
+def web_quota(A):
+    user = getattr(g, "current_user", None)
+    if user and A._is_admin_user(user):
+        return {"entitled": web_allowed(A), "allowed": web_allowed(A), "unlimited": True,
+                "message": "管理员联网由站方记账。"}
+    result = membership.get_deepseek_web_quota(int(user["id"]) if user else None)
+    if not web_allowed(A):
+        result.update(allowed=False, message="DeepSeek 联网需有效会员权益，或当前服务已关闭。")
+    elif not membership.get_ai_entitlements(int(user["id"])).get("remaining_micros"):
+        result.update(allowed=False, message="AI 钱包余额不足，请补充额度。")
+    return result
 
 
 def capabilities(A):
     return {"comprehensive_access": bool(enabled(A) and A._feature_effective_for_user("search_chat")),
-            "deepseek_web_access": web_allowed(A),
+            "deepseek_web_access": web_allowed(A), "deepseek_web_quota": web_quota(A),
             "web_defaults": {"comprehensive": "auto", "quick": "off", "research": "off"}}
 
 
@@ -61,6 +75,12 @@ def prepare_web(A, payload, selection, *, plan=None, deadline=None, cancelled=la
     user = getattr(g, "current_user", None)
     web = ai_web.WebEvidence(A.AI_CLIENT, user_id=int(user["id"]), selection=selection,
         charge_user=not A._is_admin_user(user), deadline=deadline or time.monotonic()+90, cancelled=cancelled)
+    quota_state = web_quota(A)
+    if not quota_state["allowed"]:
+        if mode == "always":
+            raise ai.AIServiceError(quota_state["message"])
+        web.warnings.append(quota_state["message"])
+        return web
     if previous_state:
         web.sources = copy.deepcopy(previous_state.get("web_sources") or [])
         web.cache = dict(previous_state.get("web_cache") or {})
@@ -113,6 +133,8 @@ def finish_web(result, web, field="answer_markdown"):
     result["warnings"] = list(dict.fromkeys([*result.get("warnings", []), *warnings]))
     result["web_status"] = status
     result["used_web"] = bool(web.sources)
+    if has_request_context():
+        result["deepseek_web_quota"] = web_quota(__import__("sys").modules["app"])
     return result
 
 
@@ -144,6 +166,8 @@ def register(A):
             if mode == "always":
                 abort(403, description="当前账户尚未开放 DeepSeek 联网。")
             mode = "off"
+        if mode == "always" and not web_quota(A)["allowed"]:
+            return jsonify(ok=False, error=web_quota(A)["message"], deepseek_web_quota=web_quota(A)), 429
         grounding = payload.get("grounding_mode", "auto")
         if grounding not in {"auto", "off", "always"}:
             abort(400, description="引文库设置无效。")
@@ -247,7 +271,7 @@ def register(A):
                             credit_authorized = quota.get("over_free_limit") and int(quota.get("credit_balance") or 0) > 0
                             if limit is not None and not credit_authorized:
                                 remaining = max(0, int(limit)-int(quota.get("weekly_used") or 0))
-                                budget = min(budget, remaining)
+                                budget = min(budget, remaining - ai._estimate_message_tokens(ai_web.augment_messages(messages)))
                                 if budget < 256:
                                     raise ai.AIServiceError("本周 AI 额度不足，可补充额度后继续。")
                         if streaming:
@@ -269,16 +293,27 @@ def register(A):
                                                 upstream.close()
                                 finally:
                                     if not charge and not A._is_admin_user(user):
-                                        quota["weekly_used"] = int(quota.get("weekly_used") or 0) + A._estimate_tokens_from_text(messages, "".join(collected))
+                                        quota["weekly_used"] = int(quota.get("weekly_used") or 0) + ai._estimate_message_tokens(ai_web.augment_messages(messages)) + A._estimate_tokens_from_text("".join(collected))
                             return tokens()
+                        metadata = {}
                         with ai.research_ai_http_context(), ai.ai_call_context(
                             user_id=uid, feature="comprehensive-chat", charge_user=charge, provider_call_ids=calls):
                             result = A.AI_CLIENT.chat_complete(messages, max_tokens=budget,
                                 provider=checked["provider"], model=checked["model"],
                                 reasoning_effort=checked["reasoning_effort"],
-                                http_timeout=max(1, min(480, deadline-time.monotonic())))
+                                http_timeout=max(1, min(480, deadline-time.monotonic())), meta_out=metadata)
                         if not charge and not A._is_admin_user(user):
-                            quota["weekly_used"] = int(quota.get("weekly_used") or 0) + A._estimate_tokens_from_text(messages, result)
+                            quota["weekly_used"] = int(quota.get("weekly_used") or 0) + ai._estimate_message_tokens(ai_web.augment_messages(messages)) + A._estimate_tokens_from_text(result)
+                        if metadata.get("finish_reason") == "length":
+                            # One bounded repair, authorized and billed through this same call path.
+                            if not getattr(call, "repairing", False):
+                                call.repairing = True
+                                try:
+                                    return call([*messages, {"role": "assistant", "content": result},
+                                        {"role": "user", "content": "上个 JSON 被截断。请重新给出精简且完整的 JSON 对象，仅保留必要字段。"}], max_tokens)
+                                finally:
+                                    call.repairing = False
+                            raise ai.AIServiceError("结构输出被截断，尚未取得完整规划或检查结果。")
                         return result
 
                     effective_question = previous["state"].get("question", question) if previous else question
@@ -397,8 +432,10 @@ def register(A):
                             if c["grounding_index"] in set(A._review_ref_indices(text))],
                             "warnings": list(dict.fromkeys(warnings)), "sources": [], "grounding_scope": scope_meta,
                             "actual_model": {k: selection[k] for k in ("provider", "model", "reasoning_effort")}, "completion_status": state, "request_id": request_id,
-                            "continue_request_id": request_id if state != "complete" and text else None,
+                            "continue_request_id": request_id if state != "complete" and text and generation.get("recoverable", True) else None,
                             "stop_reason": generation.get("stop_reason"),
+                            "failure_stage": generation.get("failure_stage"),
+                            "recoverable": generation.get("recoverable", True),
                             "section_progress": copy.deepcopy(generation.get("sections", [])),
                             "checkpoint_version": progress.get("checkpoint_version", 0) + 1}
                         result["citations"] = cards
@@ -427,17 +464,27 @@ def register(A):
                 finally:
                     A._RESEARCH_PIPELINE_SEMAPHORE.release()
             except Exception as exc:
+                details = tasks.failure_details(exc, progress.get("phase"))
+                A.LOGGER.warning("comprehensive request=%s phase=%s reason=%s exception=%s",
+                    request_id, progress.get("phase"), details["stop_reason"], type(exc).__name__)
                 result = dict(job["checkpoint"]) if job["checkpoint"] else {"ok": False, "error": str(getattr(exc, "description", exc))}
                 if result.get("ok"):
-                    result.update(completion_status="partial", continue_request_id=request_id)
-                    result.setdefault("warnings", []).append("任务中断，已保留完成内容。")
+                    result.update(completion_status="partial", continue_request_id=request_id if details["recoverable"] else None)
+                    result.setdefault("warnings", []).append(details["message"])
+                else:
+                    result.update(completion_status="failed", error=details["message"])
+                result.update(details)
                 return result
             finally:
                 if acquired:
                     A._RESEARCH_QUEUE_SEMAPHORE.release()
                 A._record_ai_usage(quota, feature="comprehensive-chat", prompt_parts=(question,),
                     completion_text=job.get("state", {}).get("answer", ""), provider="deepseek", model=selection["model"],
-                    success=bool(job["checkpoint"]), provider_call_ids=calls)
+                    success=bool(result and result.get("completion_status") == "complete"),
+                    error=str((result or {}).get("stop_reason") or ""), provider_call_ids=calls)
+                A.LOGGER.info("comprehensive request=%s status=%s reason=%s phase=%s calls=%s elapsed=%.1f",
+                    request_id, (result or {}).get("completion_status"), (result or {}).get("stop_reason"),
+                    (result or {}).get("failure_stage"), len(calls), time.monotonic()-job["created"])
                 job["result"] = result
                 job["finished"] = True
 
@@ -445,6 +492,7 @@ def register(A):
             result = result or {"ok": False, "error": "综合回答未能完成。"}
             result["ai_token_quota"] = A._ai_token_quota_payload(user)
             result["ai_entitlements"] = A._ai_entitlements_payload(user)
+            result["deepseek_web_quota"] = web_quota(A)
             job["result"] = result
             return result
         return Response(stream_with_context(A._sse_run_with_heartbeat(slow, finalize,
