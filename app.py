@@ -8222,13 +8222,19 @@ _MEDIA_UPLOAD_ENDPOINTS = frozenset({
 })
 
 
+def _is_agent_api_request():
+    return request.path == "/api/v1" or request.path.startswith("/api/v1/")
+
+
 @app.before_request
 def _apply_request_body_limit():
     # 防超大请求体内存放大：默认沿用 config 的 MAX_CONTENT_LENGTH(4MB)；图片上传端点
     # 放宽到 40MB(反馈最多 6x5MB、收款码多图)；安装包上传端点放宽到 MAX_RELEASE_UPLOAD_MB
     # (+8MB 余量)。必须在 CSRF 解析 multipart 表单前生效，故本钩子注册为第一个 before_request。
     endpoint = request.endpoint or ""
-    if endpoint in _RELEASE_UPLOAD_ENDPOINTS:
+    if _is_agent_api_request():
+        request.max_content_length = 16 * 1024
+    elif endpoint in _RELEASE_UPLOAD_ENDPOINTS:
         try:
             release_mb = max(1, int(os.environ.get("MAX_RELEASE_UPLOAD_MB") or "200"))
         except ValueError:
@@ -8256,6 +8262,11 @@ def _apply_request_body_limit():
 
 @app.before_request
 def load_current_user():
+    if _is_agent_api_request():
+        # Bearer-only API identity is resolved by its own authentication boundary.
+        g.current_user = None
+        g.membership = None
+        return
     user_id = session.get("user_id")
     try:
         user = get_user_by_id(int(user_id)) if user_id else None
@@ -8319,6 +8330,8 @@ def audit_and_guard_reader_access():
 
 @app.before_request
 def record_current_activity():
+    if _is_agent_api_request():
+        return
     feature = _activity_feature_for_request()
     if not feature:
         return
@@ -8362,6 +8375,8 @@ def record_current_activity():
 
 @app.before_request
 def enforce_csrf_for_state_changes():
+    if _is_agent_api_request():
+        return  # No browser-cookie identity or cookie-authorized state changes here.
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return
     if request.endpoint in CSRF_EXEMPT_ENDPOINTS:
@@ -8592,6 +8607,12 @@ def handle_known_errors(error):
 
 @app.errorhandler(500)
 def handle_unexpected_error(error):
+    if _is_agent_api_request():
+        LOGGER.error("agent_api hook_exception_type=%s request_id=%s",
+                     type(getattr(error, "original_exception", error)).__name__,
+                     getattr(g, "security_request_id", ""))
+        return jsonify(ok=False, error={"code": "internal_error", "message": "接口暂不可用。",
+                                      "retryable": False, "retry_after_seconds": 0}), 500
     LOGGER.exception("Unhandled application error: %s", getattr(error, "original_exception", error))
     message = "服务器暂时无法完成请求，请稍后重试。"
     if request.path.startswith("/api/"):
@@ -17302,6 +17323,8 @@ def _chapter_scope_error(exc):
 
 @app.before_request
 def _bind_chapter_selection():
+    if _is_agent_api_request():
+        return
     payload = request.get_json(silent=True) if request.is_json else None
     if not isinstance(payload, dict) or not chapter_search.has_chapters(payload.get('scope')):
         return

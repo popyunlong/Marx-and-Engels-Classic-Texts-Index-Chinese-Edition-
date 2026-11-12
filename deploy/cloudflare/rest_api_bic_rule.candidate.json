@@ -1,0 +1,9 @@
+{
+  "description": "marx-rest-api-disable-browser-integrity-check",
+  "expression": "(http.host eq \"mazhuzuojiansuo.com\" and starts_with(http.request.uri.path, \"/api/v1/\"))",
+  "action": "set_config",
+  "action_parameters": {
+    "bic": false
+  },
+  "enabled": true
+}

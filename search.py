@@ -30,7 +30,7 @@ from fuzzy_alignment import partial_ratio_alignment
 from book_config import BookConfig, load_book_configs
 from build_index import DB_PATH, MANIFEST, VOLUMES, _EXEDIR, _STRIP_RE, _parse_page_token, normalize
 from offset_match import literal_gap_spans
-from search_capacity import SearchBusy, bounded_search
+from search_capacity import SearchBusy, bounded_search, ReentrantSemaphore
 from citation_styles import (
     CITATION_FORMAT_KEYS,
     CITATION_STYLE_BY_KEY,
@@ -72,11 +72,11 @@ SHORT_QUERY_CHAPTER_MAX_LEN = 4
 EXACT_HITS_PER_BOOK = 200
 
 # 近似兜底并发闸：零精确命中的查询会逐卷跑 partial_ratio（全语料 CPU 密集扫描），多个并发即可能
-# 占满 waitress 线程池（历史「线程饥饿」事故面）。限制同时进行的近似扫描数；短超时拿不到名额就降级
-# 为「无结果」而非阻塞等待——只在真有大量并发近似扫描时才降级，正常负载下零影响。可经环境变量调整。
-_FUZZY_SCAN_CONCURRENCY = max(1, int(os.environ.get("MARX_FUZZY_CONCURRENCY", "2") or "2"))
+# 占满 waitress 线程池（历史「线程饥饿」事故面）。名额不足时显式返回繁忙，避免把未完成扫描当作零结果。
+# API 在计次前预留扫描名额；嵌套版面扫描复用当前线程名额，网页仍可使用保留容量。
+_FUZZY_SCAN_CONCURRENCY = max(1, int(os.environ.get("MARX_FUZZY_CONCURRENCY", "3") or "3"))
 _FUZZY_SCAN_ACQUIRE_TIMEOUT = max(0.0, float(os.environ.get("MARX_FUZZY_ACQUIRE_TIMEOUT_SECONDS", "3") or "3"))
-_FUZZY_SCAN_SEMAPHORE = threading.BoundedSemaphore(_FUZZY_SCAN_CONCURRENCY)
+_FUZZY_SCAN_SEMAPHORE = ReentrantSemaphore(_FUZZY_SCAN_CONCURRENCY)
 
 # 联想检索（AI 提取线索 → 在真实语料中接地定位）相关上限。本模块只做纯 Python 定位，
 # 不含任何 AI 调用；这些常量用于把候选规模与扫描成本约束在在线请求可接受的范围内。

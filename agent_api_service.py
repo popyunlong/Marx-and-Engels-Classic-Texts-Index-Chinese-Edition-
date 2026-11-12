@@ -87,8 +87,8 @@ class QueryService:
         return q.strip(), mode, limit, scope
 
     @bounded_search
-    def search(self, uid, payload, cancelled=lambda: False):
-        q, mode, limit, scope = self.validate_search(payload)
+    def search(self, uid, payload, cancelled=lambda: False, *, validated=None):
+        q, mode, limit, scope = validated if validated is not None else self.validate_search(payload)
         version = self.version()
         deadline = time.monotonic() + setting("TIMEOUT_SECONDS", 20)
 
@@ -166,13 +166,17 @@ class QueryService:
                  for item in page_refs if item["end"] > offset and item["start"] < offset + len(selected)]
         return selected, pages, len(selected) < len(text)
 
-    @bounded_search
-    def passage(self, uid, evidence_id):
+    def prepare_passage(self, uid, evidence_id):
         version = self.version()
         ref = self.store.evidence(uid, evidence_id, version)
         vol = self.corpus.get_volume_by_source_file(ref["source"])
         if not vol or vol.book not in self.public_books():
             raise APIError("source_unavailable", "来源已不可公开查询。", 404)
+        return version, ref, vol
+
+    @bounded_search
+    def passage(self, uid, evidence_id, *, prepared=None):
+        version, ref, vol = prepared if prepared is not None else self.prepare_passage(uid, evidence_id)
         hit = self.corpus._make_hit(vol, ref["start"], ref["end"], "fuzzy" if ref["mode"] == "near_text" else "exact", ref["score"], "", fuzzy_errors=ref["fuzzy_errors"])
         result = self.result(hit, ref, evidence_id, version, 6000)
         if version != self.version():

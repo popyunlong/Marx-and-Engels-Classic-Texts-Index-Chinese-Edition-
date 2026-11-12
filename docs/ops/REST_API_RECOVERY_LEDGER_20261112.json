@@ -1,0 +1,515 @@
+{
+  "task": "rest-api-recovery-20261112",
+  "status": "public_rest_recovered",
+  "baseline": "419a7e74a14991c2d4c1f3974dec03255e717c60",
+  "observed_production_release": "419a7e74a14991c2d4c1f3974dec03255e717c60-20261112T052851Z-dd8a6e34",
+  "branch": "codex/rest-api-recovery-20261112",
+  "worktree": "D:/CodexData/workspaces/rest-api-recovery-20261112",
+  "prior_evidence": [
+    "docs/ops/AGENT_API_TEST_LEDGER_20261107.json",
+    "docs/ops/CHAPTER_SCOPE_API_TEST_LEDGER_20261110.json",
+    "docs/ops/CHAPTER_SCOPE_API_RELEASE_LEDGER_20261111.json",
+    "D:/CodexData/outputs/rest-403-research-20261111/authorized-comparison.json",
+    "D:/CodexData/outputs/rest-403-research-20261111/offline-verification.json",
+    "D:/CodexData/outputs/rest-403-research-20261111/rest-acceptance-once.py"
+  ],
+  "historical_failure": {
+    "date": "2026-11-11",
+    "endpoint": "https://mazhuzuojiansuo.com/api/v1/sources",
+    "status": 403,
+    "body": "error code: 1010",
+    "system_proxy_ray": "a58b6f8b7e199678-KIX",
+    "proxy_disabled_ray": "a58b6f8f5e3c0965-HKG",
+    "conclusion": "Cloudflare browser-signature rejection; exact triggering configuration and route not yet established"
+  },
+  "read_only_observations": {
+    "main_equals_production": true,
+    "production_read_lock": "/run/lock/marx-search-release.lock",
+    "main_service": "active",
+    "mcp_service": "active",
+    "caddy_rest_upstream": "127.0.0.1:8000",
+    "caddy_mcp_upstream": "127.0.0.1:18000",
+    "public_dns_A": [
+      "104.21.14.52",
+      "172.67.157.218"
+    ],
+    "public_dns_limitation": "Proxied DNS does not establish absence of Worker routes or origin overrides",
+    "retained_caddy_lines_scanned": 93098,
+    "retained_api_events": [
+      {
+        "path": "/api/v1/.env",
+        "status": 403,
+        "classification": "unrelated scan, not evidence of legitimate API failure"
+      }
+    ],
+    "historical_rays_found": false,
+    "log_limitation": "Absence from retained logs does not establish the exact Cloudflare feature responsible",
+    "cloudflare_management_connection": "not_available",
+    "browser_state": "both Edge windows minimized; no input sent or window restored",
+    "unknowns": [
+      "current BIC setting",
+      "Configuration Rules and order",
+      "Worker routes",
+      "origin overrides and redirects",
+      "Cache Rules",
+      "matching security events"
+    ],
+    "desktop_preference": "User explicitly deferred foreground access; continue background work only"
+  },
+  "candidate_rule": {
+    "path": "deploy/cloudflare/rest_api_bic_rule.candidate.json",
+    "applied": true,
+    "prerequisite": "BIC block confirmed by matched security event. Inspect current Configuration Rules and order; record original settings; designated coordinator holds release lock.",
+    "rollback": "Restore original configuration and rule order; do not disable unrelated defenses",
+    "scope": "Apex host mazhuzuojiansuo.com, /api/v1/ path prefix only",
+    "sha256": "3cdbe5e407a2851116d88bd744c2bc5fcd107638861a788c5451506cace1e42a",
+    "rule_id": "c3a683c86c6042e9a868b416e784c1ee",
+    "deployment_evidence": "User screenshot shows 1 active and the scoped rule"
+  },
+  "production_mutations": [],
+  "test_runs": [
+    {
+      "scenario": "pytest",
+      "command": [
+        "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_agent_api.py",
+        "tests/test_agent_api_edges.py",
+        "tests/test_agent_api_main_integration.py",
+        "tests/test_agent_api_recovery.py",
+        "tests/test_api_access.py",
+        "tests/test_layout_exact.py",
+        "--basetemp=D:\\CodexData\\temp\\rest-api-recovery-20261112\\pytest",
+        "--junitxml=D:\\CodexData\\outputs\\rest-api-recovery-20261112\\local-validation-once\\pytest.xml"
+      ],
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\local-validation-once\\pytest.log",
+      "status": "passed",
+      "started": "2026-11-12T12:00:54.066645+00:00",
+      "exit_code": 0,
+      "finished": "2026-11-12T12:01:22.808007+00:00",
+      "source_version": "locally_tested_candidate",
+      "summary": "36 passed"
+    },
+    {
+      "scenario": "protocol",
+      "command": [
+        "D:\\CodexData\\dependencies\\agent-api-mcp-20261107\\Scripts\\python.exe",
+        "tests/agent_api_protocol_once.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\local-validation-once\\protocol.log",
+      "status": "failed",
+      "started": "2026-11-12T12:01:22.811007+00:00",
+      "exit_code": 1,
+      "finished": "2026-11-12T12:01:30.701105+00:00",
+      "source_version": "locally_tested_candidate",
+      "summary": "Sources, search, passage and quota read reached; stopped before contention/revocation checks because Store.admission imported Werkzeug through search_capacity in the isolated MCP environment."
+    },
+    {
+      "scenario": "mcp-recovery",
+      "command": [
+        "D:\\CodexData\\dependencies\\agent-api-mcp-20261107\\Scripts\\python.exe",
+        "tests/agent_api_mcp_recovery_once.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\local-validation-once\\mcp-recovery.log",
+      "status": "passed",
+      "started": "2026-11-12T12:01:30.702475+00:00",
+      "exit_code": 0,
+      "finished": "2026-11-12T12:01:33.143852+00:00",
+      "source_version": "locally_tested_candidate",
+      "summary": "3 passed"
+    },
+    {
+      "scenario": "protocol-rerun",
+      "source_version": "local_candidate",
+      "command": [
+        "D:\\CodexData\\dependencies\\agent-api-mcp-20261107\\Scripts\\python.exe",
+        "tests/agent_api_protocol_once.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\public-and-protocol-once\\protocol.log",
+      "status": "passed",
+      "started": "2026-11-12T12:05:35.765789+00:00",
+      "exit_code": 0,
+      "finished": "2026-11-12T12:05:43.253752+00:00",
+      "summary": "Passed local HTTP REST/MCP protocol, shared quota/locks and Key revocation after moving capacity validation to web registration.",
+      "artifact": "D:/CodexData/outputs/rest-api-recovery-20261112/public-and-protocol-once/protocol/protocol-summary.json"
+    }
+  ],
+  "acceptance": {
+    "status": "failed",
+    "requires_explicit_scoped_retest_authorization": true,
+    "scenarios": [
+      "sources_system_proxy",
+      "sources_request_proxy_disabled",
+      "search",
+      "passage",
+      "limits",
+      "missing_key",
+      "invalid_key"
+    ],
+    "maximum_requests": 7,
+    "user_agent": "default Python urllib",
+    "automatic_retries": 0,
+    "failure_policy": "Preserve failed/interrupted evidence; do not rerun; do not enable concurrency changes before REST recovery passes",
+    "authorization": "User explicitly authorized the immediately preceding scoped requests on 2026-11-12, once each.",
+    "started": "2026-11-12T12:05:29.201068+00:00",
+    "release": "419a7e74a14991c2d4c1f3974dec03255e717c60-20261112T052851Z-dd8a6e34",
+    "artifact": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\public-and-protocol-once\\public-rest.json",
+    "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\public-and-protocol-once\\public-rest.log",
+    "command": [
+      "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+      "-B",
+      "D:\\CodexData\\outputs\\rest-403-research-20261111\\rest-acceptance-once.py",
+      "--rule-id",
+      "unverified-current-configuration",
+      "--release",
+      "419a7e74a14991c2d4c1f3974dec03255e717c60-20261112T052851Z-dd8a6e34",
+      "--output",
+      "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\public-and-protocol-once\\public-rest.json"
+    ],
+    "exit_code": 1,
+    "observations": [
+      {
+        "scenario": "sources_system_proxy",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a595687cea4174fd-KIX"
+        }
+      },
+      {
+        "scenario": "sources_request_proxy_disabled",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a5956880dd0e1bd0-SIN"
+        }
+      },
+      {
+        "scenario": "search",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a59568877cd59631-KIX"
+        }
+      },
+      {
+        "scenario": "passage",
+        "result": "not_run"
+      },
+      {
+        "scenario": "limits",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a595688e2b3fdd72-KIX"
+        }
+      },
+      {
+        "scenario": "missing_key",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a5956893ad7e96a4-KIX"
+        }
+      },
+      {
+        "scenario": "invalid_key",
+        "status": 403,
+        "result": "failed",
+        "headers": {
+          "Content-Type": "text/plain; charset=UTF-8",
+          "CF-Ray": "a59568993b0cd41e-KIX"
+        }
+      }
+    ],
+    "finished": "2026-11-12T12:05:35.640447+00:00",
+    "requests_sent": 6,
+    "edge_1010_count": 6,
+    "passage_not_run": "No evidence ID because search was rejected",
+    "source_log_correlation": {
+      "path": "/var/log/caddy/access.log",
+      "sample_window_utc": [
+        "2026-11-12T12:01:22.588Z",
+        "2026-11-12T12:06:49.282Z"
+      ],
+      "scanned_entries": 945,
+      "matching_cf_rays": 0,
+      "request_window_utc": [
+        "2026-11-12T12:05:27Z",
+        "2026-11-12T12:05:40Z"
+      ],
+      "entries_in_request_window": 34,
+      "matching_rest_path_entries": 0
+    },
+    "edge_event_evidence": {
+      "export": "firewall-events-2026-11-11T12_20_56Z-2026-11-12T12_20_56Z.json",
+      "export_sha256": "2a7ed71e8abbae10b296a9b51b093b10eaa4e59d54ad531f4fa7b57065f67f67",
+      "rows": 2,
+      "distinct_rays": 1,
+      "ray": "a595687cea4174fd",
+      "event_utc": "2026-11-12T12:06:00Z",
+      "host": "mazhuzuojiansuo.com",
+      "method": "GET",
+      "path": "/api/v1/sources",
+      "events": [
+        {
+          "source": "bic",
+          "action": "block",
+          "rule_id": "bic"
+        },
+        {
+          "source": "linkMaze",
+          "action": "link_maze_injected",
+          "rule_id": "link_maze"
+        }
+      ]
+    }
+  },
+  "workspace_relocation": {
+    "method": "Copied and SHA-256 compared each file; git worktree repair points to D drive",
+    "retained_source": "C:/Users/10108/.codex/worktrees/rest-api-recovery-20261112/【增强】马恩《文集》《全集》检索",
+    "source_disposition": "Retained after automatic approval review rejected deletion with blocked by policy; do not develop in this stale copy",
+    "app_attachment": "D-drive attachment rejected as not a managed worktree; use explicit D-drive paths",
+    "verified_files": 901,
+    "verified_bytes": 131117168
+  },
+  "local_candidate": {
+    "status": "protocol_retest_passed",
+    "created_at": "2026-11-12T10:40:58.054267+00:00",
+    "source_sha256": {
+      ".github/workflows/ci.yml": "8df0584570245e8535b5bb1bbd9ba4797a976fad74d9a0891874ed4415b752e3",
+      "agent_api_contract.py": "d28f50eeb305aded59451f923acea5bab6bbf07ea0cbc4f4a50f824e8c552cc4",
+      "agent_api_mcp.py": "ac2412d05ee71f52f017e821e680964c63dc75f6a94a47b9f47c9018479705ca",
+      "agent_api_service.py": "f945a42a625919933df61de3af65b1b4859e5c580d7e363532b77b7818f8517b",
+      "agent_api_store.py": "33892af90a474eb8d1950909398988eae61c2eca6945b65f6182a8287c1fc637",
+      "agent_api_web.py": "b35c17a482d4943f2e3df1d62c5fae79c8795ba702f8f40370ec619d7db221da",
+      "app.py": "3088329ed8241779a64339da887d63c28604b748ba55eab4502231ff93a080bd",
+      "docs/agent-api/CLIENT_ACCEPTANCE.md": "f4bec3418730d5783890bcef1cc313cd139ff79f31261e5ad23fc3a5b2ad349e",
+      "docs/agent-api/README.md": "1c1e494e448d508c073b5d9df248435931922f485ae0f200116374274561775f",
+      "search.py": "9b2c819fe793b6635243cc64e3278581efb9c64d9440d6d5a7b99aaea39c5774",
+      "search_capacity.py": "a5efd2e1d4980aed7f3f83477536703aa5eb0b1c633894ca1d06b46e8b13e4f4",
+      "static/agent-api/openapi.json": "af5527cf81382580d58923bf4df20e8541fef21940e50550a6b22c3edf0db644",
+      "templates/agent_api.html": "fa945a17c1265ff625f1c3e402cb3ea5aefafd62fc7298fbf3c4f85694c2a6b3",
+      "tests/agent_api_protocol_once.py": "68656956026a3a34f2025c5addbe47cf4807e1526814f12e14a26a62d0e84112",
+      "tests/test_agent_api.py": "c63a629ddc24f9339ab3e23a087cc33d8088b94248c0de9cbf14829236470174",
+      "tests/test_agent_api_main_integration.py": "2474e16e6e1e43e2200d3d9b9f5f0325e181200549cb2522aaa00435324c65ac",
+      "tests/test_agent_api_recovery.py": "be9977e71f0c62782e8726eddfd9971ee7a9d239c3c73f998ea3ef210596f53d",
+      "tests/agent_api_mcp_recovery_once.py": "58652b30b2774f19f2462023fc52f42d6ba0082e32dda6308e547fc612eb1245",
+      "deploy/cloudflare/rest_api_bic_rule.candidate.json": "f809fe9941ce3c4c099a0248c9370a33bbf40c241df80b6d0498ac83076d8516"
+    },
+    "published": false,
+    "committed": false,
+    "ci_triggered": false
+  },
+  "local_validation": {
+    "authorization": "User explicitly approved only the named local checks, once each",
+    "pytest_modules": [
+      "tests/test_agent_api.py",
+      "tests/test_agent_api_edges.py",
+      "tests/test_agent_api_main_integration.py",
+      "tests/test_agent_api_recovery.py",
+      "tests/test_api_access.py",
+      "tests/test_layout_exact.py"
+    ],
+    "mcp_scripts": [
+      "tests/agent_api_protocol_once.py",
+      "tests/agent_api_mcp_recovery_once.py"
+    ],
+    "automatic_reruns": false,
+    "includes_production": false,
+    "output": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\local-validation-once",
+    "followup": {
+      "scenario": "local HTTP REST/MCP protocol",
+      "status": "passed",
+      "authorization": "User explicitly authorized the immediately preceding scoped requests on 2026-11-12, once each."
+    }
+  },
+  "locally_tested_candidate": {
+    "status": "local_validation_failed",
+    "created_at": "2026-11-12T10:40:58.054267+00:00",
+    "source_sha256": {
+      ".github/workflows/ci.yml": "8df0584570245e8535b5bb1bbd9ba4797a976fad74d9a0891874ed4415b752e3",
+      "agent_api_contract.py": "d28f50eeb305aded59451f923acea5bab6bbf07ea0cbc4f4a50f824e8c552cc4",
+      "agent_api_mcp.py": "ac2412d05ee71f52f017e821e680964c63dc75f6a94a47b9f47c9018479705ca",
+      "agent_api_service.py": "f945a42a625919933df61de3af65b1b4859e5c580d7e363532b77b7818f8517b",
+      "agent_api_store.py": "667cc0bb0c03820252de5c25c28825f59ddb27aa56a7d0076e7bc1c5dca71480",
+      "agent_api_web.py": "f80d803d032c931d79195a940ec1cac3902870a8e0da5aba924e78ecf39af747",
+      "app.py": "3088329ed8241779a64339da887d63c28604b748ba55eab4502231ff93a080bd",
+      "docs/agent-api/CLIENT_ACCEPTANCE.md": "f4bec3418730d5783890bcef1cc313cd139ff79f31261e5ad23fc3a5b2ad349e",
+      "docs/agent-api/README.md": "1c1e494e448d508c073b5d9df248435931922f485ae0f200116374274561775f",
+      "search.py": "9b2c819fe793b6635243cc64e3278581efb9c64d9440d6d5a7b99aaea39c5774",
+      "search_capacity.py": "a5efd2e1d4980aed7f3f83477536703aa5eb0b1c633894ca1d06b46e8b13e4f4",
+      "static/agent-api/openapi.json": "af5527cf81382580d58923bf4df20e8541fef21940e50550a6b22c3edf0db644",
+      "templates/agent_api.html": "fa945a17c1265ff625f1c3e402cb3ea5aefafd62fc7298fbf3c4f85694c2a6b3",
+      "tests/agent_api_protocol_once.py": "68656956026a3a34f2025c5addbe47cf4807e1526814f12e14a26a62d0e84112",
+      "tests/test_agent_api.py": "c63a629ddc24f9339ab3e23a087cc33d8088b94248c0de9cbf14829236470174",
+      "tests/test_agent_api_main_integration.py": "2474e16e6e1e43e2200d3d9b9f5f0325e181200549cb2522aaa00435324c65ac",
+      "tests/test_agent_api_recovery.py": "be9977e71f0c62782e8726eddfd9971ee7a9d239c3c73f998ea3ef210596f53d",
+      "tests/agent_api_mcp_recovery_once.py": "58652b30b2774f19f2462023fc52f42d6ba0082e32dda6308e547fc612eb1245",
+      "deploy/cloudflare/rest_api_bic_rule.candidate.json": "f809fe9941ce3c4c099a0248c9370a33bbf40c241df80b6d0498ac83076d8516"
+    },
+    "published": false,
+    "committed": false,
+    "ci_triggered": false
+  },
+  "post_rule_acceptance": {
+    "status": "passed",
+    "started": "2026-11-12T12:34:58.802680+00:00",
+    "rule_id": "c3a683c86c6042e9a868b416e784c1ee",
+    "release": "419a7e74a14991c2d4c1f3974dec03255e717c60-20261112T052851Z-dd8a6e34",
+    "artifact": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\after-bic-rule-once\\public-rest.json",
+    "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\after-bic-rule-once\\public-rest.log",
+    "command": [
+      "C:\\Users\\10108\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+      "-B",
+      "D:\\CodexData\\outputs\\rest-403-research-20261111\\rest-acceptance-once.py",
+      "--rule-id",
+      "c3a683c86c6042e9a868b416e784c1ee",
+      "--release",
+      "419a7e74a14991c2d4c1f3974dec03255e717c60-20261112T052851Z-dd8a6e34",
+      "--output",
+      "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\after-bic-rule-once\\public-rest.json"
+    ],
+    "authorization": "User explicitly authorized one public REST retest after enabling the rule",
+    "exit_code": 0,
+    "observations": [
+      {
+        "scenario": "sources_system_proxy",
+        "status": 200,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59593b03f9996af-KIX",
+          "X-Request-ID": "db7a5a88cf0ded8c107fefb8cd270bbc"
+        }
+      },
+      {
+        "scenario": "sources_request_proxy_disabled",
+        "status": 200,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59593c07cb83de1-SIN",
+          "X-Request-ID": "d8c1addd2dd17a1da5f93c7c09ec04e8"
+        }
+      },
+      {
+        "scenario": "search",
+        "status": 200,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59593dcc8a37eef-KIX",
+          "X-Request-ID": "830be19e40a20db56d860e78a23c1c59"
+        }
+      },
+      {
+        "scenario": "passage",
+        "status": 200,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59593ec79628caf-KIX",
+          "X-Request-ID": "de0fb0c95eb3388e35f6a5fd63677d2e"
+        }
+      },
+      {
+        "scenario": "limits",
+        "status": 200,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59593f5688ae339-KIX",
+          "X-Request-ID": "10a9fc71aa3ae1221358124a5dafac1d"
+        }
+      },
+      {
+        "scenario": "missing_key",
+        "status": 401,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a59594142d71d401-KIX",
+          "X-Request-ID": "cbfb5bc3827eefb3753fe10f671d1cdf"
+        }
+      },
+      {
+        "scenario": "invalid_key",
+        "status": 401,
+        "result": "passed",
+        "headers": {
+          "Content-Type": "application/json",
+          "CF-Ray": "a595941bcbb894e2-KIX",
+          "X-Request-ID": "cfb12437b606beef16b9b35756845125"
+        }
+      }
+    ],
+    "finished": "2026-11-12T12:35:17.880428+00:00"
+  },
+  "application_release": {
+    "status": "candidate_prepared",
+    "coordinator": "this session; explicitly designated by user on 2026-11-12",
+    "output": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\application-release",
+    "authorization": "Local main_integration/recovery/api_access once each; scoped page browser check; feature/production pre-push once each; PR/main/production CI once each; dry-run/formal release embedded gates once each; public REST seven and MCP four tools once. No automatic reruns.",
+    "local_result": {
+      "status": "passed",
+      "started": "2026-11-12T12:56:41.059701+00:00",
+      "command": [
+        "C:/Users/10108/AppData/Local/Programs/Python/Python310/python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_agent_api_main_integration.py",
+        "tests/test_agent_api_recovery.py",
+        "tests/test_api_access.py",
+        "--basetemp=D:\\CodexData\\temp\\rest-api-recovery-20261112\\application-release\\pytest",
+        "--junitxml=D:\\CodexData\\outputs\\rest-api-recovery-20261112\\application-release\\local.xml"
+      ],
+      "cwd": "D:\\CodexData\\workspaces\\rest-api-recovery-20261112",
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\application-release\\local.log",
+      "head": "419a7e74a14991c2d4c1f3974dec03255e717c60",
+      "authorization": "2026-11-12 user authorized final candidate scoped local, browser, feature/production hooks, PR/main/production CI, dry-run and formal release gates, public REST seven and MCP four tools once per stage; no automatic reruns.",
+      "source_sha256": "328fc4f0f9160005b818f5dd8cfed413853995e5bcafa8d489a7f394edc2183a",
+      "exit_code": 0,
+      "finished": "2026-11-12T12:56:51.216338+00:00"
+    },
+    "browser_result": {
+      "status": "passed",
+      "started": "2026-11-12T12:57:16.224277+00:00",
+      "command": [
+        "node",
+        "--test",
+        "--test-name-pattern=^API guest page",
+        "tests/browser/chapter_scope.cjs"
+      ],
+      "cwd": "D:\\CodexData\\workspaces\\rest-api-recovery-20261112",
+      "log": "D:\\CodexData\\outputs\\rest-api-recovery-20261112\\application-release\\browser.log",
+      "head": "419a7e74a14991c2d4c1f3974dec03255e717c60",
+      "authorization": "2026-11-12 user authorized final candidate scoped local, browser, feature/production hooks, PR/main/production CI, dry-run and formal release gates, public REST seven and MCP four tools once per stage; no automatic reruns.",
+      "source_sha256": "328fc4f0f9160005b818f5dd8cfed413853995e5bcafa8d489a7f394edc2183a",
+      "exit_code": 0,
+      "finished": "2026-11-12T12:57:27.317043+00:00",
+      "wrapper_output_error": {
+        "type": "UnicodeEncodeError",
+        "stage": "printing completed test log to GBK stdout",
+        "test_exit_code": 0,
+        "wrapper_exit_code": 1,
+        "rerun": false
+      },
+      "scope_note": "Desktop/tablet/mobile checks passed. Subsequent copy-only adjustment replaced the MCP bearer placeholder with YOUR_API_KEY; final revision awaits CI coverage."
+    },
+    "post_local_changes": "MCP bearer placeholder copy only; final CI will cover the submitted revision."
+  }
+}
