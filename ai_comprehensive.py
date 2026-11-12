@@ -118,9 +118,15 @@ def complete_blocks(buffer, final=False):
 from ai_generation_flow import generate  # public API retained
 
 
+class ScopeEvidenceUnavailable(AIServiceError):
+    """An explicit retrieval scope has no evidence for the question."""
+
+
 def failure_details(exc, phase):
     text = str(getattr(exc, "description", exc))
-    if "本周" in text and "额度" in text:
+    if isinstance(exc, ScopeEvidenceUnavailable):
+        reason, message, recoverable = "scope_evidence_unavailable", text, False
+    elif "本周" in text and "额度" in text:
         reason, message, recoverable = "weekly_quota", "本周 AI 额度不足，请在额度恢复或补充后继续。", False
     elif "额度" in text or "余额" in text:
         reason, message, recoverable = "wallet_quota", "AI 可用额度不足，请补充额度后继续。", False

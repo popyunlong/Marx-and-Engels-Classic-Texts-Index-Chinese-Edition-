@@ -368,7 +368,9 @@ def register(A):
                                     passages.append({**passage, "index": index})
                                     citations.append({**citation, "grounding_index": index, "source_kind": "corpus"})
                             if not passages and (scope_meta.get("manual") or scope_meta.get("personal_only")):
-                                raise ai.AIServiceError(warnings[0] if warnings else "指定范围内没有找到可核验原文，请调整问题或范围。")
+                                raise tasks.ScopeEvidenceUnavailable(
+                                    warnings[0] if warnings else "指定范围内没有找到可核验原文，请调整问题或范围。"
+                                )
                         web = web_future.result()
                     except BaseException:
                         cancel_event.set()

@@ -127,6 +127,75 @@
       "scenario": "Seven comprehensive browser scenarios",
       "authorization": "User authorized the listed local retests and required release checks",
       "log": "D:/CodexData/outputs/member-web-20261112/browser-authorized-recheck.log"
+    },
+    {
+      "exit_code": 0,
+      "log": "D:/CodexData/outputs/member-web-20261112/feature-prepush.log",
+      "status": "passed",
+      "finished": "2026-11-12T11:33:30.7286444+08:00",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "scenario": "Feature push and existing pre-push checks",
+      "started": "2026-11-12T11:30:51.1594299+08:00"
+    },
+    {
+      "scenario": "PR CI for commit 5700717",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "run_id": 43149097908,
+      "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/43149097908",
+      "status": "failed",
+      "evidence": "D:\\CodexData\\outputs\\member-web-20261112\\pr-jobs.json",
+      "jobs": [
+        {
+          "id": 130953784501,
+          "name": "Public corpus API and MCP contract",
+          "conclusion": "success"
+        },
+        {
+          "id": 130953784721,
+          "name": "Fast gate (Python 3.10)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 130953784751,
+          "name": "Fast gate (Python 3.11)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 130953784795,
+          "name": "AI controls browser gate",
+          "conclusion": "success"
+        },
+        {
+          "id": 130954321786,
+          "name": "Main integration gate (Python 3.10)",
+          "conclusion": "skipped"
+        },
+        {
+          "id": 130954322191,
+          "name": "Production lineage and rollback gate",
+          "conclusion": "skipped"
+        }
+      ],
+      "failed_case": "tests/test_comprehensive_mode.py::test_route_explicit_scope_without_evidence_stops_generation",
+      "annotations": [
+        "D:\\CodexData\\outputs\\member-web-20261112\\pr-annotations-130953784721.json",
+        "D:\\CodexData\\outputs\\member-web-20261112\\pr-annotations-130953784751.json"
+      ]
+    },
+    {
+      "started": "2026-11-12T11:39:30.5530280+08:00",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "authorization": "User directed automated tests and push in response to the enumerated scope recheck and push/PR checks",
+      "status": "passed",
+      "hashes": {
+        "ai_comprehensive.py": "4ADC72BCF6E022BC17E5B995751820C4A162B08BE2D3A51B9787301E359737CE",
+        "tests/test_comprehensive_mode.py": "79458C5D441F7BC19FA390B2843433A912B222D33D2AE8C7CEAB611989A73251",
+        "comprehensive_web.py": "7BAFEA4F43400A4B0EEF9030375D66B8A70F58955E82F629D1DF9285EA405857"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-12T11:39:39.0239940+08:00",
+      "log": "D:/CodexData/outputs/member-web-20261112/scope-authorized-recheck.log",
+      "scenario": "tests/test_comprehensive_mode.py::test_route_explicit_scope_without_evidence_stops_generation"
     }
   ],
   "static_review": {
@@ -135,6 +204,7 @@
     "attempts": 1
   },
   "pending": [
-    "Required integration and release gates"
+    "Authorized repair push and PR CI",
+    "Main and production CI, release"
   ]
 }

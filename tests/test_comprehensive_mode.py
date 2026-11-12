@@ -302,6 +302,8 @@ def test_route_explicit_scope_without_evidence_stops_generation():
     with route_fixture({**PLAN, "needs_corpus": True}, scope_meta={"manual": True}) as (post, calls, _):
         result = post({"question": "解释指定篇目", "scope": "book:private", "request_id": "missing-document"})
     assert not result["ok"] and len(calls) == 1 and "指定范围" in result["error"]
+    assert result["stop_reason"] == "scope_evidence_unavailable"
+    assert result["recoverable"] is False
 
 
 def test_route_continuation_reuses_plan_and_completed_sections():
