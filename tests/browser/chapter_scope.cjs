@@ -74,9 +74,10 @@ test('API guest page, old redirect and desktop/mobile independent navigation', a
   assert.equal(await page.locator('h1').innerText(), 'API/MCP 数据调用');
   assert.equal(await page.locator('.v2tabs-top [aria-current=page]').innerText(), 'API/MCP 数据调用');
   assert.equal(await page.locator('button[value=create]').count(), 0);
+  await page.getByText('查询参数与结果字段', {exact:true}).click();
   assert.match(await page.locator('#rest').innerText(), /printed_pages/);
   assert.match(await page.locator('#mcp').innerText(), /get_api_limits/);
-  assert.match(await page.locator('#intro').innerText(), /修复验收尚未完成/);
+  assert.match(await page.locator('#intro').innerText(), /检索公共文库/);
   await page.screenshot({path:path.join(process.env.TEST_OUTPUT, 'api-desktop.png'),fullPage:false});
   await page.setViewportSize({width:1024,height:768});
   await page.locator('.v2tabs-top [aria-current=page]').scrollIntoViewIfNeeded();

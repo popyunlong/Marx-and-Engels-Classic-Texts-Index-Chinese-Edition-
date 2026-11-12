@@ -4,7 +4,7 @@
 
 API/MCP 数据调用 提供原文证据；网页插注校注 Agent 独立提供论文处理流程，两者权限独立。网页检索新增的篇章范围目前不属于 REST/MCP v1 的范围协议；外部调用仍使用 `book:`、`vol:`。
 
-截至 2026-11-11，MCP 已有调用成功记录；最近一次公网 REST 验证返回 Cloudflare 403 / 1010，修复验收尚未完成。本次栏目上线不代表公网 REST 已恢复。
+公网 REST 的 Cloudflare 1010 故障已于 2026-11-12 经路径配置规则修复，七请求验收通过。故障证据、版本及验收记录见 `docs/ops/REST_API_RECOVERY_20261112.md`。
 
 ## 使用流程
 
@@ -23,9 +23,9 @@ API/MCP 数据调用 提供原文证据；网页插注校注 Agent 独立提供�
 
 ## 额度和错误
 
-串行调用；多 Key、多客户端不能增加账号额度。初始全站并发 1、每账号并发 1，每账号每分钟 30 次数据查询；`get_api_limits` 读取额度不占数据查询次数。没有日配额，不调用站方模型，也不消耗站内 AI token。查询扫描预算默认 20 秒，在卷册和候选循环边界检查；原生计算步骤不作强制线程中断。
+同账号数据调用串行执行，多 Key、多客户端共享限制。本版本目标为：搜索与正文重请求合计并发 2，目录与额度轻请求独立并发 2，near_text 最多 1；每账号数据并发 1，另允许 1 个额度请求。每账号每分钟 30 次数据查询；`get_api_limits` 不占数据查询次数。`/limits.scheduling` 公布实际配置，旧 `global_concurrency` 字段表示重请求上限。未取得执行名额或参数无效不计次，开始执行后失败仍计次。没有日配额，不调用站方模型，也不消耗站内 AI token。查询扫描预算默认 20 秒，在卷册和候选循环边界检查；原生计算步骤不作强制线程中断。MCP 上游超时 25 秒，客户端建议至少 30 秒。
 
-REST 错误为 `{"ok":false,"error":{"code":"concurrency_limited","message":"…","retryable":true,"retry_after_seconds":2}}`；MCP 在 `structuredContent` 和文字内容中返回同一错误，并设置 `isError`。REST 429/503 同时提供 `Retry-After`。遵守等待时间并添加少量随机延迟，最多重试三次；400/401/403/404/409/504 应先修正输入、凭证或范围，不盲目重试。
+REST 错误为 `{"ok":false,"error":{"code":"concurrency_limited","message":"…","retryable":true,"retry_after_seconds":2}}`；MCP 在 `structuredContent` 和文字内容中返回同一错误，并设置 `isError`。只有明确 `retryable=true` 的 429/503 才按 `Retry-After` 或 `retry_after_seconds` 等待，叠加指数退避和少量随机延迟，最多重试两次。网络中断、上游超时、504 或执行状态不明不得自动重发；400/401/403/404/405/409/413 应先修正输入、凭证或范围。MCP 服务端不自动重试。Cloudflare 的非 JSON 拒绝与应用错误分别报告，并保留 CF-Ray；应用请求使用 X-Request-ID 诊断。
 
 客户端断开不会释放仍在运行的服务器查询名额；计算实际结束或进程退出后释放。MCP 与 REST 的数据查询在主站统一扣额，不重复计数。API Key 失效、会员过期和权限撤销在下一次请求生效。Key 管理页面继续要求会话登录和 CSRF。
 
@@ -112,6 +112,8 @@ Codex 0.167.0-alpha.3.2 原生 app-server 的环境变量鉴权、四工具调�
 
 数据库、锁和证据引用默认位于现有 APPDATA 共享目录，可设置 `MARX_AGENT_API_STATE_DIR` 指定共享位置；所有主站进程及候选必须使用同一目录。该方案针对单主机本地文件系统，不适用于多个独立主机或不可靠的网络文件锁。
 
-配置项：`MARX_AGENT_API_ENABLED`（默认 1）、`MARX_AGENT_API_CONCURRENCY`（1）、`MARX_AGENT_API_USER_CONCURRENCY`（1）、`MARX_AGENT_API_PER_MINUTE`（30）、`MARX_AGENT_API_TIMEOUT_SECONDS`（20）。降低这些限制即可降载；不自动提高 `MARX_SEARCH_CONCURRENCY`。日志只有固定 endpoint、状态、耗时、异常类型，不保存 Key、完整查询或论文正文。
+配置项：`MARX_AGENT_API_ENABLED`（默认 1）、`MARX_AGENT_API_CONCURRENCY`（重请求 2）、`MARX_AGENT_API_LIGHT_CONCURRENCY`（轻请求 2）、`MARX_AGENT_API_USER_CONCURRENCY`（1）、`MARX_AGENT_API_PER_MINUTE`（30）、`MARX_AGENT_API_TIMEOUT_SECONDS`（20）。主进程 `MARX_SEARCH_CONCURRENCY` 与 `MARX_FUZZY_CONCURRENCY` 默认均为 3，必须分别大于 API 重请求上限，否则启动拒绝不安全配置；不按负载自动扩容。API 先取得检索与必要的扫描名额再计次，嵌套扫描复用名额。日志记录请求标识、固定 endpoint、状态、拒绝原因、分阶段耗时及异常类型，不保存 Key、完整查询或论文正文。
+
+REST 恢复前置验收已通过。调度补丁按发布流程交付，实际部署版本与后续验收记录见恢复台账和生产发布账本。
 
 测试台账见 `docs/ops/AGENT_API_TEST_LEDGER_20261107.json`。任何同场景复测（包含后续 CI、构建、发布门禁）必须先查台账并取得专项授权。真实三客户端、Linux 发布演练和生产验收须单独记录，不能用协议测试替代。

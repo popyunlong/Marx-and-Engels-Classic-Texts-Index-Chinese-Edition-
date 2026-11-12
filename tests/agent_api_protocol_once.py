@@ -86,7 +86,7 @@ def main():
         assert invalid["isError"] and invalid["structuredContent"]["error"]["code"] == "invalid_arguments"
         from agent_api_store import Store
         store = Store(OUTPUT / "state")
-        with store.admission(999):
+        with store.admission(17):
             busy = rpc(7, "tools/call", {"name": "search_corpus", "arguments": {"q": "生产关系"}})
             assert busy["isError"] and busy["structuredContent"]["error"]["retry_after_seconds"] == 2
             assert request(rest + "/sources", headers=headers)[0] == 429

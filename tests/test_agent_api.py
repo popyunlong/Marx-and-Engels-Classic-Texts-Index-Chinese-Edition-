@@ -74,7 +74,8 @@ def _lock_child(root, ready, release):
         release.wait(10)
 
 
-def test_cross_process_slots_crash_and_exception_cleanup(tmp_path):
+def test_cross_process_slots_crash_and_exception_cleanup(tmp_path, monkeypatch):
+    monkeypatch.setenv("MARX_AGENT_API_CONCURRENCY", "1")
     ctx = multiprocessing.get_context("spawn")
     ready, release = ctx.Event(), ctx.Event()
     process = ctx.Process(target=_lock_child, args=(str(tmp_path), ready, release))
@@ -181,7 +182,7 @@ def test_routes_membership_csrf_cookie_boundary_and_shared_busy(tmp_path, corpus
         user[field] = value
         assert client.get("/api/v1/sources", headers=headers).status_code == 403
         user[field] = old
-    with store.admission(12):
+    with store.admission(11):
         busy = client.get("/api/v1/sources", headers=headers)
         assert busy.status_code == 429 and busy.headers["Retry-After"] == "2"
         assert client.get("/api/v1/limits", headers=headers).status_code == 200

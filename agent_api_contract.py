@@ -48,6 +48,12 @@ SOURCE_VOLUME = record({"volume": {"type": "integer"}, "scope": TEXT,
 SOURCE = record({"book": TEXT, "scope": TEXT, "volumes": array(SOURCE_VOLUME)})
 RATE = record({"per_minute": {"type": "integer", "minimum": 1},
                "remaining": OFFSET, "reset_after_seconds": OFFSET})
+SCHEDULING = record({
+    "heavy_concurrency": {"type": "integer", "minimum": 1},
+    "light_concurrency": {"type": "integer", "minimum": 1},
+    "near_text_concurrency": {"const": 1},
+    "user_data_concurrency": {"type": "integer", "minimum": 1},
+    "user_control_concurrency": {"const": 1}, "queue": {"const": False}})
 ERROR_OUTPUT = record({"ok": {"const": False}, "error": ERROR})
 SUCCESS_OUTPUTS = {
     "list_sources": record({"ok": {"const": True}, "corpus_version": VERSION, "sources": array(SOURCE)}),
@@ -56,10 +62,10 @@ SUCCESS_OUTPUTS = {
         "search_complete": {"type": "boolean"}, "warnings": array(TEXT)}),
     "get_passage": record({"ok": {"const": True}, "result": EVIDENCE}),
     "get_api_limits": record({"ok": {"const": True}, "status": {"const": "available"},
-        "global_concurrency": {"type": "integer", "minimum": 1},
+        "global_concurrency": {"type": "integer", "minimum": 1, "description": "Global heavy-request concurrency; light requests have an independent limit in scheduling."},
         "user_concurrency": {"type": "integer", "minimum": 1}, "max_results": {"const": 20},
         "query_budget_seconds": {"type": "integer", "minimum": 1}, "rate": RATE,
-        "daily_quota": {"type": "null"}, "consumes_site_ai_tokens": {"const": False}}),
+        "daily_quota": {"type": "null"}, "consumes_site_ai_tokens": {"const": False}, "scheduling": SCHEDULING}),
 }
 # MCP requires an object at the root; nested schemas are inline for clients
 # that do not resolve document-local OpenAPI references in tools/list.
@@ -75,7 +81,7 @@ PASSAGE = {"type": "object", "required": ["evidence_id"], "additionalProperties"
            "properties": {"evidence_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}
 TOOLS = {
     "list_sources": ("列出已发布公共文库、版本及卷册范围。先选择文库再查原文。", EMPTY, "GET", "/sources"),
-    "search_corpus": ("检索原文候选。exact 为规范化精确匹配，cooccurrence 为 2–5 个空格分隔关键词共现；near_text 为有编辑距离校验的近似定位，必须指定 scope。串行调用，限流后遵守 retry_after_seconds，最多重试三次。", SEARCH, "POST", "/search"),
+    "search_corpus": ("检索原文候选。exact 为规范化精确匹配，cooccurrence 为 2–5 个空格分隔关键词共现；near_text 为有编辑距离校验的近似定位，必须指定 scope。同账号数据请求串行调用；仅 retryable=true 的限流或执行前忙碌可按 retry_after_seconds 退避，最多重试两次。超时或执行状态不明不自动重发。", SEARCH, "POST", "/search"),
     "get_passage": ("读取证据原文及同一作品内最多相邻各一页的上下文。核对版本、印刷页和措辞；近似或共现候选不代表观点已获证实。引用失效时重新检索。", PASSAGE, "GET", "/passages/"),
     "get_api_limits": ("读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。", EMPTY, "GET", "/limits"),
 }
@@ -91,7 +97,7 @@ def openapi():
                          **({"headers": {"Retry-After": {"description": "Seconds before retrying.",
                               "schema": {"type": "integer", "minimum": 1}}}} if code in (429, 503) else {})}
                                    for code, text in ((200, "Success"), (400, "Invalid input"), (401, "Invalid key"),
-                                                      (403, "Access denied"), (404, "Evidence unavailable"), (408, "Cancelled"),
+                                                      (403, "Access denied"), (404, "Evidence unavailable"), (405, "Method not allowed"), (408, "Cancelled"),
                                                       (409, "Corpus changed"), (413, "Request too large"),
                                                       (429, "Shared limit; see Retry-After"), (503, "Unavailable"), (504, "Query budget exhausted"))}}
         if method == "POST":

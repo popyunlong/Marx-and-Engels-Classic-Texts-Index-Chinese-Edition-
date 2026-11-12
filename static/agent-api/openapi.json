@@ -288,6 +288,48 @@
               }
             }
           },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "retryable",
+                        "retry_after_seconds"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "retry_after_seconds": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "408": {
             "description": "Cancelled",
             "content": {
@@ -564,7 +606,7 @@
     "/search": {
       "post": {
         "operationId": "search_corpus",
-        "description": "检索原文候选。exact 为规范化精确匹配，cooccurrence 为 2–5 个空格分隔关键词共现；near_text 为有编辑距离校验的近似定位，必须指定 scope。串行调用，限流后遵守 retry_after_seconds，最多重试三次。",
+        "description": "检索原文候选。exact 为规范化精确匹配，cooccurrence 为 2–5 个空格分隔关键词共现；near_text 为有编辑距离校验的近似定位，必须指定 scope。同账号数据请求串行调用；仅 retryable=true 的限流或执行前忙碌可按 retry_after_seconds 退避，最多重试两次。超时或执行状态不明不自动重发。",
         "security": [
           {
             "BearerKey": []
@@ -1020,6 +1062,48 @@
           },
           "404": {
             "description": "Evidence unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "retryable",
+                        "retry_after_seconds"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "retry_after_seconds": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
             "content": {
               "application/json": {
                 "schema": {
@@ -1852,6 +1936,48 @@
               }
             }
           },
+          "405": {
+            "description": "Method not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "retryable",
+                        "retry_after_seconds"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "retry_after_seconds": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           "408": {
             "description": "Cancelled",
             "content": {
@@ -2161,7 +2287,8 @@
                     "query_budget_seconds",
                     "rate",
                     "daily_quota",
-                    "consumes_site_ai_tokens"
+                    "consumes_site_ai_tokens",
+                    "scheduling"
                   ],
                   "properties": {
                     "ok": {
@@ -2172,7 +2299,8 @@
                     },
                     "global_concurrency": {
                       "type": "integer",
-                      "minimum": 1
+                      "minimum": 1,
+                      "description": "Global heavy-request concurrency; light requests have an independent limit in scheduling."
                     },
                     "user_concurrency": {
                       "type": "integer",
@@ -2212,6 +2340,40 @@
                     },
                     "consumes_site_ai_tokens": {
                       "const": false
+                    },
+                    "scheduling": {
+                      "type": "object",
+                      "required": [
+                        "heavy_concurrency",
+                        "light_concurrency",
+                        "near_text_concurrency",
+                        "user_data_concurrency",
+                        "user_control_concurrency",
+                        "queue"
+                      ],
+                      "properties": {
+                        "heavy_concurrency": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "light_concurrency": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "near_text_concurrency": {
+                          "const": 1
+                        },
+                        "user_data_concurrency": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "user_control_concurrency": {
+                          "const": 1
+                        },
+                        "queue": {
+                          "const": false
+                        }
+                      }
                     }
                   }
                 }
@@ -2346,6 +2508,48 @@
           },
           "404": {
             "description": "Evidence unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "type": "object",
+                      "required": [
+                        "code",
+                        "message",
+                        "retryable",
+                        "retry_after_seconds"
+                      ],
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "retryable": {
+                          "type": "boolean"
+                        },
+                        "retry_after_seconds": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
             "content": {
               "application/json": {
                 "schema": {

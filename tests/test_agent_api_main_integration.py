@@ -37,3 +37,24 @@ def test_workbuddy_credentials_and_openapi_artifact_match_contract():
     config = json.loads((root / "docs/agent-api/workbuddy/token-schema.json").read_text("utf-8"))
     assert config["fields"][0]["key"] == "API_KEY" and config["fields"][0]["type"] == "password"
     assert config["docUrl"].endswith("/account/agent-api")
+
+
+def test_rest_does_not_run_browser_session_or_maintenance_hooks(monkeypatch):
+    user = {"id": 81232, "is_active": 1}
+    monkeypatch.setattr(web, "get_user_by_id", lambda uid: user)
+    monkeypatch.setattr(web, "_membership_plan_code_for_user", lambda user: "member")
+    monkeypatch.setattr(web, "_feature_effective_for_user", lambda *args: True)
+    def unrelated_work(*args, **kwargs):
+        raise AssertionError("REST invoked a browser-only hook")
+    monkeypatch.setattr(web, "get_membership_snapshot", unrelated_work)
+    monkeypatch.setattr(web, "_sweep_expired_orders_if_due", unrelated_work)
+    monkeypatch.setattr(web, "_activity_feature_for_request", unrelated_work)
+    store = web.app.extensions["agent_api"]["store"]
+    token = store.create_key(user["id"], "recovery-hooks-fixture")
+    with web.app.test_client() as client:
+        with client.session_transaction() as session:
+            session["user_id"] = 99999
+        response = client.get("/api/v1/limits", headers={"Authorization": "Bearer " + token})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        assert response.headers["X-Request-ID"]
+        assert response.json["scheduling"]["queue"] is False

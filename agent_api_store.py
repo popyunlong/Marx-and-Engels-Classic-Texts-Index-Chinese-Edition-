@@ -13,17 +13,24 @@ from pathlib import Path
 
 
 class APIError(Exception):
-    def __init__(self, code, message, status=400, retry_after=0):
+    def __init__(self, code, message, status=400, retry_after=0, *, retryable=None):
         super().__init__(message)
         self.code, self.status, self.retry_after = code, status, retry_after
+        self.retryable = bool(retry_after) if retryable is None else bool(retryable)
 
     def payload(self):
         return {"ok": False, "error": {"code": self.code, "message": str(self),
-                "retry_after_seconds": self.retry_after, "retryable": bool(self.retry_after)}}
+                "retry_after_seconds": self.retry_after, "retryable": self.retryable}}
 
 
 def setting(name, default):
     return max(1, int(os.environ.get("MARX_AGENT_API_" + name, default)))
+
+
+def scheduling():
+    return {"heavy_concurrency": setting("CONCURRENCY", 2), "light_concurrency": setting("LIGHT_CONCURRENCY", 2),
+            "near_text_concurrency": 1, "user_data_concurrency": setting("USER_CONCURRENCY", 1),
+            "user_control_concurrency": 1, "queue": False}
 
 
 class Store:
@@ -148,14 +155,21 @@ class Store:
         return json.loads(row["ref"])
 
     @contextmanager
-    def admission(self, uid):
+    def admission(self, uid, *, lane="heavy", near_text=False, control=False):
         """File descriptors own slots, never leases that can expire during work."""
         directory = self.root / "agent_api_locks"
         directory.mkdir(parents=True, exist_ok=True)
         handles = []
         try:
-            for group, limit in ((f"user-{int(uid)}", setting("USER_CONCURRENCY", 1)),
-                                 ("global", setting("CONCURRENCY", 1))):
+            limits = scheduling()
+            if lane not in {"heavy", "light"} or (control and lane != "light") or (near_text and lane != "heavy"):
+                raise ValueError("Invalid API admission lane")
+            groups = [(f"control-{int(uid)}", 1) if control else
+                      (f"user-{int(uid)}", limits["user_data_concurrency"]),
+                      ("global" if lane == "heavy" else "light", limits[lane + "_concurrency"])]
+            if near_text:
+                groups.append(("near-text", 1))
+            for group, limit in groups:
                 for slot in range(limit):
                     fd = os.open(directory / f"{group}-{slot}.lock", os.O_CREAT | os.O_RDWR, 0o600)
                     try:

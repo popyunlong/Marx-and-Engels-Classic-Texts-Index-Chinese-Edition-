@@ -14,26 +14,26 @@ main form{display:flex;gap:10px;align-items:center;flex-wrap:wrap}main button,ma
 main button{cursor:pointer;background:var(--accent);color:white}main button.secondary{background:white;color:var(--accent)}main input{background:white}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3eee7;padding:16px;border-radius:8px;font:13px/1.6 Consolas,monospace}code{overflow-wrap:anywhere}
 .notice{padding:16px;border-left:4px solid var(--accent);background:#fff3e9}small{color:var(--muted)}summary{cursor:pointer;font-weight:bold;padding:10px 0}
+.problems{margin:0}.problems dt{font-weight:bold;margin-top:16px}.problems dd{margin:4px 0 0;color:var(--muted)}
 </style></head><body class="v2"><div class="api-nav">{% include '_appnav.html' %}</div><main>
 <h1>API/MCP 数据调用</h1>
-<nav aria-label="使用说明"><a href="#intro">功能介绍</a><a href="#keys">获取 Key</a><a href="#rest">REST 使用</a><a href="#mcp">MCP 接入</a><a href="#limits">额度与错误处理</a></nav>
+<nav aria-label="使用说明"><a href="#intro">功能介绍</a><a href="#keys">获取 Key</a><a href="#rest">REST 使用</a><a href="#mcp">MCP 接入</a><a href="#limits">额度与常见问题</a></nav>
 <section id="intro"><h2>功能介绍</h2>
-<p class="lead">通过 REST API 或 MCP 查询公共文库，获取原文、上下文与出处，供程序、研究工具及外部 Agent 使用。接口提供文献证据；论文分析、任务规划和文件修改由调用方完成。</p>
-<p>全站最多 {{ concurrency }} 个外部查询同时执行；每账号默认并发 1，每分钟 {{ per_minute }} 次。多个 Key 共用账号额度，不消耗站内 AI token。</p>
-<p>仅查询已发布的公共文库，不包含个人文库。外部接口支持著作、卷册范围；篇章范围选择请使用<a href="{{ url_for('layout_search') }}">网页检索</a>，REST/MCP 不接受 <code>chapter:</code> 参数。</p>
-<p class="notice">接入状态（2026-11-11）：MCP 已有调用成功记录；最近一次公网 REST 验证遇到 Cloudflare 403 / 1010，修复验收尚未完成。可先配置 MCP；以下 REST 示例用于说明调用方法，不代表公网访问已恢复。</p></section>
+<p class="lead">通过 REST API 或 MCP 检索公共文库，读取原文、上下文和出处，可接入程序、研究工具及支持 MCP 的客户端。</p>
+<p>查询范围为已发布的公共文库，支持按著作、卷册筛选。篇章范围和个人文库请使用<a href="{{ url_for('layout_search') }}">网页检索</a>。</p></section>
 {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
-{% if new_key %}<section class="notice" aria-live="polite"><h2>保存你的新 Key</h2><p>明文只在本次创建响应中显示。请保存到客户端凭证设置；不要放进论文、提示词或公开仓库。</p><pre>{{ new_key }}</pre></section>{% endif %}
+{% if new_key %}<section class="notice" aria-live="polite"><h2>保存你的新 Key</h2><p>请复制并保存到客户端凭证设置，离开本页后无法再次查看。</p><pre>{{ new_key }}</pre></section>{% endif %}
 <section id="keys"><h2>获取 Key</h2>
-<p>登录有接口权限的账号，在下方创建个人 API Key。明文仅显示一次，保存后供 REST 和 MCP 共用；重新生成会使使用旧 Key 的客户端失效。</p>
+<p>登录有接口权限的会员账号后创建 Key，供 REST 和 MCP 共用。最多保留三个有效 Key，明文仅在创建时显示一次。</p>
 {% if not logged_in %}<p>登录后可管理个人 Key；使用接口需要有效会员及检索、正文、API 权限。</p><a href="{{ url_for('login', next='/api-access') }}">登录管理 Key</a>
 {% elif not allowed %}<p>当前账号没有接口使用资格。需要有效会员及检索、正文、API 权限。你仍可撤销已有 Key。</p><a href="/pricing">查看会员套餐</a>{% endif %}
 {% for key in keys %}<div class="key"><div><strong>{{ key.name }}</strong><br><small>{{ key.prefix }}…</small></div><form method="post">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="key_id" value="{{ key.id }}"><input type="hidden" name="name" value="{{ key.name }}">
 {% if allowed %}<button name="action" value="rotate" class="secondary">重新生成</button>{% endif %}<button name="action" value="revoke" class="secondary">撤销</button></form></div>{% else %}<p>尚未创建 Key。</p>{% endfor %}
 {% if allowed and keys|length < 3 %}<form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="key-name">名称</label><input id="key-name" name="name" maxlength="60" required placeholder="例如：我的 Codex"><button name="action" value="create">创建 Key</button></form>{% endif %}
-<small>最多三个有效 Key。重新生成会立即使旧 Key 失效。</small>
-<p>将 Key 保存为本机环境变量 <code>MARX_API_KEY</code>。Windows 可在“编辑账户的环境变量”中新增该变量，值填写刚生成的 Key，然后重新启动调用程序。也可使用客户端提供的安全凭证设置。不要将 Key 写入提示词、URL、论文或公开仓库。</p></section>
+<small>重新生成或撤销后，旧 Key 立即失效。</small>
+<p>将 Key 保存到客户端凭证设置，或本机环境变量 <code>MARX_API_KEY</code>。</p>
+<details><summary>Windows 环境变量设置</summary><p>打开“编辑账户的环境变量”，新增 <code>MARX_API_KEY</code>，值填写刚生成的 Key，然后重新启动调用程序。</p></details></section>
 <section id="rest"><h2>REST API 使用</h2><p>根地址：<code>{{ api_base }}/api/v1</code>。使用 <code>Authorization: Bearer …</code> 鉴权，发送 <code>Accept: application/json</code> 和应用标识 <code>User-Agent: MarxCitationClient/1.0</code>；POST 请求另带 <code>Content-Type: application/json</code>。</p>
 <ol><li><code>GET /sources</code>：获取书目、版本及 <code>book:</code> / <code>vol:</code> 范围标识。卷册标识使用接口返回值。</li>
 <li><code>POST /search</code>：检索候选证据，如下所示。</li>
@@ -45,29 +45,33 @@ User-Agent: MarxCitationClient/1.0
 Content-Type: application/json
 
 {"q":"生产关系","mode":"exact","scope":["book:文集"],"limit":10}</pre>
-<details><summary>Python 完整示例：书目 → 检索 → 原文 → 额度</summary><p>Python 3 标准库即可运行，无需安装依赖。先设置环境变量；请求串行执行，失败停止，不自动重试。</p><pre>{% include '_api_rest_example.html' %}</pre></details>
-<p><code>exact</code> 为规范化精确匹配，仍需核对原文；<code>cooccurrence</code> 为 2–5 个空格分隔关键词共现；<code>near_text</code> 为近似定位，必须指定著作或卷册。默认 10 条，最多 20 条，没有遍历式分页。</p>
-<p>返回的 <code>printed_pages</code> 是印刷页码，<code>pdf_pages</code> 是 PDF 页序，两者不能混用。结合 <code>bibliography</code>、<code>page_refs</code>、<code>text</code> 与 <code>citations</code> 核对引文。缺失页码不要自行补造；<code>truncated=true</code> 或 <code>search_complete=false</code> 表示结果不能视为穷尽。</p>
+<details><summary>Python 完整示例：书目 → 检索 → 原文 → 额度</summary><p>设置 <code>MARX_API_KEY</code> 后，用 Python 3 运行。请求串行执行，出错时显示诊断信息并停止，超时设置为 30 秒。</p><pre>{% include '_api_rest_example.html' %}</pre></details>
+<details><summary>查询参数与结果字段</summary>
+<p><code>exact</code> 为规范化精确匹配；<code>cooccurrence</code> 为 2–5 个空格分隔关键词共现；<code>near_text</code> 为近似定位，需指定著作或卷册。默认返回 10 条，最多 20 条，结果采用单次返回方式。</p>
+<p><code>printed_pages</code> 表示印刷页码，<code>pdf_pages</code> 表示 PDF 页序；空页码表示当前来源未提供对应信息。书目信息、原文和引文格式分别见 <code>bibliography</code>、<code>text</code>、<code>citations</code>。</p>
+<p><code>truncated=true</code> 表示结果有截断，<code>search_complete=false</code> 表示扫描未完成；可缩小著作或卷册范围后查询。</p></details>
 <a href="/static/agent-api/openapi.json">查看 OpenAPI 文档</a></section>
-<section id="mcp"><h2>MCP 接入</h2><p>MCP 地址：<code>{{ api_base }}/mcp</code>。选择远程 <strong>Streamable HTTP</strong>，鉴权头为 <code>Authorization: Bearer &lt;你的 Key&gt;</code>。Key 与 REST 共用。</p>
+<section id="mcp"><h2>MCP 接入</h2><p>MCP 地址：<code>{{ api_base }}/mcp</code>。选择远程 <strong>Streamable HTTP</strong>，鉴权头为 <code>Authorization: Bearer YOUR_API_KEY</code>，将 <code>YOUR_API_KEY</code> 替换为你的 Key。</p>
 <details open><summary>Codex</summary><p>将 Key 保存到环境变量 <code>MARX_API_KEY</code>，在 Codex MCP 配置中添加：</p><pre>[mcp_servers.marx_search]
 url = "{{ api_base }}/mcp"
 bearer_token_env_var = "MARX_API_KEY"
 tool_timeout_sec = 30</pre></details>
-<details><summary>其他 MCP 客户端</summary><p>在客户端的远程 MCP 设置中填写上方地址与鉴权头，优先通过凭证设置保存 Key。不同客户端的环境变量替换语法不同，不能把变量名当作 Key 原样发送。连接后应能看到下列四个工具；配置保存成功不等于已成功调用。</p></details>
+<details><summary>其他 MCP 客户端</summary><p>在远程 MCP 设置中填写上方地址，通过凭证设置提供 Bearer Key，工具超时设为至少 30 秒。连接后可使用下列四个工具。</p></details>
 <ol><li><code>list_sources({})</code>：列出公共书目与可用范围。</li>
 <li><code>search_corpus({"q":"生产关系","mode":"exact","scope":["book:文集"],"limit":10})</code>：查询证据。</li>
 <li><code>get_passage({"evidence_id":"搜索结果中的 evidence_id"})</code>：读取上下文。</li>
 <li><code>get_api_limits({})</code>：查看当前账号额度。</li></ol>
-<p>可向支持 MCP 的客户端提出：“先列出可查询的文库，在《马克思恩格斯文集》中查找这段引文，再读取原文上下文，核对版本和印刷页码；近似命中标为待核对，没有证据时明确说明。”</p></section>
-<section id="limits"><h2>额度与错误处理</h2>
-<p>工具顺序：<code>list_sources → search_corpus → get_passage</code>。多词共现与近似结果都是候选证据，需结合上下文判断。</p>
-<p>串行调用。遇到繁忙提示，按返回的等待时间重试，最多三次。证据引用最长保留 24 小时，过期或语料版本变化后重新检索。</p>
-<ul><li><code>400</code>：检查查询、模式和范围；REST/MCP 不支持篇章参数。</li>
-<li><code>401</code>：检查 Key 是否缺失、错误或已撤销。</li>
-<li><code>403</code> 且为应用 JSON（如 <code>membership_required</code>）：检查会员及接口权限。若正文为 <code>error code: 1010</code>，则是 Cloudflare 边缘拒绝；提供请求时间和 <code>CF-Ray</code> 联系管理员，无需反复生成 Key。</li>
-<li><code>404</code>：证据不存在或过期；<code>409</code>：语料版本变化。两者均需重新检索。</li>
-<li><code>429/503</code>：按 <code>Retry-After</code> 或 <code>retry_after_seconds</code> 等待，最多重试三次；<code>504</code>：缩小书卷范围或调整查询。</li></ul>
-<p>排障时保存请求时间、HTTP 状态、<code>CF-Ray</code>、<code>X-Request-ID</code>、内容类型和有限错误摘要；隐藏 Key，不记录完整鉴权头或论文内容。MCP 错误在 <code>structuredContent</code> 中返回，并设置 <code>isError</code>。</p>
+<p>例如：“在《马克思恩格斯文集》中查找‘生产关系’，读取相关原文的上下文，并列出版本和印刷页码。”</p></section>
+<section id="limits"><h2>额度与常见问题</h2>
+<p>每账号数据调用默认并发 1，每分钟 {{ per_minute }} 次；多个 Key 和客户端共用额度，不消耗站内 AI token。额度查询不计次，可在数据请求执行期间调用。实际限制和剩余次数见 <code>GET /limits</code> 或 <code>get_api_limits</code>。</p>
+<p>参数错误、鉴权失败或未取得执行名额的请求不计次，开始执行后计次。证据标识最长有效 24 小时，过期后重新检索。</p>
+<dl class="problems">
+<dt>参数或请求大小有误（400 / 413）</dt><dd>检查查询、模式和范围；范围使用书目接口返回的 <code>book:</code> 或 <code>vol:</code> 标识，请求体限 16 KiB。</dd>
+<dt>Key 或权限有误（401 / 403）</dt><dd>401：检查 Key 是否缺失、错误或已撤销。403 且返回 JSON：检查会员状态及接口权限。</dd>
+<dt>证据已失效（404 / 409）</dt><dd>正文查询返回 404 表示证据不存在或已过期，409 表示语料版本变化；重新检索取得新的证据标识。</dd>
+<dt>请求过于频繁或服务繁忙（429 / 503）</dt><dd>当 <code>retryable=true</code> 时，按 <code>Retry-After</code> 或 <code>retry_after_seconds</code> 等待并退避，最多重试两次；其余情况根据返回的错误信息处理。</dd>
+<dt>超时或网络中断（504 等）</dt><dd>客户端超时建议至少 30 秒。执行结果未确认时不自动重发；可缩小查询范围，检查连接后再发起查询。</dd>
+<dt>响应出现 Cloudflare 1010</dt><dd>记录请求时间和 <code>CF-Ray</code>，联系管理员核查访问规则。</dd></dl>
+<details><summary>提供故障信息</summary><p>提供请求时间、HTTP 状态及 <code>X-Request-ID</code>／<code>CF-Ray</code> 即可。MCP 工具错误可从 <code>structuredContent.error</code> 读取，<code>isError=true</code> 表示调用出错。</p></details>
 <p><a href="/citation-agent">使用网页插注校注 Agent</a> · <a href="/account">账户中心</a></p></section>
 </main></body></html>

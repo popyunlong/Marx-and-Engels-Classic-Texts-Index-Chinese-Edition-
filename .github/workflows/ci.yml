@@ -190,7 +190,7 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
           echo "AGENT_API_BACKEND_PYTHON=$(which python)" >> "$GITHUB_ENV"
       - name: First API/backend scenarios
-        run: python scripts/ci_pytest.py --label agent-api -- tests/test_agent_api.py tests/test_agent_api_edges.py tests/test_agent_api_main_integration.py tests/test_api_access.py -q
+        run: python scripts/ci_pytest.py --label agent-api -- tests/test_agent_api.py tests/test_agent_api_edges.py tests/test_agent_api_main_integration.py tests/test_agent_api_recovery.py tests/test_api_access.py -q
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -205,6 +205,7 @@ jobs:
         run: |
           set -o pipefail
           "$RUNNER_TEMP/agent-api-mcp/bin/python" tests/agent_api_protocol_once.py 2>&1 | tee "$RUNNER_TEMP/agent-api-protocol.log"
+          "$RUNNER_TEMP/agent-api-mcp/bin/python" tests/agent_api_mcp_recovery_once.py 2>&1 | tee "$RUNNER_TEMP/agent-api-mcp-recovery.log"
       - name: Preserve API evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -213,6 +214,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pytest-evidence/agent-api/
             ${{ runner.temp }}/agent-api-protocol.log
+            ${{ runner.temp }}/agent-api-mcp-recovery.log
             ${{ runner.temp }}/agent-api-protocol/protocol-summary.json
             ${{ runner.temp }}/agent-api-protocol/fixture-server.log
           if-no-files-found: ignore
