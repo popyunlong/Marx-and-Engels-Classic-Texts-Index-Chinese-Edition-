@@ -6,10 +6,8 @@
     "D:/CodexData/outputs/member-web-20261112/release-status.json"
   ],
   "pending": [
-    "One browser legacy_promise.cjs repair recheck",
-    "Feature and production pre-push gates, once per applicable push",
-    "PR/main/production CI once per required workflow, including mandated full-suite repetition",
-    "Official release build/migration/candidate/public acceptance once per release"
+    "Authorized feature/production hooks and PR/main/production CI",
+    "Official release/candidate/public acceptance"
   ],
   "policy": "No repeat without specific authorization. Do not overwrite original results.",
   "browser_repair": {
@@ -18,7 +16,7 @@
       "static/ai-page/ai-page.js",
       "static/ai-page/ai-page.css"
     ],
-    "status": "implemented_not_retested"
+    "status": "passed_authorized_recheck"
   },
   "production_mutated": false,
   "baseline": "12d8406feb3ac4ca756b757672b16f50826382dd",
@@ -108,6 +106,18 @@
         "tests/test_legacy_promise.py::test_late_settlement_after_membership_expiry_keeps_site_cost"
       ],
       "log": "D:/CodexData/outputs/legacy-promise-20261112/cutover.log"
+    },
+    {
+      "scenario": "tests/browser/legacy_promise.cjs (new protected member browser case only)",
+      "exit_code": 0,
+      "finished": "2026-11-12T13:00:44.9530791+08:00",
+      "stage": "browser-authorized-recheck",
+      "started": "2026-11-12T13:00:36.6003091+08:00",
+      "status": "passed",
+      "baseline": "40507b6bee0728c9717afb5c82d1c385bdb116df",
+      "log": "D:/CodexData/outputs/legacy-promise-20261112/browser-authorized-recheck.log",
+      "hashes": {},
+      "authorization": "User explicitly authorized one browser repair recheck and the enumerated push/CI/release checks; 2026-11-12"
     }
   ]
 }

@@ -22,3 +22,5 @@ First backend attempt: 20 passed. Two additional, previously unexecuted cutover/
 ## Release and rollback
 
 Use the normal checked main → clean remote-matching production → release.ps1 transaction and release lock. Re-read ExpectedLive immediately before releasing. The migration is additive and wallets/history remain intact. Drain requests before either cutover or rollback so an old process does not settle a new site-funded reservation. Rollback restores prior wallet eligibility behavior; preserve new accounting tables and never restore an old database over newer orders. Candidate acceptance must include protected member rights, comprehensive continuation and existing chapter/API entrypoints. No production mutation has occurred during implementation/audit.
+
+Authorized browser recheck passed (one scenario, desktop rights/continuation and 390px overflow check). User explicitly authorized the listed push/CI and release gates and requested automated deployment. Source repair tested at 40507b6.
