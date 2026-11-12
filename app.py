@@ -150,6 +150,7 @@ from membership import (
     get_ai_credit_balances,
     get_ai_credit_balance,
     get_ai_entitlements,
+    get_legacy_ai_quota,
     get_user_flash_equivalent_usage,
     get_user_weekly_token_entitlement,
     authorize_ai_selection,
@@ -1434,6 +1435,16 @@ def _ai_token_quota_payload(user: dict | None = None) -> dict:
     """前端余额提示：金额钱包会员统一显示 Flash 等值，其他用户保留原 token 口径。"""
     if user is None and has_request_context():
         user = getattr(g, "current_user", None)
+    if user and not _is_admin_user(user) and not DEPLOYMENT.is_desktop:
+        protected = get_legacy_ai_quota(int(user["id"]))
+        if protected["eligible"]:
+            ratio = protected["remaining"] / protected["limit"]
+            return {**protected, "unlimited": False, "unit": "actual_tokens", "ratio": ratio,
+                    "low": 0 < ratio <= AI_TOKEN_LOW_RATIO, "exhausted": ratio <= 0,
+                    "daily_limit": None, "today_used": None, "bucket": "legacy_promise",
+                    "label": "旧会员每周 AI 额度",
+                    "message": f"旧会员每周 AI 额度：剩余 {protected['remaining']:,} / {protected['limit']:,} token；"
+                               "按实际输入与输出计量，周一恢复；另购权益独立计算。"}
     info = _effective_ai_limit_info(user)
     weekly_limit = info["weekly_limit"]
     daily_limit = info["daily_limit"]
@@ -1569,10 +1580,11 @@ def _ai_entitlements_payload(user: dict | None = None) -> dict:
     return {
         "models": models,
         "defaults": defaults,
+        "legacy_promise": entitlements.get("legacy_promise", {}),
         "wallets": wallets,
         "released_percent": _percent(total_released, total_budget),
         "remaining_percent": _percent(total_remaining, total_released),
-        "has_remaining": total_remaining > 0,
+        "has_remaining": total_remaining > 0 or bool((entitlements.get("legacy_promise") or {}).get("remaining")),
     }
 
 
@@ -4301,6 +4313,18 @@ def _require_ai_quota_or_raise(credit_kind: str = "") -> dict:
     user = getattr(g, "current_user", None)
     session_key = _visitor_session_key()
     day, day_start_utc, day_end_utc, _ = _beijing_day_bounds()
+    if user and not _is_admin_user(user) and not DEPLOYMENT.is_desktop:
+        protected = get_legacy_ai_quota(int(user["id"]))
+        if protected["eligible"]:
+            # Model-specific, atomic authorization below decides between the
+            # actual-token promise and separately purchased monetary rights.
+            # A combined global gate would incorrectly block paid Pro/fallback.
+            return {"day": day, "session_key": session_key, "used": 0,
+                    "weekly_used": protected["used"], "over_free_limit": False,
+                    "credit_kind": "", "credit_balance": 0, "limit": protected["limit"],
+                    "daily_limit": None, "weekly_limit": protected["limit"],
+                    "source": "legacy_promise", "plan_code": "", "plan_name": "旧会员每周 AI 额度",
+                    "user_override": None, "plan_limit": None, "bucket": "legacy_promise"}
     week = _research_quota_week_window()
     reset_at = week["reset_at"]
     # 有效额度：用户级 override > 套餐级 > 分档默认（含登录用户/访客）；管理员/桌面不限。

@@ -1,0 +1,113 @@
+{
+  "task": "legacy-promise-20261112",
+  "branch": "codex/legacy-promise-20261112",
+  "prior_evidence": [
+    "docs/ops/MEMBER_WEB_TEST_LEDGER_20261112.json",
+    "D:/CodexData/outputs/member-web-20261112/release-status.json"
+  ],
+  "pending": [
+    "One browser legacy_promise.cjs repair recheck",
+    "Feature and production pre-push gates, once per applicable push",
+    "PR/main/production CI once per required workflow, including mandated full-suite repetition",
+    "Official release build/migration/candidate/public acceptance once per release"
+  ],
+  "policy": "No repeat without specific authorization. Do not overwrite original results.",
+  "browser_repair": {
+    "cause": "390px overflow; quota text inherited nowrap",
+    "files": [
+      "static/ai-page/ai-page.js",
+      "static/ai-page/ai-page.css"
+    ],
+    "status": "implemented_not_retested"
+  },
+  "production_mutated": false,
+  "baseline": "12d8406feb3ac4ca756b757672b16f50826382dd",
+  "cost_audit": "D:/CodexData/outputs/legacy-promise-20261112/cohort-cost-audit.json",
+  "runs": [
+    {
+      "log": "D:/CodexData/outputs/legacy-promise-20261112/backend.log",
+      "hashes": {
+        "templates/account.html": "50476DCC1CC8DC538D0A3BD5A9B282E92C0D4D165B286F89D679CDA899DD5ACE",
+        "tests/browser/legacy_promise.cjs": "A183D3B8D3864AAF5B16319A7A6A44AA1C7B7DFBF64D3483522A7B80E82645D9",
+        "templates/control.html": "9B53940ECE98E115FAB97BDF2A1FD957369EE863B5EF1822C6B199029180A283",
+        "scripts/predeploy_membership_migration.py": "4E9CD66E3F01755A74430A29BA9F2274F292F84DA3836C5EFD61D20567998795",
+        "templates/pricing.html": "91939C71A73570011A58B9DB6CB324AE4AFA1212E6E024442F0632E19805CCF4",
+        "tests/test_legacy_promise.py": "8F959B198674D99005CDC5A34B94174C1E353F572AFB728557030AAC44982754",
+        "docs/ops/LEGACY_PROMISE_20261112.md": "B7949F89AA6D9CCED87F81A32224649942CADF9164B344AC0AF935BB2E1BD87B",
+        "scripts/legacy_promise_audit.py": "CF157373FFE482453BE749FD1010B803BBBBD9DD88F7395ABD0682E649BC997E",
+        "app.py": "6120EEE8F53C687235AAF0C47F8FB91585FB0826F2147C220F1971E79EE91127",
+        "membership.py": "313FC8662647653D65209049477D9968AB9E89F2623B63BA615A673D247B1E8F",
+        "scripts/check_legacy_promise_once.ps1": "AE685B3410196F07BCC199E60AE4F945ECFD9D4EACC74B9AC8A62C50107C5525",
+        "tests/browser/serve_legacy_promise.py": "1984E77A57F9F16BB58A2604CB09AECE68E272743C49F90F0FE750CB24B2489F",
+        "static/ai-page/ai-page.js": "F03AFF133D4427A84F5F5B0851410DED599D7050E984A3E1104C0FBAF634A15C",
+        "comprehensive_web.py": "4D59013CF6A8F2212AD28A3995C55E86F5586019B2C9E552F7AF2FE9EC366CF3",
+        "legacy_ai.py": "C4FD99F179E3709A09078EB34A1FA8C095A4A9570ABE883E697A37CD33D3C37E"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-12T12:55:45.560158+08:00",
+      "baseline": "12d8406feb3ac4ca756b757672b16f50826382dd",
+      "stage": "backend",
+      "started": "2026-11-12T12:55:29.8827109+08:00",
+      "scenario": "tests/test_legacy_promise.py (new July entitlement cases only)",
+      "status": "passed"
+    },
+    {
+      "exit_code": 1,
+      "finished": "2026-11-12T12:56:01.4067606+08:00",
+      "status": "failed",
+      "scenario": "tests/browser/legacy_promise.cjs (new protected member browser case only)",
+      "stage": "browser",
+      "log": "D:/CodexData/outputs/legacy-promise-20261112/browser.log",
+      "started": "2026-11-12T12:55:53.6772065+08:00",
+      "hashes": {
+        "templates/control.html": "9B53940ECE98E115FAB97BDF2A1FD957369EE863B5EF1822C6B199029180A283",
+        "scripts/predeploy_membership_migration.py": "4E9CD66E3F01755A74430A29BA9F2274F292F84DA3836C5EFD61D20567998795",
+        "templates/pricing.html": "91939C71A73570011A58B9DB6CB324AE4AFA1212E6E024442F0632E19805CCF4",
+        "tests/test_legacy_promise.py": "8F959B198674D99005CDC5A34B94174C1E353F572AFB728557030AAC44982754",
+        "app.py": "6120EEE8F53C687235AAF0C47F8FB91585FB0826F2147C220F1971E79EE91127",
+        "legacy_ai.py": "C4FD99F179E3709A09078EB34A1FA8C095A4A9570ABE883E697A37CD33D3C37E",
+        "docs/ops/LEGACY_PROMISE_20261112.md": "B7949F89AA6D9CCED87F81A32224649942CADF9164B344AC0AF935BB2E1BD87B",
+        "membership.py": "313FC8662647653D65209049477D9968AB9E89F2623B63BA615A673D247B1E8F",
+        "tests/browser/serve_legacy_promise.py": "1984E77A57F9F16BB58A2604CB09AECE68E272743C49F90F0FE750CB24B2489F",
+        "static/ai-page/ai-page.js": "F03AFF133D4427A84F5F5B0851410DED599D7050E984A3E1104C0FBAF634A15C",
+        "scripts/check_legacy_promise_once.ps1": "AE685B3410196F07BCC199E60AE4F945ECFD9D4EACC74B9AC8A62C50107C5525",
+        "templates/account.html": "50476DCC1CC8DC538D0A3BD5A9B282E92C0D4D165B286F89D679CDA899DD5ACE",
+        "comprehensive_web.py": "4D59013CF6A8F2212AD28A3995C55E86F5586019B2C9E552F7AF2FE9EC366CF3",
+        "tests/browser/legacy_promise.cjs": "A183D3B8D3864AAF5B16319A7A6A44AA1C7B7DFBF64D3483522A7B80E82645D9",
+        "scripts/legacy_promise_audit.py": "CF157373FFE482453BE749FD1010B803BBBBD9DD88F7395ABD0682E649BC997E"
+      },
+      "baseline": "12d8406feb3ac4ca756b757672b16f50826382dd"
+    },
+    {
+      "exit_code": 0,
+      "hashes": {
+        "scripts/legacy_promise_audit.py": "CF157373FFE482453BE749FD1010B803BBBBD9DD88F7395ABD0682E649BC997E",
+        "scripts/predeploy_membership_migration.py": "4E9CD66E3F01755A74430A29BA9F2274F292F84DA3836C5EFD61D20567998795",
+        "static/ai-page/ai-page.css": "35537053D415C268BE2721BDA6835BF550816AAF3DF920DF2D1704150BB091BD",
+        "templates/control.html": "9B53940ECE98E115FAB97BDF2A1FD957369EE863B5EF1822C6B199029180A283",
+        "tests/test_legacy_promise.py": "76052D6B14D4B97DD774701A3D26F72F593910746AF53F1910CAD828AA4418A5",
+        "docs/ops/LEGACY_PROMISE_20261112.md": "B7949F89AA6D9CCED87F81A32224649942CADF9164B344AC0AF935BB2E1BD87B",
+        "static/ai-page/ai-page.js": "C9D41A4E04B5F35FBE789876B83BBBFB980DC4DDAB7353BAAB327AE3DE7D6497",
+        "scripts/check_legacy_promise_once.ps1": "7850361085A49207AF083A77F20053D830D44316833CD28252D685D4A297169E",
+        "membership.py": "313FC8662647653D65209049477D9968AB9E89F2623B63BA615A673D247B1E8F",
+        "tests/browser/serve_legacy_promise.py": "1984E77A57F9F16BB58A2604CB09AECE68E272743C49F90F0FE750CB24B2489F",
+        "templates/pricing.html": "91939C71A73570011A58B9DB6CB324AE4AFA1212E6E024442F0632E19805CCF4",
+        "comprehensive_web.py": "4D59013CF6A8F2212AD28A3995C55E86F5586019B2C9E552F7AF2FE9EC366CF3",
+        "app.py": "6120EEE8F53C687235AAF0C47F8FB91585FB0826F2147C220F1971E79EE91127",
+        "templates/account.html": "50476DCC1CC8DC538D0A3BD5A9B282E92C0D4D165B286F89D679CDA899DD5ACE",
+        "tests/browser/legacy_promise.cjs": "A183D3B8D3864AAF5B16319A7A6A44AA1C7B7DFBF64D3483522A7B80E82645D9",
+        "legacy_ai.py": "C4FD99F179E3709A09078EB34A1FA8C095A4A9570ABE883E697A37CD33D3C37E"
+      },
+      "baseline": "12d8406feb3ac4ca756b757672b16f50826382dd",
+      "stage": "cutover",
+      "finished": "2026-11-12T12:58:42.3045843+08:00",
+      "status": "passed",
+      "started": "2026-11-12T12:58:33.8362045+08:00",
+      "scenario": [
+        "tests/test_legacy_promise.py::test_old_inflight_reservation_settles_after_qualification_change",
+        "tests/test_legacy_promise.py::test_late_settlement_after_membership_expiry_keeps_site_cost"
+      ],
+      "log": "D:/CodexData/outputs/legacy-promise-20261112/cutover.log"
+    }
+  ]
+}

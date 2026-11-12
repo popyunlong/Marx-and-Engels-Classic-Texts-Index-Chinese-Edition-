@@ -2636,6 +2636,7 @@
     if (!quota || typeof quota !== "object") return;
     aiTokenQuota = quota;
     if (!tokenQuotaWrap) return;
+    tokenQuotaWrap.classList.toggle("actual-tokens", quota.unit === "actual_tokens");
     if (quota.unlimited || quota.limit === null || quota.limit === undefined) {
       tokenQuotaWrap.classList.add("hidden");
       return;
@@ -2645,6 +2646,10 @@
     tokenQuotaWrap.classList.toggle("exhausted", !!quota.exhausted);
     var pct = Math.max(0, Math.min(100, Math.round((quota.ratio || 0) * 100)));
     tokenQuotaFill.style.width = pct + "%";
+    if (quota.unit === "actual_tokens" && quota.message) {
+      tokenQuotaText.textContent = quota.message;
+      return;
+    }
     if (quota.exhausted) {
       var hasPack = aiCredits && aiCredits.chat > 0;
       tokenQuotaText.textContent = "本周 AI 额度已用完，下周一恢复" + (hasPack ? "（可用资源包继续）" : "");

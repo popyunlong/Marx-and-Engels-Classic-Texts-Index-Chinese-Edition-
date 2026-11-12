@@ -31,6 +31,8 @@ REQUIRED_TABLES = {
     "ai_budget_reservations",
     "ai_reservation_allocations",
     "ai_provider_calls",
+    "legacy_ai_reservations",
+    "legacy_ai_order_links",
 }
 REQUIRED_RESERVATION_COLUMNS = {
     "reserved_micros",

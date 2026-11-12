@@ -40,7 +40,8 @@ def web_allowed(A):
     if A._is_admin_user(user):
         return A._env_flag("DEEPSEEK_WEB_ADMIN_PREVIEW", True)
     rights = membership.get_ai_entitlements(int(user["id"]))
-    return bool(A._env_flag("DEEPSEEK_WEB_ENABLED", True) and rights.get("models") and rights.get("wallets")
+    return bool(A._env_flag("DEEPSEEK_WEB_ENABLED", True) and rights.get("models")
+                and (rights.get("wallets") or (rights.get("legacy_promise") or {}).get("eligible"))
                 and membership.get_deepseek_web_quota(int(user["id"]))["entitled"])
 
 
@@ -52,7 +53,7 @@ def web_quota(A):
     result = membership.get_deepseek_web_quota(int(user["id"]) if user else None)
     if not web_allowed(A):
         result.update(allowed=False, message="DeepSeek 联网需有效会员权益，或当前服务已关闭。")
-    elif not membership.get_ai_entitlements(int(user["id"])).get("remaining_micros"):
+    elif not result.get("gift_remaining") and not membership.get_ai_entitlements(int(user["id"])).get("remaining_micros"):
         result.update(allowed=False, message="AI 钱包余额不足，请补充额度。")
     return result
 

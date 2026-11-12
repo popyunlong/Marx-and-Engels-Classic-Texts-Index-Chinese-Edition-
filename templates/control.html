@@ -2244,6 +2244,13 @@
         {% if remote_admin and ai_cost_metrics %}
         <section class="card" id="ai-real-costs">
           <h2>AI 真实成本（近 30 天）</h2>
+          {% if ai_cost_metrics.legacy_promise %}
+          {% set legacy = ai_cost_metrics.legacy_promise %}
+          <p>7 月 4 日前旧会员保护：{{ legacy.eligible_users }} 人；待核实订阅 {{ legacy.pending_review_subscription_ids | length }} 条。
+            每周按实际输入＋输出 token 计量，28／49／77 万；每天赠送 20 次联网，不使用整期钱包。</p>
+          <p>此群体近 30 天模型成本 ¥{{ '%.4f'|format(legacy.recent_30d_model_cost_yuan) }}，联网成本 ¥{{ '%.4f'|format(legacy.recent_30d_tool_cost_yuan) }}（包含另购权益消耗）。
+            固定当前人数、连续 30 天用满的 80% 输入／20% 输出高峰情景：¥{{ legacy.full_use_30d_80_20_peak_yuan }}，不是实际账单。</p>
+          {% endif %}
           <p class="section-note">按上游最终 usage、调用发生时价格版本和北京时间峰谷计算。站方免费的马克思形象也计入；用户钱包只扣有权调用的付费功能。</p>
           <div class="item">
             <strong>合计：¥{{ '%.4f'|format((ai_cost_metrics.total_cost_micros | default(0, true)) / 1000000) }}</strong>

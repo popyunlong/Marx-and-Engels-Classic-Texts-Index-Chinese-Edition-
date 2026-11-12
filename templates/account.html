@@ -369,9 +369,20 @@
           {% endif %}
         </article>
 
+        {% if state.ai_entitlements and state.ai_entitlements.legacy_promise and state.ai_entitlements.legacy_promise.eligible %}
+        <article class="card" data-legacy-promise>
+          <h2>旧会员每周 AI 额度</h2>
+          {% set promise = state.ai_entitlements.legacy_promise %}
+          <p>本周剩余 {{ promise.remaining }} / {{ promise.limit }} token（已用 {{ promise.used }}，预占 {{ promise.reserved }}）。</p>
+          <p>按实际输入与输出 token 计量，每周一零点恢复，不设整期金额钱包上限。支持 DeepSeek Flash 非思考模式；旧权益不含 DeepSeek Pro。</p>
+          <p>恢复时间：{{ format_datetime(promise.reset_at) }}；权益有效至 {{ format_datetime(promise.expires_at) }}。</p>
+          {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
+          <p class="muted">适用于北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员；赠送联网不扣模型周额度，网页阅读产生的模型 token 正常计量。</p>
+        </article>
+        {% endif %}
         {% if state.ai_entitlements and state.ai_entitlements.wallets %}
         <article class="card">
-          <h2>AI 研学额度</h2>
+          <h2>另购 AI 研学额度</h2>
           {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
           <p class="muted">MiMo 与 DeepSeek 按模型和实际用量从共享额度中折算；缓存、思考深度与请求长度会影响可用量。内部结算金额仅在管理后台记录。</p>
           <div class="list">
