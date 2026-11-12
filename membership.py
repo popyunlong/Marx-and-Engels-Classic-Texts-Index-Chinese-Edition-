@@ -17,6 +17,7 @@ from pathlib import Path
 
 from runtime_env import APPDATA_DIR, secure_db_file
 import membership_purchase as multi_purchase
+import legacy_ai
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
@@ -859,6 +860,20 @@ def init_membership_db() -> Path:
                 status TEXT NOT NULL DEFAULT 'claimed', created_at TEXT NOT NULL,
                 PRIMARY KEY(user_id,request_id)
             );
+            CREATE TABLE IF NOT EXISTS legacy_ai_reservations (
+                reservation_id INTEGER PRIMARY KEY REFERENCES ai_budget_reservations(id),
+                subscription_id INTEGER NOT NULL REFERENCES subscriptions(id),
+                kind TEXT NOT NULL CHECK(kind IN ('model','web')),
+                week_start TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS legacy_ai_order_links (
+                subscription_id INTEGER PRIMARY KEY REFERENCES subscriptions(id),
+                user_id INTEGER NOT NULL REFERENCES users(id),
+                order_no TEXT NOT NULL REFERENCES orders(order_no),
+                evidence TEXT NOT NULL,
+                reviewed_by TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
+            );
 
             CREATE INDEX IF NOT EXISTS idx_ai_wallets_user_expiry
                 ON ai_wallets(user_id, status, expires_at, priority);
@@ -881,6 +896,12 @@ def init_membership_db() -> Path:
             """
         )
         reservation_columns = _table_columns(conn, "ai_budget_reservations")
+        for subscription_id, order_no in legacy_ai.historical_order_links(conn).items():
+            conn.execute("""INSERT OR IGNORE INTO legacy_ai_order_links
+                (subscription_id,user_id,order_no,evidence,reviewed_by,reviewed_at)
+                SELECT id,user_id,?,'unique exact paid_at=created_at; same user/plan; zpay_notify',
+                'legacy-promise-migration',? FROM subscriptions WHERE id=?""",
+                (order_no, utc_now_text(), subscription_id))
         if "reserved_tokens" not in reservation_columns:
             conn.execute(
                 "ALTER TABLE ai_budget_reservations ADD COLUMN reserved_tokens INTEGER NOT NULL DEFAULT 0"
@@ -4679,6 +4700,11 @@ def migrate_active_ai_wallets(*, at_text: str | None = None) -> dict:
     }
 
 
+def get_legacy_ai_quota(user_id: int, *, at_text: str | None = None) -> dict:
+    with _connect() as conn:
+        return legacy_ai.quota(conn, int(user_id), at_text or utc_now_text())
+
+
 def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> dict:
     if not user_id:
         return {"wallets": [], "models": {}, "defaults": {}, "total_micros": 0, "released_micros": 0,
@@ -4686,6 +4712,7 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
     now = at_text or utc_now_text()
     with _connect() as conn:
         _ensure_user_ai_wallets(conn, int(user_id), now)
+        protected = legacy_ai.quota(conn, int(user_id), now)
         rows = conn.execute(
             """
             SELECT * FROM ai_wallets
@@ -4694,6 +4721,7 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
             """,
             (int(user_id), now, now),
         ).fetchall()
+        rows = legacy_ai.paid_wallets(rows, protected)
         conn.commit()
     wallets: list[dict] = []
     models: dict[str, set[str]] = {}
@@ -4722,7 +4750,12 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
                 continue
             defaults[str(bucket)] = {"provider": provider, "model": model, "reasoning_effort": effort}
             default_priorities[str(bucket)] = priority
+    if protected["eligible"]:
+        models.setdefault("deepseek-v4-flash", set()).add("off")
+        defaults = {bucket: {"provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off"}
+                    for bucket in ("quick", "research", "reader")}
     return {
+        "legacy_promise": protected,
         "wallets": wallets,
         "models": {m: sorted(values) for m, values in models.items()},
         "defaults": defaults,
@@ -4974,7 +5007,38 @@ def reserve_ai_budget(
     estimate_completion = max(0, int(max_completion_tokens))
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        req_id = str(request_id or secrets.token_urlsafe(18))
+        previous = conn.execute("SELECT * FROM ai_budget_reservations WHERE request_id=?", (req_id,)).fetchone()
+        if previous:
+            if (previous["user_id"] != user_id or previous["model"] != m
+                    or previous["reasoning_effort"] != effort or previous["feature"] != feature
+                    or previous["web_tool"] != (tool or "")):
+                raise ValueError("AI 请求编号与原请求不匹配。")
+            if previous["status"] != "reserved":
+                raise ValueError("AI 请求已处理，请勿重复提交。")
+            return dict(previous)
         _ensure_user_ai_wallets(conn, int(user_id), now)
+        protected = legacy_ai.quota(conn, user_id, now)
+        if protected["eligible"] and (tool or legacy_ai.supports(m, effort)):
+            cost = 0
+            gift = False
+            if tool:
+                if tool not in {"search", "fetch"}:
+                    raise ValueError("未知联网工具")
+                web = _deepseek_web_quota(conn, user_id, now)
+                gift = web["allowed"] and web["gift_remaining"] > 0
+                if gift:
+                    price = conn.execute("SELECT unit_micros FROM ai_tool_prices WHERE tool=? AND effective_from<=? "
+                                         "ORDER BY effective_from DESC LIMIT 1", (tool, now)).fetchone()
+                    if not price:
+                        raise ValueError("联网工具价格未配置")
+                    cost = int(price[0])
+            tokens = 0 if tool else estimate_prompt + estimate_completion
+            if gift or (not tool and tokens <= protected["remaining"]):
+                result = legacy_ai.reserve(conn, protected=protected, user_id=user_id, provider=p, model=m,
+                    effort=effort, feature=feature, request_id=req_id, now=now, tokens=tokens, tool=tool, cost=cost)
+                conn.commit()
+                return result
         active_rows = conn.execute(
             """
             SELECT *, released_micros-spent_micros-reserved_micros AS available_micros
@@ -4984,6 +5048,7 @@ def reserve_ai_budget(
             """,
             (int(user_id), now, now),
         ).fetchall()
+        active_rows = legacy_ai.paid_wallets(active_rows, protected)
         rows = [row for row in active_rows if int(row["available_micros"] or 0) > 0]
         eligible = [r for r in rows if _policy_allows(str(r["model_policy"]), m, effort, feature)]
         compatible_active = [
@@ -5023,6 +5088,8 @@ def reserve_ai_budget(
                 raise ValueError("本周 AI token 额度已用完，下周一恢复；研究资源包余额不受此周限额影响。")
         if sum(max(0, int(r["available_micros"] or 0)) for r in eligible) < estimated_cost:
             conn.rollback()
+            if protected["eligible"] and not tool and legacy_ai.supports(m, effort):
+                raise ValueError("旧会员本周 AI token 剩余额度不足以完成本次请求，下周一恢复；另购权益不足时请缩短请求。")
             legacy_wallets = [
                 row for row in compatible_active
                 if str(row["source_type"] or "") == "legacy_subscription"
@@ -5039,7 +5106,6 @@ def reserve_ai_budget(
             ):
                 raise ValueError("旧会员 AI 总额度已用完；如需继续使用 AI，请购买新套餐。")
             raise ValueError("AI 使用额度余额不足；可购买新套餐或研究资源包后继续。")
-        req_id = str(request_id or secrets.token_urlsafe(18))
         cur = conn.execute(
             """
             INSERT INTO ai_budget_reservations(
@@ -5092,10 +5158,17 @@ def affordable_completion_tokens(*, user_id: int, selection: dict, messages: lis
     prompt = _ceil_div(((len(json.dumps(messages, ensure_ascii=False))+1)//2)*5, 4)
     with _connect() as conn:
         _ensure_user_ai_wallets(conn, user_id, now)
+        protected = legacy_ai.quota(conn, user_id, now)
+        legacy_max = 0
+        if protected["eligible"] and legacy_ai.supports(selection["model"], selection["reasoning_effort"]):
+            legacy_max = min(max(0, requested), max(0, protected["remaining"] - prompt))
+            if legacy_max >= 256:
+                return legacy_max
         rows = [r for r in conn.execute(
             "SELECT *,released_micros-spent_micros-reserved_micros AS available_micros FROM ai_wallets "
             "WHERE user_id=? AND status='active' AND starts_at<=? AND expires_at>?", (user_id, now, now)
         ).fetchall() if _policy_allows(r["model_policy"], selection["model"], selection["reasoning_effort"], "comprehensive-chat")]
+        rows = legacy_ai.paid_wallets(rows, protected)
         lo, hi = 0, max(0, requested)
         while lo < hi:
             mid = (lo+hi+1)//2
@@ -5108,6 +5181,8 @@ def affordable_completion_tokens(*, user_id: int, selection: dict, messages: lis
             else:
                 hi = mid-1
         if lo < 256:
+            if protected["eligible"] and legacy_ai.supports(selection["model"], selection["reasoning_effort"]):
+                raise ValueError("旧会员本周 AI token 额度不足以继续本轮，下周一恢复；也可缩短请求或使用另购权益。")
             raise ValueError("AI 使用额度不足以继续本轮，可补充额度后继续。")
         return lo
 
@@ -5142,6 +5217,8 @@ def record_ai_tool_call(*, request_id: str, user_id: int | None, tool: str,
 def _settle_reservation(conn: sqlite3.Connection, reservation_id: int, actual_cost: int, at_text: str) -> None:
     reservation = conn.execute("SELECT * FROM ai_budget_reservations WHERE id=?", (int(reservation_id),)).fetchone()
     if reservation is None or str(reservation["status"]) != "reserved":
+        return
+    if legacy_ai.settle(conn, reservation_id, actual_cost, at_text):
         return
     allocations = conn.execute(
         "SELECT * FROM ai_reservation_allocations WHERE reservation_id=? ORDER BY wallet_id ASC",
@@ -5219,6 +5296,15 @@ def record_ai_provider_call(
     p, m, effort = _normalized_ai_selection(provider, model, reasoning_effort)
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        # One preauthorization funds one upstream call. Replayed completion
+        # callbacks must not add tokens or site cost a second time.
+        if reservation_id is not None:
+            existing = conn.execute("SELECT * FROM ai_provider_calls WHERE reservation_id=? LIMIT 1",
+                                    (reservation_id,)).fetchone()
+            if existing:
+                if existing["request_id"] != str(request_id) or existing["user_id"] != user_id:
+                    raise ValueError("AI 结算编号与原请求不匹配。")
+                return dict(existing)
         cost, price = calculate_ai_cost_micros(
             provider=p, model=m, prompt_tokens=prompt_tokens,
             cached_prompt_tokens=cached_prompt_tokens, completion_tokens=completion_tokens,
@@ -5259,6 +5345,10 @@ def get_ai_cost_metrics(*, since_at: str = "") -> dict:
     where = "WHERE created_at >= ?" if since_at else ""
     params: tuple[object, ...] = (since_at,) if since_at else ()
     with _connect() as conn:
+        legacy_report = legacy_ai.report(conn, utc_now_text())
+        legacy_ids = {r[0] for r in conn.execute("SELECT reservation_id FROM legacy_ai_reservations")}
+        tools_where = "WHERE occurred_at>=?" if since_at else ""
+        tool_rows = conn.execute(f"SELECT * FROM ai_tool_calls {tools_where}", params).fetchall()
         rows = conn.execute(
             f"SELECT * FROM ai_provider_calls {where} ORDER BY created_at ASC, id ASC",
             params,
@@ -5329,13 +5419,17 @@ def get_ai_cost_metrics(*, since_at: str = "") -> dict:
             result.append(entry)
         return sorted(result, key=lambda item: int(item["cost_micros"]), reverse=True)
 
-    total_cost = sum(int(row["cost_micros"] or 0) for row in rows)
+    tool_cost = sum(int(row["cost_micros"] or 0) for row in tool_rows)
+    total_cost = sum(int(row["cost_micros"] or 0) for row in rows) + tool_cost
     by_plan = [row_to_dict(row) or {} for row in allocations]
     allocated = sum(int(row.get("cost_micros") or 0) for row in by_plan)
-    site_cost = sum(int(row["cost_micros"] or 0) for row in rows if row["reservation_id"] is None)
+    site_cost = sum(int(row["cost_micros"] or 0) for row in [*rows, *tool_rows] if row["reservation_id"] is None)
+    legacy_cost = sum(int(row["cost_micros"] or 0) for row in [*rows, *tool_rows] if row["reservation_id"] in legacy_ids)
+    if legacy_cost:
+        by_plan.append({"plan_code": "旧会员承诺（站方承担）", "cost_micros": legacy_cost})
     if site_cost:
         by_plan.append({"plan_code": "site_free", "cost_micros": site_cost})
-    unallocated = max(0, total_cost - allocated - site_cost)
+    unallocated = max(0, total_cost - allocated - site_cost - legacy_cost)
     if unallocated:
         by_plan.append({"plan_code": "unallocated", "cost_micros": unallocated})
     wallets = []
@@ -5350,6 +5444,8 @@ def get_ai_cost_metrics(*, since_at: str = "") -> dict:
         "by_plan": by_plan,
         "wallets": wallets,
         "total_cost_micros": total_cost,
+        "tool_cost_micros": tool_cost,
+        "legacy_promise": legacy_report,
         "paid_revenue_micros": revenue_micros,
         "income_cost_ratio": round(revenue_micros / total_cost, 4) if total_cost else None,
     }
@@ -6063,12 +6159,21 @@ def _deepseek_web_quota(conn, user_id, now):
         "SELECT COUNT(*) FROM ai_budget_reservations WHERE user_id=? AND web_tool!='' "
         "AND status='reserved' AND created_at>=? AND created_at<?",
         (user_id,start_utc,end_utc)).fetchone()[0])
+    protected = legacy_ai.quota(conn, user_id, now)
+    # A later higher-tier purchase expands the daily ceiling, never the gift.
+    # All successful/reserved calls consume the first twenty slots, regardless
+    # of funding, so changing plans midway through a day cannot reset the gift.
+    gift_limit = min(20, limit) if protected["eligible"] else 0
+    gift_remaining = max(0, gift_limit-used-reserved)
     remaining = max(0, limit-used-reserved)
     message = ("DeepSeek 联网需有效会员权益。" if not limit else
                "今日联网次数已用完或正在使用，明日零点恢复。" if not remaining else
+               f"今日联网剩余 {remaining}/{limit} 次，其中赠送剩余 {gift_remaining} 次；赠送不扣 AI 周额度。" if gift_remaining else
                f"今日联网剩余 {remaining}/{limit} 次，费用从 AI 钱包扣除。")
     return dict(entitled=limit>0, allowed=remaining>0, limit=limit, used=used,
-                reserved=reserved, remaining=remaining, reset_at=end.isoformat(), message=message)
+                reserved=reserved, remaining=remaining, reset_at=end.isoformat(), message=message,
+                gift_limit=gift_limit, gift_remaining=gift_remaining,
+                funding_source="site_gift" if gift_remaining else "wallet")
 
 
 def get_deepseek_web_quota(user_id, *, at_text=None):

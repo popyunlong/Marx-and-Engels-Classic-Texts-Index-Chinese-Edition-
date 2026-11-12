@@ -329,6 +329,9 @@ html.aip-overlay-open { overflow: hidden; scrollbar-gutter: stable; }
 .aip-quota-bar { flex: 1; min-width: 0; height: 6px; border-radius: 999px; overflow: hidden; background: rgba(143, 29, 29, 0.12); }
 .aip-quota-bar > span { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #2e7d32, #43a047); transition: width .3s ease; }
 .aip-quota-text { flex: none; white-space: nowrap; }
+.aip-quota.actual-tokens { flex-wrap: wrap; min-width: 0; }
+.aip-quota.actual-tokens .aip-quota-bar { flex: 0 0 100%; }
+.aip-quota.actual-tokens .aip-quota-text { flex: 1 1 0; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .aip-quota.low .aip-quota-bar > span { background: linear-gradient(90deg, #c77700, #e69500); }
 .aip-quota.low .aip-quota-text { color: #8a5b00; font-weight: 600; }
 .aip-quota.exhausted .aip-quota-bar > span { background: #b23b3b; }
