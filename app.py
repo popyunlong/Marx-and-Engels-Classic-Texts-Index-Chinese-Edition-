@@ -1628,6 +1628,7 @@ def current_view_state() -> dict:
         "local_console_enabled": DEPLOYMENT.is_desktop,
         "feature_access": feature_access,
         "research_quota": _research_quota_payload() if has_request_context() else {},
+        "deepseek_web_quota": comprehensive_web.web_quota(sys.modules[__name__]) if has_request_context() else {},
         "ai_token_quota": _ai_token_quota_payload() if has_request_context() else {},
         "ai_entitlements": _ai_entitlements_payload() if has_request_context() else {},
         "ai_credits": (
@@ -6563,6 +6564,7 @@ def _handle_plans_submit(*, remote_admin: bool):
                 else existing_daily_ai_limit
             ),
             daily_zhipu_token_limit=_form_optional_int("daily_zhipu_token_limit"),
+            daily_deepseek_web_limit=_form_optional_int("daily_deepseek_web_limit"),
             features=(request.form.get("features") or "").strip(),
             badge=(request.form.get("badge") or "").strip(),
             is_active=_form_bool("is_active"),

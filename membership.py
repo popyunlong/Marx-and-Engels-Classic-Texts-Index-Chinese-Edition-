@@ -1056,6 +1056,14 @@ def init_membership_db() -> Path:
 
         # 价格以「每百万 token 的整数微元」保存。DeepSeek 官网已公告 8·17 00:00
         # 起采用峰谷价；旧全时段价在该时点闭合，新价按北京时间实际时段解析。
+        if "daily_deepseek_web_limit" not in _table_columns(conn, "plans"):
+            conn.execute("ALTER TABLE plans ADD COLUMN daily_deepseek_web_limit INTEGER NOT NULL DEFAULT 0")
+            for code, limit in {"monthly":20,"quarter":20,"quarterly":20,"yearly":20,
+                                "support_basic":20,"support_plus":40,"support_pro":80,"support_max":160}.items():
+                conn.execute("UPDATE plans SET daily_deepseek_web_limit=? WHERE code=?", (limit, code))
+        if "web_tool" not in _table_columns(conn, "ai_budget_reservations"):
+            conn.execute("ALTER TABLE ai_budget_reservations ADD COLUMN web_tool TEXT NOT NULL DEFAULT ''")
+
         price_rows = (
             ("mimo", "mimo-v2.5", "1970-01-01T00:00:00+00:00", "", "all", 20_000, 1_000_000, 2_000_000),
             ("mimo", "mimo-v2.5-pro", "1970-01-01T00:00:00+00:00", "", "all", 25_000, 3_000_000, 6_000_000),
@@ -1219,7 +1227,7 @@ def list_active_plans() -> list[dict]:
         rows = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge,
+                   daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge,
                    kind, research_credits, chat_credits, reader_credits, tier_rank,
                    model_policy, parallel_group, ai_budget_micros, weekly_token_limit,
                    billing_cycle_days, sale_starts_at, sale_ends_at
@@ -1241,7 +1249,7 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
         rows = conn.execute(
             f"""
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                   daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge, is_active, sort_order,
                    kind, research_credits, chat_credits, reader_credits, tier_rank,
                    model_policy, parallel_group, ai_budget_micros, weekly_token_limit,
                    billing_cycle_days, sale_starts_at, sale_ends_at
@@ -1258,7 +1266,7 @@ def get_plan(plan_code: str) -> dict | None:
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active,
+                   daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge, is_active,
                    sort_order, kind, research_credits, chat_credits, reader_credits, tier_rank,
                    model_policy, parallel_group, ai_budget_micros, weekly_token_limit,
                    billing_cycle_days, sale_starts_at, sale_ends_at
@@ -1344,6 +1352,7 @@ def upsert_plan(
     description: str = "",
     daily_ai_token_limit: int | None = None,
     daily_zhipu_token_limit: int | None = None,
+    daily_deepseek_web_limit: int | None = None,
     features: str = "",
     badge: str = "",
     is_active: bool = True,
@@ -1369,6 +1378,8 @@ def upsert_plan(
         raise ValueError("AI token 限额不能小于 0。")
     if daily_zhipu_token_limit is not None and int(daily_zhipu_token_limit) < 0:
         raise ValueError("智谱每日限额不能小于 0。")
+    if daily_deepseek_web_limit is not None and int(daily_deepseek_web_limit) < 0:
+        raise ValueError("联网每日次数不能小于 0。")
     # 卖点清单逐行规整：去掉空行与首尾空白，统一以 \n 存储，便于定价页逐行渲染。
     normalized_features = "\n".join(
         line.strip() for line in (features or "").replace("\r\n", "\n").replace("\r", "\n").split("\n") if line.strip()
@@ -1377,7 +1388,7 @@ def upsert_plan(
         before_row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                   daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge, is_active, sort_order,
                    kind, research_credits, chat_credits, reader_credits
             FROM plans
             WHERE code = ?
@@ -1388,10 +1399,10 @@ def upsert_plan(
             """
             INSERT INTO plans(
                 code, name, price_cents, currency, interval_months, description,
-                daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge, is_active, sort_order,
                 kind, research_credits, chat_credits, reader_credits
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 name=excluded.name,
                 price_cents=excluded.price_cents,
@@ -1400,6 +1411,7 @@ def upsert_plan(
                 description=excluded.description,
                 daily_ai_token_limit=excluded.daily_ai_token_limit,
                 daily_zhipu_token_limit=excluded.daily_zhipu_token_limit,
+                daily_deepseek_web_limit=excluded.daily_deepseek_web_limit,
                 features=excluded.features,
                 badge=excluded.badge,
                 is_active=excluded.is_active,
@@ -1418,6 +1430,7 @@ def upsert_plan(
                 (description or "").strip(),
                 None if daily_ai_token_limit is None else int(daily_ai_token_limit),
                 None if daily_zhipu_token_limit is None else int(daily_zhipu_token_limit),
+                int(daily_deepseek_web_limit) if daily_deepseek_web_limit is not None else int(before_row["daily_deepseek_web_limit"] if before_row else 0),
                 normalized_features,
                 (badge or "").strip(),
                 1 if is_active else 0,
@@ -1431,7 +1444,7 @@ def upsert_plan(
         row = conn.execute(
             """
             SELECT code, name, price_cents, currency, interval_months, description,
-                   daily_ai_token_limit, daily_zhipu_token_limit, features, badge, is_active, sort_order,
+                   daily_ai_token_limit, daily_zhipu_token_limit, daily_deepseek_web_limit, features, badge, is_active, sort_order,
                    kind, research_credits, chat_credits, reader_credits
             FROM plans
             WHERE code = ?
@@ -4982,6 +4995,11 @@ def reserve_ai_budget(
             occurred_at=at, conn=conn,
         )
         if tool is not None:
+            if tool not in {"search", "fetch"}:
+                raise ValueError("未知联网工具")
+            web_quota = _deepseek_web_quota(conn, user_id, now)
+            if not web_quota["allowed"]:
+                raise ValueError(web_quota["message"])
             price = conn.execute(
                 "SELECT * FROM ai_tool_prices WHERE tool=? AND effective_from<=? ORDER BY effective_from DESC LIMIT 1",
                 (tool, now),
@@ -5033,6 +5051,8 @@ def reserve_ai_budget(
              (at + timedelta(minutes=10)).isoformat(timespec="seconds")),
         )
         reservation_id = int(cur.lastrowid)
+        if tool:
+            conn.execute("UPDATE ai_budget_reservations SET web_tool=? WHERE id=?", (tool, reservation_id))
         remaining = estimated_cost
         for wallet in eligible:
             amount = min(remaining, max(0, int(wallet["available_micros"] or 0)))
@@ -6023,3 +6043,34 @@ def get_admin_dashboard_metrics(
     metrics["reader_anomaly_visitors"] = reader_anomalies
     metrics["reader_anomaly_count"] = len(reader_anomalies)
     return metrics
+
+
+def _deepseek_web_quota(conn, user_id, now):
+    local = _parse_utc(now).astimezone(timezone(timedelta(hours=8)))
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    start_utc = start.astimezone(timezone.utc).isoformat(timespec="seconds")
+    end_utc = end.astimezone(timezone.utc).isoformat(timespec="seconds")
+    limit = int(conn.execute(
+        "SELECT COALESCE(MAX(p.daily_deepseek_web_limit),0) FROM subscriptions s "
+        "JOIN plans p ON p.code=s.plan_code WHERE s.user_id=? AND s.status='active' "
+        "AND s.starts_at<=? AND s.expires_at>? AND p.kind='membership'",
+        (user_id, now, now)).fetchone()[0])
+    used = int(conn.execute(
+        "SELECT COUNT(*) FROM ai_tool_calls WHERE user_id=? AND billable=1 "
+        "AND occurred_at>=? AND occurred_at<?", (user_id,start_utc,end_utc)).fetchone()[0])
+    reserved = int(conn.execute(
+        "SELECT COUNT(*) FROM ai_budget_reservations WHERE user_id=? AND web_tool!='' "
+        "AND status='reserved' AND created_at>=? AND created_at<?",
+        (user_id,start_utc,end_utc)).fetchone()[0])
+    remaining = max(0, limit-used-reserved)
+    message = ("DeepSeek 联网需有效会员权益。" if not limit else
+               "今日联网次数已用完或正在使用，明日零点恢复。" if not remaining else
+               f"今日联网剩余 {remaining}/{limit} 次，费用从 AI 钱包扣除。")
+    return dict(entitled=limit>0, allowed=remaining>0, limit=limit, used=used,
+                reserved=reserved, remaining=remaining, reset_at=end.isoformat(), message=message)
+
+
+def get_deepseek_web_quota(user_id, *, at_text=None):
+    with _connect() as conn:
+        return _deepseek_web_quota(conn, user_id or 0, at_text or utc_now_text())

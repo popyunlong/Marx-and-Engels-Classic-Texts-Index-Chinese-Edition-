@@ -3259,6 +3259,7 @@ class ZAIClient:
         sources_out: list[dict[str, str]] | None = None,
         web_search_query: str | None = None,
         allow_reasoning_fallback: bool = False,
+        meta_out: dict | None = None,
         model: str | None = None,
         http_timeout: float | None = None,
         disable_thinking: bool | None = None,
@@ -3378,6 +3379,8 @@ class ZAIClient:
             sources_out.extend(grounded_sources or self._zhipu_sources_from_payload(data))
         if not text:
             raise AIServiceError("模型本次只产生了思考过程、未给出答案，请重试。")
+        if meta_out is not None:
+            meta_out["finish_reason"] = (data.get("choices") or [{}])[0].get("finish_reason", "unknown")
         return text
 
     def chat_complete_stream(

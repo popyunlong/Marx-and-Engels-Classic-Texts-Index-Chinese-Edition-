@@ -2879,7 +2879,9 @@
     if (webModeSelect) {
       webModeSelect.value = currentWebMode();
       webModeSelect.disabled = !(config && config.deepseek_web_access);
-      webModeSelect.closest("label").hidden = webModeSelect.disabled;
+      webModeSelect.closest("label").hidden = false;
+      var quotaNode = document.getElementById("aipWebQuota");
+      if (quotaNode) quotaNode.textContent = config && config.deepseek_web_quota ? config.deepseek_web_quota.message : "";
       webModeSelect.title = webModeSelect.disabled ? "DeepSeek 联网尚未开放或当前账户没有有效付费 AI 权益" : "联网辅助规划，原著引文优先使用站内数据";
     }
     if (researchNote) researchNote.hidden = !isResearch;
@@ -3155,6 +3157,11 @@
       return parseJsonResponse(resp);
     }).then(function (data) {
       if (!ownsRequest() || (abort && abort.signal.aborted)) return;
+      if (data.deepseek_web_quota && config) {
+        config.deepseek_web_quota = data.deepseek_web_quota;
+        var quotaNode = document.getElementById("aipWebQuota");
+        if (quotaNode) quotaNode.textContent = data.deepseek_web_quota.message || "";
+      }
       if (data.ai_credits) aiCredits = data.ai_credits;
       if (data.ai_token_quota) updateTokenQuota(data.ai_token_quota);
       if (data.research_quota) updateResearchQuota(data.research_quota);

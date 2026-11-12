@@ -116,3 +116,48 @@ def complete_blocks(buffer, final=False):
 
 
 from ai_generation_flow import generate  # public API retained
+
+
+class ScopeEvidenceUnavailable(AIServiceError):
+    """An explicit retrieval scope has no evidence for the question."""
+
+
+def failure_details(exc, phase):
+    text = str(getattr(exc, "description", exc))
+    if isinstance(exc, ScopeEvidenceUnavailable):
+        reason, message, recoverable = "scope_evidence_unavailable", text, False
+    elif "本周" in text and "额度" in text:
+        reason, message, recoverable = "weekly_quota", "本周 AI 额度不足，请在额度恢复或补充后继续。", False
+    elif "额度" in text or "余额" in text:
+        reason, message, recoverable = "wallet_quota", "AI 可用额度不足，请补充额度后继续。", False
+    elif "时间预算" in text or "任务已停止" in text:
+        reason, message, recoverable = "deadline", "本轮任务已达到时间预算，已保存内容可继续完成。", True
+    elif isinstance(exc, json.JSONDecodeError) or "JSON" in text or "规划未能完成" in text or "结构输出" in text:
+        reason, message, recoverable = "structured_output", "任务规划或完成检查未返回有效结构，已保存内容可继续完成。", True
+    elif phase == "verifying":
+        reason, message, recoverable = "verification_error", "引文核验未完成，已核验内容已保存，可继续完成。", True
+    elif "连接" in text or "断流" in text:
+        reason, message, recoverable = "connection_error", "模型连接中断，已保存内容可继续完成。", True
+    elif "超时" in text:
+        reason, message, recoverable = "upstream_timeout", "模型服务超时，已保存内容可继续完成。", True
+    else:
+        reason, message, recoverable = "generation_error", "模型生成发生异常，已保存内容可继续完成。", True
+    return dict(stop_reason=reason, failure_stage=phase, recoverable=recoverable, message=message)
+
+
+def model_evidence(passages, budget=100000):
+    """Keep evidence IDs and complete quote segments, without duplicating source maps."""
+    result = []
+    for passage in passages:
+        item = {k: passage.get(k) for k in ("index", "citation", "work_title", "work_authors")}
+        segments = list(dict.fromkeys(passage.get("quote_segments") or [passage.get("text", "")]))
+        item["quote_segments"] = []
+        for segment in segments:
+            candidate = {**item, "quote_segments": [*item["quote_segments"], segment]}
+            if len(json.dumps([*result, candidate], ensure_ascii=False)) <= budget:
+                item = candidate
+        if item["quote_segments"]:
+            result.append(item)
+    if passages and not result:
+        raise AIServiceError("证据超过本轮上下文预算，请缩小检索范围。")
+    return result

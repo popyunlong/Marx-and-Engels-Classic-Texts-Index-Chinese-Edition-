@@ -1,0 +1,210 @@
+{
+  "task": "member-web-20261112",
+  "baseline": "45bd8576863e60aa876f683bc6cb36c6e0b14d37",
+  "prior_evidence": [
+    "AI_COMPREHENSIVE_TEST_LEDGER_20261105.json",
+    "AI_DIALOGUE_LIFECYCLE_TEST_LEDGER_20261107.json",
+    "COMPREHENSIVE_FLASH_TEST_LEDGER_20261108.json",
+    "CHAPTER_SCOPE_API_TEST_LEDGER_20261110.json",
+    "CHAPTER_SCOPE_API_RELEASE_LEDGER_20261111.json"
+  ],
+  "policy": "Every scenario runs once. Failed/interrupted runs require specific authorization before retry. Preserve original logs and fingerprints.",
+  "runs": [
+    {
+      "baseline": "45bd857",
+      "status": "failed",
+      "exit_code": 1,
+      "scenario": "tests/test_member_web_20261112.py",
+      "started": "2026-11-12T03:01:29.2787853+00:00",
+      "hashes": {
+        "ai_generation_flow.py": "F82BA2DE2E3A3AF8212F1744CFB51541A8C95F2B7920297219FA0C501CA1A217",
+        "comprehensive_web.py": "A5E342C5CDD975E46118ACB37738F4D6A645C4FA1832B2CF6AA88E1405B17819",
+        "templates/ai.html": "7DC70CC1F630F900C0E7FEFAB298CDA4432EFB7D268FC29F47E6D8DDC15850F2",
+        "tests/browser/comprehensive.cjs": "8D384FB3AFC07778B7F514C66ACB7A9BC1421774A97A2502CC7CF256C4BF99A7",
+        "ai_comprehensive.py": "27BE56258E7F33B22AD289407C2748FDC91BA5D2E66B6C91FBF798EE98727B03",
+        "membership.py": "A008FCA354D10234BDE925C837877B467EBE5CAD817315B18148FB85E7CFDBB7",
+        "ai.py": "649CC1E814399FC7056BC8CFA7965D13064DC8922A9AAF6C041CB72FF30C4C50",
+        "app.py": "40DDDCE39091691472C23A6E846DEFECB5247EFE2A8F767C366E35ABC32C33A1",
+        "static/ai-page/ai-page.js": "07ED0EFCD2ACEFF8093B36FAA315FD4A00F83594807CCB0464B254F2975CAB84",
+        "templates/control.html": "A334BD33E5191E923831BFA2481B63025C0E91804D9542C266E2BBE35979604E"
+      }
+    },
+    {
+      "exit_code": 1,
+      "baseline": "45bd857",
+      "hashes": {
+        "tests/browser/comprehensive.cjs": "8D384FB3AFC07778B7F514C66ACB7A9BC1421774A97A2502CC7CF256C4BF99A7",
+        "templates/ai.html": "7DC70CC1F630F900C0E7FEFAB298CDA4432EFB7D268FC29F47E6D8DDC15850F2",
+        "static/ai-page/ai-page.js": "07ED0EFCD2ACEFF8093B36FAA315FD4A00F83594807CCB0464B254F2975CAB84"
+      },
+      "started": "2026-11-12T03:02:49.2401278+00:00",
+      "status": "failed",
+      "scenario": "tests/browser/comprehensive.cjs"
+    },
+    {
+      "log": "D:/CodexData/outputs/member-web-20261112/edges.log",
+      "scenario": "tests/test_member_web_edges.py",
+      "stage": "edges",
+      "started": "2026-11-12T03:05:07.3268048+00:00",
+      "exit_code": 0,
+      "baseline": "45bd8576863e60aa876f683bc6cb36c6e0b14d37",
+      "finished": "2026-11-12T03:05:26.4993244+00:00",
+      "hashes": {
+        "scripts/check_member_web_once.ps1": "48B00DE82DE215522217B6BCFEEDCC9B59998C32A8BC72047BB71AA322C21853",
+        "templates/control.html": "A334BD33E5191E923831BFA2481B63025C0E91804D9542C266E2BBE35979604E",
+        "comprehensive_web.py": "A5E342C5CDD975E46118ACB37738F4D6A645C4FA1832B2CF6AA88E1405B17819",
+        "ai_generation_flow.py": "F82BA2DE2E3A3AF8212F1744CFB51541A8C95F2B7920297219FA0C501CA1A217",
+        "static/ai-page/ai-page.js": "07ED0EFCD2ACEFF8093B36FAA315FD4A00F83594807CCB0464B254F2975CAB84",
+        "templates/ai.html": "7DC70CC1F630F900C0E7FEFAB298CDA4432EFB7D268FC29F47E6D8DDC15850F2",
+        "templates/account.html": "DAD66E3C15F44200BFF955027E1DC7A226363BAF0737FF7F1FB521E277B0DF26",
+        "app.py": "40D26517C252CB0EB6473E8B29B60DD00B88D6CDB911ADB4738B1301ECB4E7B3",
+        "tests/test_comprehensive_mode.py": "0461CB99A7CDF8635D924B705604B1C4082665188FFEAAEA085A5261F84A1344",
+        "tests/test_member_web_edges.py": "504F5EA373EA1FB8559A455DEDDCFAA973708D0915544AA09160D7F9D34FF9D9",
+        "ai.py": "649CC1E814399FC7056BC8CFA7965D13064DC8922A9AAF6C041CB72FF30C4C50",
+        "membership.py": "A008FCA354D10234BDE925C837877B467EBE5CAD817315B18148FB85E7CFDBB7",
+        "tests/browser/comprehensive.cjs": "8D384FB3AFC07778B7F514C66ACB7A9BC1421774A97A2502CC7CF256C4BF99A7",
+        "ai_comprehensive.py": "27BE56258E7F33B22AD289407C2748FDC91BA5D2E66B6C91FBF798EE98727B03",
+        "tests/test_member_web_20261112.py": "8D0C83FA678033266FAF265023F96EFA8A3D0EF80485EC0EEDFC8DA2D04796EE"
+      },
+      "status": "passed"
+    },
+    {
+      "baseline": "45bd8576863e60aa876f683bc6cb36c6e0b14d37",
+      "authorization": "User authorized the listed local retests and required release checks",
+      "scenario": "Two legacy quota parameters",
+      "log": "D:/CodexData/outputs/member-web-20261112/legacy-authorized-recheck.log",
+      "started": "2026-11-12T11:28:54.9426250+08:00",
+      "hashes": {
+        "templates/control.html": "A334BD33E5191E923831BFA2481B63025C0E91804D9542C266E2BBE35979604E",
+        "scripts/check_member_web_once.ps1": "48B00DE82DE215522217B6BCFEEDCC9B59998C32A8BC72047BB71AA322C21853",
+        "tests/test_comprehensive_mode.py": "0461CB99A7CDF8635D924B705604B1C4082665188FFEAAEA085A5261F84A1344",
+        "templates/account.html": "DAD66E3C15F44200BFF955027E1DC7A226363BAF0737FF7F1FB521E277B0DF26",
+        "docs/ops/MEMBER_WEB_TEST_LEDGER_20261112.json": "DBFF289198469682ADCE63FDBD56CA2556BC555F071403D2CB4245418CEDFB22",
+        "ai.py": "649CC1E814399FC7056BC8CFA7965D13064DC8922A9AAF6C041CB72FF30C4C50",
+        "tests/test_member_web_edges.py": "504F5EA373EA1FB8559A455DEDDCFAA973708D0915544AA09160D7F9D34FF9D9",
+        "tests/test_member_web_20261112.py": "8D0C83FA678033266FAF265023F96EFA8A3D0EF80485EC0EEDFC8DA2D04796EE",
+        "membership.py": "A008FCA354D10234BDE925C837877B467EBE5CAD817315B18148FB85E7CFDBB7",
+        "app.py": "40D26517C252CB0EB6473E8B29B60DD00B88D6CDB911ADB4738B1301ECB4E7B3",
+        "ai_comprehensive.py": "27BE56258E7F33B22AD289407C2748FDC91BA5D2E66B6C91FBF798EE98727B03",
+        "static/ai-page/ai-page.js": "07ED0EFCD2ACEFF8093B36FAA315FD4A00F83594807CCB0464B254F2975CAB84",
+        "tests/browser/comprehensive.cjs": "8D384FB3AFC07778B7F514C66ACB7A9BC1421774A97A2502CC7CF256C4BF99A7",
+        "comprehensive_web.py": "A5E342C5CDD975E46118ACB37738F4D6A645C4FA1832B2CF6AA88E1405B17819",
+        "templates/ai.html": "7DC70CC1F630F900C0E7FEFAB298CDA4432EFB7D268FC29F47E6D8DDC15850F2",
+        "docs/ops/MEMBER_WEB_20261112.md": "37DD8A449C0A368E98B886FDE074C92B2B58A2417EDC5BC5DBD1C55C277B4B4A",
+        "ai_generation_flow.py": "F82BA2DE2E3A3AF8212F1744CFB51541A8C95F2B7920297219FA0C501CA1A217"
+      },
+      "finished": "2026-11-12T11:29:05.1754587+08:00",
+      "stage": "legacy-authorized-recheck",
+      "exit_code": 0,
+      "status": "passed"
+    },
+    {
+      "hashes": {
+        "templates/control.html": "A334BD33E5191E923831BFA2481B63025C0E91804D9542C266E2BBE35979604E",
+        "templates/account.html": "DAD66E3C15F44200BFF955027E1DC7A226363BAF0737FF7F1FB521E277B0DF26",
+        "ai.py": "649CC1E814399FC7056BC8CFA7965D13064DC8922A9AAF6C041CB72FF30C4C50",
+        "ai_comprehensive.py": "27BE56258E7F33B22AD289407C2748FDC91BA5D2E66B6C91FBF798EE98727B03",
+        "tests/test_comprehensive_mode.py": "0461CB99A7CDF8635D924B705604B1C4082665188FFEAAEA085A5261F84A1344",
+        "tests/test_member_web_edges.py": "504F5EA373EA1FB8559A455DEDDCFAA973708D0915544AA09160D7F9D34FF9D9",
+        "comprehensive_web.py": "A5E342C5CDD975E46118ACB37738F4D6A645C4FA1832B2CF6AA88E1405B17819",
+        "tests/test_member_web_20261112.py": "8D0C83FA678033266FAF265023F96EFA8A3D0EF80485EC0EEDFC8DA2D04796EE",
+        "tests/browser/comprehensive.cjs": "8D384FB3AFC07778B7F514C66ACB7A9BC1421774A97A2502CC7CF256C4BF99A7",
+        "docs/ops/MEMBER_WEB_TEST_LEDGER_20261112.json": "DBFF289198469682ADCE63FDBD56CA2556BC555F071403D2CB4245418CEDFB22",
+        "membership.py": "A008FCA354D10234BDE925C837877B467EBE5CAD817315B18148FB85E7CFDBB7",
+        "static/ai-page/ai-page.js": "07ED0EFCD2ACEFF8093B36FAA315FD4A00F83594807CCB0464B254F2975CAB84",
+        "app.py": "40D26517C252CB0EB6473E8B29B60DD00B88D6CDB911ADB4738B1301ECB4E7B3",
+        "templates/ai.html": "7DC70CC1F630F900C0E7FEFAB298CDA4432EFB7D268FC29F47E6D8DDC15850F2",
+        "ai_generation_flow.py": "F82BA2DE2E3A3AF8212F1744CFB51541A8C95F2B7920297219FA0C501CA1A217",
+        "scripts/check_member_web_once.ps1": "48B00DE82DE215522217B6BCFEEDCC9B59998C32A8BC72047BB71AA322C21853",
+        "docs/ops/MEMBER_WEB_20261112.md": "37DD8A449C0A368E98B886FDE074C92B2B58A2417EDC5BC5DBD1C55C277B4B4A"
+      },
+      "status": "passed",
+      "baseline": "45bd8576863e60aa876f683bc6cb36c6e0b14d37",
+      "started": "2026-11-12T11:28:54.9355323+08:00",
+      "stage": "browser-authorized-recheck",
+      "exit_code": 0,
+      "finished": "2026-11-12T11:29:05.8839351+08:00",
+      "scenario": "Seven comprehensive browser scenarios",
+      "authorization": "User authorized the listed local retests and required release checks",
+      "log": "D:/CodexData/outputs/member-web-20261112/browser-authorized-recheck.log"
+    },
+    {
+      "exit_code": 0,
+      "log": "D:/CodexData/outputs/member-web-20261112/feature-prepush.log",
+      "status": "passed",
+      "finished": "2026-11-12T11:33:30.7286444+08:00",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "scenario": "Feature push and existing pre-push checks",
+      "started": "2026-11-12T11:30:51.1594299+08:00"
+    },
+    {
+      "scenario": "PR CI for commit 5700717",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "run_id": 43149097908,
+      "url": "https://github.com/popyunlong/Marx-and-Engels-Classic-Texts-Index-Chinese-Edition-/actions/runs/43149097908",
+      "status": "failed",
+      "evidence": "D:\\CodexData\\outputs\\member-web-20261112\\pr-jobs.json",
+      "jobs": [
+        {
+          "id": 130953784501,
+          "name": "Public corpus API and MCP contract",
+          "conclusion": "success"
+        },
+        {
+          "id": 130953784721,
+          "name": "Fast gate (Python 3.10)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 130953784751,
+          "name": "Fast gate (Python 3.11)",
+          "conclusion": "failure"
+        },
+        {
+          "id": 130953784795,
+          "name": "AI controls browser gate",
+          "conclusion": "success"
+        },
+        {
+          "id": 130954321786,
+          "name": "Main integration gate (Python 3.10)",
+          "conclusion": "skipped"
+        },
+        {
+          "id": 130954322191,
+          "name": "Production lineage and rollback gate",
+          "conclusion": "skipped"
+        }
+      ],
+      "failed_case": "tests/test_comprehensive_mode.py::test_route_explicit_scope_without_evidence_stops_generation",
+      "annotations": [
+        "D:\\CodexData\\outputs\\member-web-20261112\\pr-annotations-130953784721.json",
+        "D:\\CodexData\\outputs\\member-web-20261112\\pr-annotations-130953784751.json"
+      ]
+    },
+    {
+      "started": "2026-11-12T11:39:30.5530280+08:00",
+      "head": "570071763ed62acced0b3e0486ba09d76fdfaa44",
+      "authorization": "User directed automated tests and push in response to the enumerated scope recheck and push/PR checks",
+      "status": "passed",
+      "hashes": {
+        "ai_comprehensive.py": "4ADC72BCF6E022BC17E5B995751820C4A162B08BE2D3A51B9787301E359737CE",
+        "tests/test_comprehensive_mode.py": "79458C5D441F7BC19FA390B2843433A912B222D33D2AE8C7CEAB611989A73251",
+        "comprehensive_web.py": "7BAFEA4F43400A4B0EEF9030375D66B8A70F58955E82F629D1DF9285EA405857"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-12T11:39:39.0239940+08:00",
+      "log": "D:/CodexData/outputs/member-web-20261112/scope-authorized-recheck.log",
+      "scenario": "tests/test_comprehensive_mode.py::test_route_explicit_scope_without_evidence_stops_generation"
+    }
+  ],
+  "static_review": {
+    "check": "git diff --check",
+    "status": "passed",
+    "attempts": 1
+  },
+  "pending": [
+    "Authorized repair push and PR CI",
+    "Main and production CI, release"
+  ]
+}

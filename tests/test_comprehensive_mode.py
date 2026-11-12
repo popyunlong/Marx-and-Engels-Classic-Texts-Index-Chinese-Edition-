@@ -136,6 +136,8 @@ def wallet():
     now = "2026-11-01T00:00:00+00:00"
     expiry = (M.utc_now()+timedelta(days=5)).isoformat(timespec="seconds")
     with M._connect() as conn:
+        conn.execute("INSERT INTO subscriptions(user_id,plan_code,status,starts_at,expires_at,created_at,updated_at) VALUES(?,'support_basic','active',?,?,?,?)",
+                     (user["id"], now, expiry, now, now))
         conn.execute("INSERT INTO ai_wallets(user_id,source_type,source_ref,plan_code,budget_micros,released_micros,starts_at,expires_at,model_policy,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (user["id"], "test", secrets.token_hex(10), "support_basic", 1_000_000, 1_000_000,
              now, expiry, json.dumps({"models": {"deepseek-v4-flash": ["off"]}}), now, now))
@@ -300,6 +302,8 @@ def test_route_explicit_scope_without_evidence_stops_generation():
     with route_fixture({**PLAN, "needs_corpus": True}, scope_meta={"manual": True}) as (post, calls, _):
         result = post({"question": "解释指定篇目", "scope": "book:private", "request_id": "missing-document"})
     assert not result["ok"] and len(calls) == 1 and "指定范围" in result["error"]
+    assert result["stop_reason"] == "scope_evidence_unavailable"
+    assert result["recoverable"] is False
 
 
 def test_route_continuation_reuses_plan_and_completed_sections():
