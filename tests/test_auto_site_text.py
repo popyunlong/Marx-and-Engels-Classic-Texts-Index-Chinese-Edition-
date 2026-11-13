@@ -57,6 +57,8 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         self.assertEqual(out, "<span></span>")
 
     def test_pricing_notice_number_preserves_existing_overrides(self) -> None:
+        from member_catalog import PRICING_NOTICE_ITEMS
+
         source = (TEMPLATE_DIR / "pricing.html").read_text(encoding="utf-8")
         notice = source.split('<div class="notice">', 1)[1].split('</div>', 1)[0]
         env = Environment(autoescape=True, extensions=[AutoSiteTextExtension])
@@ -68,10 +70,17 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         overrides["auto.a8b6aa6947"] = old_plan_copy
         env.globals["site_text_auto"] = lambda key, b64="": render_auto_site_text(key, b64, overrides)
         env.globals["site_text"] = lambda key: "保留后台说明"
-        rendered = env.from_string(notice).render(alipay_runtime={"enabled": True})
+        rendered = env.from_string(notice).render(
+            alipay_runtime={"enabled": True}, pricing_notice_items=PRICING_NOTICE_ITEMS)
         self.assertIn("保留后台说明", rendered)
-        self.assertIn(overrides["auto.d951a029b9"], rendered)
-        self.assertIn(overrides["auto.2ca47864d5"], rendered)
+        # Preserve the configurable intro, but exclude obsolete numbering.
+        self.assertNotIn(overrides["auto.d951a029b9"], rendered)
+        self.assertNotIn(overrides["auto.2ca47864d5"], rendered)
+        self.assertEqual(rendered.count("<ol>"), 1)
+        self.assertEqual(rendered.count("<li>"), 6)
+        self.assertIn("第 15 天开放余下 50%", rendered)
+        self.assertIn("80% 输入／20% 输出", rendered)
+        self.assertIn("排队优先级不打断已经开始的任务", rendered)
         self.assertNotIn(old_plan_copy, rendered)
         self.assertIn("Plus / Pro / Max 三档之间互斥", rendered)
         self.assertIn("同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。", rendered)

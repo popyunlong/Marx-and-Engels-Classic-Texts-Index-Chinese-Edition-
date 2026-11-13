@@ -96,7 +96,7 @@ test('concept map is an independent column and dictionary retains its original i
   const p=await open(t);await p.goto(base+'/concept-map?center=fixture-small&group=all&view=list&offset=0');await ready(p);
   assert.equal(await p.title(),'概念地图 · 马克思主义理论研究辅助程序');
   const active=p.locator('.v2tabs-top [aria-current="page"]');
-  assert.match((await active.textContent()).trim(),/^概念地图\s+会员$/);
+  assert.equal((await active.textContent()).trim(),'概念地图');
   assert.equal(await active.getAttribute('href'),'/concept-map');
   assert.equal(await p.locator('.v2tabs-top a[href="/dictionary"].active').count(),0);
   assert(await p.locator('#dmGraphPanel').isHidden());

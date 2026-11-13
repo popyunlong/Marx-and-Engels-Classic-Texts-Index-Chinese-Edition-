@@ -96,6 +96,8 @@
       background: var(--warn-bg);
       border-color: rgba(138, 91, 0, 0.16);
     }
+    .notice ol { margin: 10px 0 0; padding-left: 1.6em; }
+    .notice li + li { margin-top: 6px; }
     /* 套餐采用横条排版：一行一条，自上而下。 */
     .plan-list {
       display: flex;
@@ -303,21 +305,17 @@
       </div>
     </section>
 
-    <section class="notice"><h2>网页会员共同权益</h2>
-      {% for group in benefit_groups %}<h3>{{ group.title }}</h3><p>{% for item in group.features if item.key != 'agent_api' %}{{ item.label }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endfor %}
-      <p>Plus 不含 API/MCP；Pro/Max 可在套餐内自助开通。AI 研究对话三种模式均按 Max、Pro、普通队列依次优先，已开始的任务不会被中断。</p>
-    </section>
     <div class="notice">
       {% if alipay_runtime.enabled %}
       {{ site_text("pricing.payment_enabled") }}
       {% else %}
       {{ site_text("pricing.payment_disabled") }}
       {% endif %}
-      <br><strong>购买规则：</strong>已生效的旧套餐与一个新套餐可以并行；Plus / Pro / Max 三档之间互斥；原 15/25 元套餐已停售，原 AI 额度保留。
-      <br><strong>早期会员承诺：</strong>北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员，按月／季／年档每周享有 28／49／77 万实际输入与输出 token，周一恢复。每天独立赠送 20 次联网。旧权益支持 DeepSeek Flash 非思考模式，另购套餐的额度单独计算。
-      同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。
-      月套餐 AI 研学额度购买时开放 50%，第 15 天开放余下 50%，第 30 天失效。
-      页面中的典型 token 容量按缓存未命中、80% 输入与 20% 输出估算；实际可用量会随模型、思考深度、峰谷时段和缓存命中情况变化。
+      <ol>
+        {% for label, text in pricing_notice_items %}
+        <li><strong>{{ label }}：</strong>{{ text }}</li>
+        {% endfor %}
+      </ol>
     </div>
 
     {% with flashes = get_flashed_messages(with_categories=true) %}
@@ -345,7 +343,8 @@
           <ul>
             {% if feature_lines %}
             {% for line in feature_lines %}
-            <li>{{ line }}</li>
+            {% set parts = line.partition('：') %}
+            <li>{% if parts[1] %}<strong>{{ parts[0] }}：</strong>{{ parts[2] }}{% else %}{{ line }}{% endif %}</li>
             {% endfor %}
             {% elif is_pack %}
             {% if plan.research_credits %}<li>研究级检索 {{ plan.research_credits }} 次</li>{% endif %}
