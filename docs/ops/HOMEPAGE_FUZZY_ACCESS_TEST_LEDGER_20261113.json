@@ -36,15 +36,22 @@
       "record": "D:\\CodexData\\outputs\\fuzzy-access-20261113/static.json",
       "finished": "2026-11-13T23:11:17.5544084+08:00",
       "log": "D:\\CodexData\\outputs\\fuzzy-access-20261113/static.log"
+    },
+    {
+      "status": "passed",
+      "stage": "browser_authorized_retest",
+      "scenario": "free automatic fallback preserves chapter scope and history contains only directories",
+      "authorization": "同意，仅复测这一项",
+      "version": "d81e40d7c33b400be2ed2dec9ac86d226c255b31",
+      "started": "2026-11-13T15:22:56.4793303+00:00",
+      "finished": "2026-11-13T15:23:10.3160277+00:00",
+      "record": "D:/CodexData/outputs/fuzzy-access-20261113/authorized-chapter-fallback-retest/run.json",
+      "log": "D:/CodexData/outputs/fuzzy-access-20261113/authorized-chapter-fallback-retest/browser.log",
+      "screenshot": "D:/CodexData/outputs/fuzzy-access-20261113/authorized-chapter-fallback-retest/free-chapter-results.png"
     }
   ],
   "task": "homepage-fuzzy-access-20261113",
   "policy": "No attempted scenario reruns without specific user approval. Keep all failed/interrupted evidence.",
   "backend_new_passed": 18,
-  "pending": {
-    "authorization": "requested; not received",
-    "scope": "free automatic fallback preserves chapter scope and history contains only directories",
-    "status": "not_run",
-    "reason": "Range restoration invalidated the in-flight request ID; continuation now uses the synchronously updated generation."
-  }
+  "browser_retest_passed": 1
 }
