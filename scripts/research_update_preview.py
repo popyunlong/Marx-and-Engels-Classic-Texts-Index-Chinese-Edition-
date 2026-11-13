@@ -17,7 +17,13 @@ def create_app(port=8879):
         if request.method not in {"GET", "HEAD"}:
             abort(405)
         g.current_user = {"id": "preview"}
-    for name, path in {"control": "/legacy-admin", "journal_alerts_latest": "/legacy-sample", "account_journal_alerts": "/subscriptions", "pricing": "/pricing"}.items():
+    for name, path in {
+        "control": "/legacy-admin",
+        "journal_alerts_latest": "/legacy-sample",
+        "account": "/account",
+        "account_journal_alerts": "/subscriptions",
+        "pricing": "/pricing",
+    }.items():
         app.add_url_rule(path, name, lambda: "本地只读预览；此入口上线后连接现有网站。")
     register(app, {"_feature_effective_for_user": lambda name: True, "_require_admin": lambda: None,
                    "_ensure_csrf_token": lambda: "preview", "CSRF_EXEMPT_ENDPOINTS": set(),
