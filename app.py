@@ -9008,7 +9008,7 @@ def pricing():
 
     state = current_view_state()
     plans = list_active_plans()
-    from member_catalog import public_plan
+    from member_catalog import PRICING_NOTICE_ITEMS, public_plan
     plans = [public_plan(plan) for plan in plans]
     purchase_enabled = multi_purchase.enabled()
     purchase_options = multi_purchase.purchase_options(
@@ -9023,7 +9023,7 @@ def pricing():
         plans=plans,
         purchase_options=purchase_options,
         journal_catalog=research_source_catalog(),
-        benefit_groups=ACCOUNT_BENEFIT_GROUPS,
+        pricing_notice_items=PRICING_NOTICE_ITEMS,
         next_url=next_url,
         payment_ready=False,
     )

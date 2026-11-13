@@ -1,0 +1,69 @@
+{
+  "task": "membership-copy-20261113",
+  "baseline": "08b3332143b4b0f54efd6fd58efea27e5f5f7ef1",
+  "branch": "codex/membership-copy-20261113",
+  "workspace": "D:\\CodexData\\workspaces\\membership-copy-20261113\\【增强】马恩《文集》《全集》检索",
+  "policy": "Every attempted scenario is retained. No automatic rerun after failure or modification.",
+  "authorization": "2026-11-13 user explicitly approved: two local backend cases once; desktop/mobile pricing and navigation once; one feature pre-push; one PR, main and production workflow each, including fixed-stage overlaps; dry-run build, real build, candidate and live acceptance once each. Further retries require new scope-specific approval.",
+  "source_hashes": {
+    "member_catalog.py": "B651A4894379CCF3CBBBD5C44C2DA31F7C5EBE6B10B2DF3CA530A46AE5702C21",
+    "app.py": "44F494BEDEB646658B61731A9F40DC4246193D991FFCD72EFD23DE21B21A4D6E",
+    "tests/test_auto_site_text.py": "EF0993D7171A334455F2C63DC8F754BC8530C416DAD05D4B3AC63E7573F0B998",
+    "templates/_appnav.html": "5A14E6C5505DFB7084CE996855A525AB8ACEB1D239A7970E9EFFABCA61BF76A0",
+    "templates/pricing.html": "F0EBF73A8A0333A0132A7C047E79197034E758BD54AB47E2F98E8339A29FA711",
+    "tests/browser/dictionary_map.cjs": "CDB7B85096BF3975047D2D20C10264C3E513DB9FD2359018823CF0B51E7B707D"
+  },
+  "runs": [
+    {
+      "authorization": "2026-11-13 user approved scoped tests once",
+      "log": "D:\\CodexData\\outputs\\membership-copy-20261113/backend.log",
+      "hashes": {
+        "member_catalog.py": "B651A4894379CCF3CBBBD5C44C2DA31F7C5EBE6B10B2DF3CA530A46AE5702C21",
+        "app.py": "44F494BEDEB646658B61731A9F40DC4246193D991FFCD72EFD23DE21B21A4D6E",
+        "tests/test_auto_site_text.py": "EF0993D7171A334455F2C63DC8F754BC8530C416DAD05D4B3AC63E7573F0B998",
+        "templates/_appnav.html": "5A14E6C5505DFB7084CE996855A525AB8ACEB1D239A7970E9EFFABCA61BF76A0",
+        "templates/pricing.html": "F0EBF73A8A0333A0132A7C047E79197034E758BD54AB47E2F98E8339A29FA711",
+        "tests/browser/dictionary_map.cjs": "CDB7B85096BF3975047D2D20C10264C3E513DB9FD2359018823CF0B51E7B707D"
+      },
+      "baseline": "08b3332143b4b0f54efd6fd58efea27e5f5f7ef1",
+      "exit_code": 0,
+      "started": "2026-11-13T18:24:27.1999293+08:00",
+      "finished": "2026-11-13T18:24:40.1306067+08:00",
+      "status": "passed"
+    },
+    {
+      "status": "passed",
+      "started": "2026-11-13T10:24:27.863Z",
+      "authorization": "2026-11-13 user approved scoped local browser review once",
+      "checks": [
+        {
+          "width": 1280,
+          "notice": 6,
+          "plans": 3,
+          "discounts": "passed",
+          "navigation": "passed",
+          "overflow": false
+        },
+        {
+          "width": 390,
+          "notice": 6,
+          "plans": 3,
+          "discounts": "passed",
+          "navigation": "passed",
+          "overflow": false
+        }
+      ],
+      "finished": "2026-11-13T10:24:41.747Z"
+    }
+  ],
+  "pending": [
+    "feature-prepush",
+    "pr-ci",
+    "main-ci",
+    "production-ci",
+    "build-dry-run",
+    "release",
+    "candidate-review",
+    "live-acceptance"
+  ]
+}
