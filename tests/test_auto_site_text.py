@@ -62,16 +62,19 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         env = Environment(autoescape=True, extensions=[AutoSiteTextExtension])
         overrides = {
             "auto.d951a029b9": "重要通知：",
-            "auto.a8b6aa6947": "（1）保留既有第一条。（2）保留既有第二条。（3）保留既有第三条。",
             "auto.2ca47864d5": "（5）保留既有第五条。",
         }
+        old_plan_copy = "基础 / Plus / Pro / Max 四档之间互斥。"
+        overrides["auto.a8b6aa6947"] = old_plan_copy
         env.globals["site_text_auto"] = lambda key, b64="": render_auto_site_text(key, b64, overrides)
         env.globals["site_text"] = lambda key: "保留后台说明"
         rendered = env.from_string(notice).render(alipay_runtime={"enabled": True})
-        for text in overrides.values():
-            self.assertIn(text, rendered)
-        self.assertIn("（4）同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。", rendered)
-        self.assertEqual(rendered.count("（4）"), 1)
+        self.assertIn("保留后台说明", rendered)
+        self.assertIn(overrides["auto.d951a029b9"], rendered)
+        self.assertIn(overrides["auto.2ca47864d5"], rendered)
+        self.assertNotIn(old_plan_copy, rendered)
+        self.assertIn("Plus / Pro / Max 三档之间互斥", rendered)
+        self.assertIn("同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。", rendered)
 
     def test_saved_auto_override_is_present_in_effective_map(self) -> None:
         key = next(iter(discover_auto_literals()))

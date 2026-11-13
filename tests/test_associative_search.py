@@ -858,21 +858,45 @@ class AssociativeRouteTests(unittest.TestCase):
             resp.close()
 
     def test_research_pipeline_waits_for_a_worker_instead_of_failing_immediately(self) -> None:
-        gate = mock.Mock()
-        gate.acquire.side_effect = [False, True]
-        cancel_event = app_module.threading.Event()
+        threading = app_module.threading
+        gate = app_module.PrioritySemaphore(1)
+        waiting = threading.Event()
+        cancel_event = threading.Event()
+        result = []
+        original_wait = gate._condition.wait
+
+        def signal_wait(timeout):
+            waiting.set()
+            return original_wait(timeout)
+
+        def acquire_slot():
+            acquired = app_module._acquire_research_pipeline_slot(cancel_event)
+            result.append(acquired)
+            if acquired:
+                gate.release()
+
+        self.assertTrue(gate.acquire(blocking=False))
+        worker = threading.Thread(target=acquire_slot)
         with mock.patch.object(app_module, "_RESEARCH_PIPELINE_SEMAPHORE", gate), \
-             mock.patch.object(app_module, "_RESEARCH_QUEUE_WAIT_SECONDS", 3.0):
-            self.assertTrue(app_module._acquire_research_pipeline_slot(cancel_event))
-        self.assertEqual(gate.acquire.call_count, 2)
+             mock.patch.object(app_module, "_RESEARCH_QUEUE_WAIT_SECONDS", 3.0), \
+             mock.patch.object(gate._condition, "wait", side_effect=signal_wait):
+            worker.start()
+            try:
+                self.assertTrue(waiting.wait(2))
+            finally:
+                gate.release()
+                worker.join(4)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result, [True])
 
     def test_research_pipeline_queue_stops_waiting_after_disconnect(self) -> None:
-        gate = mock.Mock()
+        gate = app_module.PrioritySemaphore(1)
         cancel_event = app_module.threading.Event()
         cancel_event.set()
         with mock.patch.object(app_module, "_RESEARCH_PIPELINE_SEMAPHORE", gate):
             self.assertFalse(app_module._acquire_research_pipeline_slot(cancel_event))
-        gate.acquire.assert_not_called()
+        self.assertTrue(gate.acquire(blocking=False))
+        gate.release()
 
     def test_research_mode_falls_back_when_review_generation_fails(self) -> None:
         # 长文生成失败时也要返回可显示的接地综述，避免前端只看到空白综述区。
@@ -2232,9 +2256,10 @@ class ReaderAiStreamAndScopeTests(unittest.TestCase):
             {"content": "答"},
         )
         # monotonic 调用序：起点 0.0 → 思考A 时 9.0（≥8 出 tick）→ 思考B 时 9.5（不足再 tick）
+        clock = mock.Mock(wraps=ai_module.time, monotonic=mock.Mock(side_effect=[0.0, 9.0, 9.5]))
         with mock.patch.object(
             ai_module.urllib_request, "urlopen", return_value=_FakeSseResp(lines)
-        ), mock.patch.object(ai_module.time, "monotonic", side_effect=[0.0, 9.0, 9.5]):
+        ), mock.patch.object(ai_module, "time", clock):
             chunks = list(
                 app_module.AI_CLIENT.chat_complete_stream(
                     [{"role": "user", "content": "讲讲"}], 200

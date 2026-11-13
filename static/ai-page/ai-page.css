@@ -196,7 +196,8 @@ body.aip-page .v2tab { flex-shrink: 0; }
 }
 
 /* Modal surfaces live outside the sticky composer so its stacking context cannot clip them. */
-html.aip-overlay-open { overflow: hidden; scrollbar-gutter: stable; }
+html.aip-document { scrollbar-gutter: stable; }
+html.aip-overlay-open { overflow: hidden; }
 .aip-scope-scrim { position: fixed; inset: 0; z-index: 10041; background: rgba(40, 28, 18, .25); }
 .aip-scope-panel {
   position: fixed; z-index: 10042; width: min(520px, calc(100vw - 24px));
