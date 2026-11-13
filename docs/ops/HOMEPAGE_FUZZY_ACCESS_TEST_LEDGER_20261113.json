@@ -1,0 +1,50 @@
+{
+  "notes": [
+    "Backend source unchanged since its passing run.",
+    "Three passing browser scenarios apply to the initial template hash.",
+    "Static check covers the request-generation fix.",
+    "No push, CI or release gates triggered."
+  ],
+  "browser_first_failed": 1,
+  "branch": "codex/fuzzy-access-20261113",
+  "baseline": "ed70a9f681e8b46aa40a37cb2c0f019f81548044",
+  "browser_first_passed": 3,
+  "runs": [
+    {
+      "status": "passed",
+      "stage": "backend",
+      "started": "2026-11-13T23:07:41.4365873+08:00",
+      "baseline": "ed70a9f681e8b46aa40a37cb2c0f019f81548044",
+      "record": "D:\\CodexData\\outputs\\fuzzy-access-20261113/backend.json",
+      "finished": "2026-11-13T23:08:05.3802156+08:00",
+      "log": "D:\\CodexData\\outputs\\fuzzy-access-20261113/backend.log"
+    },
+    {
+      "status": "failed",
+      "stage": "browser",
+      "started": "2026-11-13T23:08:18.8232749+08:00",
+      "baseline": "ed70a9f681e8b46aa40a37cb2c0f019f81548044",
+      "record": "D:\\CodexData\\outputs\\fuzzy-access-20261113/browser.json",
+      "finished": "2026-11-13T23:09:16.5316196+08:00",
+      "log": "D:\\CodexData\\outputs\\fuzzy-access-20261113/browser.log"
+    },
+    {
+      "status": "passed",
+      "stage": "static",
+      "started": "2026-11-13T23:11:15.8507891+08:00",
+      "baseline": "ed70a9f681e8b46aa40a37cb2c0f019f81548044",
+      "record": "D:\\CodexData\\outputs\\fuzzy-access-20261113/static.json",
+      "finished": "2026-11-13T23:11:17.5544084+08:00",
+      "log": "D:\\CodexData\\outputs\\fuzzy-access-20261113/static.log"
+    }
+  ],
+  "task": "homepage-fuzzy-access-20261113",
+  "policy": "No attempted scenario reruns without specific user approval. Keep all failed/interrupted evidence.",
+  "backend_new_passed": 18,
+  "pending": {
+    "authorization": "requested; not received",
+    "scope": "free automatic fallback preserves chapter scope and history contains only directories",
+    "status": "not_run",
+    "reason": "Range restoration invalidated the in-flight request ID; continuation now uses the synchronously updated generation."
+  }
+}

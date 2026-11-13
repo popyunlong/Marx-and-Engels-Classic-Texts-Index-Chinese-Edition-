@@ -2374,6 +2374,7 @@ class Corpus:
         max_hits: int | None = None,
         page_size: int = GROUP_PAGE_SIZE,
         book_scope: "Collection[str] | None" = None,
+        allow_fuzzy: bool = True,
     ) -> dict:
         q_norm = normalize(q)
         if len(q_norm) < MIN_QUERY_LEN:
@@ -2407,7 +2408,7 @@ class Corpus:
             # 查询可能恰好与某书库的文本层逐字一致（连错字都一致），却与另一书库
             # 差一两个字。若因「全库有精确命中」就整体关掉近似，后者会被静默压掉。
             # 故仅对零命中的书库补扫；截断意味着海量命中（将走篇章聚合通道），不补。
-            if layout_complete and not truncated and not any(h.exact_basis == 'layout' for h in hits):
+            if allow_fuzzy and layout_complete and not truncated and not any(h.exact_basis == 'layout' for h in hits):
                 for book in self._scoped_book_keys(book_scope):
                     if book in books_with_exact:
                         continue
@@ -2421,7 +2422,7 @@ class Corpus:
                 truncated,
             ))
 
-        if not layout_complete:
+        if not allow_fuzzy or not layout_complete:
             return finish({"query": q, "total_hits": 0, "group_count": 0, "truncated": False, "groups": []})
 
         if len(q_norm) < MIN_FUZZY_QUERY_LEN:
