@@ -18,10 +18,13 @@ from pathlib import Path
 from runtime_env import APPDATA_DIR, secure_db_file
 import membership_purchase as multi_purchase
 import legacy_ai
-from member_catalog import PLUS_CODE, effective_rank
+from member_catalog import PLUS_CODE, RETIRED_PLUS_CODES, effective_rank
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
+# Only this catalog interprets the marker as on sale. The predecessor
+# continues honoring the stored sale window while both versions share the DB.
+PLUS_CATALOG_SALE_MARKER = "9999-01-01T00:00:00+00:00"
 SECRET_KEY_PATH = APPDATA_DIR / "session_secret.txt"
 # 灾备导出账本（append-only）：每笔会员开通/续费即时追加一行 JSON（含完整账号信息），供本地每分钟
 # 增量拉取到站长本机；站点若被封可凭此即时迁移会员。拉取/落地脚本见 deploy/sync_members_local.ps1。
@@ -1060,13 +1063,9 @@ def init_membership_db() -> Path:
                     plan["features"], plan["badge"], plan["sort_order"], plan["kind"],
                     plan["tier_rank"], json.dumps(plan["model_policy"], ensure_ascii=False, sort_keys=True),
                     plan["parallel_group"], plan["ai_budget_micros"], plan["weekly_token_limit"],
-                    MEMBERSHIP_REFORM_CUTOFF,
+                    PLUS_CATALOG_SALE_MARKER if plan["code"] == PLUS_CODE else MEMBERSHIP_REFORM_CUTOFF,
                 ),
             )
-
-        # Retire sales only: historical prices, limits and balances are untouched.
-        conn.execute("UPDATE plans SET is_active=0 WHERE code IN ('support_basic','support_plus')")
-        # Historical weekly limits are preserved exactly, including administrator values.
 
         # 模型路由属于权益而非营销文案；幂等刷新已生成的钱包快照。
         policy_update_at = utc_now_text()
@@ -1251,6 +1250,17 @@ def normalize_email(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _catalog_plan(row: sqlite3.Row | None) -> dict | None:
+    plan = row_to_dict(row)
+    if plan is None:
+        return None
+    if plan["code"] == PLUS_CODE and plan["sale_starts_at"] == PLUS_CATALOG_SALE_MARKER:
+        plan["sale_starts_at"] = ""
+    if plan["code"] in RETIRED_PLUS_CODES and "is_active" in plan:
+        plan["is_active"] = 0
+    return plan
+
+
 def list_active_plans() -> list[dict]:
     now = utc_now_text()
     with _connect() as conn:
@@ -1263,13 +1273,13 @@ def list_active_plans() -> list[dict]:
                    billing_cycle_days, sale_starts_at, sale_ends_at
             FROM plans
             WHERE is_active = 1 AND kind != 'donation'
-              AND (sale_starts_at = '' OR sale_starts_at <= ?)
+              AND (sale_starts_at = '' OR sale_starts_at <= ? OR (code = ? AND sale_starts_at = ?))
               AND (sale_ends_at = '' OR sale_ends_at > ?)
             ORDER BY sort_order ASC, code ASC
             """
-            , (now, now)
+            , (now, PLUS_CODE, PLUS_CATALOG_SALE_MARKER, now)
         ).fetchall()
-    return [row_to_dict(row) for row in rows]
+    return [_catalog_plan(row) for row in rows if row["code"] not in RETIRED_PLUS_CODES]
 
 
 def list_plans(include_inactive: bool = False) -> list[dict]:
@@ -1288,7 +1298,7 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
             ORDER BY sort_order ASC, code ASC
             """
         ).fetchall()
-    return [row_to_dict(row) for row in rows]
+    return [_catalog_plan(row) for row in rows if include_inactive or row["code"] not in RETIRED_PLUS_CODES]
 
 
 def get_plan(plan_code: str) -> dict | None:
@@ -1305,7 +1315,7 @@ def get_plan(plan_code: str) -> dict | None:
             """,
             (plan_code,),
         ).fetchone()
-    return row_to_dict(row)
+    return _catalog_plan(row)
 
 
 def update_plan_weekly_token_limits(
@@ -2066,7 +2076,7 @@ def _plan_is_on_sale(plan: dict, at_text: str | None = None) -> bool:
 def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: bool = False, purchase_months: int = 1) -> dict:
     purchase_months = multi_purchase.validate_months(purchase_months)
     plan = get_plan(plan_code)
-    if plan_code in {"support_basic", "support_plus"}:
+    if plan_code in RETIRED_PLUS_CODES:
         raise ValueError("该套餐已停售，请选择 20 元 Plus。")
     if not plan or not plan.get("is_active"):
         raise ValueError("套餐不存在或未启用")

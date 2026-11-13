@@ -4,7 +4,7 @@
   "branch": "codex/membership-refresh-20261113",
   "workspace": "D:/CodexData/workspaces/membership-refresh-20261113",
   "policy": "Do not rerun any attempted scenario without explicit scope-specific authorization. Raw run JSON files retain source hashes; failures are never deleted.",
-  "unique_backend_scenarios_passed": 69,
+  "unique_backend_scenarios_passed": 71,
   "browser_scenarios_passed": 3,
   "runs": [
     {
@@ -92,6 +92,24 @@
         "tests/test_api_access.py::test_both_key_management_routes_share_store_and_csrf",
         "tests/test_api_access.py::test_api_permission_does_not_follow_agent_permission"
       ]
+    },
+    {
+      "stage": "cutover",
+      "status": "passed",
+      "baseline": "05d115f05f71ba189d385feebfcacc9611c655cd",
+      "started": "2026-11-13T04:34:26.8318404+00:00",
+      "finished": "2026-11-13T04:34:36.4955918+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/cutover.log",
+      "junit": "D:/CodexData/outputs/membership-refresh-20261113/cutover.xml",
+      "cases": [
+        "tests/test_membership_cutover.py"
+      ],
+      "hashes": {
+        "member_catalog.py": "49CF6E5AB6D41FC45F049C8DA9BAE279B53282FD91ADEFBACD427E8971FCC702",
+        "membership.py": "B55437FF5A1DFDE72F2E77A484E4E1E0C9475118CB3D7D55947535C745C9D12C",
+        "tests/test_membership_cutover.py": "F1C7768008EDA52A66856EFE9E80DA969F7588747F7FC53D60B0223C91DC2B6E",
+        "app.py": "02C744746F113AF534602651EFE9988E05FCFAA3A4DC3E6FEFCF3427F5A11B08"
+      }
     }
   ],
   "authorizations": [
@@ -113,7 +131,8 @@
     "Browser evidence predates checkbox width and account text adjustments. These small UI edits were not rerun.",
     "Static retry covers the application implementation. Subsequent edits are legacy test fixtures, guarded PowerShell test dispatch and documentation.",
     "DOCX structural completeness and hyperlinks passed; visual Word rendering was not run because LibreOffice is absent.",
-    "Full integration/release gates, actual model calls, actual email, production proxy cancellation and production release were not run."
+    "Full integration/release gates, actual model calls, actual email, production proxy cancellation and production release were not run.",
+    "The catalog and checkout cutover changes have their own two-scenario test record. Earlier tests were not repeated."
   ],
   "artifacts": "D:/CodexData/outputs/membership-refresh-20261113"
 }

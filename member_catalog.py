@@ -1,6 +1,7 @@
 """Public membership contract; historical product codes remain accounting identities."""
 PLUS_CODE = "support_plus_20"
-PLUS_CODES = frozenset({"support_basic", "support_plus", PLUS_CODE})
+RETIRED_PLUS_CODES = frozenset({"support_basic", "support_plus"})
+PLUS_CODES = RETIRED_PLUS_CODES | {PLUS_CODE}
 LEGACY_CODES = frozenset({"monthly", "quarter", "quarterly", "yearly"})
 
 

@@ -1835,13 +1835,13 @@ def _legacy_page_pay_url(order: dict, plan: dict, user: dict) -> str:
     )
 
 
-def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict):
+def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict, *, frozen_order: bool = False):
     plan_code = str(plan.get("code") or order.get("plan_code") or "")
     # 监控程序豁免：监控用非会员号反复进支付页但永不付款，会复用同一笔待支付订单——其网关
     # 二维码会过期，导致监控误报「二维码渲染不出来」；旧单还会在「待支付订单」里堆积。这里对
     # 监控请求先清掉它的历史待支付单，再用全新 order_no 重建，保证每次都能渲染出新二维码，且
     # 待支付计数不累积。仅对监控生效，不改动真实用户的复用逻辑（避免误把在途订单作废→收款无法开会员）。
-    if _is_monitoring_request():
+    if not frozen_order and _is_monitoring_request():
         try:
             clear_pending_orders(user_id=int(user["id"]))
             order = create_pending_order(user_id=int(user["id"]), plan_code=plan_code,
@@ -1851,7 +1851,7 @@ def _build_payment_checkout_redirect(order: dict, plan: dict, user: dict):
     # 兜底防过时：订单金额/币种若与当前套餐价不一致（管理员改过价，或这是之前失败时按旧价创建的订单），
     # 作废旧单、按新价重建，确保收银页与二维码都用新金额。覆盖「在线支付」与「继续支付」两个入口。
     try:
-        if (not multi_purchase.is_monthly_order(order) and order.get("purchase_action") != "upgrade"
+        if (not frozen_order and not multi_purchase.is_monthly_order(order) and order.get("purchase_action") != "upgrade"
             and (int(order.get("amount_cents") or 0) != int(plan.get("price_cents") or 0) or str(
                 order.get("currency") or ""
             ).upper() != str(plan.get("currency") or "CNY").upper())):
@@ -9103,6 +9103,8 @@ def create_donation():
 
 @app.post("/checkout/order/<order_no>")
 def retry_checkout(order_no: str):
+    from member_catalog import RETIRED_PLUS_CODES
+
     order = get_order_by_no(order_no)
     if order is None:
         _require_login_page()
@@ -9120,13 +9122,15 @@ def retry_checkout(order_no: str):
         flash("当前订单状态不支持重新支付。", "warning")
         return redirect(url_for("account") if getattr(g, "current_user", None) else url_for("pricing"))
 
-    plan = get_plan(str(order["plan_code"]))
-    if not plan or not plan.get("is_active"):
+    plan_code = str(order["plan_code"])
+    plan = get_plan(plan_code)
+    retired_order = plan_code in RETIRED_PLUS_CODES
+    if not plan or (not retired_order and not plan.get("is_active")):
         abort(404, description="该订单对应的套餐已不可用。")
     # 打赏订单金额是每笔自定的，不能走会员那套「按套餐价对账/复用」逻辑，否则会被重建成 ¥0 单。
     if is_donation:
         return _build_donation_checkout_redirect(order, {"id": int(order["user_id"])})
-    return _build_payment_checkout_redirect(order, plan, g.current_user)
+    return _build_payment_checkout_redirect(order, plan, g.current_user, frozen_order=retired_order)
 
 
 @app.get("/checkout/order/<order_no>/status")
