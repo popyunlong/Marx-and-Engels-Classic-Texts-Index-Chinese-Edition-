@@ -22,7 +22,7 @@ sys.path.insert(0, str(_ROOT))
 
 import app as app_module  # noqa: E402
 from dictionary_store import dictionary_available, dictionary_groups, dictionary_suggest  # noqa: E402
-from membership import create_user, get_user_by_email  # noqa: E402
+from membership import create_manual_subscription, create_user, get_user_by_email  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
@@ -74,6 +74,8 @@ class DictionaryFeatureTests(unittest.TestCase):
         self.assertIn('class="v2nav"', html)
         self.assertIn('aria-current="page"', html)
         self.assertIn('/?restore=1', html)
+        self.assertEqual(self.client.get('/concept-map').status_code, 302)
+        self.assertEqual(self.client.get('/api/dictionary/graph').status_code, 403)
 
     def test_homepage_contains_dictionary_navigation(self) -> None:
         self._login_registered()
@@ -95,7 +97,15 @@ class DictionaryFeatureTests(unittest.TestCase):
                     self.assertEqual('href="/concept-map"' in html, available)
 
     def test_unavailable_map_preserves_dictionary_and_legacy_links(self) -> None:
-        self._login_registered()
+        email = "dictionary-map-member@example.test"
+        user = get_user_by_email(email) or create_user(
+            email=email, display_name="dictionary-map-member",
+            password_hash=generate_password_hash("correct horse battery staple"),
+            email_verified_at="2026-01-01T00:00:00+00:00",
+        )
+        create_manual_subscription(user_email=email, plan_code="support_plus_20", note="test")
+        with self.client.session_transaction() as session:
+            session["user_id"] = int(user["id"])
         with patch.object(app_module, "_dictionary_current_graph", return_value=None), patch(
             "dictionary_map_web.current_graph", return_value=None
         ):

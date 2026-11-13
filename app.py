@@ -2585,7 +2585,7 @@ def _require_feature(feature: str) -> None:
         abort(403, description=f"当前账号暂未开放{FEATURE_ACCESS_LABELS.get(feature, feature)}权限。")
 
 
-def _require_content_feature(feature: str) -> None:
+def _require_content_feature(feature: str, *, check_availability: bool = True) -> None:
     if _desktop_content_access_enabled() or _admin_content_access_enabled():
         return
     if DEPLOYMENT.is_desktop:
@@ -2593,7 +2593,7 @@ def _require_content_feature(feature: str) -> None:
             abort(403, description="本地完整资料需要先在本地诊断与同步中完成网站授权，或使用已有本机激活。")
         flash("本地完整资料需要先完成网站授权；断网时可继续使用已缓存的有效授权。", "warning")
         raise _RedirectTo(url_for("control", section="sync"))
-    if not _feature_is_available(feature):
+    if check_availability and not _feature_is_available(feature):
         abort(403, description=f"当前功能暂不可用：{FEATURE_ACCESS_LABELS.get(feature, feature)}。")
     if _feature_effective_for_user(feature):
         return
@@ -11692,7 +11692,7 @@ def api_dictionary_suggest():
     return resp
 
 
-# Map routes share dictionary access; graph failures do not affect ordinary entries.
+# The blueprint renders the unavailable graph page after enforcing membership.
 from dictionary_map_web import create_blueprint as _dictionary_map_blueprint
 from dictionary_graph import current_graph as _dictionary_current_graph
 def _dictionary_related(slug):
@@ -11705,7 +11705,7 @@ def _dictionary_related(slug):
 
 
 app.register_blueprint(_dictionary_map_blueprint(
-    _require_content_feature,
+    lambda feature: _require_content_feature(feature, check_availability=False),
     lambda: dict(app_name=WEB_APP_NAME, app_version=APP_VERSION,
                  layout_v2=True, layout_page="dictionary", state=current_view_state()),
 ))
