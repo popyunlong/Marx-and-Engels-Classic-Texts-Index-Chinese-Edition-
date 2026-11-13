@@ -152,6 +152,23 @@
 
   // ---- 笔记卡片 ----
   // opts: { showBook, onJump(note), onEdit(note), onDelete(note) }
+  async function exportNotes(format, selection) {
+    try {
+      var res = await fetch('/api/notes/export', {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},
+        body:JSON.stringify(Object.assign({format:format},selection))});
+      if(!res.ok) { var error=await res.json(); throw Error(error.error || '导出失败'); }
+      var blob=await res.blob(), url=URL.createObjectURL(blob), a=el('a');
+      a.href=url; a.download='研究笔记.'+format;document.body.appendChild(a);a.click();
+      setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1000);
+    } catch(e) {toast(e.message || '导出失败',true);}
+  }
+  function exportControls(parent, selection) {
+    var controls=el('div','mxn-export-controls');
+    controls.innerHTML='<label>导出格式 <select aria-label="笔记导出格式"><option value="docx">Word</option><option value="md">Markdown</option><option value="json">JSON</option></select></label> <button type="button" class="mxn-btn">导出</button>';
+    controls.querySelector('button').onclick=function(){exportNotes(controls.querySelector('select').value,selection());};
+    parent.appendChild(controls);
+  }
+
   function renderNoteCard(note, opts) {
     opts = opts || {};
     var card = el('div', 'mxn-card');
@@ -171,7 +188,9 @@
     html += '</span></div>';
     card.innerHTML = html;
     var jb = card.querySelector('.mxn-act-jump');
-    if (jb) jb.addEventListener('click', function () { if (opts.onJump) opts.onJump(note); });
+    if (jb) jb.addEventListener('click', function () { if (opts.onJump) opts.onJump(note); else if(note.source_url) location.href=note.source_url; });
+    if(!jb) card.appendChild(el('p','mxn-card-meta','原文位置暂不可定位'));
+    exportControls(card, function(){return {scope:'single',note_id:note.id};});
     card.querySelector('.mxn-act-edit').addEventListener('click', function () { if (opts.onEdit) opts.onEdit(note, card); });
     card.querySelector('.mxn-act-del').addEventListener('click', function () { if (opts.onDelete) opts.onDelete(note, card); });
     return card;
@@ -217,6 +236,11 @@
     var searchEl = drawer.querySelector('.mxn-search');
     var newBtn = drawer.querySelector('.mxn-new');
     var _notes = [], _q = '';
+    var exportToolbar=drawer.querySelector('.mxn-toolbar'), readerScope=el('select');
+    readerScope.setAttribute('aria-label','导出范围');
+    readerScope.innerHTML='<option value="filtered">本卷当前筛选</option><option value="all">全部笔记</option>';
+    exportToolbar.appendChild(readerScope);
+    exportControls(exportToolbar,function(){return {scope:readerScope.value,book:bookMeta().book_key,q:_q};});
 
     function bookMeta() { try { return cfg.bookMeta ? (cfg.bookMeta() || {}) : {}; } catch (e) { return {}; } }
     function close() { drawer.classList.remove('mxn-open'); backdrop.classList.remove('mxn-open'); }
@@ -230,7 +254,7 @@
     backdrop.addEventListener('click', close);
     drawer.querySelector('.mxn-close').addEventListener('click', close);
 
-    function doJump(note) { close(); try { if (cfg.jumpTo) cfg.jumpTo(note); } catch (e) { } }
+    function doJump(note) { close(); try { if (cfg.jumpTo) cfg.jumpTo(note); else if(note.source_url) location.href=note.source_url; } catch (e) { toast('原文位置暂不可定位',true); } }
 
     function paint() {
       listEl.innerHTML = '';
@@ -391,6 +415,10 @@
     var statEl = root.querySelector('.mxn-kb-stat');
     var searchEl = root.querySelector('.mxn-search');
     var _all = [], _q = '';
+    var actions=root.querySelector('.mxn-kb-actions');
+    var scopeSelect=el('select');scopeSelect.setAttribute('aria-label','导出范围');
+    scopeSelect.innerHTML='<option value="all">全部笔记</option><option value="filtered">当前筛选</option>';actions.appendChild(scopeSelect);
+    exportControls(actions,function(){return {scope:scopeSelect.value,q:_q};});
 
     function groupAndPaint(rows) {
       groupsEl.innerHTML = '';
@@ -444,17 +472,20 @@
     searchEl.addEventListener('input', function () { clearTimeout(_st); _q = searchEl.value.trim(); _st = setTimeout(applyFilter, 180); });
     root.querySelector('.mxn-exp-md').addEventListener('click', function () {
       if (!_all.length) { toast('还没有笔记可导出'); return; }
-      download('我的知识库_' + Date.now() + '.md', notesToMarkdown(_all), 'text/markdown;charset=utf-8');
+      exportNotes('md',{scope:'all'});
     });
     root.querySelector('.mxn-exp-json').addEventListener('click', function () {
       if (!_all.length) { toast('还没有笔记可导出'); return; }
-      download('我的知识库备份_' + Date.now() + '.json', JSON.stringify({ exported_at: new Date().toISOString(), notes: _all }, null, 2), 'application/json');
+      exportNotes('json',{scope:'all'});
     });
 
     (async function load() {
       try {
-        var res = await api.list({ limit: 2000 });
-        _all = (res && res.notes) || [];
+        _all=[];
+        for(var offset=0;;offset+=2000){
+          var res=await api.list({limit:2000,offset:offset}), batch=(res&&res.notes)||[];
+          _all=_all.concat(batch);if(batch.length<2000)break;
+        }
         applyFilter();
       } catch (e) {
         groupsEl.innerHTML = '';

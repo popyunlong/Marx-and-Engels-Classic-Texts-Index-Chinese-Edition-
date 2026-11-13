@@ -79,7 +79,7 @@
 <body>
   <div class="progress" id="progress"></div>
   <div class="shell">
-    <nav class="topbar"><a href="{{ url_for('journal_alerts_latest', d=batch.id if batch else None) }}">← 返回本期目录</a><span>{{ batch.issue_key if batch else '' }}</span></nav>
+    <nav class="topbar"><a href="{{ url_for('journal_alerts_latest', history=1, d=batch.id if batch else None) }}">← 返回本期目录</a><span>{{ batch.issue_key if batch else '' }}</span></nav>
     {% if sample_public_view %}<aside class="sample-access-note"><strong>你正在阅读公开样刊全文。</strong>每周正式新期仅向会员开放。<a href="{{ upgrade_url }}">开通会员 →</a></aside>{% endif %}
     <header>
       <span class="discipline">{{ article.ai_discipline }}</span>

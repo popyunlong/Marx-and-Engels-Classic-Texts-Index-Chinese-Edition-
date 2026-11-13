@@ -26,6 +26,9 @@ from membership import (  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class AiTokenQuotaResetTests(unittest.TestCase):
     """后台「重置本周 AI 额度」：按范围把已用 token 归零，且只动计数、不动审计与额度配置。"""
 

@@ -271,13 +271,16 @@ for(const legacy of [false,true]) test(`composer mode preserves drafts, scope, p
 
 test('reselecting a mode does not reset an entitled custom model',async t=>{
   const {page}=await setup(t,{entitlements:{
-    models:{'deepseek-v4-flash':['off'],'deepseek-v4-pro':['on'],'mimo-v2.5':['off']},
-    defaults:{quick:{provider:'deepseek',model:'deepseek-v4-flash',reasoning_effort:'off'}},
+    models:{'deepseek-v4-flash':['off','high'],'deepseek-v4-pro':['high'],'mimo-v2.5':['off']},
+    defaults:{research:{provider:'deepseek',model:'deepseek-v4-pro',reasoning_effort:'high'}},
   }});
-  await page.locator('#aipModel').selectOption('mimo|mimo-v2.5|off');
-  await page.locator('.aip-mode-button[data-depth="quick"]').click();
-  await page.locator('.aip-depth-tab[data-depth="quick"]').click();
-  assert.equal(await page.locator('#aipModel').inputValue(),'mimo|mimo-v2.5|off');
+  await page.locator('.aip-mode-button[data-depth="research"]').click();
+  const model = page.locator('#aipModel');
+  await model.selectOption('deepseek|deepseek-v4-flash|high');
+  assert.equal(await model.locator('option[data-provider="mimo"]').count(),0);
+  await page.locator('.aip-mode-button[data-depth="research"]').click();
+  await page.locator('.aip-depth-tab[data-depth="research"]').click();
+  assert.equal(await model.inputValue(),'deepseek|deepseek-v4-flash|high');
 });
 
 for(const complete of [true,false]) test(`mode changes leave the in-flight request intact (${complete?'complete':'stop and retry'})`,async t=>{

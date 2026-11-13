@@ -18,9 +18,13 @@ from pathlib import Path
 from runtime_env import APPDATA_DIR, secure_db_file
 import membership_purchase as multi_purchase
 import legacy_ai
+from member_catalog import PLUS_CODE, RETIRED_PLUS_CODES, effective_rank
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
+# Only this catalog interprets the marker as on sale. The predecessor
+# continues honoring the stored sale window while both versions share the DB.
+PLUS_CATALOG_SALE_MARKER = "9999-01-01T00:00:00+00:00"
 SECRET_KEY_PATH = APPDATA_DIR / "session_secret.txt"
 # 灾备导出账本（append-only）：每笔会员开通/续费即时追加一行 JSON（含完整账号信息），供本地每分钟
 # 增量拉取到站长本机；站点若被封可凭此即时迁移会员。拉取/落地脚本见 deploy/sync_members_local.ps1。
@@ -50,7 +54,7 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 # 临时模型总闸：默认关闭 MiMo 的一切可用入口，同时保留适配器、价格历史和原始钱包快照，
 # 日后完成质量门禁后只需显式开启环境变量即可恢复评估，不必破坏既有账本数据。
-MIMO_MODEL_ACCESS_ENABLED = _env_flag("MIMO_MODEL_ACCESS_ENABLED", False)
+MIMO_MODEL_ACCESS_ENABLED = False
 _LEGACY_BASIC_AI_MODEL_POLICY = {
     "fixed": False,
     "models": {"mimo-v2.5-pro": ["on"], "deepseek-v4-flash": ["off"]},
@@ -173,7 +177,7 @@ def _effective_model_policy(model_policy: str | dict) -> dict:
             if selection.get("model") == "mimo-v2.5":
                 defaults[bucket] = {"model": "deepseek-v4-flash", "reasoning_effort": "off"}
             elif selection.get("model") == "mimo-v2.5-pro":
-                defaults[bucket] = {"model": "deepseek-v4-pro", "reasoning_effort": "high"}
+                defaults[bucket] = {"model": "deepseek-v4-flash", "reasoning_effort": "off"}
         result["defaults"] = defaults
         return result
     return policy
@@ -221,7 +225,7 @@ LEGACY_AI_PAYMENT_COHORTS = {
 
 
 _SUPPORT_MEMBERSHIP_PLAN_CODES = (
-    "support_basic", "support_plus", "support_pro", "support_max",
+    "support_basic", "support_plus", "support_pro", "support_max", PLUS_CODE,
 )
 # 基础会员至 Max 均把订单实付的 90% 作为用户 AI 成本钱包。
 # 1 分 = 10,000 微元，乘 90% 后即每分 9,000 微元，全链路保持整数精确记账。
@@ -280,6 +284,15 @@ NEW_AI_PLANS = (
         "model_policy": _RESEARCH_PACK_AI_MODEL_POLICY,
     },
 )
+
+NEW_AI_PLANS += ({
+    "code": PLUS_CODE, "name": "Plus", "price_cents": 2000,
+    "ai_budget_micros": 18_000_000, "tier_rank": 120, "weekly_token_limit": 1_000_000,
+    "sort_order": 120, "kind": "membership", "parallel_group": "new_membership",
+    "model_policy": _PLUS_AI_MODEL_POLICY, "badge": "Plus",
+    "description": "20 元 / 30 天；全部网页会员权益；不含 API/MCP 数据调用。",
+    "features": "每周 100 万 Flash 等值额度，周一恢复\n联想检索、概念地图、笔记与 Word 导出\n完整研究动态与自主选刊邮件\n不含 API/MCP",
+},)
 
 # 请求级缓存（挂在 flask.g）：会员快照在同一请求内不会变化，却被鉴权/视图状态/各功能权限判定反复
 # 查库（current_view_state 一次就要为每个功能键各取一次快照，约 25 次）。这里按 user_id 在请求内 memo，
@@ -1028,6 +1041,7 @@ def init_membership_db() -> Path:
             (MEMBERSHIP_REFORM_CUTOFF,),
         )
 
+        new_plus_created = conn.execute("SELECT 1 FROM plans WHERE code=?", (PLUS_CODE,)).fetchone() is None
         for plan in NEW_AI_PLANS:
             conn.execute(
                 """
@@ -1049,17 +1063,9 @@ def init_membership_db() -> Path:
                     plan["features"], plan["badge"], plan["sort_order"], plan["kind"],
                     plan["tier_rank"], json.dumps(plan["model_policy"], ensure_ascii=False, sort_keys=True),
                     plan["parallel_group"], plan["ai_budget_micros"], plan["weekly_token_limit"],
-                    MEMBERSHIP_REFORM_CUTOFF,
+                    PLUS_CATALOG_SALE_MARKER if plan["code"] == PLUS_CODE else MEMBERSHIP_REFORM_CUTOFF,
                 ),
             )
-
-        # 基础会员沿用原 77 万周软上限；金额硬帽在建钱包时按该订单实付的 90% 计算。
-        # 仅回收代码曾写入的三版默认值，管理员保存的其它周额度和全部套餐文案均不覆盖。
-        conn.execute(
-            "UPDATE plans SET weekly_token_limit=? WHERE code='support_basic' "
-            "AND weekly_token_limit IN (833333,2310000,2916666)",
-            (770_000,),
-        )
 
         # 模型路由属于权益而非营销文案；幂等刷新已生成的钱包快照。
         policy_update_at = utc_now_text()
@@ -1082,6 +1088,8 @@ def init_membership_db() -> Path:
             for code, limit in {"monthly":20,"quarter":20,"quarterly":20,"yearly":20,
                                 "support_basic":20,"support_plus":40,"support_pro":80,"support_max":160}.items():
                 conn.execute("UPDATE plans SET daily_deepseek_web_limit=? WHERE code=?", (limit, code))
+        if new_plus_created:
+            conn.execute("UPDATE plans SET daily_deepseek_web_limit=40 WHERE code=?", (PLUS_CODE,))
         if "web_tool" not in _table_columns(conn, "ai_budget_reservations"):
             conn.execute("ALTER TABLE ai_budget_reservations ADD COLUMN web_tool TEXT NOT NULL DEFAULT ''")
 
@@ -1242,6 +1250,17 @@ def normalize_email(value: str) -> str:
     return (value or "").strip().lower()
 
 
+def _catalog_plan(row: sqlite3.Row | None) -> dict | None:
+    plan = row_to_dict(row)
+    if plan is None:
+        return None
+    if plan["code"] == PLUS_CODE and plan["sale_starts_at"] == PLUS_CATALOG_SALE_MARKER:
+        plan["sale_starts_at"] = ""
+    if plan["code"] in RETIRED_PLUS_CODES and "is_active" in plan:
+        plan["is_active"] = 0
+    return plan
+
+
 def list_active_plans() -> list[dict]:
     now = utc_now_text()
     with _connect() as conn:
@@ -1254,13 +1273,13 @@ def list_active_plans() -> list[dict]:
                    billing_cycle_days, sale_starts_at, sale_ends_at
             FROM plans
             WHERE is_active = 1 AND kind != 'donation'
-              AND (sale_starts_at = '' OR sale_starts_at <= ?)
+              AND (sale_starts_at = '' OR sale_starts_at <= ? OR (code = ? AND sale_starts_at = ?))
               AND (sale_ends_at = '' OR sale_ends_at > ?)
             ORDER BY sort_order ASC, code ASC
             """
-            , (now, now)
+            , (now, PLUS_CODE, PLUS_CATALOG_SALE_MARKER, now)
         ).fetchall()
-    return [row_to_dict(row) for row in rows]
+    return [_catalog_plan(row) for row in rows if row["code"] not in RETIRED_PLUS_CODES]
 
 
 def list_plans(include_inactive: bool = False) -> list[dict]:
@@ -1279,7 +1298,7 @@ def list_plans(include_inactive: bool = False) -> list[dict]:
             ORDER BY sort_order ASC, code ASC
             """
         ).fetchall()
-    return [row_to_dict(row) for row in rows]
+    return [_catalog_plan(row) for row in rows if include_inactive or row["code"] not in RETIRED_PLUS_CODES]
 
 
 def get_plan(plan_code: str) -> dict | None:
@@ -1296,7 +1315,7 @@ def get_plan(plan_code: str) -> dict | None:
             """,
             (plan_code,),
         ).fetchone()
-    return row_to_dict(row)
+    return _catalog_plan(row)
 
 
 def update_plan_weekly_token_limits(
@@ -2057,6 +2076,8 @@ def _plan_is_on_sale(plan: dict, at_text: str | None = None) -> bool:
 def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: bool = False, purchase_months: int = 1) -> dict:
     purchase_months = multi_purchase.validate_months(purchase_months)
     plan = get_plan(plan_code)
+    if plan_code in RETIRED_PLUS_CODES:
+        raise ValueError("该套餐已停售，请选择 20 元 Plus。")
     if not plan or not plan.get("is_active"):
         raise ValueError("套餐不存在或未启用")
     monthly = multi_purchase.eligible(plan)
@@ -2093,8 +2114,8 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
                 (int(user_id), created_at, created_at),
             ).fetchone()
             if current is not None:
-                current_rank = int(current["tier_rank"] or 0)
-                target_rank = int(plan.get("tier_rank") or 0)
+                current_rank = effective_rank(current["plan_code"], current["tier_rank"])
+                target_rank = effective_rank(plan_code, plan.get("tier_rank"))
                 if target_rank < current_rank:
                     raise ValueError("当前周期不能降档；请在本周期结束后购买低档套餐。")
                 if target_rank == current_rank:
@@ -4193,7 +4214,7 @@ def _normalized_ai_selection(provider: str, model: str, reasoning_effort: str) -
 
 _AI_DEFAULT_PLAN_PRIORITY = {
     "research_pack": 0, "monthly": 20, "quarter": 20, "quarterly": 20, "yearly": 30,
-    "support_basic": 110, "support_plus": 120, "support_pro": 130, "support_max": 140,
+    "support_basic": 110, "support_plus": 120, PLUS_CODE: 120, "support_pro": 130, "support_max": 140,
 }
 
 
@@ -6169,7 +6190,7 @@ def _deepseek_web_quota(conn, user_id, now):
     message = ("DeepSeek 联网需有效会员权益。" if not limit else
                "今日联网次数已用完或正在使用，明日零点恢复。" if not remaining else
                f"今日联网剩余 {remaining}/{limit} 次，其中赠送剩余 {gift_remaining} 次；赠送不扣 AI 周额度。" if gift_remaining else
-               f"今日联网剩余 {remaining}/{limit} 次，费用从 AI 钱包扣除。")
+               f"今日联网剩余 {remaining}/{limit} 次，联网会消耗 AI 使用额度。")
     return dict(entitled=limit>0, allowed=remaining>0, limit=limit, used=used,
                 reserved=reserved, remaining=remaining, reset_at=end.isoformat(), message=message,
                 gift_limit=gift_limit, gift_remaining=gift_remaining,

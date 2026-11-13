@@ -81,7 +81,7 @@ def test_documented_python_error_is_bounded_and_redacted(monkeypatch):
 
 def test_both_key_management_routes_share_store_and_csrf(monkeypatch):
     user = {'id': 91234, 'email': 'chapter-api@example.test', 'is_active': 1, 'role': 'user'}
-    monkeypatch.setattr(web, '_membership_plan_code_for_user', lambda u: 'support')
+    monkeypatch.setattr(web, '_membership_plan_code_for_user', lambda u: 'support_pro')
     monkeypatch.setattr(web, '_feature_effective_for_user', lambda feature, u: feature != 'citation_assistant')
     calls = []
     monkeypatch.setattr(web, '_require_csrf', lambda: calls.append('csrf'))
@@ -103,7 +103,7 @@ def test_both_key_management_routes_share_store_and_csrf(monkeypatch):
 
 def test_api_permission_does_not_follow_agent_permission(monkeypatch):
     user = {'id': 91235, 'email': 'disabled-api@example.test', 'is_active': 1, 'role': 'user'}
-    monkeypatch.setattr(web, '_membership_plan_code_for_user', lambda u: 'support')
+    monkeypatch.setattr(web, '_membership_plan_code_for_user', lambda u: 'support_pro')
     monkeypatch.setattr(web, '_feature_effective_for_user', lambda feature, u: feature != 'agent_api')
     with web.app.test_request_context('/api-access'):
         g.current_user = user

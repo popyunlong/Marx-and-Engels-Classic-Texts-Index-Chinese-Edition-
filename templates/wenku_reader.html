@@ -213,7 +213,7 @@
   {% if notes_access_enabled %}
   {# 会员专属「笔记」：选中原文/整页记笔记，跨书聚合到「我的知识库」。非 defer 保证下方脚本执行时 MarxNotes 已就绪。 #}
   <link rel="stylesheet" href="/static/notes/notes.css?v=2">
-  <script src="/static/notes/notes.js?v=2" data-marx-notes data-uid="{{ (current_user.id if current_user else '') }}" data-csrf="{{ csrf_token }}"></script>
+  <script src="/static/notes/notes.js?v=20261113-membership" data-marx-notes data-uid="{{ (current_user.id if current_user else '') }}" data-csrf="{{ csrf_token }}"></script>
   {% endif %}
   <script>
     const CFG = {{ wenku_config_json | safe }};

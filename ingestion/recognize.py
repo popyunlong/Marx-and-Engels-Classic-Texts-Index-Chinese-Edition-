@@ -115,7 +115,7 @@ def run_page(provider, path, page):
     mimo = provider in {"mimo", "verify"}
     model = os.environ.get("MIMO_VISION_MODEL", "mimo-v2.5") if mimo else os.environ.get("ZHIPU_VISION_MODEL", "glm-4v-flash")
     api_key = os.environ.get("MIMO_API_KEY" if mimo else "ZHIPU_API_KEY", "")
-    if not api_key:
+    if not api_key and not (mimo and os.environ.get("APP_MODE") == "server"):
         raise RuntimeError("模型密钥未配置")
     base = os.environ.get("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1") if mimo else os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
     body = {"model": model, "messages": [{"role": "user", "content": [
@@ -126,6 +126,16 @@ def run_page(provider, path, page):
     if mimo:
         body["thinking"] = {"type": "disabled"}
     headers = {"Content-Type": "application/json", **({"api-key": api_key} if mimo else {"Authorization": "Bearer " + api_key})}
+    if mimo and os.environ.get("APP_MODE") == "server":
+        from ai import load_ai_config
+        config = load_ai_config()
+        base, api_key, model = config.zhipu_base_url, config.zhipu_api_key, os.environ.get("ZHIPU_VISION_MODEL", "glm-4v-flash")
+        if not api_key:
+            raise RuntimeError("智谱识别密钥未配置")
+        body["model"] = model
+        body.pop("max_completion_tokens", None)
+        body["max_tokens"] = 1024
+        headers = {"Content-Type": "application/json", "Authorization": "Bearer " + api_key}
     req = urllib.request.Request(base.rstrip("/") + "/chat/completions", headers=headers,
                                  data=json.dumps(body).encode())
     try:

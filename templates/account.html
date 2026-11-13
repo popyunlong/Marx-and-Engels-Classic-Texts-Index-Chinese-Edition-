@@ -295,6 +295,7 @@
     {% endif %}
     {% endwith %}
 
+    {% include "_research_preferences.html" %}
     <section class="grid">
       <div class="stack">
         <article class="card">
@@ -303,7 +304,7 @@
           <div class="kv">
             <div>账号状态：已登录</div>
             <div>会员状态：{{ format_membership_status(membership.status) }}</div>
-            <div>当前套餐：{{ membership.plan_name or "未开通" }}</div>
+            <div>当前套餐：{{ "Plus（保留原 AI 额度）" if membership.plan_code in ["support_basic","support_plus"] else (membership.plan_name or "未开通") }}</div>
             <div>有效期至：{{ format_datetime(membership.expires_at) if membership.expires_at else "暂无" }}</div>
             {% if membership.is_active_member and membership.days_remaining is not none %}
             <div>剩余时长：约 {{ membership.days_remaining }} 天</div>
@@ -322,7 +323,7 @@
         </article>
 
         <article class="card">
-          <h2>我的权益</h2>
+          <h2>我的权益</h2><p>AI 研究对话：{{ membership_refresh.priority }}排队（三种模式均适用）。{% if membership_refresh.tier == "max" %}API/MCP 最高优先。{% endif %}</p>
           <p class="muted">
             {% if is_admin %}
             管理员账号：以下功能均已开放。
@@ -337,14 +338,15 @@
             <h3 class="benefit-title">{{ group.title }}</h3>
             <ul class="benefit-list">
               {% for item in group.features %}
-              {% set enabled = state.feature_access.get(item.key) %}
+              {% set enabled = state.comprehensive_access if item.key == 'comprehensive' else (state.deepseek_web_quota.entitled if item.key == 'deepseek_web' and state.deepseek_web_quota else state.feature_access.get(item.key)) %}
+              {% if item.key in state.feature_available and not state.feature_available[item.key] %}{% set enabled = false %}{% endif %}
               <li class="benefit {{ 'on' if enabled else 'off' }}">
                 <span class="benefit-mark">{{ '✓' if enabled else '–' }}</span>
                 <span class="benefit-info">
                   <span class="benefit-name">{{ item.label }}</span>
                   <span class="benefit-hint">{{ item.hint }}</span>
                 </span>
-                <span class="benefit-state">{{ '已开放' if enabled else '未开放' }}</span>
+                <span class="benefit-state">{{ '已开放' if enabled else ('暂不可用' if membership.is_active_member and item.key != 'agent_api' else '需要升级') }}</span>
               </li>
               {% endfor %}
             </ul>
@@ -361,10 +363,10 @@
               <div>研究型检索：{% if state.research_quota.limit is none %}不限次数{% else %}本周剩余 {{ state.research_quota.free_remaining }} / {{ state.research_quota.limit }} 次{% if (state.research_quota.pack_credits | default(0, true)) > 0 %}（另有资源包 {{ state.research_quota.pack_credits }} 次）{% endif %}{% endif %}</div>
               {% endif %}
               {% if show_ai_budget and state.ai_token_quota %}
-              <div>AI 问答额度：{% if state.ai_token_quota.unlimited %}不限{% elif state.ai_token_quota.exhausted %}本周已用完，下周一恢复{% else %}本周剩余约 {{ (state.ai_token_quota.ratio | default(0, true) * 100) | round | int }}%{% endif %}</div>
+              <div>AI 问答额度：{% if state.ai_token_quota.unlimited %}按本期可用额度使用{% elif state.ai_token_quota.exhausted %}本周已用完，下周一恢复{% else %}本周剩余 {{ state.ai_token_quota.remaining }} / {{ state.ai_token_quota.limit }} {{ "Flash 等值额度" if state.ai_token_quota.unit == "flash_equivalent" else "token" }}{% endif %}</div>
               {% endif %}
             </div>
-            <p class="note">免费额度每周一自动恢复；研究型检索次数用尽后，可继续使用账户中已有的资源包次数。</p>
+            <p class="note">周额度每周一北京时间零点恢复。</p>
           </div>
           {% endif %}
         </article>
@@ -374,7 +376,7 @@
           <h2>旧会员每周 AI 额度</h2>
           {% set promise = state.ai_entitlements.legacy_promise %}
           <p>本周剩余 {{ promise.remaining }} / {{ promise.limit }} token（已用 {{ promise.used }}，预占 {{ promise.reserved }}）。</p>
-          <p>按实际输入与输出 token 计量，每周一零点恢复，不设整期金额钱包上限。支持 DeepSeek Flash 非思考模式；旧权益不含 DeepSeek Pro。</p>
+          <p>按实际输入与输出 token 计量，每周一零点恢复。支持 DeepSeek Flash 非思考模式，旧权益不含 DeepSeek Pro。</p>
           <p>恢复时间：{{ format_datetime(promise.reset_at) }}；权益有效至 {{ format_datetime(promise.expires_at) }}。</p>
           {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
           <p class="muted">适用于北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员；赠送联网不扣模型周额度，网页阅读产生的模型 token 正常计量。</p>
@@ -382,9 +384,9 @@
         {% endif %}
         {% if state.ai_entitlements and state.ai_entitlements.wallets %}
         <article class="card">
-          <h2>另购 AI 研学额度</h2>
+          <h2>AI 使用额度</h2>
           {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
-          <p class="muted">MiMo 与 DeepSeek 按模型和实际用量从共享额度中折算；缓存、思考深度与请求长度会影响可用量。内部结算金额仅在管理后台记录。</p>
+          <p class="muted">各模型共享本期使用额度，实际消耗随模型、思考深度和请求长度变化。</p>
           <div class="list">
             {% for wallet in state.ai_entitlements.wallets %}
             <section class="item">

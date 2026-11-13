@@ -10,6 +10,8 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from contextvars import ContextVar
+QUERY_DEADLINE = ContextVar("api_query_deadline", default=None)
 
 
 class APIError(Exception):
@@ -27,10 +29,12 @@ def setting(name, default):
     return max(1, int(os.environ.get("MARX_AGENT_API_" + name, default)))
 
 
-def scheduling():
+def scheduling(priority=0):
     return {"heavy_concurrency": setting("CONCURRENCY", 2), "light_concurrency": setting("LIGHT_CONCURRENCY", 2),
             "near_text_concurrency": 1, "user_data_concurrency": setting("USER_CONCURRENCY", 1),
-            "user_control_concurrency": 1, "queue": False}
+            "user_control_concurrency": 1, "control_concurrency": setting("CONTROL_CONCURRENCY", 2), "queue": True,
+            "queue_capacity": setting("QUEUE_CAPACITY", 8), "queue_wait_seconds": setting("QUEUE_WAIT_SECONDS", 5),
+            "priority": "highest" if priority == 2 else "normal"}
 
 
 class Store:
@@ -47,6 +51,12 @@ class Store:
             self.root.mkdir(parents=True, exist_ok=True)
             with sqlite3.connect(self.path, timeout=2) as db:
                 db.executescript('''
+                    CREATE TABLE IF NOT EXISTS api_waiters (
+                      id TEXT PRIMARY KEY, user_id INTEGER NOT NULL UNIQUE, lane TEXT NOT NULL,
+                      priority INTEGER NOT NULL, created REAL NOT NULL, expires REAL NOT NULL);
+                    CREATE TABLE IF NOT EXISTS api_cancellations (
+                      user_id INTEGER NOT NULL, request_id TEXT NOT NULL, at REAL NOT NULL,
+                      PRIMARY KEY(user_id,request_id));
                     CREATE TABLE IF NOT EXISTS api_keys (
                       id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, name TEXT NOT NULL,
                       digest TEXT NOT NULL UNIQUE, prefix TEXT NOT NULL,
@@ -154,8 +164,73 @@ class Store:
             raise APIError("corpus_changed", "语料版本已变化，请重新查询。", 409)
         return json.loads(row["ref"])
 
+    def cancel_waiting(self, uid, request_id):
+        with self.connect(True) as db:
+            db.execute("DELETE FROM api_cancellations WHERE at<?", (time.time()-60,))
+            db.execute("INSERT OR REPLACE INTO api_cancellations VALUES(?,?,?)", (uid, request_id, time.time()))
+            db.execute("DELETE FROM api_cancellations WHERE user_id=? AND request_id NOT IN "
+                       "(SELECT request_id FROM api_cancellations WHERE user_id=? ORDER BY at DESC LIMIT 32)", (uid, uid))
+
+    def waiting_cancelled(self, uid, request_id):
+        if not request_id:
+            return False
+        with self.connect() as db:
+            return bool(db.execute("SELECT 1 FROM api_cancellations WHERE user_id=? AND request_id=? AND at>?",
+                                   (uid, request_id, time.time()-60)).fetchone())
+
     @contextmanager
-    def admission(self, uid, *, lane="heavy", near_text=False, control=False):
+    def admission(self, uid, *, lane="heavy", near_text=False, control=False, priority=0, cancelled=lambda: False, request_id=""):
+        if control:
+            with self._admission_nowait(uid, lane=lane, near_text=near_text, control=True):
+                yield
+            return
+        from contextlib import ExitStack
+        ticket = secrets.token_hex(16)
+        wait = setting("QUEUE_WAIT_SECONDS", 5)
+        deadline = time.monotonic() + wait
+        with self.connect(True) as db:
+            db.execute("DELETE FROM api_waiters WHERE expires<=?", (time.time(),))
+            if db.execute("SELECT COUNT(*) FROM api_waiters").fetchone()[0] >= setting("QUEUE_CAPACITY", 8):
+                raise APIError("concurrency_limited", "等待队列已满，请稍后重试。", 429, 2)
+            if db.execute("SELECT 1 FROM api_waiters WHERE user_id=?", (uid,)).fetchone():
+                raise APIError("concurrency_limited", "同账号已有等待中的查询。", 429, 2)
+            db.execute("INSERT INTO api_waiters VALUES(?,?,?,?,?,?)", (ticket, uid, lane, priority, time.time(), time.time()+wait+1))
+        try:
+            while True:
+                if cancelled() or self.waiting_cancelled(uid, request_id):
+                    raise APIError("cancelled", "查询已取消。", 408)
+                if time.monotonic() >= deadline:
+                    raise APIError("concurrency_limited", "等待执行名额超时，请稍后重试。", 429, 2)
+                stack = ExitStack()
+                admitted = False
+                try:
+                    with self.connect(True) as db:
+                        db.execute("DELETE FROM api_waiters WHERE expires<=?", (time.time(),))
+                        first = db.execute("SELECT id FROM api_waiters WHERE lane=? ORDER BY priority DESC,rowid LIMIT 1", (lane,)).fetchone()
+                        if first and first["id"] == ticket:
+                            try:
+                                stack.enter_context(self._admission_nowait(uid, lane=lane, near_text=near_text))
+                                db.execute("DELETE FROM api_waiters WHERE id=?", (ticket,))
+                                admitted = True
+                            except APIError as exc:
+                                if exc.code != "concurrency_limited":
+                                    raise
+                    if admitted:
+                        if cancelled() or self.waiting_cancelled(uid, request_id):
+                            raise APIError("cancelled", "查询已取消。", 408)
+                        yield
+                        return
+                finally:
+                    stack.close()
+                if time.monotonic() >= deadline:
+                    raise APIError("concurrency_limited", "等待执行名额超时，请稍后重试。", 429, 2)
+                time.sleep(min(0.05, max(0, deadline-time.monotonic())))
+        finally:
+            with self.connect(True) as db:
+                db.execute("DELETE FROM api_waiters WHERE id=?", (ticket,))
+
+    @contextmanager
+    def _admission_nowait(self, uid, *, lane="heavy", near_text=False, control=False):
         """File descriptors own slots, never leases that can expire during work."""
         directory = self.root / "agent_api_locks"
         directory.mkdir(parents=True, exist_ok=True)
@@ -166,7 +241,7 @@ class Store:
                 raise ValueError("Invalid API admission lane")
             groups = [(f"control-{int(uid)}", 1) if control else
                       (f"user-{int(uid)}", limits["user_data_concurrency"]),
-                      ("global" if lane == "heavy" else "light", limits[lane + "_concurrency"])]
+                      ("control" if control else "global" if lane == "heavy" else "light", limits["control_concurrency" if control else lane + "_concurrency"])]
             if near_text:
                 groups.append(("near-text", 1))
             for group, limit in groups:

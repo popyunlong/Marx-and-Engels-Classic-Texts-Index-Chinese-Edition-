@@ -5,6 +5,8 @@ import json
 from flask import Blueprint, Response, abort, flash, g, jsonify, redirect, render_template, request, url_for
 import research_updates as r
 import research_delivery as mail
+import research_preferences as preferences
+from research_catalog import research_source_catalog
 
 
 def register(app, host):
@@ -21,7 +23,7 @@ def register(app, host):
 
     @bp.before_request
     def reader_limit():
-        if request.endpoint in {"research_updates.latest", "research_updates.issue", "research_updates.article", "research_updates.cite"}:
+        if request.endpoint in {"research_updates.latest", "research_updates.issue", "research_updates.article", "research_updates.cite", "research_updates.sample", "research_updates.sample_article"}:
             limiter = host.get("_rate_limit_reader_ip_or_abort")
             if limiter:
                 limiter("researchupdates")
@@ -52,7 +54,8 @@ def register(app, host):
         return render_template("research_updates.html", title=r.TITLE, snapshot=snapshot, article=article,
                                articles=filtered, all_articles=articles, journals=journals, fields=fields,
                                archives=r.issues(True) if member() else [], citation=r.citation, preview=preview,
-                               is_member=member(), type_labels=r.TYPE_LABELS, legacy_url=url_for("journal_alerts_latest"),
+                               is_member=member(), type_labels=r.TYPE_LABELS, legacy_url=url_for("journal_alerts_latest", history=1),
+                               catalog=research_source_catalog(), public_sample=bool(snapshot and snapshot.get("public_sample")),
                                journal_chinese_name=r.journal_chinese_name, journal_display_name=r.journal_display_name,
                                journal_ids={j: "journal-" + str(n) for n, j in enumerate(journals)},
                                main_journals={a["journal"] for a in articles if a.get("section") not in {"supplement", "correction"}})
@@ -69,6 +72,46 @@ def register(app, host):
         if not mail.unsubscribe(token):
             abort(404)
         return Response('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>退订研究动态</title><h1>已退订研究动态邮件</h1><p>您仍可在会员网页阅读研究动态。</p><a href="/research-updates">返回栏目</a></html>', content_type='text/html; charset=utf-8')
+
+    @bp.route("/api/account/research-subscriptions", methods=["GET", "PUT"])
+    def subscriptions():
+        host["_require_content_feature"]("journal_alerts")
+        user = getattr(g, "current_user", None)
+        if not user:
+            abort(401)
+        if request.method == "GET":
+            return jsonify(preferences=preferences.get_preferences(user["id"], user["email"]), catalog=preferences.catalog())
+        try:
+            value = preferences.save_preferences(user["id"], user["email"], request.get_json(silent=True) or {})
+            return jsonify(ok=True, preferences=value)
+        except ValueError as exc:
+            return jsonify(ok=False, error=str(exc)), 400
+
+    @bp.get("/research-updates/sample")
+    def sample():
+        snapshot = preferences.sample()
+        if not snapshot:
+            return page({"id": 0, "title": r.TITLE, "period_start": "", "period_end": "",
+                         "articles": [], "public_sample": True})
+        return page(snapshot)
+
+    @bp.get("/research-updates/sample/articles/<int:entry_id>")
+    @bp.get("/research-updates/sample/articles/<int:entry_id>/citation.<fmt>")
+    def sample_article(entry_id, fmt=None):
+        snapshot = preferences.sample()
+        a = next((a for a in (snapshot or {}).get("articles", []) if a["entry_id"] == entry_id), None)
+        if not a:
+            abort(404)
+        if fmt is None:
+            return page(snapshot, a)
+        if fmt not in {"ris", "bib"}:
+            abort(404)
+        try:
+            citation_text = r.export_citation(a, fmt)
+        except ValueError as exc:
+            abort(409, description=str(exc))
+        return Response(citation_text, content_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="sample-{entry_id}.{fmt}"'})
 
     @bp.get("/research-updates/<int:issue_id>")
     def issue(issue_id):

@@ -32,6 +32,9 @@ from membership import (  # noqa: E402
 from werkzeug.security import check_password_hash, generate_password_hash  # noqa: E402
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class SecurityRegressionTests(unittest.TestCase):
     def setUp(self) -> None:
         warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -381,7 +384,7 @@ class SecurityRegressionTests(unittest.TestCase):
             display_name="Payer",
             password_hash=generate_password_hash("correct horse battery staple"),
         )
-        order = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
+        order = create_pending_order(user_id=int(user["id"]), plan_code="support_plus_20")
         money = f"{int(order['amount_cents']) / 100:.2f}"
 
         tampered = {
@@ -414,14 +417,14 @@ class SecurityRegressionTests(unittest.TestCase):
             password_hash=generate_password_hash("correct horse battery staple"),
             email_verified_at="2026-01-01T00:00:00+00:00",
         )
-        first = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
-        second = create_pending_order(user_id=int(user["id"]), plan_code="support_basic")
+        first = create_pending_order(user_id=int(user["id"]), plan_code="support_plus_20")
+        second = create_pending_order(user_id=int(user["id"]), plan_code="support_plus_20")
         self.assertEqual(first["order_no"], second["order_no"])
 
-        yearly = create_pending_order(user_id=int(user["id"]), plan_code="support_plus")
+        yearly = create_pending_order(user_id=int(user["id"]), plan_code="support_pro")
         orders = list_orders_for_user(int(user["id"]))
         pending = [order for order in orders if order["status"] == "pending"]
-        self.assertEqual({order["plan_code"] for order in pending}, {"support_basic", "support_plus"})
+        self.assertEqual({order["plan_code"] for order in pending}, {"support_plus_20", "support_pro"})
         self.assertEqual(len(pending), 2)
         self.assertIn(yearly["order_no"], {order["order_no"] for order in pending})
 
@@ -1379,16 +1382,15 @@ class SecurityRegressionTests(unittest.TestCase):
         self.assertIn("登录后即可使用", html)
         self.assertIn("去登录", html)
 
-    def test_member_plan_permission_denies_library_access(self) -> None:
+    def test_member_user_permission_denies_library_access(self) -> None:
         self._create_active_member("library-denied@example.test")
         app_module.set_setting(
             "access_policy",
-            {"plans": {"support_basic": {"library": False}}},
+            {"users": {"library-denied@example.test": {"library": False}}},
         )
         self._login("library-denied@example.test")
         response = self.client.get("/library", follow_redirects=False)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("/pricing", response.headers["Location"])
+        self.assertEqual(response.status_code, 403)
 
     def test_reader_entries_explain_registered_access_to_guests(self) -> None:
         app_module.set_setting(
@@ -1541,7 +1543,7 @@ class SecurityRegressionTests(unittest.TestCase):
         self._create_active_member("ai-denied@example.test")
         app_module.set_setting(
             "access_policy",
-            {"plans": {"support_basic": {"ai": False, "viewer": True, "library": True}}},
+            {"users": {"ai-denied@example.test": {"ai": False, "viewer": True, "library": True}}},
         )
         self._login("ai-denied@example.test")
 

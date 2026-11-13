@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from member_catalog import PLUS_CODE, effective_rank
 from datetime import timedelta
 
 FEATURE_KEY = "membership_multimonth_enabled"
@@ -51,7 +52,7 @@ def quote(plan: dict, months=1) -> dict:
             "discount_percent": percent, "amount_cents": total,
             "currency": str(plan.get("currency") or "CNY"), "cycle_days": 30,
             "monthly_budget_micros": unit * 9000 if str(plan["code"]) in
-            {"support_basic", "support_plus", "support_pro", "support_max"}
+            {"support_basic", "support_plus", "support_pro", "support_max", PLUS_CODE}
             else max(0, int(plan.get("ai_budget_micros") or 0))}
 
 
@@ -95,7 +96,7 @@ def settle_monthly_order(conn, order, *, paid_at, provider, payment_reference, n
         "AND s.expires_at>?", (order["user_id"], paid_at)).fetchall()
     # An order can remain pending while another purchase changes the active tier.
     current = [r for r in rows if r["starts_at"] <= paid_at]
-    if any(int(r["tier_rank"]) != int(order["tier_rank"]) for r in current):
+    if any(effective_rank(r["plan_code"], r["tier_rank"]) != effective_rank(order["plan_code"], order["tier_rank"]) for r in current):
         raise ValueError("当前会员档位已变化，请联系管理员核对该订单；升档须先补差。")
     starts = max([paid_dt, *(m._parse_utc(r["expires_at"]) for r in rows)])
     conn.execute(
@@ -149,7 +150,7 @@ def purchase_options(user_id, plans):
     if user_id:
         now = m.utc_now_text()
         with m._connect() as conn:
-            current_rank = conn.execute("SELECT COALESCE(MAX(p.tier_rank),0) FROM subscriptions s "
+            current_rank = conn.execute("SELECT COALESCE(MAX(CASE WHEN p.code IN ('support_basic','support_plus') THEN 120 ELSE p.tier_rank END),0) FROM subscriptions s "
                 "JOIN plans p ON p.code=s.plan_code WHERE s.user_id=? AND s.status='active' "
                 "AND s.starts_at<=? AND s.expires_at>? AND p.parallel_group='new_membership'",
                 (user_id,now,now)).fetchone()[0]

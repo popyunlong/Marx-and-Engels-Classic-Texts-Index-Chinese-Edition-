@@ -7,6 +7,7 @@ import pytest
 from _test_env import APPDATA
 import app as A
 import membership as M
+from legacy_membership_fixture import create_manual_subscription
 import comprehensive_web as W
 import legacy_ai as L
 from flask import g
@@ -182,7 +183,7 @@ def test_mixed_new_plan_fallback_and_pro_authorization():
     u,_,_=member("monthly")
     with pytest.raises(ValueError):
         M.authorize_ai_selection(user_id=u["id"],feature="research",provider="deepseek",model="deepseek-v4-pro",reasoning_effort="high")
-    M.create_manual_subscription(user_email=u["email"],plan_code="support_plus")
+    create_manual_subscription(user_email=u["email"],plan_code="support_plus")
     r=reserve(u,tokens=0,completion=280000)
     settle(u,r,prompt=0,completion=280000)
     assert M.get_legacy_ai_quota(u["id"])["remaining"]==0
@@ -196,7 +197,7 @@ def test_mixed_new_plan_fallback_and_pro_authorization():
 
 def test_new_wallet_pays_after_twenty_gifts_without_weekly_charge():
     u,_,_=member()
-    M.create_manual_subscription(user_email=u["email"],plan_code="support_plus")
+    create_manual_subscription(user_email=u["email"],plan_code="support_plus")
     for _ in range(20):
         r=reserve(u,tool="search")
         M.record_ai_tool_call(request_id=r["request_id"],user_id=u["id"],tool="search",reservation_id=r["id"],billable=True,occurred_at=NOW)

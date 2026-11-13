@@ -20,7 +20,7 @@ def create_blueprint(require_access, page_context):
 
     @bp.before_request
     def permission():
-        require_access("dictionary")
+        require_access("concept_map")
 
     def graph():
         value = current_graph()

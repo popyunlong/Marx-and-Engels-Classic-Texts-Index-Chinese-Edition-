@@ -76,6 +76,7 @@ def _lock_child(root, ready, release):
 
 def test_cross_process_slots_crash_and_exception_cleanup(tmp_path, monkeypatch):
     monkeypatch.setenv("MARX_AGENT_API_CONCURRENCY", "1")
+    monkeypatch.setenv("MARX_AGENT_API_QUEUE_WAIT_SECONDS", "1")
     ctx = multiprocessing.get_context("spawn")
     ready, release = ctx.Event(), ctx.Event()
     process = ctx.Process(target=_lock_child, args=(str(tmp_path), ready, release))
@@ -163,7 +164,7 @@ def test_routes_membership_csrf_cookie_boundary_and_shared_busy(tmp_path, corpus
     register_routes(app, {"APPDATA_DIR": tmp_path, "CORPUS_INDEX_DB_PATH": Path(DB_PATH), "corpus": corpus,
         "_public_book_keys": lambda: {"文集"}, "current_view_state": lambda: {"data_version": "fixture"},
         "current_app_release": lambda: {"git_sha": "fixture"}, "get_user_by_id": lambda uid: user,
-        "_membership_plan_code_for_user": lambda u: "member" if u.get("member") else "",
+        "_membership_plan_code_for_user": lambda u: "support_pro" if u.get("member") else "",
         "_feature_effective_for_user": lambda feature, u: u.get(feature, True),
         "CSRF_EXEMPT_ENDPOINTS": csrf_exempt, "_require_login_page": lambda: None,
         "_require_csrf": csrf, "_ensure_csrf_token": lambda: "fixture-csrf"})
@@ -204,7 +205,8 @@ def test_caddy_route_tracks_target_and_removes_on_legacy_rollback():
 
 def test_contract_and_invalid_input(service):
     from agent_api_contract import TOOLS, openapi
-    assert len(openapi()["paths"]) == len(TOOLS) == 4
+    assert len(TOOLS) == 4
+    assert set(openapi()["paths"]) == {"/search", "/sources", "/limits", "/passages/{evidence_id}", "/cancel"}
     for payload in ([], {"q": "a"}, {"q": "甲" * 513}, {"q": "甲乙", "limit": True},
                     {"q": "甲乙", "mode": {}}, {"q": "甲乙", "mode": "cooccurrence"}):
         with pytest.raises(APIError) as error: service.search(1, payload)

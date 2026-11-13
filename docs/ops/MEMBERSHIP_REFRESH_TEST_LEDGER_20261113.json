@@ -1,0 +1,138 @@
+{
+  "task": "membership-refresh-20261113",
+  "baseline": "ba1d884aeac0cd1bb2a505eaf2971920f350e29b",
+  "branch": "codex/membership-refresh-20261113",
+  "workspace": "D:/CodexData/workspaces/membership-refresh-20261113",
+  "policy": "Do not rerun any attempted scenario without explicit scope-specific authorization. Raw run JSON files retain source hashes; failures are never deleted.",
+  "unique_backend_scenarios_passed": 71,
+  "browser_scenarios_passed": 3,
+  "runs": [
+    {
+      "stage": "backend",
+      "status": "failed",
+      "started": "2026-11-13T03:53:39.9565391+00:00",
+      "finished": "2026-11-13T03:53:58.9613739+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/backend.log"
+    },
+    {
+      "stage": "browser",
+      "status": "passed",
+      "started": "2026-11-13T03:54:40.1117843+00:00",
+      "finished": "2026-11-13T03:54:56.8600067+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/browser.log"
+    },
+    {
+      "stage": "compatibility",
+      "status": "failed",
+      "started": "2026-11-13T04:10:56.6705595+00:00",
+      "finished": "2026-11-13T04:11:10.6014328+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/compatibility.log"
+    },
+    {
+      "stage": "denial-authorized-retry",
+      "status": "passed",
+      "started": "2026-11-13T04:14:20.9940027+00:00",
+      "finished": "2026-11-13T04:14:30.4184828+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/denial-authorized-retry.log",
+      "authorization": "Scope-specific user denial compatibility retry"
+    },
+    {
+      "stage": "edges",
+      "status": "failed",
+      "started": "2026-11-13T04:01:34.3383475+00:00",
+      "finished": "2026-11-13T04:01:46.1371387+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/edges.log"
+    },
+    {
+      "stage": "mcp-authorized-retry",
+      "status": "passed",
+      "started": "2026-11-13T04:14:20.9869506+00:00",
+      "finished": "2026-11-13T04:14:33.1715138+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/mcp-authorized-retry.log",
+      "authorization": "Scope-specific MCP cancellation retry after runtime correction"
+    },
+    {
+      "stage": "sample-authorized-retry",
+      "status": "passed",
+      "started": "2026-11-13T04:01:34.3300537+00:00",
+      "finished": "2026-11-13T04:01:45.6244772+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/sample-authorized-retry.log",
+      "authorization": "User explicitly approved sample boundary test and static syntax once on 2026-11-13"
+    },
+    {
+      "stage": "static-authorized-retry",
+      "status": "passed",
+      "started": "2026-11-13T04:06:13.6754092+00:00",
+      "finished": "2026-11-13T04:06:16.4167772+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/static-authorized-retry.log",
+      "authorization": "User explicitly approved sample boundary test and static syntax once on 2026-11-13"
+    },
+    {
+      "stage": "static",
+      "status": "passed",
+      "started": "2026-11-13T03:53:30.1939939+00:00",
+      "finished": "2026-11-13T03:53:32.8788635+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/static.log"
+    },
+    {
+      "stage": "release-fixtures",
+      "status": "passed",
+      "baseline": "3d5bd595ed60b46c7ff97bf736ce0cf4637cbb0f",
+      "started": "2026-11-13T04:24:43.7086825+00:00",
+      "finished": "2026-11-13T04:25:29.4196051+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/release-fixtures.log",
+      "junit": "D:/CodexData/outputs/membership-refresh-20261113/release-fixtures.xml",
+      "cases": [
+        "tests/test_agent_api.py::test_cross_process_slots_crash_and_exception_cleanup",
+        "tests/test_agent_api.py::test_routes_membership_csrf_cookie_boundary_and_shared_busy",
+        "tests/test_agent_api.py::test_contract_and_invalid_input",
+        "tests/test_agent_api_edges.py::test_active_work_keeps_slot_until_actual_exit",
+        "tests/test_agent_api_main_integration.py",
+        "tests/test_agent_api_recovery.py",
+        "tests/test_api_access.py::test_both_key_management_routes_share_store_and_csrf",
+        "tests/test_api_access.py::test_api_permission_does_not_follow_agent_permission"
+      ]
+    },
+    {
+      "stage": "cutover",
+      "status": "passed",
+      "baseline": "05d115f05f71ba189d385feebfcacc9611c655cd",
+      "started": "2026-11-13T04:34:26.8318404+00:00",
+      "finished": "2026-11-13T04:34:36.4955918+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/cutover.log",
+      "junit": "D:/CodexData/outputs/membership-refresh-20261113/cutover.xml",
+      "cases": [
+        "tests/test_membership_cutover.py"
+      ],
+      "hashes": {
+        "member_catalog.py": "49CF6E5AB6D41FC45F049C8DA9BAE279B53282FD91ADEFBACD427E8971FCC702",
+        "membership.py": "B55437FF5A1DFDE72F2E77A484E4E1E0C9475118CB3D7D55947535C745C9D12C",
+        "tests/test_membership_cutover.py": "F1C7768008EDA52A66856EFE9E80DA969F7588747F7FC53D60B0223C91DC2B6E",
+        "app.py": "02C744746F113AF534602651EFE9988E05FCFAA3A4DC3E6FEFCF3427F5A11B08"
+      }
+    }
+  ],
+  "authorizations": [
+    {
+      "scope": "sample boundary + static syntax",
+      "status": "approved and each used once"
+    },
+    {
+      "scope": "MCP cancellation only after runtime correction",
+      "status": "approved and used once"
+    },
+    {
+      "scope": "user-specific library denial compatibility assertion",
+      "status": "approved and used once"
+    }
+  ],
+  "version_limits": [
+    "Results apply to each recorded source snapshot, not a repeated full-suite run of the final tree.",
+    "Browser evidence predates checkbox width and account text adjustments. These small UI edits were not rerun.",
+    "Static retry covers the application implementation. Subsequent edits are legacy test fixtures, guarded PowerShell test dispatch and documentation.",
+    "DOCX structural completeness and hyperlinks passed; visual Word rendering was not run because LibreOffice is absent.",
+    "Full integration/release gates, actual model calls, actual email, production proxy cancellation and production release were not run.",
+    "The catalog and checkout cutover changes have their own two-scenario test record. Earlier tests were not repeated."
+  ],
+  "artifacts": "D:/CodexData/outputs/membership-refresh-20261113"
+}

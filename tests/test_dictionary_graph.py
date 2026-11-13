@@ -251,7 +251,7 @@ def test_api_access_stale_version_and_limits(sample,monkeypatch):
     fixture=Flask(__name__)
     fixture.add_url_rule('/entry/<slug>',endpoint='dictionary_entry_page',view_func=lambda slug:slug)
     def access(feature):
-        assert feature=='dictionary'
+        assert feature=='concept_map'
         if fixture.config.get('DENY'):raise Forbidden()
     fixture.register_blueprint(dictionary_map_web.create_blueprint(access,lambda:{}))
     api=fixture.test_client()

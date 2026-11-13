@@ -8,9 +8,9 @@
 流程（每篇文章）：
     定位公开 PDF → 下载校验 → PyMuPDF 抽文本层分段
     → 免费 GLM-4 识别结构（扫描件用 GLM-4V）→ PaddleOCR 独立抽样复核/失败兜底
-    → MiMo V2.5 非思考逐段中译 → 完整性校验 → 产物落数据盘 + 状态入库
+    → DeepSeek Flash 非思考逐段中译 → 完整性校验 → 产物落数据盘 + 状态入库
 
-成本：翻译/转录统一走站方 MiMo 账户，不扣用户额度；参考文献区保留原文。
+成本：翻译/转录统一走站方 DeepSeek 账户，不扣用户额度；参考文献区保留原文。
 
 产物与状态库均落 ``MARX_JOURNAL_DATA_ROOT`` 指向的服务器数据盘。
 """
@@ -74,12 +74,12 @@ OCR_MAX_PAGES = int(os.environ.get("MARX_JOURNAL_FT_OCR_MAX_PAGES", str(PDF_MAX_
 TRANSLATE_MAX_CHARS = int(os.environ.get("MARX_JOURNAL_FT_MAX_TR_CHARS", "160000"))
 ARTICLES_PER_RUN = int(os.environ.get("MARX_JOURNAL_FT_ARTICLES_PER_RUN", "40"))
 
-MIMO_MODEL = "mimo-v2.5"
-MIMO_PROVIDER = "mimo"
+MIMO_MODEL = "deepseek-v4-flash"
+MIMO_PROVIDER = "deepseek"
 MIMO_REASONING_EFFORT = "off"
 MIMO_BASE_URL = (os.environ.get("MIMO_BASE_URL") or "https://api.xiaomimimo.com/v1").rstrip("/")
 
-# 识别与翻译分开路由：结构/扫描识别走智谱免费 GLM-4，翻译仍走已验收的 MiMo。
+# 识别与翻译分开路由：结构/扫描识别走智谱免费 GLM-4，翻译走 DeepSeek Flash 非思考。
 # 免费视觉模型偶发拥堵时，PaddleOCR-VL 既做独立抽样复核，也作为逐页 OCR 兜底。
 GLM_BASE_URL = (os.environ.get("ZHIPU_BASE_URL") or "https://open.bigmodel.cn/api/paas/v4").rstrip("/")
 GLM_TEXT_MODEL = (
@@ -1633,11 +1633,11 @@ def extract_paragraphs(pdf_path: Path) -> dict:
         doc.close()
 
 
-# ---------------------------------------------------------------- MiMo V2.5 non-thinking calls
+# ---------------------------------------------------------------- Site-funded Flash translation calls
 
 
 class MimoUnavailable(RuntimeError):
-    """The site-funded MiMo account is not configured or unavailable."""
+    """The site-funded translation account is not configured or unavailable."""
 
 
 class RecognitionUnavailable(RuntimeError):
@@ -1694,53 +1694,17 @@ def _mimo_chat(
     feature: str,
     article_id: int | None = None,
 ) -> str:
-    key = str(os.environ.get("MIMO_API_KEY") or "").strip()
-    if not key:
-        raise MimoUnavailable("MIMO_API_KEY 未配置")
-    body = json.dumps(
-        {
-            "model": MIMO_MODEL,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": int(max_tokens),
-            "thinking": {"type": "disabled"},
-        },
-        ensure_ascii=False,
-    ).encode("utf-8")
-    last_error: Exception | None = None
-    for attempt in range(_TR_MAX_RETRY):
-        req = urllib.request.Request(
-            f"{MIMO_BASE_URL}/chat/completions",
-            data=body,
-            headers={
-                "Authorization": f"Bearer {key}",
-                "Content-Type": "application/json",
-                "User-Agent": API_UA,
-            },
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=240) as response:
-                payload = json.loads(response.read())
-            choices = payload.get("choices") or []
-            if not choices:
-                raise ValueError("MiMo returned no choices")
-            text = str((choices[0].get("message") or {}).get("content") or "").strip()
-            if not text:
-                raise ValueError("MiMo returned empty content")
-            _record_model_usage(article_id, feature, success=True)
-            return text
-        except urllib.error.HTTPError as exc:
-            detail = exc.read()[:400].decode("utf-8", "ignore")
-            last_error = RuntimeError(f"HTTP {exc.code}: {detail}")
-            if exc.code not in {408, 429, 500, 502, 503, 504}:
-                break
-        except Exception as exc:
-            last_error = exc
-        if attempt + 1 < _TR_MAX_RETRY:
-            time.sleep(2 ** attempt)
-    message = str(last_error or "MiMo request failed")
-    _record_model_usage(article_id, feature, success=False, error=message)
-    raise MimoUnavailable(message)
+    from ai import ZAIClient, load_ai_config, ai_call_context
+    try:
+        client = ZAIClient(load_ai_config())
+        with ai_call_context(feature=feature, charge_user=False):
+            text = client.chat_complete(messages, max_tokens=max_tokens, temperature=temperature,
+                provider="deepseek", model="deepseek-v4-flash", disable_thinking=True, reasoning_effort="off")
+        _record_model_usage(article_id, feature, success=True, provider="deepseek", model="deepseek-v4-flash")
+        return text
+    except Exception as exc:
+        _record_model_usage(article_id, feature, success=False, error=str(exc), provider="deepseek", model="deepseek-v4-flash")
+        raise MimoUnavailable(str(exc)) from exc
 
 
 def _glm_chat(
@@ -3257,7 +3221,7 @@ def process_batch_fulltext(
             result = build_article_fulltext(article, translate=translate and not mimo_down)
         except MimoUnavailable as exc:
             mimo_down = True
-            LOGGER.warning("journal fulltext: MiMo unavailable; stop publishing work: %s", exc)
+            LOGGER.warning("journal fulltext: Flash translation unavailable; stop publishing work: %s", exc)
             summary["failed"] += 1
             break
         except Exception as exc:

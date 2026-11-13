@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from urllib.parse import urlencode
 
-from agent_api_store import APIError, setting
+from agent_api_store import APIError, setting, QUERY_DEADLINE
 from build_index import normalize
 from search_capacity import bounded_search
 
@@ -90,7 +90,7 @@ class QueryService:
     def search(self, uid, payload, cancelled=lambda: False, *, validated=None):
         q, mode, limit, scope = validated if validated is not None else self.validate_search(payload)
         version = self.version()
-        deadline = time.monotonic() + setting("TIMEOUT_SECONDS", 20)
+        deadline = QUERY_DEADLINE.get() or (time.monotonic() + setting("TIMEOUT_SECONDS", 20))
 
         def check():
             if cancelled():
