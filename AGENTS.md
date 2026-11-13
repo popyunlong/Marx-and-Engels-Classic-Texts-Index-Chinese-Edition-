@@ -12,3 +12,9 @@ These rules apply to every human and automated coding session in this repository
 - Runtime databases, PDFs, indexes, uploads, and secrets stay in their explicit shared locations. Application source must remain inside immutable `releases/<release_id>` directories.
 - Run the relevant fast tests before committing and all integration/release gates before advancing `production`.
 - Preserve old worktrees and backups until two newer production releases have been healthy for at least 30 days. Archive recoverably before removal.
+
+## 一次性测试与发布授权
+
+- 同一次工作先查阅测试记录，复用仍适用的结果。发现必需复测时，在第一次请求授权前列清具体场景、必要原因、最小范围，以及推送钩子、PR、main、production 和发布事务会自动重复的检查及各自次数。
+- 能一次授权的就一次请求。用户明确同意清单后，连续执行范围内的门禁、候选验收和已授权的发布步骤，各阶段通过后直接推进。将授权范围、版本、执行次数、结果及产物位置写入记录。
+- 只有需要追加清单以外的复测、扩大范围或改变发布目标时，才就新增事项请求确认。失败、中断和版本变化均不自动增加授权次数。已有的指定发布协调者、健康检查和回退规则继续适用。
