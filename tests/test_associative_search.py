@@ -109,6 +109,9 @@ def _read_result(resp):
     return _parse_sse_text(resp.get_data(as_text=True))
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class FuzzyToleranceTests(unittest.TestCase):
     """近似匹配容错随查询长度分档的纯函数单元测试（不依赖语料，快速确定）。
 

@@ -10,6 +10,7 @@ import pytest
 from _test_env import APPDATA
 import app as A
 import membership as M
+from legacy_membership_fixture import create_manual_subscription
 import ai
 import ai_comprehensive as task
 import comprehensive_web as W
@@ -29,7 +30,7 @@ def member(plan="support_basic"):
                          (user["id"],plan,now,expiry,now,now))
             conn.commit()
     elif plan:
-        M.create_manual_subscription(user_email=user["email"], plan_code=plan)
+        create_manual_subscription(user_email=user["email"], plan_code=plan)
     return user
 
 
@@ -82,7 +83,7 @@ def test_concurrent_last_slot_and_failed_release():
 
 def test_expiration_and_multiple_plans_choose_max():
     user = member()
-    M.create_manual_subscription(user_email=user["email"], plan_code="support_max")
+    create_manual_subscription(user_email=user["email"], plan_code="support_max")
     assert M.get_deepseek_web_quota(user["id"])["limit"] == 160
     with M._connect() as conn:
         conn.execute("UPDATE subscriptions SET expires_at='2020-01-01T00:00:00+00:00' WHERE user_id=?",(user["id"],))

@@ -2935,8 +2935,6 @@
 
   function modelDisplayName(model, effort) {
     var names = {
-      "mimo-v2.5": "MiMo V2.5",
-      "mimo-v2.5-pro": "MiMo V2.5 Pro",
       "deepseek-v4-flash": "DeepSeek V4.1 Flash",
       "deepseek-v4-pro": "DeepSeek V4 Pro"
     };
@@ -2950,9 +2948,9 @@
     if (!modelSelect) return;
     var models = c && c.ai_entitlements && c.ai_entitlements.models;
     if (!models || typeof models !== "object") return;
-    var preferred = ["mimo-v2.5", "mimo-v2.5-pro", "deepseek-v4-flash", "deepseek-v4-pro"];
+    var preferred = ["deepseek-v4-flash", "deepseek-v4-pro"];
     var keys = Object.keys(models).filter(function (model) {
-      return model !== "glm-5.1" && Array.isArray(models[model]) && models[model].length;
+      return model.indexOf("mimo-") !== 0 && model !== "glm-5.1" && Array.isArray(models[model]) && models[model].length;
     }).sort(function (a, b) {
       var ai = preferred.indexOf(a), bi = preferred.indexOf(b);
       return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || a.localeCompare(b);
@@ -2964,7 +2962,7 @@
     });
     keys.forEach(function (model) {
       models[model].forEach(function (effort) {
-        var provider = model.indexOf("mimo-") === 0 ? "mimo" : "deepseek";
+        var provider = "deepseek";
         var opt = document.createElement("option");
         opt.value = provider + "|" + model + "|" + effort;
         opt.setAttribute("data-provider", provider);

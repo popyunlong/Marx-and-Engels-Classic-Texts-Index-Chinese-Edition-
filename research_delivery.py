@@ -13,6 +13,8 @@ LABELS = {"scheduled": "已预约", "sending": "发送中", "paused": "已暂停
 
 
 def init(c):
+    import research_preferences
+    research_preferences.init(c)
     c.executescript("""
     CREATE TABLE IF NOT EXISTS research_mail_schedules (
       issue_id INTEGER PRIMARY KEY REFERENCES research_issues(id),
@@ -130,8 +132,10 @@ def _eligible(recipients, mode='members'):
         email = r.clean(x['email']).lower()
         if (x.get('user_id'), email) in optouts:
             continue
-        if x.get('user_id') and any(s['status']=='unsubscribed' for s in ja.list_subscriptions_for_user(x['user_id'])):
-            continue
+        if x.get('user_id'):
+            from research_preferences import get_preferences
+            if not get_preferences(x['user_id'], email)['email_enabled']:
+                continue
         if mode=='subscribers' and not ja.subscription_is_deliverable(x.get('_subscription') or {}):
             continue
         result[email] = x
@@ -220,8 +224,19 @@ def deliver(base_url, limit=100, sender=None, recipients=None, smtp=None):
                     status, error = "skipped", "已退订或会员资格失效"
                 else:
                     snapshot = json.loads(row["snapshot"])
-                    plain, rich = r.render_email(snapshot, with_unsubscribe(eligible[row["email"]]), base_url)
-                    sender(smtp, row["email"], r.TITLE + " · " + snapshot["period_end"][:10], plain, rich)
+                    from research_preferences import get_preferences, filter_snapshot
+                    recipient = eligible[row["email"]]
+                    if recipient.get("user_id"):
+                        snapshot = filter_snapshot(snapshot, get_preferences(recipient["user_id"], row["email"]))
+                    if not snapshot.get("articles"):
+                        status, error = "skipped", "本期没有订阅期刊的条目"
+                    else:
+                        with r.connect(True) as audit:
+                            event(audit, iid, "selection", "worker", r.dumps({
+                                "delivery_id": row["id"], "entry_ids": [a["entry_id"] for a in snapshot["articles"]],
+                                "snapshot_hash": r.digest(snapshot)}))
+                        plain, rich = r.render_email(snapshot, with_unsubscribe(recipient), base_url)
+                        sender(smtp, row["email"], r.TITLE + " · " + snapshot["period_end"][:10], plain, rich)
             except (smtplib.SMTPResponseException, smtplib.SMTPRecipientsRefused) as exc:
                 status, error = "failed", type(exc).__name__ + ": " + str(exc)[:200]
             except (ConnectionError, TimeoutError, OSError) as exc:

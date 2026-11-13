@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from member_catalog import api_eligible, PLUS_CODES
 from admin_store import get_setting, init_admin_store_db
 from membership import get_membership_snapshot, normalize_email
 
 
-FEATURE_ACCESS_KEYS = ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "agent_api", "ai", "search_chat", "associative", "research", "ai_web")
+FEATURE_ACCESS_KEYS = ("concept_map", "search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "agent_api", "ai", "search_chat", "associative", "research", "ai_web")
 FEATURE_ACCESS_LABELS = {
+    "concept_map": "概念地图",
     "agent_api": "API/MCP 数据调用",
     "search": "检索",
     "viewer": "检索结果正文",
@@ -25,6 +27,7 @@ FEATURE_ACCESS_LABELS = {
 }
 # 一句话说明每项权限（控制台展示，帮助管理员区分四类 AI 能力）。
 FEATURE_ACCESS_HINTS = {
+    "concept_map": "会员专属概念关系、路径及出处",
     "agent_api": "有效会员使用个人 Key 查询公共文库；多客户端共享并发与频率额度",
     "search": "全文精确/模糊检索",
     "viewer": "查看命中所在正文页",
@@ -45,7 +48,7 @@ FEATURE_ACCESS_HINTS = {
 # 控制台权限分组：把可配置功能聚到一张子表里，避免十余项平铺难辨。
 # journal_alerts 是面向所有有效会员的固定独立栏目，故不进入套餐/个人功能开关表。
 FEATURE_ACCESS_GROUPS = (
-    {"label": "内容与功能", "features": ("search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant", "agent_api")},
+    {"label": "内容与功能", "features": ("concept_map", "search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant", "agent_api")},
     {"label": "AI 功能（由「AI 导学」拆分而来，可分别开放）", "features": ("ai", "search_chat", "associative", "research", "ai_web")},
 )
 # 论文插注校注已经正式上线，默认作为会员功能开放；ai_web（智谱联网通道）仍默认关闭，
@@ -59,7 +62,7 @@ DEFAULT_AUDIENCE_ACCESS = {
     "guest": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": False, "search_chat": False, "associative": False, "research": False, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False, "personal_library": False, "citation_assistant": False},
     # 登录用户保留每周 2 万 DeepSeek Flash 非思考 token 体验：放开四个站内 AI 场景，
     # 但不开放智谱联网通道。其中联想检索自身仍是站方成本，不占用户的 2 万 token 池。
-    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": True, "search_chat": True, "associative": True, "research": True, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False, "personal_library": False, "citation_assistant": False},
+    "registered": {"search": True, "viewer": False, "library": False, "dictionary": False, "ai": True, "search_chat": True, "associative": False, "research": True, "ai_web": False, "journal_alerts": False, "static_library": False, "stream_reading": False, "notes": False, "personal_library": False, "citation_assistant": False},
 }
 
 
@@ -184,7 +187,16 @@ def feature_allowed_by_policy(policy: dict, feature: str, user: dict | None = No
     if feature not in FEATURE_ACCESS_KEYS:
         return True
     if not user:
+        if feature in {"agent_api", "associative", "concept_map"}:
+            return False
         return bool((policy.get("audience") or {}).get("guest", {}).get(feature, False))
+
+    if not is_admin_user(user):
+        code = membership_plan_code_for_user(user)
+        if feature == "agent_api" and not api_eligible(code):
+            return False
+        if feature in {"associative", "concept_map"} and not code:
+            return False
 
     # 「国内外研究动态」是独立的会员栏目，不再随某个套餐功能矩阵开关。
     # 旧版会员与新版会员都由 membership snapshot 归一为有效 plan_code；
@@ -202,7 +214,7 @@ def feature_allowed_by_policy(policy: dict, feature: str, user: dict | None = No
 
     allowed = bool((policy.get("global") or {}).get(feature, True))
     plan_code = membership_plan_code_for_user(user)
-    plan_values = (policy.get("plans") or {}).get(plan_code, {}) if plan_code else {}
+    plan_values = {} if plan_code in PLUS_CODES or plan_code in {"support_pro", "support_max"} else ((policy.get("plans") or {}).get(plan_code, {}) if plan_code else {})
     if feature in plan_values:
         allowed = bool(plan_values[feature])
     email = normalize_email(str((user or {}).get("email") or ""))
@@ -224,6 +236,9 @@ def plan_feature_access_rows(plans: list[dict], policy: dict) -> list[dict]:
             key: bool((policy.get("plans") or {}).get(code, {}).get(key, policy["global"].get(key, True)))
             for key in FEATURE_ACCESS_KEYS
         }
+        if code in PLUS_CODES or code in {"support_pro", "support_max"}:
+            values = {key: bool(policy["global"].get(key, True)) for key in FEATURE_ACCESS_KEYS}
+        values["agent_api"] = values["agent_api"] and api_eligible(code)
         rows.append({"plan": plan, "values": values})
     return rows
 

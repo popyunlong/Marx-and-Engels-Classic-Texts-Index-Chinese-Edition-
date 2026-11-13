@@ -1533,8 +1533,9 @@ def _ai_entitlements_payload(user: dict | None = None) -> dict:
         "quarter": "旧季度会员",
         "quarterly": "旧季度会员",
         "yearly": "旧长期会员",
-        "support_basic": "基础会员",
-        "support_plus": "AI研学支持 Plus",
+        "support_basic": "Plus（原15元额度）",
+        "support_plus_20": "Plus",
+        "support_plus": "Plus（原25元额度）",
         "support_pro": "AI研学支持 Pro",
         "support_max": "AI研学支持 Max",
         "research_pack": "AI研究资源包",
@@ -1555,6 +1556,7 @@ def _ai_entitlements_payload(user: dict | None = None) -> dict:
             "id": raw.get("id"), "plan_code": plan_code,
             "plan_name": plan_names.get(plan_code, plan_code or "AI 研学额度"),
             "source_type": raw.get("source_type"),
+            "budget_yuan": round(budget / 1_000_000, 6), "remaining_yuan": round(remaining / 1_000_000, 6),
             "released_percent": _percent(released, budget),
             "remaining_percent": _percent(remaining, released),
             "has_remaining": remaining > 0,
@@ -1639,6 +1641,8 @@ def current_view_state() -> dict:
         "public_base_url": DEPLOYMENT.public_base_url,
         "local_console_enabled": DEPLOYMENT.is_desktop,
         "feature_access": feature_access,
+        "feature_available": {key: _feature_is_available(key) for key in FEATURE_ACCESS_KEYS},
+        "comprehensive_access": bool(comprehensive_web.enabled(sys.modules[__name__]) and feature_access.get("search_chat")),
         "research_quota": _research_quota_payload() if has_request_context() else {},
         "deepseek_web_quota": comprehensive_web.web_quota(sys.modules[__name__]) if has_request_context() else {},
         "ai_token_quota": _ai_token_quota_payload() if has_request_context() else {},
@@ -1737,7 +1741,7 @@ def _membership_to_dict(snapshot) -> dict:
         "is_active_member": snapshot.is_active_member,
         "status": snapshot.status,
         "plan_code": snapshot.plan_code,
-        "plan_name": snapshot.plan_name,
+        "plan_name": "Plus（保留原 AI 额度）" if snapshot.plan_code in {"support_basic", "support_plus"} else snapshot.plan_name,
         "expires_at": snapshot.expires_at,
         "days_remaining": snapshot.days_remaining,
     }
@@ -2121,6 +2125,8 @@ def _feature_is_available(feature: str) -> bool:
         return bool(BASE_RUNTIME.full_resources_ready)
     if feature == "dictionary":
         return dictionary_available()
+    if feature == "concept_map":
+        return _dictionary_current_graph() is not None
     if feature == "ai":
         return bool(AI_CONFIG.enabled)
     if feature == "associative":
@@ -4542,6 +4548,15 @@ def _ai_provider_call_sink(event: dict) -> dict | None:
         charge_user = bool(user_id and feature != "mascot" and not _is_admin_user(billing_user))
     else:
         charge_user = bool(user_id and feature != "mascot" and explicit_charge_user)
+    if str(event.get("phase")) == "admitted":
+        if charge_user and user_id:
+            try:
+                __import__("membership")._invalidate_request_membership_cache()
+                authorize_ai_selection(user_id=int(user_id), feature=feature, provider=provider,
+                    model=model, reasoning_effort=str(event.get("reasoning_effort") or "off"))
+            except ValueError as exc:
+                raise AIServiceError(str(exc)) from exc
+        return None
     if str(event.get("phase")) == "before":
         occurred_at = utc_now_text()
         reservation = None
@@ -5913,7 +5928,7 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         ) if remote_admin else {"by_model": [], "total_cost_micros": 0},
         "ai_price_versions": [
             row for row in list_ai_price_versions(limit=40)
-            if _env_flag("MIMO_MODEL_ACCESS_ENABLED", False) or str(row.get("provider") or "") != "mimo"
+            if str(row.get("provider") or "") != "mimo"
         ] if remote_admin else [],
         "control_ai_price_schedule_url": url_for("admin_ai_price_schedule") if remote_admin else "",
         "dashboard_export_url": (
@@ -8994,6 +9009,8 @@ def pricing():
 
     state = current_view_state()
     plans = list_active_plans()
+    from member_catalog import public_plan
+    plans = [public_plan(plan) for plan in plans]
     purchase_enabled = multi_purchase.enabled()
     purchase_options = multi_purchase.purchase_options(
         int(g.current_user["id"]) if g.current_user else None, plans) if purchase_enabled else {}
@@ -9007,6 +9024,7 @@ def pricing():
         plans=plans,
         purchase_options=purchase_options,
         journal_catalog=research_source_catalog(),
+        benefit_groups=ACCOUNT_BENEFIT_GROUPS,
         next_url=next_url,
         payment_ready=False,
     )
@@ -9123,31 +9141,20 @@ def checkout_order_status(order_no: str):
 
 # 会员中心「我的权益」展示用：把功能权限键归类为面向用户的清单。标签/说明均为面向客户的措辞，
 # 不暴露内部权限键名；某项是否开放实时取自 state.feature_access[key]（单一事实源仍是权限策略）。
-ACCOUNT_BENEFIT_GROUPS = (
-    {
-        "title": "阅读与检索",
-        "features": (
-            {"key": "search", "label": "全文检索", "hint": "马恩列斯毛等经典著作的精确与模糊检索"},
-            {"key": "viewer", "label": "检索结果原文", "hint": "查看命中所在的原书页面"},
-            {"key": "library", "label": "原典阅读器", "hint": "逐卷逐页阅读扫描原书"},
-            {"key": "dictionary", "label": "马克思主义大辞典", "hint": "词条释义检索"},
-            {"key": "static_library", "label": "原文文库", "hint": "中外文原著对照阅读"},
-            {"key": "stream_reading", "label": "流式阅读", "hint": "《马克思恩格斯文集》网页适配阅读"},
-            {"key": "notes", "label": "笔记与知识库", "hint": "阅读器记笔记，跨书聚合到「我的知识库」"},
-            {"key": "personal_library", "label": "个人文库", "hint": "上传自有书籍，审核后私有阅读与检索"},
-        ),
-    },
-    {
-        "title": "AI 智能助手",
-        "features": (
-            {"key": "ai", "label": "AI 导学讲解", "hint": "阅读器内逐页智能讲解"},
-            {"key": "search_chat", "label": "AI 随心问", "hint": "首页智能问答"},
-            {"key": "associative", "label": "联想检索", "hint": "凭大意或残句定位特定原文"},
-            {"key": "research", "label": "研究型检索", "hint": "围绕研究命题铺开相关引文与综述"},
-            {"key": "ai_web", "label": "AI 联网检索", "hint": "联网增强的智能问答"},
-        ),
-    },
-)
+from member_catalog import BENEFIT_GROUPS as ACCOUNT_BENEFIT_GROUPS
+from priority_queue import PrioritySemaphore, CURRENT_PRIORITY
+from member_catalog import priority as member_priority
+
+def _current_member_priority():
+    user = getattr(g, "current_user", None) if has_request_context() else None
+    return member_priority(_membership_plan_code_for_user(user)) if user else CURRENT_PRIORITY.get()
+
+def membership_refresh_context(user_id):
+    from member_catalog import tier
+    from research_preferences import get_preferences, catalog
+    code = _membership_plan_code_for_user(g.current_user)
+    return {"tier": tier(code), "priority": {2: "最高优先", 1: "优先", 0: "普通"}[_current_member_priority()],
+            "preferences": get_preferences(user_id, g.current_user["email"]), "catalog": catalog()}
 
 
 @app.route("/account")
@@ -9178,6 +9185,7 @@ def account():
         journal_subscriptions=list_journal_subscriptions_for_user(user_id),
         plans=list_active_plans(),
         benefit_groups=benefit_groups,
+        membership_refresh=membership_refresh_context(user_id),
         notes_access_enabled=_notes_access_enabled(),
         personal_library_enabled=_personal_library_enabled(),
         citation_assistant_enabled=_citation_assistant_enabled_for_user(),
@@ -9294,6 +9302,8 @@ def journal_alerts_asset(article_id: int, asset_name: str):
 
 @app.route("/journal-alerts/latest")
 def journal_alerts_latest():
+    if request.args.get("history") != "1":
+        return redirect(url_for("research_updates.sample"))
     # Published bilingual e-journal. Draft and incomplete metadata-only rows
     # are never exposed, even when an id is guessed.
     journal_member_access = bool(_feature_effective_for_user("journal_alerts"))
@@ -10246,7 +10256,7 @@ def admin_journal_run():
             ),
         ):
             retry_text = "重试取得公开 PDF 并" if retry_unavailable else "获取公开 PDF 并"
-            flash(f"已开始为期次 #{bid} {retry_text}进行 MiMo 双语处理。", "success")
+            flash(f"已开始为期次 #{bid} {retry_text}进行 Flash 双语处理。", "success")
         else:
             flash(busy_msg, "warning")
         return _management_redirect(True, "journal-alerts")
@@ -13289,7 +13299,7 @@ def _note_to_payload(note: dict) -> dict:
         "quote": note.get("quote") or "",
         "body": note.get("body") or "",
         "color": note.get("color") or "",
-        "source_url": note.get("source_url") or "",
+        "source_url": __import__("note_exports").source_url(note),
         "created_at": note.get("created_at") or "",
         "updated_at": note.get("updated_at") or "",
         "created_display": _display_datetime(note.get("created_at") or ""),
@@ -13316,6 +13326,24 @@ def api_notes_list():
         "notes": [_note_to_payload(n) for n in rows],
         "total": count_user_notes(int(user["id"]), book_key=book_key),
     })
+
+
+@app.post("/api/notes/export")
+def api_notes_export():
+    user = _require_notes_access()
+    import note_exports
+    payload = request.get_json(silent=True) or {}
+    try:
+        rows = note_exports.collect(int(user["id"]), payload)
+        fmt = payload.get("format", "docx")
+        data, content_type = note_exports.render(rows, fmt, _account_public_base_url() or request.url_root)
+    except LookupError:
+        abort(404)
+    except (ValueError, TypeError) as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+    return Response(data, content_type=content_type, headers={
+        "Content-Disposition": f'attachment; filename="research-notes.{fmt}"',
+        "Cache-Control": "private, no-store"})
 
 
 @app.get("/api/notes/books")
@@ -18267,19 +18295,11 @@ def _resolve_ai_provider_or_abort(payload: dict) -> str:
 
 
 def _mimo_migration_enabled() -> bool:
-    return (
-        _env_flag("MIMO_MODEL_ACCESS_ENABLED", False)
-        and _env_flag("MIMO_MIGRATION_ENABLED", False)
-        and bool(AI_CONFIG.mimo_enabled)
-    )
+    return False
 
 
 def _mimo_admin_gray_enabled() -> bool:
-    return (
-        _env_flag("MIMO_MODEL_ACCESS_ENABLED", False)
-        and _env_flag("MIMO_ADMIN_GRAY_ENABLED", False)
-        and bool(AI_CONFIG.mimo_enabled)
-    )
+    return False
 
 
 def _mascot_ai_selection() -> tuple[str, str]:
@@ -18287,7 +18307,7 @@ def _mascot_ai_selection() -> tuple[str, str]:
     # 产生 90 秒级长尾。环境变量仅保留故障处置覆盖能力。
     provider = MASCOT_AI_PROVIDER_OVERRIDE or "deepseek"
     model = MASCOT_AI_MODEL_OVERRIDE or "deepseek-v4-flash"
-    if not _env_flag("MIMO_MODEL_ACCESS_ENABLED", False) and (
+    if (
         provider == "mimo" or str(model).startswith("mimo-")
     ):
         provider, model = "deepseek", "deepseek-v4-flash"
@@ -18309,79 +18329,26 @@ def _resolve_ai_selection_or_abort(payload: dict, *, feature: str) -> dict:
     requested_model = application_model((payload or {}).get("model"))
     requested_effort = str((payload or {}).get("reasoning_effort") or "").strip().lower()
 
-    # MiMo 总闸关闭时只屏蔽 MiMo，不再强制把有钱包的会员按功能锁到单一
-    # DeepSeek 模型。存量/基础会员的权威钱包策略会显式授予 Flash；服务端仍通过
-    # authorize_ai_selection 校验模型和思考档，不信任前端字段。
-    if not _env_flag("MIMO_MODEL_ACCESS_ENABLED", False):
-        if raw_provider not in {"", "default", "deepseek"}:
-            abort(403 if raw_provider == "mimo" else 400, description="当前模型入口已停用。")
-        entitlements = get_ai_entitlements(int(user["id"]) if user else None)
-        if user and (entitlements.get("models") or {}):
-            try:
-                return authorize_ai_selection(
-                    user_id=int(user["id"]), feature=feature,
-                    provider=raw_provider, model=requested_model, reasoning_effort=requested_effort,
-                )
-            except ValueError as exc:
-                abort(403, description=str(exc))
-        return {
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
-            "reasoning_effort": "off",
-            # 无金额钱包的兼容/免费用户走站方小额度，不可伪造个人钱包扣费。
-            "charge_user_wallet": False,
-        }
-
-    migration_live = _mimo_migration_enabled() and utc_now_text() >= MEMBERSHIP_REFORM_CUTOFF
-    # 管理员灰度与正式开关分离，可在零点前做真实页面验证，且不收取用户钱包。
-    if _is_admin_user(user) and (_mimo_admin_gray_enabled() or _mimo_migration_enabled()):
-        default_bucket = "research" if feature in {"research_review", "research", "research-review"} else (
-            "reader" if feature in {"pdf-chat", "pdf-chat-stream", "wenku_ai"} else "quick"
-        )
-        default_selection = _ADMIN_AI_MODEL_DEFAULTS[default_bucket]
-        model = requested_model or str(default_selection["model"])
-        if model not in (_SELECTABLE_DEEPSEEK_MODELS | _SELECTABLE_MIMO_MODELS):
-            abort(400, description="未知的 AI 模型选择。")
-        default_effort = {
-            "mimo-v2.5": "off", "mimo-v2.5-pro": "on",
-            "deepseek-v4-flash": "off", "deepseek-v4-pro": "high",
-        }[model]
-        effort = "high" if requested_effort == "medium" else (
-            requested_effort or str(default_selection["reasoning_effort"] if not requested_model else default_effort)
-        )
-        if effort not in _ADMIN_AI_MODEL_ENTITLEMENTS[model]:
-            abort(403, description="当前模型不支持所选思考档位。")
-        provider = "mimo" if model.startswith("mimo-") else "deepseek"
-        return {"provider": provider, "model": model, "reasoning_effort": effort}
-
-    # Before both the quality gate and the payment-time cutoff are satisfied, retain production routing.
-    if not migration_live:
-        if raw_provider not in {"", "default", "deepseek"}:
-            abort(400, description="未知的 AI 模型选择。")
-        return {
-            "provider": "deepseek", "model": _resolve_selectable_model(payload),
-            "reasoning_effort": "off",
-        }
-
+    if raw_provider == "mimo" or requested_model.startswith("mimo-"):
+        abort(403, description="MiMo 模型服务已停用，请使用 DeepSeek。")
+    if raw_provider not in {"", "default", "deepseek"}:
+        abort(403 if raw_provider == "mimo" else 400, description="当前模型入口已停用。")
     entitlements = get_ai_entitlements(int(user["id"]) if user else None)
-    if user and not (entitlements.get("models") or {}):
-        # 已通过功能权限与免费 token 门禁、但没有付费钱包的登录用户：
-        # 固定 DeepSeek Flash 非思考，走站方每周 2 万 token 体验池，不创建或预扣个人钱包。
-        return {
-            "provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off",
-            "charge_user_wallet": False,
-        }
-    # Fixed legacy/Basic routing ignores forged client model fields.
-    if set(entitlements.get("models") or {}) == {"mimo-v2.5-pro"}:
-        return {"provider": "mimo", "model": "mimo-v2.5-pro", "reasoning_effort": "on"}
-    try:
-        return authorize_ai_selection(
-            user_id=int(user["id"]) if user else None, feature=feature,
-            provider=raw_provider, model=requested_model, reasoning_effort=requested_effort,
-        )
-    except ValueError as exc:
-        abort(403, description=str(exc))
-
+    if user and (entitlements.get("models") or {}):
+        try:
+            return authorize_ai_selection(
+                user_id=int(user["id"]), feature=feature,
+                provider=raw_provider, model=requested_model, reasoning_effort=requested_effort,
+            )
+        except ValueError as exc:
+            abort(403, description=str(exc))
+    return {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "reasoning_effort": "off",
+        # 无金额钱包的兼容/免费用户走站方小额度，不可伪造个人钱包扣费。
+        "charge_user_wallet": False,
+    }
 
 # ============================ 检索范围（著作群语义路由）============================
 # 「问总书记却检索起马恩」根因：AI 线索抽取旧口径只认马恩列，命中被马恩强命中霸榜。解法两路——
@@ -20233,7 +20200,7 @@ def _apply_assoc_ranking(candidates: list, ranking: object) -> tuple[list, list[
 _RESEARCH_PIPELINE_CONCURRENCY = max(
     1, int(os.environ.get("MARX_RESEARCH_PIPELINE_CONCURRENCY", "2") or "2")
 )
-_RESEARCH_PIPELINE_SEMAPHORE = threading.BoundedSemaphore(_RESEARCH_PIPELINE_CONCURRENCY)
+_RESEARCH_PIPELINE_SEMAPHORE = PrioritySemaphore(_RESEARCH_PIPELINE_CONCURRENCY)
 _RESEARCH_QUEUE_CAPACITY = max(
     _RESEARCH_PIPELINE_CONCURRENCY,
     int(os.environ.get("MARX_RESEARCH_QUEUE_CAPACITY", "8") or "8"),
@@ -20245,15 +20212,8 @@ _RESEARCH_QUEUE_SEMAPHORE = threading.BoundedSemaphore(_RESEARCH_QUEUE_CAPACITY)
 
 
 def _acquire_research_pipeline_slot(cancel_event) -> bool:
-    """Wait for a research worker while remaining responsive to browser disconnects."""
-    deadline = time.monotonic() + _RESEARCH_QUEUE_WAIT_SECONDS
-    while not cancel_event.is_set():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return False
-        if _RESEARCH_PIPELINE_SEMAPHORE.acquire(timeout=min(1.0, remaining)):
-            return True
-    return False
+    return _RESEARCH_PIPELINE_SEMAPHORE.acquire(timeout=_RESEARCH_QUEUE_WAIT_SECONDS,
+        cancelled=cancel_event.is_set, priority=_current_member_priority())
 
 
 @app.route("/api/search/associative", methods=["POST"])
@@ -21613,6 +21573,7 @@ def _sse_run_with_heartbeat(
     心跳是 SSE 注释行(``: ...``)，前端解析时自动忽略；最终负载走 ``event: done``。
     """
     holder: dict = {}
+    request_priority = _current_member_priority()
     # 满闸即快速判忙：回一个 busy 的 done 事件（前端按普通失败提示「稍后重试」），不占线程干等。
     if not _SSE_STREAM_SEMAPHORE.acquire(timeout=_SSE_STREAM_ACQUIRE_TIMEOUT):
         yield _sse_event("done", {"ok": False, "busy": True, "error": "AI 当前访问量较大，请稍后重试。"})
@@ -21622,16 +21583,19 @@ def _sse_run_with_heartbeat(
     cancel_event = threading.Event()
 
     def _worker() -> None:
+        priority_token = CURRENT_PRIORITY.set(request_priority)
         try:
             holder["result"] = slow_fn(cancel_event)
         except Exception as exc:  # noqa: BLE001 — 慢活任何异常都转交 finalize 决定兜底，不弄断流
             holder["error"] = exc
+        finally:
+            CURRENT_PRIORITY.reset(priority_token)
 
     worker = threading.Thread(target=_worker, daemon=True)
     started = time.monotonic()
     last_checkpoint = None
     try:
-        yield _sse_event("progress", {"message": progress_message, "elapsed_seconds": 0})
+        yield _sse_event("progress", {"message": progress_message + "（" + {2:"最高优先",1:"优先",0:"普通"}[request_priority] + "排队）", "elapsed_seconds": 0, "queue_priority": {2:"最高优先",1:"优先",0:"普通"}[request_priority]})
         worker.start()
         while True:
             worker.join(timeout=heartbeat_interval)
@@ -21983,6 +21947,7 @@ def run_waitress() -> None:
         host=DEPLOYMENT.bind_host,
         port=DEPLOYMENT.port,
         threads=waitress_threads,
+        channel_request_lookahead=1,  # Enables cancellation while REST requests are queued.
         connection_limit=waitress_connection_limit,  # 慢 AI 以线程池 + 分池闸门控制；连接层留足余量，
         cleanup_interval=30,     # 以免误伤耗时较长的 AI 请求；慢连接超时交给前置 Caddy）
     )
@@ -21993,12 +21958,12 @@ def run_waitress() -> None:
         serve(app, **serve_kwargs)
 
 
-# ====== 流式阅读器内置翻译（MiMo 非思考，永久缓存，站方承担成本） ======
+# ====== 流式阅读器内置翻译（DeepSeek Flash 非思考，永久缓存，站方承担成本） ======
 wenku_translate.init_db()
 _WENKU_TR_MAX_TEXTS = 30   # 单次请求最多接收段数（含已缓存）
 _WENKU_TR_MAX_NEW = 12     # 单次最多新译段数（封顶每次点击成本）
-_WENKU_TRANSLATE_PROVIDER = "mimo"
-_WENKU_TRANSLATE_MODEL = "mimo-v2.5"
+_WENKU_TRANSLATE_PROVIDER = "deepseek"
+_WENKU_TRANSLATE_MODEL = "deepseek-v4-flash"
 _WENKU_TRANSLATE_REASONING_EFFORT = "off"
 _WENKU_SEG_MARK = re.compile(r"\[\[(\d+)\]\]")
 _WENKU_LANG_NAME = {"zh": "简体中文", "ru": "俄文", "de": "德文", "en": "英文", "fr": "法文"}
@@ -22059,7 +22024,7 @@ def api_wenku_translate():
     cached = wenku_translate.get_cached(texts, src, tgt)
     if all((not t) or (t in cached) for t in texts):
         return jsonify({"ok": True, "translations": [cached.get(t) for t in texts], "new": 0, "remaining": 0})
-    # 有未命中 → 经限流/可用性把关后固定调 MiMo 非思考。
+    # 有未命中 → 经限流/可用性把关后固定调 DeepSeek Flash 非思考。
     # 这是阅读器的站方基础服务：不校验用户 AI 周额度，也不解析用户套餐模型；
     # ai_call_context(charge_user=False) 仍保留供应商调用与站方成本审计，但绝不扣用户钱包。
     _rate_limit_ai_or_abort()

@@ -600,7 +600,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-Query-Request-ID",
+            "in": "header",
+            "required": false,
+            "description": "Client-generated cancellation identifier, unique per query.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
       }
     },
     "/search": {
@@ -1458,7 +1470,19 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "name": "X-Query-Request-ID",
+            "in": "header",
+            "required": false,
+            "description": "Client-generated cancellation identifier, unique per query.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
       }
     },
     "/passages/{evidence_id}": {
@@ -2258,6 +2282,16 @@
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
             }
+          },
+          {
+            "name": "X-Query-Request-ID",
+            "in": "header",
+            "required": false,
+            "description": "Client-generated cancellation identifier, unique per query.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
           }
         ]
       }
@@ -2265,7 +2299,7 @@
     "/limits": {
       "get": {
         "operationId": "get_api_limits",
-        "description": "读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。",
+        "description": "读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。REST/MCP 共用优先队列，默认最多 8 个等待请求、最长 5 秒；Max 最高优先。等待计入查询预算，未取得名额不计次数。此额度查询使用独立控制通道；scheduling 返回当前优先级和限制。",
         "security": [
           {
             "BearerKey": []
@@ -2349,7 +2383,11 @@
                         "near_text_concurrency",
                         "user_data_concurrency",
                         "user_control_concurrency",
-                        "queue"
+                        "control_concurrency",
+                        "queue",
+                        "queue_capacity",
+                        "queue_wait_seconds",
+                        "priority"
                       ],
                       "properties": {
                         "heavy_concurrency": {
@@ -2370,8 +2408,27 @@
                         "user_control_concurrency": {
                           "const": 1
                         },
+                        "control_concurrency": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
                         "queue": {
-                          "const": false
+                          "const": true
+                        },
+                        "queue_capacity": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "queue_wait_seconds": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "priority": {
+                          "type": "string",
+                          "enum": [
+                            "normal",
+                            "highest"
+                          ]
                         }
                       }
                     }
@@ -2854,6 +2911,72 @@
                           "type": "integer"
                         }
                       }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Query-Request-ID",
+            "in": "header",
+            "required": false,
+            "description": "Client-generated cancellation identifier, unique per query.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ]
+      }
+    },
+    "/cancel": {
+      "post": {
+        "operationId": "cancel_waiting_query",
+        "security": [
+          {
+            "BearerKey": []
+          }
+        ],
+        "description": "Cancel this account's waiting request only. Running requests retain their execution slot. This control request does not consume query quota.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_id"
+                ],
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cancellation recorded for waiting requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "scope"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "const": true
+                    },
+                    "scope": {
+                      "const": "waiting_only"
                     }
                   }
                 }

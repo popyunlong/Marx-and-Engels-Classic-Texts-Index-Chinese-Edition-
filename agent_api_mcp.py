@@ -112,8 +112,15 @@ def forward_sync(method, path, authorization, payload=None):
 
 
 async def forward(method, path, payload=None, authorization=None):
-    # Closing an MCP connection never releases the REST server's actual work slot.
-    return await asyncio.to_thread(forward_sync, method, path, authorization or AUTH.get(), payload)
+    auth = authorization or AUTH.get()
+    try:
+        return await asyncio.to_thread(forward_sync, method, path, auth, payload)
+    except asyncio.CancelledError:
+        # Cancel only pending admission. A running REST request keeps its actual slot.
+        if path not in {"/limits", "/cancel"} and TRACE.get():
+            await asyncio.shield(asyncio.to_thread(forward_sync, "POST", "/cancel", auth,
+                                                   {"request_id": TRACE.get()}))
+        raise
 
 
 async def list_tools(ctx, params):

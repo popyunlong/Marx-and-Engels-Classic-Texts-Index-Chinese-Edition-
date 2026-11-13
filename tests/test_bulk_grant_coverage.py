@@ -26,6 +26,9 @@ from membership import (  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class BulkGrantCoverageTests(unittest.TestCase):
     """「批量续期覆盖情况」：已获 / 未获批量赠送的会员必须能区分，且能只对未获者补发。"""
 
@@ -38,7 +41,7 @@ class BulkGrantCoverageTests(unittest.TestCase):
             conn.execute("DELETE FROM payment_events")
             conn.execute("DELETE FROM users")
             conn.commit()
-        self.plan_code = "support_basic"
+        self.plan_code = "support_plus_20"
 
     def _new_member(self, email: str) -> dict:
         user = create_user(

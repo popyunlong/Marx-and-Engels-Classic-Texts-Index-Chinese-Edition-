@@ -63,7 +63,7 @@ tool_timeout_sec = 30</pre></details>
 <li><code>get_api_limits({})</code>：查看当前账号额度。</li></ol>
 <p>例如：“在《马克思恩格斯文集》中查找‘生产关系’，读取相关原文的上下文，并列出版本和印刷页码。”</p></section>
 <section id="limits"><h2>额度与常见问题</h2>
-<p>每账号数据调用默认并发 1，每分钟 {{ per_minute }} 次；多个 Key 和客户端共用额度，不消耗站内 AI token。额度查询不计次，可在数据请求执行期间调用。实际限制和剩余次数见 <code>GET /limits</code> 或 <code>get_api_limits</code>。</p>
+<p>Pro/Max 套餐内自助开通，合格老会员保留原权益。Max 在等待队列中享最高优先，其他账号同档先到先服务。默认最多等待 5 秒、8 个等待请求，已运行请求不被中断。每账号数据调用默认并发 1，每分钟 {{ per_minute }} 次；多个 Key 和客户端共用额度，不消耗站内 AI token。额度查询不计次，可在数据请求执行期间调用。实际限制和剩余次数见 <code>GET /limits</code> 或 <code>get_api_limits</code>。</p>
 <p>参数错误、鉴权失败或未取得执行名额的请求不计次，开始执行后计次。证据标识最长有效 24 小时，过期后重新检索。</p>
 <dl class="problems">
 <dt>参数或请求大小有误（400 / 413）</dt><dd>检查查询、模式和范围；范围使用书目接口返回的 <code>book:</code> 或 <code>vol:</code> 标识，请求体限 16 KiB。</dd>
@@ -74,4 +74,4 @@ tool_timeout_sec = 30</pre></details>
 <dt>响应出现 Cloudflare 1010</dt><dd>记录请求时间和 <code>CF-Ray</code>，联系管理员核查访问规则。</dd></dl>
 <details><summary>提供故障信息</summary><p>提供请求时间、HTTP 状态及 <code>X-Request-ID</code>／<code>CF-Ray</code> 即可。MCP 工具错误可从 <code>structuredContent.error</code> 读取，<code>isError=true</code> 表示调用出错。</p></details>
 <p><a href="/citation-agent">使用网页插注校注 Agent</a> · <a href="/account">账户中心</a></p></section>
-</main></body></html>
+<section class="card"><h2>取消排队请求</h2><p>REST 客户端可发送 32 位小写十六进制 <code>X-Query-Request-ID</code>，再以同账号 Key 向 <code>POST /api/v1/cancel</code> 提交 <code>{"request_id":"原标识"}</code>。取消仅作用于尚在等待的请求，不扣调用次数；已经执行的请求正常完成。MCP 的取消通知自动转发到相同控制通道。</p></section></main></body></html>

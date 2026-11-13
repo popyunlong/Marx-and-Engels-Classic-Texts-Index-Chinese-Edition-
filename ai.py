@@ -1,4 +1,5 @@
 from __future__ import annotations
+from priority_queue import PrioritySemaphore, CURRENT_PRIORITY
 
 import contextlib
 import contextvars
@@ -38,7 +39,7 @@ DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4"
 _MIMO_MIGRATION_ENABLED = str(os.environ.get("MIMO_MIGRATION_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
-_MIMO_MODEL_ACCESS_ENABLED = str(os.environ.get("MIMO_MODEL_ACCESS_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+_MIMO_MODEL_ACCESS_ENABLED = False
 _MIMO_REFORM_CUTOFF = datetime(2026, 8, 14, 16, 0, 0, tzinfo=timezone.utc)
 
 
@@ -224,8 +225,8 @@ _AI_HTTP_RESEARCH_CONCURRENCY = max(
 _AI_HTTP_ACQUIRE_TIMEOUT = max(
     0.0, float(os.environ.get("MARX_AI_ACQUIRE_TIMEOUT_SECONDS", "12") or "12")
 )
-_AI_HTTP_INTERACTIVE_SEMAPHORE = threading.BoundedSemaphore(_AI_HTTP_INTERACTIVE_CONCURRENCY)
-_AI_HTTP_RESEARCH_SEMAPHORE = threading.BoundedSemaphore(_AI_HTTP_RESEARCH_CONCURRENCY)
+_AI_HTTP_INTERACTIVE_SEMAPHORE = PrioritySemaphore(_AI_HTTP_INTERACTIVE_CONCURRENCY)
+_AI_HTTP_RESEARCH_SEMAPHORE = PrioritySemaphore(_AI_HTTP_RESEARCH_CONCURRENCY)
 _AI_HTTP_WORKLOAD = contextvars.ContextVar("marx_ai_http_workload", default="interactive")
 
 
@@ -240,7 +241,7 @@ def research_ai_http_context() -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def _ai_http_slot() -> Iterator[None]:
+def _ai_http_slot(cancelled=None, *, provider="", model="", reasoning_effort="off") -> Iterator[None]:
     """占用一个 AI 出网并发名额；满闸则在超时后抛 AIServiceError 判忙。
 
     用 ``with _ai_http_slot(): ...`` 包住 urlopen。名额在退出 with 时释放，对流式调用
@@ -248,10 +249,26 @@ def _ai_http_slot() -> Iterator[None]:
     """
     research = _AI_HTTP_WORKLOAD.get() == "research"
     semaphore = _AI_HTTP_RESEARCH_SEMAPHORE if research else _AI_HTTP_INTERACTIVE_SEMAPHORE
-    acquired = semaphore.acquire(timeout=_AI_HTTP_ACQUIRE_TIMEOUT)
+    priority = CURRENT_PRIORITY.get()
+    try:
+        from flask import g, has_request_context
+        if has_request_context():
+            from feature_access import membership_plan_code_for_user
+            from member_catalog import priority as priority_for
+            user = getattr(g, "current_user", None)
+            if user:
+                priority = priority_for(membership_plan_code_for_user(user))
+    except ImportError:
+        pass
+    acquired = semaphore.acquire(timeout=_AI_HTTP_ACQUIRE_TIMEOUT, priority=priority, cancelled=cancelled)
     if not acquired:
         raise AIServiceError("AI 当前访问量较大，请稍后重试。")
     try:
+        if cancelled and cancelled():
+            raise AIServiceError("任务已停止。")
+        if provider:
+            _emit_ai_call_event({"phase": "admitted", "provider": provider,
+                                "model": model, "reasoning_effort": reasoning_effort})
         yield
     finally:
         semaphore.release()
@@ -261,7 +278,7 @@ def _ai_http_slot() -> Iterator[None]:
 # 5 名额共用，几篇并发综述就能把吉祥物/问答全部判忙。这里单限「同时进行的综述篇数」（默认 2）：整篇
 # 综述入口处占一个名额，故研究综述至多同时占用 2 个交互名额，其余恒为交互式 AI 保留。可经环境变量调整。
 _RESEARCH_REVIEW_CONCURRENCY = max(1, int(os.environ.get("MARX_RESEARCH_CONCURRENCY", "2") or "2"))
-_RESEARCH_REVIEW_SEMAPHORE = threading.BoundedSemaphore(_RESEARCH_REVIEW_CONCURRENCY)
+_RESEARCH_REVIEW_SEMAPHORE = PrioritySemaphore(_RESEARCH_REVIEW_CONCURRENCY)
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +598,9 @@ def load_ai_config(
         )
         .strip()
     )
+    if "xiaomimimo" in base_url.lower():
+        base_url = DEEPSEEK_BASE_URL
+
     # MiMo key is deployment-only by design: it is never read from or written to YAML/database overrides.
     mimo_api_key = str(os.environ.get("MIMO_API_KEY") or "").strip()
     mimo_base_url = str(os.environ.get("MIMO_BASE_URL") or MIMO_BASE_URL).strip().rstrip("/")
@@ -748,7 +768,7 @@ def load_ai_config(
     temperature = min(1.5, max(0.0, temperature))
 
     enabled = provider in SUPPORTED_PROVIDERS and bool(mimo_api_key if provider == "mimo" else api_key)
-    mimo_enabled = bool(mimo_api_key)
+    mimo_enabled = False
     zhipu_enabled = bool(zhipu_api_key)
 
     return AIConfig(
@@ -2918,14 +2938,7 @@ class ZAIClient:
                 "auth_header": "Authorization",
             }
         if provider == "mimo":
-            return {
-                "base_url": self.config.mimo_base_url,
-                "api_key": self.config.mimo_api_key,
-                "model": self.config.mimo_model,
-                "label": "MiMo",
-                "provider": "mimo",
-                "auth_header": "api-key",
-            }
+            raise AIServiceError("MiMo 模型服务已停用，请使用 DeepSeek。")
         return {
             "base_url": self.config.base_url,
             "api_key": self.config.api_key,
@@ -3531,7 +3544,7 @@ class ZAIClient:
         try:
             if (should_cancel and should_cancel()) or (deadline is not None and time.monotonic() >= deadline):
                 raise AIServiceError("任务已停止或达到时间预算。")
-            with _ai_http_slot(), urllib_request.urlopen(
+            with _ai_http_slot(cancelled=should_cancel, provider=route["provider"], model=model_name, reasoning_effort=effective_effort), urllib_request.urlopen(
                 req, timeout=http_timeout if http_timeout is not None else self.config.request_timeout_seconds
             ) as resp:
                 def watch_connection():
@@ -3655,9 +3668,7 @@ class ZAIClient:
                 raise AIServiceError("智谱 AI 通道尚未配置，请先在控制台「智能服务」中填写智谱 API Key。")
             return
         if provider == "mimo":
-            if not self.config.mimo_enabled:
-                raise AIServiceError("MiMo 通道尚未配置 MIMO_API_KEY。")
-            return
+            raise AIServiceError("MiMo 模型服务已停用，请使用 DeepSeek。")
         if not self.config.enabled:
             raise AIServiceError("AI 对话功能尚未配置，请先在 config/ai.yaml、APPDATA 覆盖配置或环境变量中设置 Z.AI API Key。")
 
@@ -3674,6 +3685,8 @@ class ZAIClient:
         auth_header: str = "Authorization",
         reasoning_effort: str = "off",
     ) -> dict[str, Any]:
+        if provider_name == "mimo" or str(payload.get("model", "")).startswith("mimo-") or "xiaomimimo" in str(base_url or self.config.base_url).lower():
+            raise AIServiceError("MiMo 模型服务已停用，请使用 DeepSeek。")
         label = service_label or self.config.provider
         # 调用方(如研究综述)可按「剩余总预算」压低单次超时；默认沿用全局 request_timeout_seconds。
         timeout = http_timeout if (http_timeout and http_timeout > 0) else self.config.request_timeout_seconds
@@ -3705,10 +3718,13 @@ class ZAIClient:
         call_error = ""
         success = False
         try:
-            with _ai_http_slot(), urllib_request.urlopen(req, timeout=timeout) as resp:
-                response_payload = json.loads(resp.read().decode("utf-8"))
-                success = True
-                return response_payload
+            with _ai_http_slot():
+                _emit_ai_call_event({"phase": "admitted", "provider": resolved_provider,
+                                    "model": resolved_model, "reasoning_effort": reasoning_effort})
+                with urllib_request.urlopen(req, timeout=timeout) as resp:
+                    response_payload = json.loads(resp.read().decode("utf-8"))
+                    success = True
+                    return response_payload
         except urllib_error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             try:

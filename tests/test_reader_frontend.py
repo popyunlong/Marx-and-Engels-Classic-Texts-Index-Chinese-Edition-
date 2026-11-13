@@ -43,6 +43,9 @@ from membership import (  # noqa: E402
 from werkzeug.security import generate_password_hash  # noqa: E402
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class ReaderFrontendTests(unittest.TestCase):
     def setUp(self) -> None:
         warnings.filterwarnings("ignore", category=ResourceWarning)

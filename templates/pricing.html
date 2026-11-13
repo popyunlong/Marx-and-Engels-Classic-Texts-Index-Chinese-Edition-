@@ -303,15 +303,19 @@
       </div>
     </section>
 
+    <section class="notice"><h2>网页会员共同权益</h2>
+      {% for group in benefit_groups %}<h3>{{ group.title }}</h3><p>{% for item in group.features if item.key != 'agent_api' %}{{ item.label }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endfor %}
+      <p>Plus 不含 API/MCP；Pro/Max 可在套餐内自助开通。AI 研究对话三种模式均按 Max、Pro、普通队列依次优先，已开始的任务不会被中断。</p>
+    </section>
     <div class="notice">
       {% if alipay_runtime.enabled %}
       {{ site_text("pricing.payment_enabled") }}
       {% else %}
       {{ site_text("pricing.payment_disabled") }}
       {% endif %}
-      <br><strong>购买规则：</strong>已生效的旧套餐与一个新套餐可以并行；基础 / Plus / Pro / Max 四档之间互斥。
+      <br><strong>购买规则：</strong>已生效的旧套餐与一个新套餐可以并行；Plus / Pro / Max 三档之间互斥；原 15/25 元套餐已停售，原 AI 额度保留。
       <br><strong>早期会员承诺：</strong>北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员，按月／季／年档每周享有 28／49／77 万实际输入与输出 token，周一恢复，不设整期金额钱包上限；每天独立赠送 20 次联网。旧权益使用 DeepSeek Flash 非思考模式，不含 DeepSeek Pro；另购套餐独立计费。
-      （4）同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。
+      同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。
       月套餐 AI 研学额度购买时开放 50%，第 15 天开放余下 50%，第 30 天失效。
       页面中的典型 token 容量按缓存未命中、80% 输入与 20% 输出估算；实际可用量会随模型、思考深度、峰谷时段和缓存命中情况变化。
     </div>

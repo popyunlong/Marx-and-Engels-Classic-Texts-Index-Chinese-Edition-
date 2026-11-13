@@ -13,7 +13,8 @@ from flask import Blueprint, g, jsonify, render_template, request, redirect, url
 from werkzeug.exceptions import HTTPException
 
 from agent_api_service import QueryService
-from agent_api_store import APIError, Store, setting, scheduling
+from agent_api_store import APIError, Store, setting, scheduling, QUERY_DEADLINE
+from member_catalog import priority as member_priority, api_eligible
 from search_capacity import SearchBusy, search_slot
 
 LOG = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def register_routes(app, web):
         g.agent_api_timings[name] = int(1000 * (time.monotonic() - started))
 
     def eligible(user):
-        return bool(user and user.get("is_active", 1) and web["_membership_plan_code_for_user"](user)
+        return bool(user and user.get("is_active", 1) and api_eligible(web["_membership_plan_code_for_user"](user))
                     and all(web["_feature_effective_for_user"](feature, user) for feature in ("agent_api", "search", "viewer")))
 
     @api.before_request
@@ -79,6 +80,7 @@ def register_routes(app, web):
         if not eligible(user):
             raise APIError("membership_required", "此接口需要有效会员及检索、正文和 API 权限。", 403)
         g.agent_api_key = key
+        g.agent_api_priority = 2 if member_priority(web["_membership_plan_code_for_user"](user)) == 2 else 0
         stage("auth", started)
         # No cookie fallback and no change to g.current_user's browser identity.
 
@@ -152,9 +154,21 @@ def register_routes(app, web):
 
     def execute(fn, *, lane="heavy", mode=None, control=False):
         key = g.agent_api_key
+        request_id = request.headers.get("X-Query-Request-ID") or request.headers.get("X-MCP-Request-ID", "")
+        if request_id and not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise APIError("invalid_request", "查询请求标识须为 32 位小写十六进制。")
         started = time.monotonic()
         with ExitStack() as stack:
-            stack.enter_context(store.admission(key["user_id"], lane=lane, near_text=mode == "near_text", control=control))
+            token = QUERY_DEADLINE.set(started + setting("TIMEOUT_SECONDS", 20))
+            stack.callback(QUERY_DEADLINE.reset, token)
+            stack.enter_context(store.admission(key["user_id"], lane=lane, near_text=mode == "near_text", control=control,
+                                                priority=g.agent_api_priority, cancelled=request.environ.get("waitress.client_disconnected", lambda: False), request_id=request_id))
+            from membership import _invalidate_request_membership_cache
+            _invalidate_request_membership_cache()
+            user = web["get_user_by_id"](key["user_id"])
+            if not eligible(user):
+                raise APIError("membership_required", "会员或 API 权限已变化。", 403)
+            store.authenticate(request.headers.get("Authorization"))
             if lane == "heavy":
                 stack.enter_context(search_slot())
             if mode in {"exact", "near_text"}:
@@ -200,10 +214,22 @@ def register_routes(app, web):
                         "user_concurrency": setting("USER_CONCURRENCY", 1), "max_results": 20,
                         "query_budget_seconds": setting("TIMEOUT_SECONDS", 20),
                         "rate": store.rate(g.agent_api_key["user_id"]), "daily_quota": None,
-                        "consumes_site_ai_tokens": False, "scheduling": scheduling()}), lane="light", control=True)
+                        "consumes_site_ai_tokens": False, "scheduling": scheduling(g.agent_api_priority)}), lane="light", control=True)
+
+    @api.post("/cancel")
+    def cancel():
+        payload = request.get_json(silent=True) or {}
+        request_id = payload.get("request_id", "") if isinstance(payload, dict) else ""
+        if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise APIError("invalid_request", "查询请求标识须为 32 位小写十六进制。")
+        def apply():
+            store.cancel_waiting(g.agent_api_key["user_id"], request_id)
+            return jsonify(ok=True, scope="waiting_only")
+        return execute(apply, lane="light", control=True)
 
     app.register_blueprint(api)
     web["CSRF_EXEMPT_ENDPOINTS"].add("agent_api.search")
+    web["CSRF_EXEMPT_ENDPOINTS"].add("agent_api.cancel")
 
     @app.route("/account/agent-api", methods=["GET", "POST"])
     def agent_api_center():

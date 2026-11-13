@@ -37,6 +37,9 @@ _ENABLED_SMTP = SMTPConfig(
 )
 
 
+from legacy_membership_fixture import create_manual_subscription
+
+
 class BroadcastEmailTests(unittest.TestCase):
     def setUp(self) -> None:
         warnings.filterwarnings("ignore", category=ResourceWarning)

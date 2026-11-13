@@ -1,0 +1,43 @@
+{% if membership.is_active_member %}
+<style>
+#researchPreferences input[type=checkbox], #researchPreferences input[type=radio] {width:auto;display:inline-block;margin:0 6px 0 0;padding:0;vertical-align:middle}
+#researchPreferences label {line-height:1.8}
+#researchPreferences details {margin:12px 0}
+</style>
+<article class="card" id="researchPreferences">
+  <h2>每周研究动态：选择订阅期刊</h2>
+  <p class="muted">仅筛选邮件内容，网页仍可浏览全部研究动态。选择零刊时不发送邮件。</p>
+  <label><input type="checkbox" id="researchMailEnabled" {{ 'checked' if membership_refresh.preferences.email_enabled else '' }}> 接收每周邮件</label>
+  <p><label><input type="radio" name="researchMailMode" value="all" {{ 'checked' if membership_refresh.preferences.mode == 'all' else '' }}> 全部期刊（含以后新增期刊）</label>
+  <label><input type="radio" name="researchMailMode" value="selected" {{ 'checked' if membership_refresh.preferences.mode == 'selected' else '' }}> 自选期刊</label></p>
+  <input type="search" id="researchJournalSearch" placeholder="搜索期刊" aria-label="搜索订阅期刊">
+  <button type="button" class="btn secondary" data-journals="all">全选</button>
+  <button type="button" class="btn secondary" data-journals="none">取消选择</button>
+  {% for group, label in [('zh','国内期刊'),('en','国外期刊')] %}
+  <details><summary>{{ label }}</summary>
+    {% for journal in membership_refresh.catalog if journal.group == group %}
+    <label class="journal-choice" style="display:block;margin:8px 0;overflow-wrap:anywhere">
+      <input type="checkbox" value="{{ journal.id }}" {{ 'checked' if membership_refresh.preferences.mode == 'all' or journal.id in membership_refresh.preferences.journal_ids else '' }}>
+      {{ journal.label }}{% if journal.label != journal.name %} · {{ journal.name }}{% endif %}
+    </label>{% endfor %}
+  </details>{% endfor %}
+  <button type="button" class="btn primary" id="saveResearchPreferences">保存订阅</button>
+  <p role="status" id="researchPreferenceStatus"></p>
+</article>
+<script>
+(() => {
+ const root=document.getElementById('researchPreferences'), status=document.getElementById('researchPreferenceStatus');
+ const boxes=[...root.querySelectorAll('.journal-choice input')];
+ root.querySelectorAll('[data-journals]').forEach(b=>b.onclick=()=>{boxes.forEach(x=>x.checked=b.dataset.journals==='all');root.querySelector('[value=selected]').checked=true;});
+ boxes.forEach(b=>b.onchange=()=>root.querySelector('[value=selected]').checked=true);
+ document.getElementById('researchJournalSearch').oninput=e=>root.querySelectorAll('.journal-choice').forEach(x=>x.style.display=x.textContent.toLowerCase().includes(e.target.value.toLowerCase())?'block':'none');
+ document.getElementById('saveResearchPreferences').onclick=async()=>{
+  status.textContent='正在保存…';
+  try {const res=await fetch('/api/account/research-subscriptions',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-Token':{{ csrf_token|tojson }}},body:JSON.stringify({email_enabled:document.getElementById('researchMailEnabled').checked,mode:root.querySelector('[name=researchMailMode]:checked').value,journal_ids:boxes.filter(x=>x.checked).map(x=>x.value)})});
+   const data=await res.json();if(!res.ok)throw Error(data.error||'保存失败');
+   document.getElementById('researchMailEnabled').checked=data.preferences.email_enabled;status.textContent='订阅设置已保存。';
+  }catch(e){status.textContent=e.message;}
+ };
+})();
+</script>
+{% endif %}
