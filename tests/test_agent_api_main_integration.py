@@ -7,7 +7,7 @@ import app as web
 
 
 def test_real_application_registration_auth_and_existing_agent_entry(monkeypatch):
-    user = {"id": 81231, "email": "api-fixture@example.test", "is_active": 1, "role": "user", "membership_plan_code": "support"}
+    user = {"id": 81231, "email": "api-fixture@example.test", "is_active": 1, "role": "user", "membership_plan_code": "support_pro"}
     monkeypatch.setattr(web, "get_user_by_id", lambda uid: user)
     monkeypatch.setattr(web, "_feature_effective_for_user", lambda *args: True)
     monkeypatch.setattr(web, "_public_book_keys", lambda **kw: {"文集"})
@@ -42,7 +42,7 @@ def test_workbuddy_credentials_and_openapi_artifact_match_contract():
 def test_rest_does_not_run_browser_session_or_maintenance_hooks(monkeypatch):
     user = {"id": 81232, "is_active": 1}
     monkeypatch.setattr(web, "get_user_by_id", lambda uid: user)
-    monkeypatch.setattr(web, "_membership_plan_code_for_user", lambda user: "member")
+    monkeypatch.setattr(web, "_membership_plan_code_for_user", lambda user: "support_pro")
     monkeypatch.setattr(web, "_feature_effective_for_user", lambda *args: True)
     def unrelated_work(*args, **kwargs):
         raise AssertionError("REST invoked a browser-only hook")
@@ -57,4 +57,4 @@ def test_rest_does_not_run_browser_session_or_maintenance_hooks(monkeypatch):
         response = client.get("/api/v1/limits", headers={"Authorization": "Bearer " + token})
         assert response.status_code == 200, response.get_data(as_text=True)
         assert response.headers["X-Request-ID"]
-        assert response.json["scheduling"]["queue"] is False
+        assert response.json["scheduling"]["queue"] is True

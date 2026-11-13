@@ -19,6 +19,7 @@ def boundary(tmp_path, monkeypatch):
     monkeypatch.setenv("MARX_AGENT_API_CONCURRENCY", "2")
     monkeypatch.setenv("MARX_AGENT_API_LIGHT_CONCURRENCY", "2")
     monkeypatch.setenv("MARX_AGENT_API_USER_CONCURRENCY", "1")
+    monkeypatch.setenv("MARX_AGENT_API_QUEUE_WAIT_SECONDS", "1")
     monkeypatch.setenv("MARX_AGENT_API_PER_MINUTE", "30")
     monkeypatch.setenv("MARX_FUZZY_CONCURRENCY", "3")
     monkeypatch.setattr(search_capacity, "SEARCH_CONCURRENCY", 3)
@@ -41,7 +42,7 @@ def boundary(tmp_path, monkeypatch):
         "corpus": corpus, "_public_book_keys": lambda: {"文集"},
         "current_view_state": lambda: {}, "current_app_release": lambda: {},
         "get_user_by_id": lambda uid: {"id": uid, "is_active": 1},
-        "_membership_plan_code_for_user": lambda user: "member",
+        "_membership_plan_code_for_user": lambda user: "support_pro",
         "_feature_effective_for_user": lambda feature, user: True,
         "CSRF_EXEMPT_ENDPOINTS": set(),
     })
@@ -125,9 +126,10 @@ def test_light_control_and_near_text_have_distinct_bounded_slots(boundary):
         with store.admission(2):
             with store.admission(3, lane="light"):
                 with store.admission(1, lane="light", control=True):
-                    with pytest.raises(APIError):
-                        with store.admission(4, lane="light"):
-                            pass
+                    with store.admission(4, lane="light"):
+                        with pytest.raises(APIError):
+                            with store.admission(5, lane="light"):
+                                pass
                     with pytest.raises(APIError):
                         with store.admission(1, lane="light", control=True):
                             pass

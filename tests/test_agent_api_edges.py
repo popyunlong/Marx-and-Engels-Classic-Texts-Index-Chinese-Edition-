@@ -46,7 +46,8 @@ def test_raw_context_is_source_text_clipped_to_work(tmp_path):
     assert not clipped
 
 
-def test_active_work_keeps_slot_until_actual_exit(tmp_path):
+def test_active_work_keeps_slot_until_actual_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv("MARX_AGENT_API_QUEUE_WAIT_SECONDS", "1")
     store = Store(tmp_path)
     accepted, finish, caller_gone = threading.Event(), threading.Event(), threading.Event()
     def work():

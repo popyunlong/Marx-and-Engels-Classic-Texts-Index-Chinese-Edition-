@@ -133,6 +133,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python for the isolated MCP fixture
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the MCP fixture dependencies
+        run: |
+          python -m venv "$RUNNER_TEMP/membership-mcp"
+          "$RUNNER_TEMP/membership-mcp/bin/python" -m pip install -r deploy/requirements-agent-api.lock
+          echo "MEMBERSHIP_MCP_PYTHON=$RUNNER_TEMP/membership-mcp/bin/python" >> "$GITHUB_ENV"
       - name: Set up production Python line
         uses: actions/setup-python@v5
         with:

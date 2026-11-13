@@ -336,11 +336,11 @@ def test_pytest_collection_is_limited_to_the_official_tests_tree() -> None:
         assert excluded in config
 
 
-def test_deploy_gates_and_mimo_are_safe_by_default() -> None:
+def test_deploy_environment_omits_retired_mimo_switches() -> None:
     env_example = (ROOT / "deploy" / "marx-search.env.example").read_text(encoding="utf-8")
-    assert "MIMO_API_KEY=" in env_example
-    assert "MIMO_MIGRATION_ENABLED=0" in env_example
-    assert "MIMO_ADMIN_GRAY_ENABLED=0" in env_example
+    assert "MIMO_API_KEY=" not in env_example
+    assert "MIMO_MIGRATION_ENABLED=" not in env_example
+    assert "MIMO_ADMIN_GRAY_ENABLED=" not in env_example
 
 
 def test_pdf_preflight_has_no_optional_docx_dependency() -> None:

@@ -30,7 +30,7 @@ def browser():
 register_routes(app, {"APPDATA_DIR": output / "state", "CORPUS_INDEX_DB_PATH": Path(DB_PATH), "corpus": Corpus(),
     "_public_book_keys": lambda: {"文集"}, "current_view_state": lambda: {"data_version": "fixture"},
     "current_app_release": lambda: {"git_sha": "fixture"}, "get_user_by_id": lambda uid: user,
-    "_membership_plan_code_for_user": lambda u: "member", "_feature_effective_for_user": lambda *args: True,
+    "_membership_plan_code_for_user": lambda u: "support_pro", "_feature_effective_for_user": lambda *args: True,
     "CSRF_EXEMPT_ENDPOINTS": exempt, "_require_login_page": lambda: None,
     "_require_csrf": csrf, "_ensure_csrf_token": lambda: "fixture"})
 store = app.extensions["agent_api"]["store"]

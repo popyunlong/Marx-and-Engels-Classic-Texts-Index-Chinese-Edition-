@@ -4,7 +4,7 @@
   "branch": "codex/membership-refresh-20261113",
   "workspace": "D:/CodexData/workspaces/membership-refresh-20261113",
   "policy": "Do not rerun any attempted scenario without explicit scope-specific authorization. Raw run JSON files retain source hashes; failures are never deleted.",
-  "unique_backend_scenarios_passed": 56,
+  "unique_backend_scenarios_passed": 69,
   "browser_scenarios_passed": 3,
   "runs": [
     {
@@ -73,6 +73,25 @@
       "started": "2026-11-13T03:53:30.1939939+00:00",
       "finished": "2026-11-13T03:53:32.8788635+00:00",
       "log": "D:/CodexData/outputs/membership-refresh-20261113/static.log"
+    },
+    {
+      "stage": "release-fixtures",
+      "status": "passed",
+      "baseline": "3d5bd595ed60b46c7ff97bf736ce0cf4637cbb0f",
+      "started": "2026-11-13T04:24:43.7086825+00:00",
+      "finished": "2026-11-13T04:25:29.4196051+00:00",
+      "log": "D:/CodexData/outputs/membership-refresh-20261113/release-fixtures.log",
+      "junit": "D:/CodexData/outputs/membership-refresh-20261113/release-fixtures.xml",
+      "cases": [
+        "tests/test_agent_api.py::test_cross_process_slots_crash_and_exception_cleanup",
+        "tests/test_agent_api.py::test_routes_membership_csrf_cookie_boundary_and_shared_busy",
+        "tests/test_agent_api.py::test_contract_and_invalid_input",
+        "tests/test_agent_api_edges.py::test_active_work_keeps_slot_until_actual_exit",
+        "tests/test_agent_api_main_integration.py",
+        "tests/test_agent_api_recovery.py",
+        "tests/test_api_access.py::test_both_key_management_routes_share_store_and_csrf",
+        "tests/test_api_access.py::test_api_permission_does_not_follow_agent_permission"
+      ]
     }
   ],
   "authorizations": [
