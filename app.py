@@ -1556,7 +1556,6 @@ def _ai_entitlements_payload(user: dict | None = None) -> dict:
             "id": raw.get("id"), "plan_code": plan_code,
             "plan_name": plan_names.get(plan_code, plan_code or "AI 研学额度"),
             "source_type": raw.get("source_type"),
-            "budget_yuan": round(budget / 1_000_000, 6), "remaining_yuan": round(remaining / 1_000_000, 6),
             "released_percent": _percent(released, budget),
             "remaining_percent": _percent(remaining, released),
             "has_remaining": remaining > 0,

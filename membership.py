@@ -291,7 +291,7 @@ NEW_AI_PLANS += ({
     "sort_order": 120, "kind": "membership", "parallel_group": "new_membership",
     "model_policy": _PLUS_AI_MODEL_POLICY, "badge": "Plus",
     "description": "20 元 / 30 天；全部网页会员权益；不含 API/MCP 数据调用。",
-    "features": "每周 100 万 Flash 等值额度，周一恢复\n30 天 AI 成本总额 18 元，分批开放\n联想检索、概念地图、笔记与 Word 导出\n完整研究动态与自主选刊邮件\n不含 API/MCP",
+    "features": "每周 100 万 Flash 等值额度，周一恢复\n联想检索、概念地图、笔记与 Word 导出\n完整研究动态与自主选刊邮件\n不含 API/MCP",
 },)
 
 # 请求级缓存（挂在 flask.g）：会员快照在同一请求内不会变化，却被鉴权/视图状态/各功能权限判定反复
@@ -6190,7 +6190,7 @@ def _deepseek_web_quota(conn, user_id, now):
     message = ("DeepSeek 联网需有效会员权益。" if not limit else
                "今日联网次数已用完或正在使用，明日零点恢复。" if not remaining else
                f"今日联网剩余 {remaining}/{limit} 次，其中赠送剩余 {gift_remaining} 次；赠送不扣 AI 周额度。" if gift_remaining else
-               f"今日联网剩余 {remaining}/{limit} 次，费用从 AI 钱包扣除。")
+               f"今日联网剩余 {remaining}/{limit} 次，联网会消耗 AI 使用额度。")
     return dict(entitled=limit>0, allowed=remaining>0, limit=limit, used=used,
                 reserved=reserved, remaining=remaining, reset_at=end.isoformat(), message=message,
                 gift_limit=gift_limit, gift_remaining=gift_remaining,

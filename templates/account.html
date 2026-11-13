@@ -363,10 +363,10 @@
               <div>研究型检索：{% if state.research_quota.limit is none %}不限次数{% else %}本周剩余 {{ state.research_quota.free_remaining }} / {{ state.research_quota.limit }} 次{% if (state.research_quota.pack_credits | default(0, true)) > 0 %}（另有资源包 {{ state.research_quota.pack_credits }} 次）{% endif %}{% endif %}</div>
               {% endif %}
               {% if show_ai_budget and state.ai_token_quota %}
-              <div>AI 问答额度：{% if state.ai_token_quota.unlimited %}不设周上限，仍受整期钱包限制{% elif state.ai_token_quota.exhausted %}本周已用完，下周一恢复{% else %}本周剩余 {{ state.ai_token_quota.remaining }} / {{ state.ai_token_quota.limit }} {{ "Flash 等值额度" if state.ai_token_quota.unit == "flash_equivalent" else "token" }}{% endif %}</div>
+              <div>AI 问答额度：{% if state.ai_token_quota.unlimited %}按本期可用额度使用{% elif state.ai_token_quota.exhausted %}本周已用完，下周一恢复{% else %}本周剩余 {{ state.ai_token_quota.remaining }} / {{ state.ai_token_quota.limit }} {{ "Flash 等值额度" if state.ai_token_quota.unit == "flash_equivalent" else "token" }}{% endif %}</div>
               {% endif %}
             </div>
-            <p class="note">周限额每周一北京时间零点恢复；金额余额按发放安排开放，不随周限额重置。</p>
+            <p class="note">周额度每周一北京时间零点恢复。</p>
           </div>
           {% endif %}
         </article>
@@ -376,7 +376,7 @@
           <h2>旧会员每周 AI 额度</h2>
           {% set promise = state.ai_entitlements.legacy_promise %}
           <p>本周剩余 {{ promise.remaining }} / {{ promise.limit }} token（已用 {{ promise.used }}，预占 {{ promise.reserved }}）。</p>
-          <p>按实际输入与输出 token 计量，每周一零点恢复，不设整期金额钱包上限。支持 DeepSeek Flash 非思考模式；旧权益不含 DeepSeek Pro。</p>
+          <p>按实际输入与输出 token 计量，每周一零点恢复。支持 DeepSeek Flash 非思考模式，旧权益不含 DeepSeek Pro。</p>
           <p>恢复时间：{{ format_datetime(promise.reset_at) }}；权益有效至 {{ format_datetime(promise.expires_at) }}。</p>
           {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
           <p class="muted">适用于北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员；赠送联网不扣模型周额度，网页阅读产生的模型 token 正常计量。</p>
@@ -386,13 +386,13 @@
         <article class="card">
           <h2>AI 使用额度</h2>
           {% if state.deepseek_web_quota %}<p>{{ state.deepseek_web_quota.message }}</p>{% endif %}
-          <p class="muted">DeepSeek 按模型和实际用量从共享额度中折算；缓存、思考深度与请求长度会影响可用量。每周限额与整期余额分别计算；周一恢复限额不会增加整期余额。</p>
+          <p class="muted">各模型共享本期使用额度，实际消耗随模型、思考深度和请求长度变化。</p>
           <div class="list">
             {% for wallet in state.ai_entitlements.wallets %}
             <section class="item">
               <h3>{{ wallet.plan_name }}</h3>
               <div class="kv">
-                <div>整期 AI 成本额度：{{ wallet.budget_yuan }} 元；当前可用 {{ wallet.remaining_yuan }} 元</div><div>本期额度已开放：{{ wallet.released_percent | default(0, true) }}%</div>
+                <div>本期额度已开放：{{ wallet.released_percent | default(0, true) }}%</div>
                 <div>当前已开放额度剩余：{{ wallet.remaining_percent | default(0, true) }}%</div>
                 {% if wallet.starts_at %}<div>开始时间：{{ format_datetime(wallet.starts_at) }}</div>{% endif %}
                 {% if wallet.second_release_at %}<div>第二批开放：{{ format_datetime(wallet.second_release_at) }}</div>{% endif %}

@@ -27,11 +27,11 @@ def public_plan(plan):
     code = plan["code"]
     if code == PLUS_CODE:
         result.update(name="Plus", description="20 元 / 30 天；全部网页会员权益，不含 API/MCP。",
-            features="每周 100 万 Flash 等值额度，周一恢复\n整期 AI 成本额度 18 元，分批开放\nWord/Markdown/JSON 笔记导出与返回原文\n完整研究动态与自主选刊邮件")
+            features="每周 100 万 Flash 等值额度，周一恢复\nWord/Markdown/JSON 笔记导出与返回原文\n完整研究动态与自主选刊邮件")
     elif code in {"support_pro", "support_max"}:
         label = "Pro" if code == "support_pro" else "Max"
         result.update(name=label, description="30 天会员；全部网页会员权益与 API/MCP 自助开通。",
-            features="DeepSeek 按实际模型成本共享 AI 额度\nAI 额度沿用现行规则\n三种 AI 对话模式" + ("最高优先排队\nAPI/MCP 最高优先" if label == "Max" else "优先排队\nAPI/MCP 套餐内开通"))
+            features="DeepSeek 模型共享 AI 使用额度\nAI 额度沿用现行规则\n三种 AI 对话模式" + ("最高优先排队\nAPI/MCP 最高优先" if label == "Max" else "优先排队\nAPI/MCP 套餐内开通"))
     else:
         result["description"] = str(result.get("description") or "").replace("MiMo V2.5 Pro", "DeepSeek Flash").replace("MiMo", "DeepSeek")
         result["features"] = str(result.get("features") or "").replace("MiMo V2.5 Pro", "DeepSeek Flash").replace("MiMo", "DeepSeek")
