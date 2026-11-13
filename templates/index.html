@@ -2545,7 +2545,7 @@
     {% endwith %}
     <section class="hero{% if v2 and _pg == 'search' %} refined-hero{% endif %}">
       {% if v2 and _pg == 'search' %}
-      <div class="refined-portrait"><img src="{{ url_for('static',filename='refined-ui/theorists-panorama-v7.webp') }}" width="2172" height="724" fetchpriority="high" alt="马克思、恩格斯居中，毛泽东、列宁分列两侧的十五位思想家双排油画群像"><div class="refined-light" aria-hidden="true"></div>{% for i in range(6) %}<span class="refined-mote" style="--i:{{ i }}" aria-hidden="true"></span>{% endfor %}<button type="button" class="refined-motion" aria-pressed="false">暂停动态</button></div>
+      <div class="refined-portrait"><img src="{{ url_for('static',filename='refined-ui/theorists-panorama-v12.webp') }}" width="2172" height="724" fetchpriority="high" alt="十五位思想家的象征性油画群像，马克思执笔，恩格斯展开书册，列宁侧首倾听"><div class="refined-light" aria-hidden="true"></div>{% for i in range(6) %}<span class="refined-mote" style="--i:{{ i }}" aria-hidden="true"></span>{% endfor %}<button type="button" class="refined-motion" aria-pressed="false">暂停动态</button></div>
       {% endif %}
       <div{% if v2 and _pg == "search" %} class="refined-hero-copy"{% endif %}>
       <h1>{{ site_text("index.hero_title") }}</h1>
