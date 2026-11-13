@@ -556,7 +556,7 @@ class PdfRouteTest(unittest.TestCase):
         article_id = _publish_complete("https://public.example/sample.pdf")
         batch_id = _mark_as_sample(article_id)
 
-        catalog = self.client.get(f"/journal-alerts/latest?d={batch_id}")
+        catalog = self.client.get(f"/journal-alerts/latest?history=1&d={batch_id}")
         page = catalog.get_data(as_text=True)
         self.assertEqual(catalog.status_code, 200)
         self.assertIn("当前为公开完整样刊", page)
@@ -577,7 +577,7 @@ class PdfRouteTest(unittest.TestCase):
         article_id = _publish_complete()
         article = ja.get_public_article(article_id)
         response = self.client.get(
-            f"/journal-alerts/latest?d={int(article['batch_id'])}", follow_redirects=False,
+            f"/journal-alerts/latest?history=1&d={int(article['batch_id'])}", follow_redirects=False,
         )
         self.assertEqual(response.status_code, 302)
         self.assertIn("/journal-alerts/latest?member_required=1", response.headers["Location"])

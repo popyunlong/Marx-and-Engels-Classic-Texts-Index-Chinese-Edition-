@@ -64,9 +64,9 @@
     </header>
     <nav class="nav" aria-label="期刊导航">
       <div class="nav-group">
-        {% if prev_batch %}<a href="?d={{ prev_batch.id }}">← 上一期</a>{% endif %}
-        {% if next_batch %}<a href="?d={{ next_batch.id }}">下一期 →</a>{% endif %}
-        {% if is_historical %}<a href="{{ url_for('journal_alerts_latest') }}">最新一期</a>{% endif %}
+        {% if prev_batch %}<a href="{{ url_for('journal_alerts_latest', history=1, d=prev_batch.id) }}">← 上一期</a>{% endif %}
+        {% if next_batch %}<a href="{{ url_for('journal_alerts_latest', history=1, d=next_batch.id) }}">下一期 →</a>{% endif %}
+        {% if is_historical %}<a href="{{ url_for('journal_alerts_latest', history=1) }}">最新一期</a>{% endif %}
       </div>
       <div class="nav-group">{% if journal_member_access %}<a href="{{ url_for('account_journal_alerts') }}">邮件订阅</a>{% else %}<a href="{{ upgrade_url }}">开通会员阅读新期</a>{% endif %}<a href="/">返回首页</a></div>
     </nav>
@@ -81,7 +81,7 @@
       <summary>翻阅往期（{{ public_batches|length }}）</summary>
       <div class="issues">
         {% for item in public_batches %}
-        <a class="issue-link" href="?d={{ item.id }}">{% if item.status == 'sample' %}<span class="issue-kind">样刊</span><br>{% endif %}{{ item.issue_key or ("第 " ~ item.id ~ " 期") }}<br><small>{{ (item.period_start or "")[:10] }} — {{ (item.period_end or "")[:10] }}</small></a>
+        <a class="issue-link" href="{{ url_for('journal_alerts_latest', history=1, d=item.id) }}">{% if item.status == 'sample' %}<span class="issue-kind">样刊</span><br>{% endif %}{{ item.issue_key or ("第 " ~ item.id ~ " 期") }}<br><small>{{ (item.period_start or "")[:10] }} — {{ (item.period_end or "")[:10] }}</small></a>
         {% endfor %}
       </div>
     </details>
