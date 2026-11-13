@@ -2129,8 +2129,8 @@ def _feature_is_available(feature: str) -> bool:
     if feature == "ai":
         return bool(AI_CONFIG.enabled)
     if feature == "associative":
-        # 模糊检索的主层是本地文本近似检索，不依赖 AI 开关；AI 只是不足时的
-        # 站方语义补充。因此上游暂停时仍保留本地兜底能力。
+        # 入口资格与 AI 服务状态分开；语义请求在执行前检查 AI。
+        # 免费模糊检索直接使用 search 权限，不依赖本权限。
         return bool(BASE_RUNTIME.can_search)
     if feature == "ai_web":
         # 智谱联网通道随基础 AI 一起开关：基础 AI 不可用或智谱未配 Key 时整体不可用。
@@ -11257,6 +11257,8 @@ def _render_index_page(layout_page: str | None = None):
         ai_access_enabled=bool(_feature_is_available("ai") and _feature_effective_for_user("ai")),
         search_chat_access_enabled=bool(_feature_is_available("search_chat") and _feature_effective_for_user("search_chat")),
         assoc_access_enabled=bool(_feature_is_available("associative") and _feature_effective_for_user("associative")),
+        fuzzy_access_enabled=bool(current_user and _feature_is_available("search") and _feature_effective_for_user("search")),
+        search_viewer_enabled=bool(state["pdf_enabled"] and _content_access_enabled("viewer")),
         research_access_enabled=bool(_feature_is_available("research") and _feature_effective_for_user("research")),
         search_scopes=_scope_options_payload(),  # 联想/研究检索「检索范围」下拉
         book_scope_tree=_book_scope_tree(),  # 「精选到书/卷」多选控件数据（按著作群分组+卷号）
@@ -17238,7 +17240,7 @@ def _bulk_volume_results(volumes: list[dict], requested_group_page: int) -> dict
     }
 
 
-def _build_summary_search_results(groups: list[dict], requested_group_page: int) -> dict:
+def _build_summary_search_results(groups: list[dict], requested_group_page: int, *, page_size: int = GROUPS_PER_PAGE) -> dict:
     summaries: OrderedDict[tuple, dict] = OrderedDict()
     for group in groups:
         key = (
@@ -17267,12 +17269,12 @@ def _build_summary_search_results(groups: list[dict], requested_group_page: int)
         item["count"] += int(group.get("count") or len(group.get("hits") or []) or 0)
 
     unpaged = list(summaries.values())
-    total_group_pages = max(1, (len(unpaged) + GROUPS_PER_PAGE - 1) // GROUPS_PER_PAGE)
+    total_group_pages = max(1, (len(unpaged) + page_size - 1) // page_size)
     group_page = min(max(1, requested_group_page), total_group_pages)
-    start = (group_page - 1) * GROUPS_PER_PAGE
+    start = (group_page - 1) * page_size
     return {
         "display_mode": "summary",
-        "results": unpaged[start : start + GROUPS_PER_PAGE],
+        "results": unpaged[start : start + page_size],
         "group_count": len(unpaged),
         "group_page": group_page,
         "group_pages": total_group_pages,
@@ -18074,7 +18076,7 @@ def api_search():
             )
         else:
             grouped = corpus.search_grouped(
-                q, group_limit=1000000, max_hits=None, book_scope=public_search_scope
+                q, group_limit=1000000, max_hits=None, book_scope=public_search_scope, allow_fuzzy=False
             )
     except SearchBusy:
         raise
@@ -20230,6 +20232,8 @@ def api_search_associative():
     before any slow AI call.
     """
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify(ok=False, error="检索参数必须为对象。"), 400
     public_keys_at_start = _public_book_keys()
     requested_mode = str(payload.get("mode") or "auto").strip().lower()
     if requested_mode != "research":
@@ -20330,6 +20334,7 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
         if getattr(g, 'chapter_selection', None):
             _check_chapter_selection_current(g.chapter_selection)
         results = []
+        directory_groups = []
         for hit in hits:
             selection = getattr(g, 'chapter_selection', None)
             if selection:
@@ -20337,6 +20342,18 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
                             and d.norm_start <= hit.norm_start < hit.norm_end <= d.norm_end), None)
                 if doc is None:
                     continue
+            if not viewer_allowed:
+                # Only the directory allowlist reaches the client. In particular,
+                # textual differences and document IDs can themselves contain text/pages.
+                directory_groups.append({
+                    "book": hit.book, "volume": hit.volume,
+                    "display_title": hit.display_title, "book_title": hit.book_title,
+                    "book_short_title": hit.book_short_title, "citation_title": hit.citation_title,
+                    "book_sort_order": hit.book_sort_order,
+                    "section_title": hit.section_title, "count": 1,
+                })
+                continue
+            if selection:
                 if hit.exact_basis != 'layout':
                     vol = corpus.get_volume_by_source_file(hit.source_file)
                     hit.context = corpus._extract_export_sentence_context(vol, hit.norm_start, hit.norm_end,
@@ -20360,18 +20377,38 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
                 item.update(evidence)
                 item["associative_group"] = "textual" if evidence["textual_reliable"] else "textual_clue"
             results.append(item)
+        response_scope = scope_meta
+        count = len(results)
+        if not viewer_allowed:
+            count = len(directory_groups)
+            # Associative results are fetched once and paginated on the client.
+            results = _build_summary_search_results(
+                directory_groups, 1, page_size=max(1, count)
+            )["results"]
+            response_scope = {key: scope_meta[key] for key in
+                              ("id", "label", "manual", "applied", "document_status", "requested_titles")
+                              if key in scope_meta}
+            if str(response_scope.get("id", "")).startswith("document:"):
+                response_scope["id"] = "document"
+            if "candidates" in scope_meta:
+                response_scope["candidates"] = [
+                    {key: item[key] for key in ("book", "volume", "work_title") if key in item}
+                    for item in scope_meta["candidates"]
+                ]
         return jsonify({
-            "ok": True, "query": gist, "count": len(results),
-            "display_mode": "associative", "intent": "locate", "mode": "locate",
+            "ok": True, "query": gist, "count": count,
+            "group_count": len(results),
+            "display_mode": "associative" if viewer_allowed else "summary", "intent": "locate", "mode": "locate",
             "retrieval_strategy": strategy, "effective_strategy": actual_strategy,
             "requested_scope": scope_req, "semantic_ranked": ranking_ok,
             "scope_version": getattr(getattr(g, 'chapter_selection', None), 'version', None),
-            "scope": scope_meta, "warnings": warnings, "message": message,
+            "scope": response_scope, "warnings": warnings, "message": message,
             "results": results, "pdf_enabled": viewer_allowed,
             "access_level": "full" if viewer_allowed else "summary",
             **textual_meta,
             "retrieval_breakdown": {
-                stage: sum(item["associative_stage"] == stage for item in results)
+                stage: (sum(item["associative_stage"] == stage for item in results) if viewer_allowed
+                        else count if stage == actual_strategy else 0)
                 for stage in ("textual", "semantic")
             },
         })
@@ -20554,13 +20591,28 @@ def _search_associative_strategy(*, gist, retrieval_gist, strategy, scope_req,
 def _api_search_associative_impl(*, cancel_event=None):
     """联想检索：AI 提取线索 → 在真实语料中接地定位 → AI 重排并解释。
 
-    引文不可伪造：仅渲染 corpus.locate_associative 产出的真实命中；AI 只输出检索串与
-    “在候选里选哪几条”。鉴权顺序与 /api/ai/search-chat 一致，但走独立的 associative
-    权限位（自 ai 拆分而来，可单独向访客/注册用户/套餐开放）。
+    文本近似只需登录与 search 权限；语义及旧客户端请求仍检查会员 associative
+    权限。研究模式独立鉴权、核算额度；正文和目录输出始终按 viewer 权限裁剪。
     """
-    # 意图分流后按所选模式鉴权：研究型检索走独立的 research 权限，其余（精准定位/自动）走 associative。
-    _requested_mode = str((request.get_json(silent=True) or {}).get("mode") or "auto").strip().lower()
-    _require_content_feature("research" if _requested_mode == "research" else "associative")
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify(ok=False, error="检索参数必须为对象。"), 400
+    mode = str(payload.get("mode") or "auto").strip().lower()
+    if mode not in {"auto", "locate", "research"}:
+        mode = "auto"
+    strategy = payload.get("retrieval_strategy") if mode != "research" else None
+    if strategy is not None and strategy not in ("textual", "semantic"):
+        return jsonify(ok=False, error="请选择近似原文或大意／篇章联想。"), 400
+    _requested_mode = mode
+    if strategy == "textual":
+        if not getattr(g, "current_user", None):
+            abort(401, description="模糊检索需登录后免费使用。")
+        _require_search()
+        _require_feature("search")
+    else:
+        # Research takes precedence over strategy; omitted legacy strategies
+        # retain their membership gate and cannot select the free path.
+        _require_content_feature("research" if mode == "research" else "associative")
     # 研究综述属用户 AI 场景；模糊定位由站方出资，使用独立限流桶，
     # 不得因连续检索挤占 AI 研究对话/阅读器解读的频率额度。
     if _requested_mode == "research":
@@ -20580,17 +20632,9 @@ def _api_search_associative_impl(*, cancel_event=None):
     if DEPLOYMENT.is_desktop:
         # 联想检索需与内存中的 corpus 同进程完成接地定位，桌面模式暂不经代理提供。
         return jsonify({"ok": False, "error": "联想检索暂仅在云端模式可用。"}), 200
-    payload = request.get_json(silent=True) or {}
     gist = " ".join(str(payload.get("gist") or payload.get("q") or "").split())
     messages = payload.get("messages") or []
     rerank = _coerce_bool(payload.get("rerank", True))
-    # 意图分流：auto=由 expand 的 AI 判定；locate/research=前端显式覆盖（「精准定位/研究辅助」开关）。
-    mode = str(payload.get("mode") or "auto").strip().lower()
-    if mode not in {"auto", "locate", "research"}:
-        mode = "auto"
-    strategy = payload.get("retrieval_strategy") if mode != "research" else None
-    if strategy is not None and strategy not in ("textual", "semantic"):
-        return jsonify({"ok": False, "error": "请选择近似原文或大意／篇章联想。"}), 400
     # 检索范围（著作群路由）：auto=据语义自动路由；all=全部；著作群 id=手动硬限定。见 _resolve_search_scope。
     scope_req = payload.get("scope")
     if not gist:

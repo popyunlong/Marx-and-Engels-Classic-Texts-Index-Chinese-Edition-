@@ -29,7 +29,7 @@ FEATURE_ACCESS_LABELS = {
 FEATURE_ACCESS_HINTS = {
     "concept_map": "会员专属概念关系、路径及出处",
     "agent_api": "有效会员使用个人 Key 查询公共文库；多客户端共享并发与频率额度",
-    "search": "全文精确/模糊检索",
+    "search": "精确检索；登录后可免费使用模糊检索，结果正文另按阅读权限开放",
     "viewer": "查看命中所在正文页",
     "library": "独立阅读器逐卷阅读",
     "dictionary": "马克思主义大辞典查词",
@@ -41,7 +41,7 @@ FEATURE_ACCESS_HINTS = {
     "citation_assistant": "上传 DOCX，建议补注、校对注释并导出副本",
     "ai": "阅读器内 AI 导学讲解",
     "search_chat": "首页右下「AI 随心问」对话",
-    "associative": "凭大意/残句定位特定原文",
+    "associative": "有效会员按大意、篇章线索定位原文；站方承担 AI 费用，不扣个人额度",
     "research": "研究命题铺开多部相关引文",
     "ai_web": "智谱 GLM 联网检索通道",
 }

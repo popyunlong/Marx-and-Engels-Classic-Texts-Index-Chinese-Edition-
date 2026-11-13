@@ -619,6 +619,17 @@ SITE_TEXT_DEFINITIONS = (
     ),
     # 模糊检索：只做本地词面近似定位，与大意／篇章联想分开。
     SiteTextDefinition(
+        "search.fuzzy_mode_note", "模糊检索", "模糊检索模式说明",
+        "登录后免费使用。输入记得的原句，可含少量错字、漏字或断句差异。无正文权限时仅显示目录线索；不会自动调用联想检索。",
+    ),
+    SiteTextDefinition(
+        "search.assoc_mode_note", "联想检索", "联想检索模式说明",
+        "有效会员可用。可按大意、篇章名或论述线索查找相关原文；AI 调用由站方承担，不消耗个人 AI 额度。结果需结合原文核对。",
+    ),
+    SiteTextDefinition("search.fuzzy_login_required", "模糊检索", "模糊检索登录提示", "模糊检索需登录后免费使用。"),
+    SiteTextDefinition("search.fuzzy_unavailable", "模糊检索", "模糊检索暂不可用", "当前账号暂不可使用模糊检索，请检查检索权限或稍后重试。"),
+    SiteTextDefinition("search.assoc_member_required", "联想检索", "联想检索会员提示", "联想检索需有效会员资格；使用不另扣个人 AI 额度。"),
+    SiteTextDefinition(
         "search.fuzzy_placeholder",
         "模糊检索",
         "模糊检索输入框提示",
@@ -628,13 +639,13 @@ SITE_TEXT_DEFINITIONS = (
         "search.fuzzy_no_access",
         "模糊检索",
         "模糊检索无权限提示",
-        "当前账号尚未开放模糊检索，请先开通后再使用。",
+        "模糊检索需登录后免费使用；已登录时请检查检索权限。",
     ),
     SiteTextDefinition(
         "search.fuzzy_tab_title",
         "模糊检索",
         "模糊检索标签禁用悬浮提示",
-        "模糊检索需要相应权限",
+        "登录后免费使用模糊检索",
         multiline=False,
     ),
     # 联想检索：页面 JS 内的用户可见文字，通过模板 {{ site_text(..) | tojson }} 注入到脚本里，可后台编辑。
@@ -661,13 +672,13 @@ SITE_TEXT_DEFINITIONS = (
         "search.assoc_no_ai",
         "联想检索",
         "联想检索无 AI 权限提示",
-        "联想检索需要 AI 权限，请先开通后再使用。",
+        "联想检索需有效会员资格；使用不另扣个人 AI 额度。",
     ),
     SiteTextDefinition(
         "search.assoc_tab_title",
         "联想检索",
         "联想检索标签禁用悬浮提示",
-        "联想检索需要 AI 权限",
+        "联想检索需有效会员资格",
         multiline=False,
     ),
     SiteTextDefinition(

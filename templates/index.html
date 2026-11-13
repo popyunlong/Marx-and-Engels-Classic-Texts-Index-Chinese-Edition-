@@ -2662,6 +2662,7 @@
               <div id="searchHelpBody"></div>
             </div>
             <div class="refined-query-layout"><textarea id="q" placeholder="{{ site_text("index.search_placeholder") }}"></textarea><aside class="refined-query-help"><strong>{{ site_text('index.search_help_title') }}</strong><p>{{ site_text('index.search_help_body') }}</p></aside></div>
+            <p id="searchModeNote" class="muted" hidden></p>
             <div class="cooc-scope-row">
               <label class="cooc-toggle" id="coocToggle">
                 <input type="checkbox" id="coocCheckbox"> {{ site_text('index.search_cooc_label') }}
@@ -3347,6 +3348,11 @@
   const embeddedAiRuntime = {{ ai_runtime | tojson }};
   const aiAccessEnabled = {{ search_chat_access_enabled | tojson }};
   const assocAccessEnabled = {{ assoc_access_enabled | default(search_chat_access_enabled) | tojson }};
+  const fuzzyAccessEnabled = {{ fuzzy_access_enabled | default(false) | tojson }};
+  const searchViewerEnabled = {{ search_viewer_enabled | default(false) | tojson }};
+  const FUZZY_LOGIN_REQUIRED = {{ site_text('search.fuzzy_login_required') | tojson }};
+  const FUZZY_UNAVAILABLE = {{ site_text('search.fuzzy_unavailable') | tojson }};
+  const ASSOC_MEMBER_REQUIRED = {{ site_text('search.assoc_member_required') | tojson }};
   const researchAccessEnabled = {{ research_access_enabled | default(assoc_access_enabled) | default(search_chat_access_enabled) | tojson }};
   const aiWebAccessEnabled = {{ ai_web_access_enabled | default(false) | tojson }};
   // 联想/研究无权限时不再「冷冰冰地禁用」标签：标签可点击进入，仅把「开始检索」换成登录/开通引导按钮。
@@ -4138,7 +4144,7 @@
   }
 
   function saveSearchState(payload) {
-    const saved = Object.assign({}, payload, { owner_uid: currentUid });
+    const saved = sanitizeSearchPayload(Object.assign({}, payload, { owner_uid: currentUid }));
     if (!saved.kind && (saved.mode === 'results' || saved.mode === 'empty')) saved.kind = 'standard';
     try { sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(saved)); } catch (_) {}
   }
@@ -4146,7 +4152,11 @@
   function loadSearchState() {
     try {
       const raw = sessionStorage.getItem(SEARCH_STATE_KEY);
-      return raw ? (JSON.parse(raw) || {}) : {};
+      const parsed = raw ? (JSON.parse(raw) || {}) : {};
+      if (parsed.owner_uid != null && parsed.owner_uid !== currentUid) return {};
+      const safe = sanitizeSearchPayload(parsed);
+      if (raw && JSON.stringify(safe) !== raw) sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(safe));
+      return safe;
     } catch (_) {
       try { sessionStorage.removeItem(SEARCH_STATE_KEY); } catch (__) {}
       return {};
@@ -4165,6 +4175,65 @@
     try { return JSON.parse(JSON.stringify(value)); } catch (_) { return null; }
   }
 
+  function directoryScope(scope) {
+    if (!scope || typeof scope !== 'object') return null;
+    const safe = {};
+    ['id', 'label', 'manual', 'applied', 'document_status', 'requested_titles'].forEach(key => {
+      if (key in scope) safe[key] = scope[key];
+    });
+    if (String(safe.id || '').startsWith('document:')) safe.id = 'document';
+    if (Array.isArray(scope.candidates)) safe.candidates = scope.candidates.map(item => ({
+      book: item.book, volume: item.volume, work_title: item.work_title
+    }));
+    return safe;
+  }
+
+  function directoryRows(items) {
+    const grouped = new Map();
+    (items || []).forEach(item => {
+      const chapters = Array.isArray(item.chapters) ? item.chapters : [item];
+      chapters.forEach(chapter => {
+        const title = chapter.section_title || item.section_title || '未识别篇章';
+        const key = JSON.stringify([item.book, item.volume, title]);
+        const row = grouped.get(key) || {
+          group_id: 'summary|' + grouped.size, book: item.book, volume: item.volume,
+          book_title: item.book_title, book_short_title: item.book_short_title,
+          display_title: item.display_title, section_title: title, count: 0,
+          locked: true, lock_message: '当前权限仅显示目录线索。'
+        };
+        row.count += Number(chapter.count || (chapter.hits || []).length || 1);
+        grouped.set(key, row);
+      });
+    });
+    return Array.from(grouped.values());
+  }
+
+  // Cached search outputs are never authority for today's content permission.
+  // Keep queries/directory history, but remove old passages and page locators.
+  function sanitizeSearchPayload(payload) {
+    if (!payload || typeof payload !== 'object') return {};
+    const assoc = payload.kind === 'assoc' || !!payload.retrieval_strategy;
+    const modeAllowed = !assoc || (payload.retrieval_strategy === 'textual' ? fuzzyAccessEnabled : assocAccessEnabled);
+    if (payload.kind === 'review' || (searchViewerEnabled && modeAllowed)) return payload;
+    const safe = {};
+    ['kind', 'owner_uid', 'query', 'mode', 'searchCooc', 'count', 'group_count', 'group_page', 'group_pages',
+      'groups_per_page', 'requested_scope', 'requested_book_scope', 'scope_version', 'book_filter',
+      'retrieval_strategy', 'effective_strategy', 'intent', 'warnings', 'message', 'fallback_from',
+      'fallback_chain', 'exact_search_complete', 'layout_warning', 'textual_search_complete',
+      'textual_reliable_count', 'textual_windows', 'auto_semantic', 'retrieval_breakdown'].forEach(key => {
+        if (key in payload) safe[key] = payload[key];
+      });
+    safe.results = directoryRows(Array.isArray(payload.results) ? payload.results : []);
+    safe.scope = directoryScope(payload.scope);
+    safe.book_counts = (payload.book_counts || []).map(item => ({
+      key: item.key, title: item.title, short_title: item.short_title, count: item.count
+    }));
+    safe.access_level = 'summary';
+    safe.display_mode = 'summary';
+    safe.pdf_enabled = false;
+    return safe;
+  }
+
   function loadSearchHistory() {
     let list;
     try {
@@ -4173,7 +4242,10 @@
     } catch (_) { list = []; }
     if (!Array.isArray(list)) return [];
     const cutoff = Date.now() - SEARCH_HISTORY_TTL_MS;
-    return list.filter(item => item && item.id && item.query && Number(item.ts || 0) >= cutoff);
+    const safe = list.filter(item => item && item.id && item.query && Number(item.ts || 0) >= cutoff)
+      .map(item => Object.assign({}, item, { payload: sanitizeSearchPayload(item.payload) }));
+    if (JSON.stringify(safe) !== JSON.stringify(list)) persistSearchHistory(safe);
+    return safe;
   }
 
   // 配额安全：localStorage 超额（QuotaExceededError）时逐条丢弃最旧记录后重试。
@@ -4194,6 +4266,7 @@
 
   function recordSearchHistory(entry) {
     if (!entry || !entry.query) return;
+    entry.payload = sanitizeSearchPayload(entry.payload);
     let list = loadSearchHistory();
     const sig = historySignature(entry);
     list = list.filter(item => historySignature(item) !== sig);  // 同检索去重，保留最新输出
@@ -4358,6 +4431,13 @@
     if (!entry) return;
     invalidateSearchRequest();
     q.value = entry.query || '';
+    if (entry.kind === 'assoc' && !modeHasAccess(entry.payload.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative')) {
+      applySearchMode(entry.payload.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative');
+      renderEmpty(entry.payload.retrieval_strategy === 'textual'
+        ? (isLoggedIn ? FUZZY_UNAVAILABLE : FUZZY_LOGIN_REQUIRED) : ASSOC_MEMBER_REQUIRED);
+      updateBookTabs(null);
+      return;
+    }
     if (entry.kind === 'review' && entry.payload) {
       applySearchMode('research');
       renderResearchReview(deepCopySafe(entry.payload), false);
@@ -4620,19 +4700,23 @@
     `;
   }
 
-  function renderSummaryResults(payload) {
-    const groups = Array.isArray(payload.results) ? payload.results : [];
-    const cards = groups.map(group => {
+  function directoryCards(groups) {
+    return groups.map(group => {
       const bookTitle = group.book_title || group.book_short_title || `《${group.book || '资料'}》`;
       return `
         <section class="group-card">
-          <div class="loc">${bookTitle} 第 ${esc(group.volume || '')} 卷</div>
+          <div class="loc">${esc(bookTitle)} 第 ${esc(group.volume || '')} 卷</div>
           <div class="section">所属篇章：${esc(group.section_title || '未识别篇章')}</div>
           <div class="muted">共 ${Number(group.count || 0)} 处命中</div>
           <div class="group-summary">${esc(group.lock_message || '当前权限仅显示目录线索。')}</div>
         </section>
       `;
     }).join('');
+  }
+
+  function renderSummaryResults(payload) {
+    const groups = Array.isArray(payload.results) ? payload.results : [];
+    const cards = directoryCards(groups);
     const groupPager = Number(payload.group_pages || 1) > 1 ? `
       <div class="pager group-list-pager">
         <button class="secondary" data-action="group-list-page" data-page="${Number(payload.group_page || 1) - 1}" ${Number(payload.group_page || 1) <= 1 ? 'disabled' : ''}>上一组页</button>
@@ -4750,7 +4834,7 @@
   // 仅对“登录用户主动发起的新精确检索”启用模糊兜底。翻页、书库切换、
   // 同段多词和访客请求均不触发；模糊兜底只做近似原文，绝不再串联联想检索。
   function shouldAutoFuzzy(text, options, isCooc) {
-    if (!isLoggedIn || !assocAccessEnabled || isCooc || !options || options.record !== true) return false;
+    if (!isLoggedIn || !fuzzyAccessEnabled || isCooc || !options || options.record !== true) return false;
     const normalized = String(text || '').replace(/\s+/g, '');
     if (normalized.length < 4 || /^(book:|vol:)/i.test(normalized)) return false;
     return true;
@@ -4823,10 +4907,12 @@
         if (data.exact_search_complete !== false && shouldAutoFuzzy(text, options, isCooc)) {
           // 结果链路已经切换为模糊检索，顶部标签/范围控件也必须同步，
           // 避免在「精确检索」外观下展示模糊结果。
-          const fallbackScope = hasChapterScope(requestedScope) ? requestedScope : book ? [`book:${book}`] : deepCopySafe(selectedSearchScope());
+          const fallbackScope = hasChapterScope(requestedScope) ? requestedScope : book ? [`book:${book}`] : deepCopySafe(requestedScope);
           applySearchMode('fuzzy');
           restoreSearchScope(fallbackScope, data.scope_version);
-          await doAssociativeSearch(text, 'locate', { fallbackFrom: text, strategy: 'textual', scope: fallbackScope, runId });
+          // Restoring the selector synchronously invalidates its prior request ID.
+          // Continue this same query using that new ID; later user edits still cancel it.
+          await doAssociativeSearch(text, 'locate', { fallbackFrom: text, strategy: 'textual', scope: fallbackScope, scopeVersion: data.scope_version, runId: searchGeneration });
           return;
         }
         if (data.exact_search_complete === false) { renderEmpty(data.layout_warning); return; }
@@ -5055,10 +5141,10 @@
     const isResearch = (mode === 'research');
     const strategy = options.strategy || (searchMode === 'fuzzy' ? 'textual' : 'semantic');
     const requestedScope = deepCopySafe(options.scope !== undefined ? options.scope : currentSearchScope(searchMode));
-    if (isResearch ? !researchAccessEnabled : !assocAccessEnabled) {
+    if (isResearch ? !researchAccessEnabled : strategy === 'textual' ? !fuzzyAccessEnabled : !assocAccessEnabled) {
       renderEmpty(isResearch ? {{ site_text('search.research_no_access') | tojson }}
-        : strategy === 'textual' ? {{ site_text('search.fuzzy_no_access') | tojson }}
-        : {{ site_text('search.assoc_no_ai') | tojson }});
+        : strategy === 'textual' ? (isLoggedIn ? FUZZY_UNAVAILABLE : FUZZY_LOGIN_REQUIRED)
+        : ASSOC_MEMBER_REQUIRED);
       return;
     }
     if (!state.searchEnabled) {
@@ -5085,6 +5171,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gist: text, mode: isResearch ? 'research' : 'locate', scope: requestedScope,
+          scope_version: options.scopeVersion !== undefined ? options.scopeVersion : (bookScopeCtl && bookScopeCtl.getScopeVersion ? bookScopeCtl.getScopeVersion() : undefined),
           ...(isResearch ? {} : { retrieval_strategy: strategy }) })
       });
       if (!stillCurrent()) return;
@@ -5147,7 +5234,7 @@
             query: data.query || text,
             intent: data.intent || '',
             payload: historyPayload,
-            summary: { count: results.length }
+            summary: { count: data.count == null ? results.length : data.count }
           });
         } else if (options.fallbackFrom) {
           // 自动兜底仍零命中也是一次完整检索：保存结果，防止刷新后回显上一次旧状态。
@@ -5170,9 +5257,17 @@
 
   function renderAssociativeResults(data) {
     setSearchExportContext(null);
+    data = sanitizeSearchPayload(Object.assign({ kind: 'assoc' }, data));
+    const requestedMode = data.retrieval_strategy === 'textual' ? 'fuzzy' : 'associative';
+    if (!modeHasAccess(requestedMode)) {
+      assocState = null;
+      renderEmpty(requestedMode === 'fuzzy' ? (isLoggedIn ? FUZZY_UNAVAILABLE : FUZZY_LOGIN_REQUIRED) : ASSOC_MEMBER_REQUIRED);
+      return;
+    }
     const results = Array.isArray(data.results) ? data.results : [];
     const warnings = Array.isArray(data.warnings) ? data.warnings : [];
-    if (data.retrieval_strategy) {
+    if (data.retrieval_strategy || data.access_level === 'summary') {
+      if (!data.retrieval_strategy) data.retrieval_strategy = 'semantic';
       assocState = Object.assign({}, data, { results, warnings, page: 1,
         query: data.query || q.value.trim(), fallbackFrom: data.fallback_from || '' });
       saveSearchState(Object.assign({}, data, { kind: 'assoc', owner_uid: currentUid, results, warnings }));
@@ -5263,7 +5358,8 @@
     const slice = data.results.slice(start, start + ASSOC_PAGE_SIZE);
     const labels = { preferred: '优先核对', candidate: '其他候选线索', chapter: '篇章线索', textual: '可靠原句候选', textual_clue: '其他文本线索' };
     let previousGroup = '';
-    const rows = slice.map((hit, i) => {
+    const summary = data.access_level === 'summary';
+    const rows = summary ? directoryCards(slice) : slice.map((hit, i) => {
       const group = hit.associative_group || 'candidate';
       const heading = group !== previousGroup ? `<h3 class="assoc-group-heading">${labels[group] || labels.candidate}</h3>` : '';
       previousGroup = group;
@@ -5271,9 +5367,10 @@
     }).join('');
     const pager = totalPages > 1 ? `<div class="pager group-list-pager">
       <button class="secondary" data-action="assoc-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页组</button>
-      <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} 段</span>
+      <span class="pager-info">第 ${page} / ${totalPages} 组 · 共 ${total} ${summary ? '组目录线索' : '段'}</span>
       <button class="secondary" data-action="assoc-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页组</button></div>` : '';
-    const description = textual ? (data.textual_reliable_count != null ? `找到 ${data.textual_reliable_count} 条可靠原句候选；零碎匹配另列为文本线索。` : '按输入词句查找，供核对原文。')
+    const description = summary ? '当前权限仅显示书卷、篇章和命中数量；上下文、引文及页码按正文权限开放。'
+      : textual ? (data.textual_reliable_count != null ? `找到 ${data.textual_reliable_count} 条可靠原句候选；零碎匹配另列为文本线索。` : '按输入词句查找，供核对原文。')
       : data.effective_strategy === 'textual' ? '本次仅返回文本候选，尚未完成大意联想。'
       : data.semantic_ranked ? '优先展示语义匹配的原文候选，其余段落作为继续查找的线索。'
       : '已按线索召回候选，尚未完成语义排序，请逐条核对。';
@@ -5281,7 +5378,7 @@
     const heading = textual ? '模糊检索结果' : {{ site_text('search.assoc_result_heading') | tojson }};
     out.innerHTML = `<div class="assoc-results assoc-strategy-results ${textual ? 'fuzzy-results' : 'semantic-results'}">
       <div class="assoc-result-head"><h2>${esc(heading)}</h2>
-        <div class="assoc-lede">${description}${total ? ` 共 ${total} 段。` : ''}</div></div>
+        <div class="assoc-lede">${description}${total ? ` 共 ${Number(data.count == null ? total : data.count)} 处命中。` : ''}</div></div>
       ${data.fallbackFrom ? '<div class="assoc-fallback-banner">精确检索未命中，已自动转为模糊检索；本次不会自动进入联想检索。</div>' : ''}
       ${scopeBannerHtml(data.scope)}
       ${data.warnings.length ? `<div class="assoc-note" role="status">${data.warnings.map(esc).join('；')}</div>` : ''}
@@ -5634,6 +5731,12 @@
     const associative = searchMode === 'associative';
     const research = searchMode === 'research';
     const aiSearch = associative || research;
+    const modeNote = document.getElementById('searchModeNote');
+    if (modeNote) {
+      modeNote.hidden = !(fuzzy || associative);
+      modeNote.textContent = fuzzy ? {{ site_text('search.fuzzy_mode_note') | tojson }}
+        : associative ? {{ site_text('search.assoc_mode_note') | tojson }} : '';
+    }
     if (panel) {
       panel.classList.toggle('fuzzy-mode', fuzzy);
       panel.classList.toggle('assoc-mode', associative);
@@ -5656,7 +5759,7 @@
     if (scopeHint) scopeHint.textContent = exact
       ? '精确检索中选「自动」按全部著作检索；也可勾选著作群或指定书卷。'
       : fuzzy
-        ? '选「自动」根据输入线索判断范围；也可勾选著作群或指定书卷。'
+        ? '默认检索全部公开著作；明确指定篇章或手动选择范围时，在对应范围内查找。'
         : '选「自动」由 AI 判断相关作者或文献；也可勾选著作群或指定书卷。';
     // 标题旁的彩色小标签（同段多词/短词检索）只在精确检索下露出
     const tagGroup = document.getElementById('citationFeatureTags');
@@ -5669,15 +5772,23 @@
     refreshSubmitButton();
   }
 
-  // 模糊与联想沿用既有 associative 权限，不因拆分扩大账号权限。
+  // 模糊只需登录及检索权限，联想继续使用独立会员权限。
   function modeHasAccess(mode) {
-    if (mode === 'fuzzy' || mode === 'associative') return assocAccessEnabled;
+    if (mode === 'fuzzy') return fuzzyAccessEnabled;
+    if (mode === 'associative') return assocAccessEnabled;
     if (mode === 'research') return researchAccessEnabled;
     return state.searchEnabled;
   }
 
   // 「开始检索」按钮随模式刷新：联想/研究无权限时不禁用，而是变成登录/开通引导按钮（点击跳转）。
   function refreshSubmitButton() {
+    if (searchMode === 'fuzzy' && isLoggedIn && !fuzzyAccessEnabled) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = '暂不可检索';
+      submitBtn.classList.remove('locked-cta');
+      submitLockTarget = '';
+      return;
+    }
     const lockable = (searchMode === 'fuzzy' || searchMode === 'associative' || searchMode === 'research');
     if (lockable && !modeHasAccess(searchMode)) {
       submitBtn.disabled = false;
@@ -5694,11 +5805,11 @@
 
   modeTabs.forEach(tab => {
     // 无权限的模糊/联想标签保留悬浮说明，点击后提交按钮转为登录/开通引导。
-    if (tab.dataset.mode === 'fuzzy' && !assocAccessEnabled) {
-      tab.title = {{ site_text('search.fuzzy_tab_title') | tojson }};
+    if (tab.dataset.mode === 'fuzzy' && !fuzzyAccessEnabled) {
+      tab.title = isLoggedIn ? FUZZY_UNAVAILABLE : FUZZY_LOGIN_REQUIRED;
     }
     if (tab.dataset.mode === 'associative' && !assocAccessEnabled) {
-      tab.title = {{ site_text('search.assoc_tab_title') | tojson }};
+      tab.title = ASSOC_MEMBER_REQUIRED;
     }
     if (tab.dataset.mode === 'research' && !researchAccessEnabled) {
       tab.title = {{ site_text('search.research_tab_title') | tojson }};
