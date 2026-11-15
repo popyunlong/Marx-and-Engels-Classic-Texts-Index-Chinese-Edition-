@@ -846,6 +846,8 @@ _TEMPLATE_KEYS_CACHE: dict | None = None
 
 
 def _template_scan_signature(paths: list[Path]) -> tuple:
+    if "/releases/" in str(TEMPLATE_DIR).replace("\\", "/"):
+        return (str(TEMPLATE_DIR),)
     sig: list[tuple] = []
     for path in paths:
         try:
@@ -1106,7 +1108,7 @@ def stale_override_keys(
     """
     current = overrides if overrides is not None else _load_overrides()
     used_keys = set(discover_template_site_text_keys(template_dir))
-    registered = {definition.key for definition in SITE_TEXT_DEFINITIONS}
+    registered = {definition.key for definition in _all_static_definitions()}
     auto_keys = auto_literal_keys(template_dir)
     live = used_keys | registered | auto_keys
     return sorted(key for key in current if key not in live)
@@ -1117,7 +1119,7 @@ def site_text_coverage_report(
     overrides: dict[str, str] | None = None,
 ) -> dict[str, object]:
     used = discover_template_site_text_keys(template_dir)
-    registered = {definition.key for definition in SITE_TEXT_DEFINITIONS}
+    registered = {definition.key for definition in _all_static_definitions()}
     used_keys = set(used)
     current_overrides = overrides if overrides is not None else _load_overrides()
     override_keys = set(current_overrides)
@@ -1163,7 +1165,7 @@ def site_text_coverage_report(
 _AUTO_KEY_PREFIX = "auto."
 _AUTO_GROUP = "自动接入文字（按钮 / 标题 / 正文）"
 # 控制台自身模板不做自动接入：用户在后台编辑的是「除控制台之外」的页面文字。
-_AUTO_INJECT_SKIP = {"control.html"}
+_AUTO_INJECT_SKIP = {"control.html", "_membership_admin.html", "_admin_dashboard.html"}
 
 
 def auto_key_for(core: str) -> str:
@@ -1309,6 +1311,8 @@ _AUTO_DISCOVERY_CACHE: dict[str, object] = {"sig": None, "data": None}
 
 
 def _template_signature(root: Path) -> tuple:
+    if "/releases/" in str(root).replace("\\", "/"):
+        return (str(root),)
     sig: list[tuple] = []
     for path in _iter_template_paths(root):
         try:
@@ -1374,3 +1378,14 @@ def auto_literal_definitions(template_dir: Path | None = None) -> list[SiteTextD
 
 def auto_literal_keys(template_dir: Path | None = None) -> set[str]:
     return set(discover_auto_literals(template_dir))
+
+
+# Named data-driven copy is editable even though its keys are not literal template calls.
+from member_copy import definitions as _membership_copy_definitions
+register_site_text_definitions(_membership_copy_definitions())
+
+
+def reset_discovery_cache():
+    global _TEMPLATE_KEYS_CACHE
+    _TEMPLATE_KEYS_CACHE = None
+    _AUTO_DISCOVERY_CACHE.update(sig=None, data=None)

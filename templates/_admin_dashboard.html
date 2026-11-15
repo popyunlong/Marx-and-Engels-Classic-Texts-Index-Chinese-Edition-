@@ -1,0 +1,240 @@
+        {% if dashboard_section == "summary" %}
+          <h2>运行概况</h2>
+          <p class="section-note">运营仪表盘 · 北京时间 {{ dashboard_metrics.day }}</p>
+          <form class="control-strip" method="get" action="{{ url_for('admin', module='overview') }}">
+            <label class="field">查看日期
+              <input type="date" name="date" value="{{ dashboard_selected_day }}">
+            </label>
+            <input type="hidden" name="history_start" value="{{ dashboard_history_start }}">
+            <input type="hidden" name="history_end" value="{{ dashboard_history_end }}">
+            <button class="btn" type="submit">查看</button>
+          </form>
+          <div class="stats-grid">
+            <div class="stat"><strong>当前在线</strong>{{ dashboard_metrics.current_online or 0 }}</div>
+            <div class="stat"><strong>当日在线</strong>{{ dashboard_metrics.today_online or 0 }}</div>
+            <div class="stat"><strong>注册用户在线(今日)</strong>{{ dashboard_metrics.registered_online_today or 0 }}</div>
+            <div class="stat"><strong>会员在线(今日)</strong>{{ dashboard_metrics.member_online_today or 0 }}</div>
+            <div class="stat"><strong>注册用户总数</strong>{{ dashboard_metrics.total_users or 0 }}</div>
+            <div class="stat"><strong>活跃账号</strong>{{ dashboard_metrics.active_accounts or 0 }}</div>
+            <div class="stat"><strong>已验证用户</strong>{{ dashboard_metrics.verified_users or 0 }}</div>
+            <div class="stat"><strong>停用账号</strong>{{ dashboard_metrics.disabled_users or 0 }}</div>
+            <div class="stat"><strong>新注册</strong>{{ dashboard_metrics.new_users_today or 0 }}</div>
+            <div class="stat"><strong>活跃会员</strong>{{ dashboard_metrics.active_members or 0 }}</div>
+            <div class="stat"><strong>当日付费</strong>{{ format_price(dashboard_metrics.paid_today_cents or 0, "CNY") }}</div>
+            <div class="stat"><strong>待支付订单</strong>{{ dashboard_metrics.pending_orders or 0 }}</div>
+            <div class="stat"><strong>支付异常</strong>{{ dashboard_metrics.payment_errors_today or 0 }}</div>
+            <div class="stat"><strong>当日搜索</strong>{{ dashboard_metrics.searches_today or 0 }}</div>
+            <div class="stat"><strong>阅读器访问</strong>{{ dashboard_metrics.reader_views_today or 0 }}</div>
+            <div class="stat" title="当日定价页被打开的次数（含所有来源）"><strong>定价页访问</strong>{{ dashboard_metrics.pricing_views_today or 0 }}</div>
+            <div class="stat" title="当日经首页期刊卡片入口进入定价页的次数"><strong>期刊卡进套餐</strong>{{ dashboard_metrics.pricing_from_journal_today or 0 }}</div>
+            <div class="stat"><strong>AI 请求</strong>{{ dashboard_metrics.ai_requests_today or 0 }}</div>
+            <div class="stat"><strong>AI token</strong>{{ dashboard_metrics.ai_tokens_today or 0 }}</div>
+            <div class="stat" title="当日走智谱 GLM 联网通道的 AI 请求数"><strong>智谱请求</strong>{{ dashboard_metrics.zhipu_requests_today or 0 }}</div>
+            <div class="stat" title="当日智谱通道消耗的估算 token（计入左侧 AI token 总数）"><strong>智谱 token</strong>{{ dashboard_metrics.zhipu_tokens_today or 0 }}</div>
+            <div class="stat"><strong>高 token 用户</strong>{{ dashboard_metrics.high_token_user_count or 0 }}</div>
+            <div class="stat"><strong>阅读异常</strong>按需查看下方阅读异常</div>
+            <div class="stat"><strong>AI 错误</strong>{{ dashboard_metrics.ai_errors_today or 0 }}</div>
+            <div class="stat"><strong>期刊订阅</strong>{{ dashboard_metrics.journal_subscriptions or 0 }}</div>
+            <div class="stat"><strong>待审文章</strong>{{ dashboard_metrics.journal_pending_articles or 0 }}</div>
+            <div class="stat"><strong>待发送文章</strong>{{ dashboard_metrics.journal_ready_articles or 0 }}</div>
+            <div class="stat"><strong>当日发送</strong>{{ dashboard_metrics.journal_recent_sends or 0 }}</div>
+            <div class="stat"><strong>数据库</strong>{{ dashboard_metrics.db_status or state.db_status }}</div>
+            <div class="stat"><strong>AI 状态</strong>{{ "正常" if dashboard_metrics.ai_ok else "未启用" }}</div>
+            <div class="stat"><strong>支付状态</strong>{{ "正常" if dashboard_metrics.payment_ok else "未启用" }}</div>
+          </div>
+
+          {% if control_online_series_url %}
+          <div class="online-chart-card" id="online-chart" data-endpoint="{{ control_online_series_url }}" style="margin-top:18px">
+            <div class="online-chart-head">
+              <h3 style="margin:0">24 小时在线变化</h3>
+              <div class="online-chart-controls">
+                <span class="seg" role="group" aria-label="在线人群口径">
+                  <button type="button" class="seg-btn active" data-series="total">所有访问者</button>
+                  <button type="button" class="seg-btn" data-series="registered">注册用户</button>
+                  <button type="button" class="seg-btn" data-series="members">会员用户</button>
+                </span>
+                <button type="button" class="btn mini" id="online-chart-refresh">刷新</button>
+              </div>
+            </div>
+            <p class="section-note" style="margin:6px 0 4px">每 15 分钟一个时槽（北京时间），统计该时段内在线的去重访问者。所有访问者含未登录访客；注册用户、会员用户只计去重账号。</p>
+            <div class="online-chart-meta muted" id="online-chart-meta"></div>
+            <div class="online-chart-plot" id="online-chart-plot"><div class="muted">正在加载在线变化…</div></div>
+          </div>
+          {% endif %}
+
+          {% if dashboard_metrics.active_members_by_plan %}
+          <div class="table-list" style="margin-top:14px">
+            {% for plan_metric in dashboard_metrics.active_members_by_plan %}
+            <div class="table-row"><strong>{{ plan_metric.name }}</strong><div class="muted">{{ plan_metric.code }} · {{ plan_metric.active_count or 0 }} 位活跃会员</div></div>
+            {% endfor %}
+          </div>
+          {% endif %}
+{% endif %}{% if dashboard_section == "tokens" %}
+          <h3 style="margin-top:18px">AI token 高用量用户</h3>
+          <p class="section-note">按所选日期统计单个注册用户用量，超过警戒线或接近个人每日限额时列入名单。点击「查看用量详情」可核对该用户的具体输入、命中的接口与客户端 IP；「暂停 AI」会禁用其全部 AI 功能（阅读器导学、随心问、联想检索、研究型检索，与「会员与权限」的个别权限联通），其余功能不受影响。</p>
+          {% if dashboard_metrics.high_token_users %}
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>用户</th><th>请求</th><th>总 token</th><th>单次最高</th><th>每日限额</th><th>原因</th><th>最后使用</th><th>操作</th></tr></thead>
+              <tbody>
+                {% for user in dashboard_metrics.high_token_users %}
+                <tr>
+                  <td>{{ user.email }}{% if user.display_name %}<br><span class="muted">{{ user.display_name }}</span>{% endif %}{% if user.ai_blocked %}<br><span class="muted" style="color:#7b1f1f">已暂停 AI</span>{% endif %}</td>
+                  <td>{{ user.request_count or 0 }}</td>
+                  <td>{{ user.total_tokens or 0 }}</td>
+                  <td>{{ user.max_request_tokens or 0 }}</td>
+                  <td>{{ user.effective_limit if user.effective_limit is not none else "未设置" }}</td>
+                  <td>{{ user.alert_reason }}</td>
+                  <td>{{ format_datetime(user.last_used_at) }}</td>
+                  <td>
+                    <button type="button" class="btn mini ai-usage-detail-btn" data-user-id="{{ user.user_id }}" data-email="{{ user.email }}">查看用量详情</button>
+                    {% if user.ai_blocked %}
+                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="user_email" value="{{ user.email }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="action" value="unban">
+                      <button class="btn mini" type="submit">恢复 AI</button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ control_ai_access_url }}" style="display:inline-block;margin-top:6px" onsubmit="return confirm('确认暂停 {{ user.email }} 的 AI 使用？阅读器导学、随心问、联想检索、研究型检索都会被禁用，其余功能不受影响。');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="user_email" value="{{ user.email }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="action" value="ban">
+                      <button class="btn mini danger" type="submit">暂停 AI</button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div id="ai-usage-detail" class="item ai-usage-detail" style="display:none;margin-top:12px"
+               data-endpoint="{{ control_ai_usage_url }}" data-date="{{ dashboard_selected_day }}"></div>
+          {% else %}
+          <div class="item muted">所选日期暂无高 token 用户。</div>
+          {% endif %}
+
+{% endif %}{% if dashboard_section == "readers" %}
+          <h3 style="margin-top:18px">阅读器异常访问</h3>
+          <p class="section-note">按所选日期聚合阅读器访问，出现高频书页图像、跨卷册扫描、连续翻页或自动化特征时列入名单。注册用户封禁会暂停阅读器权限；未登录访客封禁 IP。</p>
+          {% if dashboard_metrics.reader_anomaly_visitors %}
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>访客</th><th>请求</th><th>书页图像</th><th>页数</th><th>卷册</th><th>单分钟最高</th><th>原因</th><th>最后访问</th><th>操作</th></tr></thead>
+              <tbody>
+                {% for visitor in dashboard_metrics.reader_anomaly_visitors %}
+                <tr>
+                  <td>
+                    {% if visitor.actor_type == "user" %}
+                      {{ visitor.email or ("用户 #" ~ visitor.user_id) }}
+                      {% if visitor.client_ip %}<br><span class="muted">IP {{ visitor.client_ip }}</span>{% endif %}
+                    {% else %}
+                      {{ visitor.client_ip or visitor.actor_key }}
+                      <br><span class="muted">未登录访客</span>
+                    {% endif %}
+                    {% if visitor.reader_blocked %}<br><span class="muted" style="color:#7b1f1f">已暂停阅读</span>{% endif %}
+                  </td>
+                  <td>{{ visitor.request_count or 0 }}</td>
+                  <td>{{ visitor.page_image_count or 0 }}</td>
+                  <td>{{ visitor.page_count or 0 }}</td>
+                  <td>{{ visitor.volume_count or 0 }}</td>
+                  <td>{{ visitor.max_minute_requests or 0 }}</td>
+                  <td>{{ visitor.alert_reason }}</td>
+                  <td>{{ format_datetime(visitor.last_seen_at) }}</td>
+                  <td>
+                    <button type="button" class="btn mini reader-access-detail-btn" data-actor="{{ visitor.actor_key }}">查看详情</button>
+                    <form method="post" action="{{ control_reader_access_ban_url }}" style="display:inline-block;margin-top:6px" {% if not visitor.reader_blocked %}onsubmit="return confirm('确认暂停该访客的阅读器访问？');"{% endif %}>
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+                      <input type="hidden" name="actor_type" value="{{ visitor.actor_type }}">
+                      <input type="hidden" name="user_id" value="{{ visitor.user_id or '' }}">
+                      <input type="hidden" name="email" value="{{ visitor.email or '' }}">
+                      <input type="hidden" name="client_ip" value="{{ visitor.client_ip or '' }}">
+                      <input type="hidden" name="action" value="{{ 'unban' if visitor.reader_blocked else 'ban' }}">
+                      <button class="btn mini {{ '' if visitor.reader_blocked else 'danger' }}" type="submit">{{ "恢复阅读" if visitor.reader_blocked else "暂停阅读" }}</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div id="reader-access-detail" class="item ai-usage-detail" style="display:none;margin-top:12px"
+               data-endpoint="{{ control_reader_access_url }}" data-date="{{ dashboard_selected_day }}"></div>
+          {% else %}
+          <div class="item muted">所选日期暂无阅读器异常访问。</div>
+          {% endif %}
+
+{% endif %}{% if dashboard_section == "history" %}
+          <h3 style="margin-top:18px">历史数据</h3>
+          <form class="control-strip" method="get" action="{{ url_for('admin', module='overview') }}">
+            <input type="hidden" name="date" value="{{ dashboard_selected_day }}">
+            <label class="field">开始日期
+              <input type="date" name="history_start" value="{{ dashboard_history_start }}">
+            </label>
+            <label class="field">结束日期
+              <input type="date" name="history_end" value="{{ dashboard_history_end }}">
+            </label>
+            <button class="btn" type="submit">查看历史</button>
+            <a class="btn secondary" href="{{ dashboard_export_url }}">下载当前范围 Excel</a>
+            <a class="btn secondary" href="{{ dashboard_export_all_url }}">下载完整历史 Excel</a>
+          </form>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>日期</th><th>当日在线</th><th>注册总数</th><th>新注册</th><th>活跃会员</th><th>当日付费</th><th>搜索</th><th>阅读</th><th>AI请求</th><th>AI token</th><th>高Token用户</th><th>支付异常</th><th>当日发送</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in dashboard_history_rows %}
+                <tr>
+                  <td><a href="{{ url_for('admin', module='overview', date=row.day, history_start=dashboard_history_start, history_end=dashboard_history_end) }}">{{ row.day }}</a></td>
+                  <td>{{ row.today_online or 0 }}</td>
+                  <td>{{ row.total_users or 0 }}</td>
+                  <td>{{ row.new_users_today or 0 }}</td>
+                  <td>{{ row.active_members or 0 }}</td>
+                  <td>{{ format_price(row.paid_today_cents or 0, "CNY") }}</td>
+                  <td>{{ row.searches_today or 0 }}</td>
+                  <td>{{ row.reader_views_today or 0 }}</td>
+                  <td>{{ row.ai_requests_today or 0 }}</td>
+                  <td>{{ row.ai_tokens_today or 0 }}</td>
+                  <td>{{ row.high_token_user_count or 0 }}</td>
+                  <td>{{ row.payment_errors_today or 0 }}</td>
+                  <td>{{ row.journal_recent_sends or 0 }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <details class="item" style="margin-top:14px">
+            <summary style="cursor:pointer;font-weight:800">计算规则附录</summary>
+            <div class="table-list" style="margin-top:10px">
+              {% for rule in dashboard_rules %}
+              <div class="table-row"><strong>{{ rule.name }}</strong><div class="muted">{{ rule.rule }}</div></div>
+              {% endfor %}
+            </div>
+          </details>
+
+          <div class="stats-grid">
+            <div class="stat"><strong>检索</strong>{{ "可用" if state.search_enabled else "不可用" }}</div>
+            <div class="stat"><strong>PDF/全文</strong>{{ "可用" if state.pdf_enabled else "不可用" }}</div>
+            <div class="stat"><strong>AI</strong>{{ "已启用：" ~ state.ai_model if state.ai_enabled else "未启用" }}</div>
+            <div class="stat"><strong>在线支付</strong>{{ "已启用" if state.payment_enabled else "未启用" }}</div>
+            <div class="stat"><strong>支付方式</strong>{{ alipay_runtime.payment_type }}</div>
+            <div class="stat"><strong>网站地址</strong>{{ state.public_base_url or "未配置" }}</div>
+            <div class="stat"><strong>资料版本</strong>{{ state.data_version }}</div>
+            <div class="stat"><strong>管理模块</strong>文案、套餐、权限、期刊订阅</div>
+          </div>
+          {% if state.alipay_problems %}
+          <div class="scroll-box" style="margin-top:14px">
+            {% for problem in state.alipay_problems %}
+            <div class="item">{{ problem }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% endif %}
