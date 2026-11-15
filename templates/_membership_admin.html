@@ -1,0 +1,64 @@
+<section class="card" id="model-policies">
+  <h2>套餐模型权限</h2>
+  <p class="section-note">保存后对已有钱包和下一次模型调用生效。快速问答与阅读导学固定使用 Flash 非思考；思考档位仅用于研究综述与综合模式。模型权限不改变钱包余额、周额度或 API/MCP 数据权限。</p>
+  {% for policy in model_policy_rows %}
+  <form class="item" method="post" action="{{ url_for('admin_model_policies') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="code" value="{{ policy.code }}">
+    <input type="hidden" name="version" value="{{ policy.version }}">
+    <h3>{{ policy.label }}</h3>
+    <p>Flash 非思考：已开放</p>
+    <div class="actions">
+      <label class="checkbox"><input type="checkbox" name="flash_thinking" value="1" {% if policy.flash_thinking %}checked{% endif %}> Flash 思考</label>
+      <label class="checkbox"><input type="checkbox" name="pro" value="1" {% if policy.pro %}checked{% endif %}> DeepSeek Pro 高强度思考（消耗额度较快）</label>
+    </div>
+    <label class="field">研究默认模型
+      <select name="research">
+        {% for key,label in [('flash','Flash 非思考'),('thinking','Flash 思考'),('pro','DeepSeek Pro 高强度思考')] %}
+        <option value="{{ key }}" {% if key == policy.research %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="actions"><button class="btn primary" name="action" value="save">保存模型权限</button><button class="btn" name="action" value="reset">恢复该套餐默认权限</button></div>
+  </form>
+  {% endfor %}
+  <p class="section-note">早期会员承诺保持不变。另购研究资源包的 Flash 思考权限独立计算，只扣资源包自身额度，不会解锁 DeepSeek Pro 或挪用 Plus 余额。</p>
+</section>
+<section class="card" id="membership-copy">
+  <h2>会员卡片与黄框文案</h2>
+  <p class="section-note">每组独立保存。黄框编号自动生成；文案仅影响展示，模型权限以本页上方设置为准。</p>
+  <p><a class="btn" href="{{ url_for('pricing') }}" target="_blank" rel="noopener">打开套餐页</a></p>
+  {% for group in membership_copy_groups %}
+  <details class="item" {% if loop.first %}open{% endif %}>
+    <summary>{{ group.title }}</summary>
+    <form method="post" action="{{ url_for('admin_membership_copy') }}" class="membership-copy-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="group" value="{{ group.id }}">
+      {% for entry in group.entries %}
+      <label class="field-wide">{{ entry.label }}
+        <textarea name="site_text__{{ entry.key }}" maxlength="12000" rows="{{ 6 if entry.key.endswith('.features') else 3 }}">{{ entry.value }}</textarea>
+        <input type="hidden" name="original__{{ entry.key }}" value="{{ entry.value }}">
+      </label>
+      {% endfor %}
+      <div class="actions"><button class="btn primary" name="action" value="save">保存此组</button><button class="btn" type="button" data-copy-preview>预览完整套餐页</button><button class="btn" name="action" value="reset">恢复此组默认</button></div>
+      <p class="copy-preview-status" role="status"></p>
+    </form>
+  </details>
+  {% endfor %}
+  <iframe id="membership-copy-preview" title="会员套餐预览" sandbox="allow-same-origin" hidden style="width:100%;height:650px;border:1px solid #ddd"></iframe>
+</section>
+<script>
+document.querySelectorAll('[data-copy-preview]').forEach(button => button.addEventListener('click', async () => {
+  const form = button.closest('form'), status = form.querySelector('.copy-preview-status');
+  const data = new FormData(form); data.set('action', 'preview'); button.disabled = true;
+  status.textContent = '正在生成预览…';
+  try {
+    const response = await fetch(form.getAttribute('action'), {method:'POST', body:data, credentials:'same-origin'});
+    if (!response.ok || response.redirected) throw new Error('预览失败，请检查登录状态后重试。');
+    const frame = document.getElementById('membership-copy-preview');
+    frame.srcdoc = await response.text(); frame.hidden = false;
+    status.textContent = '仅预览，尚未保存。';
+  } catch(error) { status.textContent = error.message; }
+  finally {button.disabled = false;}
+}));
+</script>

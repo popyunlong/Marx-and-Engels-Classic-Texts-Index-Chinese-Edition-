@@ -21,7 +21,7 @@ def api_eligible(code):
     return code in LEGACY_CODES or tier(code) in {"plus", "pro", "max"}
 
 
-def public_plan(plan):
+def _default_public_plan(plan):
     """Current capabilities replace stale marketing copy, never accounting fields."""
     result = dict(plan)
     code = plan["code"]
@@ -30,7 +30,7 @@ def public_plan(plan):
             features="\n".join((
                 "文献检索与阅读：全文与篇章检索、原文定位、原典阅读器、马克思主义大辞典、概念地图、联想检索、原文文库与流式阅读。",
                 "个人资料与笔记：个人文库上传、阅读与检索；跨书整理笔记，支持 Word、Markdown、JSON 导出及返回原文。",
-                "AI 辅助研究：AI 导学，以及 AI 研究对话的快速问答、研究综述、综合模式；支持 DeepSeek Flash 非思考模式与 DeepSeek Pro 高强度思考模式，提供联网搜索、网页阅读和论文插注校注。",
+                "AI 辅助研究：AI 导学，以及 AI 研究对话的快速问答、研究综述、综合模式；套餐支持 DeepSeek Flash 非思考模式；独立研究资源包可使用自身 Flash 思考额度，提供联网搜索、网页阅读和论文插注校注。",
                 "研究动态：完整国内外研究周报、双语题录与引文导出，支持自主选择期刊接收邮件。",
                 "AI 使用额度：每周最高 100 万 Flash 等值 token，周一重置周限额；不同模型折算消耗，共享套餐 AI 额度，并受每 30 天总额度约束。",
                 "API／MCP：套餐内可自助开通，通过外部工具查询公共文献，普通排队。",
@@ -52,6 +52,14 @@ def public_plan(plan):
     else:
         result["description"] = str(result.get("description") or "").replace("MiMo V2.5 Pro", "DeepSeek Flash").replace("MiMo", "DeepSeek")
         result["features"] = str(result.get("features") or "").replace("MiMo V2.5 Pro", "DeepSeek Flash").replace("MiMo", "DeepSeek")
+    return result
+
+
+def public_plan(plan, texts=None):
+    result = _default_public_plan(plan)
+    if texts is not None:
+        from member_copy import plan_view
+        result = plan_view(result, texts)
     return result
 
 

@@ -1,0 +1,432 @@
+{
+  "task": "membership-admin-20261115",
+  "baseline": "b68b786776ad670c46fa9df9963fffe09f0b56c9",
+  "policy": "Each scenario once; retain all failures/interruption; no automatic reruns.",
+  "reviewed": [
+    "MEMBERSHIP_COPY_TEST_LEDGER_20261113.json",
+    "MEMBERSHIP_REFRESH_TEST_LEDGER_20261113.json",
+    "PLUS_API_TEST_LEDGER_20261115.json"
+  ],
+  "runs": [
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\static.json",
+      "stage": "static",
+      "status": "passed",
+      "started": "2026-11-15T03:59:43.922984+00:00",
+      "baseline": "b68b786776ad670c46fa9df9963fffe09f0b56c9",
+      "command": [
+        "C:/Users/10108/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe",
+        "-B",
+        "scripts/check_membership_admin_syntax.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\static.log",
+      "hashes": {
+        "admin_dashboard.py": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+        "admin_performance.py": "577fd97daceeb761c909e1ae2a79b6321bd7cbce1270a5a56c5cd24fedb01177",
+        "admin_store.py": "9571f840902c698acc59ef4aee78e18233d82d56c640257907d9a5f905d99646",
+        "app.py": "676fd16baccca82e4bde085620d7c4f2c45e6dd9a6907d44e06ee05cb179ed7f",
+        "docs/ops/MEMBERSHIP_ADMIN_TEST_LEDGER_20261115.json": "2022e644f37893973ce7fcdb5ffbd1c3f5a4a1b73608e5ad29c1629465b91848",
+        "member_catalog.py": "12bb87d2f36c4ac133ea75a182c905e6b8b477e707f64dae9cf52d7210677106",
+        "member_copy.py": "cd5cbacc31f414329a4a87131872e88475a9988f57698242d5e450bfef94965c",
+        "membership.py": "bd4562490d2d1277369d65e34374a61e9a2548acf826069f1d954a3e220cc6c7",
+        "model_policies.py": "28bf62488af114f57609b5accfb96a4639c0cc0620ca3a8413b1158e3b1178d8",
+        "scripts/check_membership_admin_once.py": "d88e70310f67d17c454bb6671762e97d32b062e73dc80855d74daba23b8f6cb8",
+        "scripts/check_membership_admin_syntax.py": "5ff1f2d2dbf287a5e916731d61b403ca07d3e2bf12afd17cf21227a639c13784",
+        "site_content.py": "24a2783920e0ba162ce1947335ce4cb18c4f821a68d97977e4291e9810e50c43",
+        "static/admin-console.js": "d6b597118af9b03dada4134d1e6a0129f52be8795a67e3c4f09360c89263a951",
+        "templates/_admin_dashboard.html": "5aae600469352e090f640d650894b395c39b119d1668f43e39181d0af73fc585",
+        "templates/_membership_admin.html": "5b06a9cc0b005f498181b3e0a288db1e9eb58c5062f8c3fb90d935879bac8343",
+        "templates/control.html": "73919f6bd5518f61927aa3988b873171d8a8d4c5b2aa5543be82b0c626e5df44",
+        "tests/browser/membership_admin.cjs": "2df98f5863c9aaf6129fb7dae962bf24d09f9fd05526d743e3732a154599af2d",
+        "tests/membership_admin_fixture_server.py": "4801e2efd3bcf52b8b9c0d9b08c3f64fd4a926a206761e699a5f82217cca0227",
+        "tests/test_membership_admin.py": "715ee3e32ba8994488bf0513b70fa69c2e76f55acaba98179adef5c10e50d044"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T03:59:45.796925+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\backend.json",
+      "stage": "backend",
+      "status": "passed",
+      "started": "2026-11-15T03:59:43.927449+00:00",
+      "baseline": "b68b786776ad670c46fa9df9963fffe09f0b56c9",
+      "command": [
+        "C:/Users/10108/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_membership_admin.py",
+        "tests/test_membership_tier.py",
+        "tests/test_auto_site_text.py",
+        "tests/test_ai_quota_reset.py",
+        "tests/test_member_web_20261112.py",
+        "tests/test_plus_api.py::test_self_service_and_real_limits_match_current_tier",
+        "--basetemp=D:\\CodexData\\temp\\membership-admin-20261115\\pytest",
+        "--junitxml=D:\\CodexData\\outputs\\membership-admin-20261115\\backend.xml"
+      ],
+      "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\backend.log",
+      "hashes": {
+        "admin_dashboard.py": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+        "admin_performance.py": "577fd97daceeb761c909e1ae2a79b6321bd7cbce1270a5a56c5cd24fedb01177",
+        "admin_store.py": "9571f840902c698acc59ef4aee78e18233d82d56c640257907d9a5f905d99646",
+        "app.py": "676fd16baccca82e4bde085620d7c4f2c45e6dd9a6907d44e06ee05cb179ed7f",
+        "docs/ops/MEMBERSHIP_ADMIN_TEST_LEDGER_20261115.json": "2022e644f37893973ce7fcdb5ffbd1c3f5a4a1b73608e5ad29c1629465b91848",
+        "member_catalog.py": "12bb87d2f36c4ac133ea75a182c905e6b8b477e707f64dae9cf52d7210677106",
+        "member_copy.py": "cd5cbacc31f414329a4a87131872e88475a9988f57698242d5e450bfef94965c",
+        "membership.py": "bd4562490d2d1277369d65e34374a61e9a2548acf826069f1d954a3e220cc6c7",
+        "model_policies.py": "28bf62488af114f57609b5accfb96a4639c0cc0620ca3a8413b1158e3b1178d8",
+        "scripts/check_membership_admin_once.py": "d88e70310f67d17c454bb6671762e97d32b062e73dc80855d74daba23b8f6cb8",
+        "scripts/check_membership_admin_syntax.py": "5ff1f2d2dbf287a5e916731d61b403ca07d3e2bf12afd17cf21227a639c13784",
+        "site_content.py": "24a2783920e0ba162ce1947335ce4cb18c4f821a68d97977e4291e9810e50c43",
+        "static/admin-console.js": "d6b597118af9b03dada4134d1e6a0129f52be8795a67e3c4f09360c89263a951",
+        "templates/_admin_dashboard.html": "5aae600469352e090f640d650894b395c39b119d1668f43e39181d0af73fc585",
+        "templates/_membership_admin.html": "5b06a9cc0b005f498181b3e0a288db1e9eb58c5062f8c3fb90d935879bac8343",
+        "templates/control.html": "73919f6bd5518f61927aa3988b873171d8a8d4c5b2aa5543be82b0c626e5df44",
+        "tests/browser/membership_admin.cjs": "2df98f5863c9aaf6129fb7dae962bf24d09f9fd05526d743e3732a154599af2d",
+        "tests/membership_admin_fixture_server.py": "4801e2efd3bcf52b8b9c0d9b08c3f64fd4a926a206761e699a5f82217cca0227",
+        "tests/test_membership_admin.py": "715ee3e32ba8994488bf0513b70fa69c2e76f55acaba98179adef5c10e50d044"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T04:00:18.412607+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser.json",
+      "stage": "browser",
+      "status": "failed",
+      "started": "2026-11-15T04:00:17.427503+00:00",
+      "baseline": "b68b786776ad670c46fa9df9963fffe09f0b56c9",
+      "command": [
+        "node",
+        "--test",
+        "tests/browser/membership_admin.cjs"
+      ],
+      "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser.log",
+      "hashes": {
+        "admin_dashboard.py": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+        "admin_performance.py": "577fd97daceeb761c909e1ae2a79b6321bd7cbce1270a5a56c5cd24fedb01177",
+        "admin_store.py": "9571f840902c698acc59ef4aee78e18233d82d56c640257907d9a5f905d99646",
+        "app.py": "676fd16baccca82e4bde085620d7c4f2c45e6dd9a6907d44e06ee05cb179ed7f",
+        "docs/ops/MEMBERSHIP_ADMIN_TEST_LEDGER_20261115.json": "2022e644f37893973ce7fcdb5ffbd1c3f5a4a1b73608e5ad29c1629465b91848",
+        "member_catalog.py": "12bb87d2f36c4ac133ea75a182c905e6b8b477e707f64dae9cf52d7210677106",
+        "member_copy.py": "cd5cbacc31f414329a4a87131872e88475a9988f57698242d5e450bfef94965c",
+        "membership.py": "bd4562490d2d1277369d65e34374a61e9a2548acf826069f1d954a3e220cc6c7",
+        "model_policies.py": "28bf62488af114f57609b5accfb96a4639c0cc0620ca3a8413b1158e3b1178d8",
+        "scripts/check_membership_admin_once.py": "d88e70310f67d17c454bb6671762e97d32b062e73dc80855d74daba23b8f6cb8",
+        "scripts/check_membership_admin_syntax.py": "5ff1f2d2dbf287a5e916731d61b403ca07d3e2bf12afd17cf21227a639c13784",
+        "site_content.py": "24a2783920e0ba162ce1947335ce4cb18c4f821a68d97977e4291e9810e50c43",
+        "static/admin-console.js": "d6b597118af9b03dada4134d1e6a0129f52be8795a67e3c4f09360c89263a951",
+        "templates/_admin_dashboard.html": "5aae600469352e090f640d650894b395c39b119d1668f43e39181d0af73fc585",
+        "templates/_membership_admin.html": "5b06a9cc0b005f498181b3e0a288db1e9eb58c5062f8c3fb90d935879bac8343",
+        "templates/control.html": "73919f6bd5518f61927aa3988b873171d8a8d4c5b2aa5543be82b0c626e5df44",
+        "tests/browser/membership_admin.cjs": "2df98f5863c9aaf6129fb7dae962bf24d09f9fd05526d743e3732a154599af2d",
+        "tests/membership_admin_fixture_server.py": "4801e2efd3bcf52b8b9c0d9b08c3f64fd4a926a206761e699a5f82217cca0227",
+        "tests/test_membership_admin.py": "715ee3e32ba8994488bf0513b70fa69c2e76f55acaba98179adef5c10e50d044"
+      },
+      "exit_code": 1,
+      "finished": "2026-11-15T04:01:28.370273+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\authorized-retest.json",
+      "status": "failed",
+      "started": "2026-11-15T04:03:33.941158+00:00",
+      "authorization": "User explicitly authorized desktop 1280 + mobile 390 once each, and changed membership template syntax once; no backend repetition.",
+      "hashes": {
+        "templates/_membership_admin.html": "4171635bbba8d5157f919e57edf6f7e7de8542ea9357f8594c101d25cac15b21",
+        "tests/browser/membership_admin.cjs": "2df98f5863c9aaf6129fb7dae962bf24d09f9fd05526d743e3732a154599af2d"
+      },
+      "template_exit_code": 0,
+      "browser_exit_code": 1,
+      "finished": "2026-11-15T04:03:45.816096+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\copy-forms-new.json",
+      "status": "passed",
+      "started": "2026-11-15T04:05:32.395497+00:00",
+      "scenario": "new complete CRLF form and genuine conflict",
+      "hashes": {
+        "admin_store.py": "d678ef52d35491777a09a50b90bd40853586e42a6d515c51ea4a4029c8b8c7f7",
+        "tests/test_membership_copy_forms.py": "e294c40416897369a312c5e74de14a4225c491f619e4dfab09b53523d87ca851"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T04:05:41.159294+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\readonly-production-metrics.json",
+      "status": "passed",
+      "started": "2026-11-15T04:02:27.302817+00:00",
+      "source_sha256": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+      "scope": "one 30-day read-only aggregate; no app startup or writes",
+      "exit_code": 0,
+      "measurement": {
+        "duration_seconds": 0.9201,
+        "query_count": 11,
+        "days": 30,
+        "database_release": "b68b786776ad670c46fa9df9963fffe09f0b56c9",
+        "individual_records_exported": false,
+        "target_under_5s": true
+      },
+      "finished": "2026-11-15T04:02:29.863756+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\authorized-copy-retest.json",
+      "status": "failed",
+      "started": "2026-11-15T04:12:12.605020+00:00",
+      "authorization": "User call_57dad63f8ab442e0b9239309f6847758 explicitly approved desktop/mobile scenarios, original copy preview/save/reset/merge backend scenario, and admin_store.py syntax once each. No other reruns.",
+      "hashes": {
+        ".github/workflows/ci.yml": "3435a53186010028d1eb8ff8397be3b2e410dbdbb822c53b7a634e62bfd34f97",
+        "admin_dashboard.py": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+        "admin_performance.py": "577fd97daceeb761c909e1ae2a79b6321bd7cbce1270a5a56c5cd24fedb01177",
+        "admin_store.py": "d678ef52d35491777a09a50b90bd40853586e42a6d515c51ea4a4029c8b8c7f7",
+        "app.py": "676fd16baccca82e4bde085620d7c4f2c45e6dd9a6907d44e06ee05cb179ed7f",
+        "docs/ops/MEMBERSHIP_ADMIN_20261115.md": "ea7f9e04b2c12ed5722567a197097f723b99f3a75517514195413dcc43078167",
+        "docs/ops/MEMBERSHIP_ADMIN_TEST_LEDGER_20261115.json": "2022e644f37893973ce7fcdb5ffbd1c3f5a4a1b73608e5ad29c1629465b91848",
+        "member_catalog.py": "12bb87d2f36c4ac133ea75a182c905e6b8b477e707f64dae9cf52d7210677106",
+        "member_copy.py": "cd5cbacc31f414329a4a87131872e88475a9988f57698242d5e450bfef94965c",
+        "membership.py": "4297915b1cefb0f0e6c9d801d4722a18a02d15467cf137140b42d50aaaba6805",
+        "model_policies.py": "28bf62488af114f57609b5accfb96a4639c0cc0620ca3a8413b1158e3b1178d8",
+        "scripts/check_membership_admin_once.py": "d88e70310f67d17c454bb6671762e97d32b062e73dc80855d74daba23b8f6cb8",
+        "scripts/check_membership_admin_syntax.py": "5ff1f2d2dbf287a5e916731d61b403ca07d3e2bf12afd17cf21227a639c13784",
+        "scripts/profile_membership_admin_readonly.py": "38b31e409ce39f56780db757d0a084d31f30c5f54e72ff364fca6391a9b8f048",
+        "site_content.py": "24a2783920e0ba162ce1947335ce4cb18c4f821a68d97977e4291e9810e50c43",
+        "static/admin-console.js": "d6b597118af9b03dada4134d1e6a0129f52be8795a67e3c4f09360c89263a951",
+        "templates/_admin_dashboard.html": "5aae600469352e090f640d650894b395c39b119d1668f43e39181d0af73fc585",
+        "templates/_membership_admin.html": "4171635bbba8d5157f919e57edf6f7e7de8542ea9357f8594c101d25cac15b21",
+        "templates/control.html": "73919f6bd5518f61927aa3988b873171d8a8d4c5b2aa5543be82b0c626e5df44",
+        "tests/browser/membership_admin.cjs": "1b7a1ecfed54937e87e95c7c5257a9e4f17c3e5b8d842b8e5feab8c5316ffff6",
+        "tests/membership_admin_fixture_server.py": "4801e2efd3bcf52b8b9c0d9b08c3f64fd4a926a206761e699a5f82217cca0227",
+        "tests/test_membership_admin.py": "836872bc4ef5172c68ab047e3b0a04856b9767caa884b23c9e31127f7f1c3e26",
+        "tests/test_membership_copy_forms.py": "e294c40416897369a312c5e74de14a4225c491f619e4dfab09b53523d87ca851"
+      },
+      "checks": [
+        {
+          "name": "store-syntax",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-c",
+            "import ast; from pathlib import Path; ast.parse(Path('admin_store.py').read_text(encoding='utf-8')); print('admin_store.py AST passed')"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser-copy-retest\\store-syntax.log",
+          "exit_code": 0
+        },
+        {
+          "name": "copy-backend",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            "tests/test_membership_admin.py::test_copy_preview_save_reset_and_partial_merge",
+            "--basetemp=D:\\CodexData\\temp\\membership-admin-20261115\\copy-retest",
+            "--junitxml=D:\\CodexData\\outputs\\membership-admin-20261115\\browser-copy-retest\\copy-backend.xml"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser-copy-retest\\copy-backend.log",
+          "exit_code": 0
+        },
+        {
+          "name": "browser",
+          "command": [
+            "node",
+            "--test",
+            "tests/browser/membership_admin.cjs"
+          ],
+          "status": "failed",
+          "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser-copy-retest\\browser.log",
+          "exit_code": 1
+        }
+      ],
+      "finished": "2026-11-15T04:12:34.877608+00:00",
+      "wrapper_error": "Console output rendering raised UnicodeEncodeError after all three subprocesses completed; raw logs and exit codes retained."
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\allocation-boundary-new.json",
+      "status": "passed",
+      "started": "2026-11-15T04:14:01.529505+00:00",
+      "scenario": "First uncovered multi-wallet revocation: resource pack cannot authorize a reservation funded by now-revoked Plus; unchanged reuse allowed and fresh pack allocation allowed.",
+      "command": [
+        "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_membership_admin.py::test_pack_cannot_authorize_reusing_a_revoked_plus_allocation",
+        "--basetemp=D:\\CodexData\\temp\\membership-admin-20261115\\allocation-new",
+        "--junitxml=D:\\CodexData\\outputs\\membership-admin-20261115\\allocation-boundary-new.xml"
+      ],
+      "hashes": {
+        "membership.py": "4297915b1cefb0f0e6c9d801d4722a18a02d15467cf137140b42d50aaaba6805",
+        "tests/test_membership_admin.py": "836872bc4ef5172c68ab047e3b0a04856b9767caa884b23c9e31127f7f1c3e26"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T04:14:09.218360+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\authorized-mobile-retest.json",
+      "status": "passed",
+      "started": "2026-11-15T04:14:38.731673+00:00",
+      "authorization": "User call_b383c70185dc44108ac91bf22577f798 approved mobile 390 scenario once only. Desktop and backend not rerun.",
+      "command": [
+        "node",
+        "--test",
+        "--test-name-pattern=390$",
+        "tests/browser/membership_admin.cjs"
+      ],
+      "hashes": {
+        "templates/control.html": "6bb1f20c4dbbf8726840ad5de5f9ba12ad4e89269b84cb2a72e007e96fd96837",
+        "templates/_membership_admin.html": "b2f7e074cb269c0483946b3c0cfbee2a4a5728166b0082dad720c9137962ab43",
+        "tests/browser/membership_admin.cjs": "cc9e28672f52d0a4e9ae487e85e81319ddbf4523b2b796446007288478bc612b",
+        "membership.py": "4297915b1cefb0f0e6c9d801d4722a18a02d15467cf137140b42d50aaaba6805",
+        "admin_store.py": "d678ef52d35491777a09a50b90bd40853586e42a6d515c51ea4a4029c8b8c7f7"
+      },
+      "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\browser-mobile-retest\\browser.log",
+      "exit_code": 0,
+      "finished": "2026-11-15T04:14:50.803899+00:00"
+    },
+    {
+      "record_path": "D:\\CodexData\\outputs\\membership-admin-20261115\\content-config-new.json",
+      "status": "passed",
+      "started": "2026-11-15T04:16:40.574105+00:00",
+      "scenario": "First content-editor values preservation coverage and first changed workflow YAML parse.",
+      "hashes": {
+        "app.py": "eed57abb91f33faa4a4f74a489aec1bec91c665530e5d50c44bf9b4f1e714010",
+        "tests/test_membership_admin.py": "4bd286c3afbbcf2d46bde821bb0d1cdbba66f44a19518e8986b5192c12d1bf81",
+        ".github/workflows/ci.yml": "3435a53186010028d1eb8ff8397be3b2e410dbdbb822c53b7a634e62bfd34f97"
+      },
+      "checks": [
+        {
+          "name": "content-values",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            "tests/test_membership_admin.py::test_content_editors_keep_their_saved_values_when_loading_is_scoped",
+            "--basetemp=D:\\CodexData\\temp\\membership-admin-20261115\\content-new",
+            "--junitxml=D:\\CodexData\\outputs\\membership-admin-20261115\\content-config-new.xml"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\content-values-new.log",
+          "exit_code": 0
+        },
+        {
+          "name": "ci-yaml",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-c",
+            "from pathlib import Path; import yaml; data=yaml.safe_load(Path('.github/workflows/ci.yml').read_text('utf-8')); assert 'fast-gate' in data['jobs'] and 'browser-gate' in data['jobs']; print('CI YAML parsed')"
+          ],
+          "status": "passed",
+          "log": "D:\\CodexData\\outputs\\membership-admin-20261115\\ci-yaml-new.log",
+          "exit_code": 0
+        }
+      ],
+      "finished": "2026-11-15T04:16:48.862996+00:00"
+    }
+  ],
+  "production_changes": false,
+  "storage": {
+    "workspace": "D:/CodexData/workspaces/membership-admin-20261115",
+    "retained_C_copy": "C:/Users/10108/.codex/worktrees/membership-admin-20261115/【增强】马恩《文集》《全集》检索",
+    "reason": "Automatic approval rejected deletion: blocked by policy. 941 copied files SHA256 verified; no source deletion attempted after rejection."
+  },
+  "artifact_root": "D:\\CodexData\\outputs\\membership-admin-20261115",
+  "summary": {
+    "initial_backend": {
+      "passed": 80,
+      "full_suite_rerun": false
+    },
+    "new_backend_scenarios": {
+      "passed": 3,
+      "names": [
+        "complete CRLF form and real conflict",
+        "multi-wallet allocation revocation",
+        "content editor saved values"
+      ]
+    },
+    "authorized_copy_backend_rerun": {
+      "passed": 1
+    },
+    "browser_attempts": [
+      {
+        "attempt": "initial",
+        "desktop": "failed-preview",
+        "mobile": "failed-preview"
+      },
+      {
+        "attempt": "authorized-retest",
+        "desktop": "failed-save",
+        "mobile": "failed-save"
+      },
+      {
+        "attempt": "authorized-copy-retest",
+        "desktop": "passed",
+        "mobile": "failed-overflow"
+      },
+      {
+        "attempt": "authorized-mobile-retest",
+        "desktop": "not-run",
+        "mobile": "passed"
+      }
+    ],
+    "static_initial": "passed 18 files at recorded hashes",
+    "subsequent_scoped_syntax": [
+      "membership partial Jinja and inline JS passed",
+      "admin_store AST passed",
+      "CI YAML first parse passed"
+    ],
+    "read_only_production_history": {
+      "days": 30,
+      "sql_statements": 11,
+      "seconds": 0.9201,
+      "writes": false
+    }
+  },
+  "source_after_tests_notes": [
+    "Initial 80 backend results belong to their recorded hashes, not a rerun of the final source.",
+    "admin_store newline change covered by new full-form case and explicitly authorized original copy case.",
+    "membership.py allocation change covered once by new multi-wallet scenario.",
+    "Browser 1280 passed before mobile CSS/checkbox-label changes; it was not rerun after them.",
+    "Browser 390 passed with final mobile template changes; later app.py edit only moved six existing content editor values from overview to content.",
+    "Final app.py content editor scope covered by one new focused backend case; original module/browser tests not rerun.",
+    "No push, CI, release build, production update, or paid model call has occurred.",
+    "authorized-copy-retest wrapper console encoding error occurred after all child checks finished; raw results retained."
+  ],
+  "final_source_hashes": {
+    ".github/workflows/ci.yml": "3435a53186010028d1eb8ff8397be3b2e410dbdbb822c53b7a634e62bfd34f97",
+    "admin_dashboard.py": "4429ce8adee196db6906aefdeb3051efd48f5b73785779c71d4b4f6a4344dd8a",
+    "admin_performance.py": "577fd97daceeb761c909e1ae2a79b6321bd7cbce1270a5a56c5cd24fedb01177",
+    "admin_store.py": "d678ef52d35491777a09a50b90bd40853586e42a6d515c51ea4a4029c8b8c7f7",
+    "app.py": "eed57abb91f33faa4a4f74a489aec1bec91c665530e5d50c44bf9b4f1e714010",
+    "member_catalog.py": "12bb87d2f36c4ac133ea75a182c905e6b8b477e707f64dae9cf52d7210677106",
+    "member_copy.py": "cd5cbacc31f414329a4a87131872e88475a9988f57698242d5e450bfef94965c",
+    "membership.py": "4297915b1cefb0f0e6c9d801d4722a18a02d15467cf137140b42d50aaaba6805",
+    "model_policies.py": "28bf62488af114f57609b5accfb96a4639c0cc0620ca3a8413b1158e3b1178d8",
+    "scripts/check_membership_admin_once.py": "d88e70310f67d17c454bb6671762e97d32b062e73dc80855d74daba23b8f6cb8",
+    "scripts/check_membership_admin_syntax.py": "5ff1f2d2dbf287a5e916731d61b403ca07d3e2bf12afd17cf21227a639c13784",
+    "scripts/profile_membership_admin_readonly.py": "38b31e409ce39f56780db757d0a084d31f30c5f54e72ff364fca6391a9b8f048",
+    "site_content.py": "24a2783920e0ba162ce1947335ce4cb18c4f821a68d97977e4291e9810e50c43",
+    "static/admin-console.js": "d6b597118af9b03dada4134d1e6a0129f52be8795a67e3c4f09360c89263a951",
+    "templates/_admin_dashboard.html": "5aae600469352e090f640d650894b395c39b119d1668f43e39181d0af73fc585",
+    "templates/_membership_admin.html": "b2f7e074cb269c0483946b3c0cfbee2a4a5728166b0082dad720c9137962ab43",
+    "templates/control.html": "6bb1f20c4dbbf8726840ad5de5f9ba12ad4e89269b84cb2a72e007e96fd96837",
+    "tests/browser/membership_admin.cjs": "cc9e28672f52d0a4e9ae487e85e81319ddbf4523b2b796446007288478bc612b",
+    "tests/membership_admin_fixture_server.py": "4801e2efd3bcf52b8b9c0d9b08c3f64fd4a926a206761e699a5f82217cca0227",
+    "tests/test_membership_admin.py": "4bd286c3afbbcf2d46bde821bb0d1cdbba66f44a19518e8986b5192c12d1bf81",
+    "tests/test_membership_copy_forms.py": "e294c40416897369a312c5e74de14a4225c491f619e4dfab09b53523d87ca851"
+  },
+  "pending_authorization": "Push/CI/release repeated gates and designation of release coordinator; see implementation report."
+}

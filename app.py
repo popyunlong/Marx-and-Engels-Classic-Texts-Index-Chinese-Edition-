@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from admin_performance import timed as admin_timed
+import model_policies
+import member_copy
+
 from page_labels import page_reference, citation_pages, VERSION as PAGE_LABEL_VERSION
 from release_metadata import current_app_release
 from catalog_release import catalog_status
@@ -3366,7 +3370,7 @@ def _dashboard_date_range(start_day: str, end_day: str, *, max_days: int | None 
     return days
 
 
-def _dashboard_metrics_for_day(day: str, *, for_history: bool = False) -> dict:
+def _dashboard_metrics_for_day(day: str, *, for_history: bool = False, include_readers: bool = True) -> dict:
     day_value, day_start, day_end, _ = _beijing_day_bounds_for(day)
     now_utc = datetime.now(timezone.utc)
     metrics = get_admin_dashboard_metrics(
@@ -3377,6 +3381,7 @@ def _dashboard_metrics_for_day(day: str, *, for_history: bool = False) -> dict:
         now_text=now_utc.isoformat(timespec="seconds"),
         high_token_threshold=DASHBOARD_HIGH_TOKEN_THRESHOLD,
         token_limit_ratio=DASHBOARD_TOKEN_LIMIT_RATIO,
+        include_readers=include_readers,
     )
     metrics.update(
         {
@@ -3404,9 +3409,17 @@ def _dashboard_selected_history_range() -> tuple[str, str, list[str]]:
     return days[0], days[-1], days
 
 
-def _dashboard_history_rows(days: list[str]) -> list[dict]:
-    rows = [_dashboard_metrics_for_day(day, for_history=True) for day in days]
-    return list(reversed(rows))
+def _dashboard_history_rows(days: list[str], *, full: bool = False) -> list[dict]:
+    import admin_dashboard
+    rows = admin_dashboard.history(days, threshold=DASHBOARD_HIGH_TOKEN_THRESHOLD,
+                                   ratio=DASHBOARD_TOKEN_LIMIT_RATIO, full=full)
+    if full:
+        today = _beijing_now().date().isoformat()
+        for row in rows:
+            if row["day"] == today:
+                live = _dashboard_metrics_for_day(today, include_readers=False)
+                row.update({key: live[key] for key in ("current_online", "pending_orders", "db_status", "ai_ok", "payment_ok")})
+    return rows
 
 
 def _dashboard_rules() -> list[dict]:
@@ -5235,7 +5248,8 @@ def _site_text_form_values() -> dict[str, str]:
     for group in list_site_text_groups():
         for entry in group["entries"]:
             key = str(entry["key"])
-            values[key] = str(request.form.get(f"site_text__{key}", ""))
+            if f"site_text__{key}" in request.form:
+                values[key] = str(request.form[f"site_text__{key}"])
     return values
 
 
@@ -5745,7 +5759,30 @@ def _journal_workflow_snapshot(batch: dict | None) -> dict:
     return snapshot
 
 
+def _site_text_editor():
+    cached = getattr(g, "_copy_editor", None)
+    if cached is not None:
+        return cached
+    from member_copy import keys as membership_keys
+    managed = membership_keys()
+    groups = [{**group, "entries": [entry for entry in group["entries"] if entry["key"] not in managed]}
+              for group in list_site_text_groups_from_map(_request_site_texts())]
+    groups = [group for group in groups if group["entries"]]
+    selected = next((group for group in groups if group["group"] == request.args.get("copy_group")), groups[0] if groups else {"group":"", "entries":[]})
+    page = max(1, request.args.get("copy_page", 1, type=int))
+    total = len(selected["entries"])
+    page = min(page, max(1, (total+39)//40))
+    selected = {**selected, "entries": selected["entries"][(page-1)*40:page*40]}
+    cached = dict(groups=[selected], names=[group["group"] for group in groups], selected=selected["group"], page=page, has_next=page*40<total)
+    g._copy_editor = cached
+    return cached
+
+
 def _management_console_context(*, remote_admin: bool, admin_module: str = "overview") -> dict:
+    load_members = remote_admin and admin_module == "members"
+    load_content = remote_admin and admin_module == "content"
+    load_journal = remote_admin and admin_module == "journal"
+    load_overview = remote_admin and admin_module == "overview"
     _refresh_ai_runtime_if_needed()
     search_text = (request.args.get("user_q") or "").strip()
     mylib_inspect_raw = str(request.args.get("mylib_inspect") or "")
@@ -5771,10 +5808,16 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         ai_reset_button_label = "清除本地同步缓存"
         site_text_caption = "同步文案缓存"
         site_text_note = "本地端不再编辑站点文案；这些内容来自网站后台同步缓存。"
-    current_site_texts = _effective_site_text_map()
+    current_site_texts = _request_site_texts()
     access_policy = _load_access_policy()
-    plans_all = list_plans(include_inactive=True)
-    users = list_users(search_text=search_text, limit=CONTROL_USER_LIMIT)
+    plans_all = list_plans(include_inactive=True) if load_members or load_content else []
+    if load_members:
+        from member_catalog import public_plan
+        plans_all = [public_plan(plan, current_site_texts) for plan in plans_all]
+    user_page = max(1, request.args.get("user_page", 1, type=int))
+    users = list_users(search_text=search_text, limit=CONTROL_USER_LIMIT + 1, offset=(user_page - 1) * CONTROL_USER_LIMIT) if load_members else []
+    user_has_next = len(users) > CONTROL_USER_LIMIT
+    users = users[:CONTROL_USER_LIMIT]
     user_feature_rows = _feature_access_rows(users)
     feature_by_user_id = {row["user_id"]: row for row in user_feature_rows}
     for user in users:
@@ -5784,24 +5827,11 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
     dashboard_history_start = ""
     dashboard_history_end = ""
     dashboard_history_rows: list[dict] = []
-    if remote_admin:
-        dashboard_selected_day = _parse_dashboard_day(
-            request.args.get("date", ""),
-            _beijing_now().date().isoformat(),
-        )
-        dashboard_metrics = _dashboard_metrics_for_day(dashboard_selected_day)
-        # 标记每位高用量/榜单用户当前是否已被单独封禁 AI，供总览的封禁/解封按钮显示正确状态。
-        blocked_emails = _ai_blocked_emails(access_policy)
-        for bucket in ("high_token_users", "top_token_users"):
-            for row in dashboard_metrics.get(bucket) or []:
-                row["ai_blocked"] = normalize_email(str(row.get("email") or "")) in blocked_emails
-        reader_bans = _reader_bans()
-        for row in dashboard_metrics.get("reader_anomaly_visitors") or []:
-            row["reader_blocked"] = _reader_ban_status(row, policy=access_policy, bans=reader_bans)
+    if load_overview:
+        dashboard_selected_day = _parse_dashboard_day(request.args.get("date", ""), dashboard_selected_day)
         dashboard_history_start, dashboard_history_end, history_days = _dashboard_selected_history_range()
-        dashboard_history_rows = _dashboard_history_rows(history_days)
     # 当前批次（采集→综述→发送的承载单元）。文章审核/综述审核只针对当前批次。
-    journal_batch = current_batch() if remote_admin else None
+    journal_batch = current_batch() if load_journal else None
     journal_batch_pending: list[dict] = []
     journal_batch_ready: list[dict] = []
     journal_processing_states: list[dict] = []
@@ -5809,8 +5839,8 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
     journal_send_status: dict = {}
     journal_email_preview_html = ""
     journal_email_preview_subject = ""
-    journal_alert_settings = load_journal_alert_settings() if remote_admin else {}
-    if remote_admin and journal_batch:
+    journal_alert_settings = load_journal_alert_settings() if load_journal else {}
+    if load_journal and journal_batch:
         journal_batch_pending = batch_articles(
             int(journal_batch["id"]),
             statuses=(
@@ -5822,13 +5852,13 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         )
         journal_batch_ready = batch_articles(int(journal_batch["id"]), statuses=("ready",))
         journal_processing_states = list_journal_processing_states(int(journal_batch["id"]), limit=500)
-    if remote_admin:
+    if load_journal:
         journal_workflow = _journal_workflow_snapshot(journal_batch)
-    if remote_admin:
+    if load_journal:
         journal_send_status = _journal_autosend_status(
             journal_alert_settings, journal_batch, load_smtp_config().enabled
         )
-    if remote_admin and journal_batch and journal_batch_ready:
+    if load_journal and journal_batch and journal_batch_ready:
         try:
             _preview_text, journal_email_preview_html = render_journal_review_email(
                 journal_batch,
@@ -5879,16 +5909,17 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "site_text_override_path": str(SITE_TEXT_OVERRIDES_PATH),
         "site_text_caption": site_text_caption,
         "site_text_note": site_text_note,
-        "site_text_groups": list_site_text_groups_from_map(current_site_texts),
-        "site_text_coverage": site_text_coverage_report(overrides=_effective_override_values()),
+        "site_text_groups": _site_text_editor()["groups"] if load_content else [],
+        "site_text_editor": _site_text_editor() if load_content else {},
+        "site_text_coverage": (site_text_coverage_report(overrides=_effective_override_values())) if load_content else {},
         "plans_all": plans_all,
-        "audience_feature_access": _audience_feature_access_rows(access_policy),
+        "audience_feature_access": (_audience_feature_access_rows(access_policy)) if load_members else {},
         "audience_access_labels": AUDIENCE_ACCESS_LABELS,
-        "plan_feature_access": _plan_feature_access_rows(plans_all, access_policy),
-        "research_quota_settings": _research_weekly_quota_settings(),
+        "plan_feature_access": (_plan_feature_access_rows(plans_all, access_policy)) if load_members else {},
+        "research_quota_settings": (_research_weekly_quota_settings()) if load_members else {},
         "research_quota_labels": RESEARCH_WEEKLY_QUOTA_LABELS,
-        "research_count_limit_enabled": _research_count_limit_enabled(),
-        "ai_token_quota_settings": _ai_token_daily_settings(),
+        "research_count_limit_enabled": (_research_count_limit_enabled()) if load_members else {},
+        "ai_token_quota_settings": (_ai_token_daily_settings()) if load_members else {},
         "ai_token_quota_labels": AI_TOKEN_DAILY_LABELS,
         "ai_token_quota_defaults": AI_TOKEN_DAILY_DEFAULTS,
         "plan_weekly_token_groups": {
@@ -5907,10 +5938,15 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_plan_weekly_token_url": url_for("admin_plan_weekly_token_quota") if remote_admin else "",
         "control_reset_ai_token_quota_url": url_for("admin_reset_ai_token_quota") if remote_admin else "",
         "ai_token_quota_reset_labels": AI_TOKEN_QUOTA_RESET_SCOPE_LABELS,
-        "ai_token_quota_resets_active": _ai_token_quota_reset_status() if remote_admin else [],
+        "ai_token_quota_resets_active": (_ai_token_quota_reset_status() if remote_admin else []) if load_members else [],
         "users": users,
+        "user_page": user_page, "user_has_next": user_has_next,
+        "model_policy_rows": model_policies.editor() if load_members else [],
+        "membership_copy_groups": member_copy.editor(current_site_texts) if load_members else [],
+        "membership_copy_codes": member_copy.PLAN_CODES,
+
         "user_q": search_text,
-        "bulk_grant_coverage": bulk_grant_coverage() if remote_admin else None,
+        "bulk_grant_coverage": (bulk_grant_coverage() if remote_admin else None) if load_members else {},
         "feature_access_keys": FEATURE_ACCESS_KEYS,
         "feature_access_labels": FEATURE_ACCESS_LABELS,
         "feature_access_groups": FEATURE_ACCESS_GROUPS,
@@ -5921,14 +5957,14 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "dashboard_history_start": dashboard_history_start,
         "dashboard_history_end": dashboard_history_end,
         "dashboard_history_rows": dashboard_history_rows,
-        "dashboard_rules": _dashboard_rules(),
-        "ai_cost_metrics": get_ai_cost_metrics(
+        "dashboard_rules": (_dashboard_rules()) if load_overview else {},
+        "ai_cost_metrics": (get_ai_cost_metrics(
             since_at=(datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
-        ) if remote_admin else {"by_model": [], "total_cost_micros": 0},
-        "ai_price_versions": [
+        ) if remote_admin else {"by_model": [], "total_cost_micros": 0}) if load_members else {},
+        "ai_price_versions": ([
             row for row in list_ai_price_versions(limit=40)
             if str(row.get("provider") or "") != "mimo"
-        ] if remote_admin else [],
+        ] if remote_admin else []) if load_members else [],
         "control_ai_price_schedule_url": url_for("admin_ai_price_schedule") if remote_admin else "",
         "dashboard_export_url": (
             url_for(
@@ -5952,22 +5988,22 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_community_url": url_for("admin_community") if remote_admin else url_for("control_community"),
         "control_community_from_feedback_url": url_for("admin_community_from_feedback") if remote_admin else "",
         "control_feature_tags_url": url_for("admin_feature_tags") if remote_admin else url_for("control_feature_tags"),
-        "feature_tags": _get_feature_tags(),
+        "feature_tags": (_get_feature_tags()) if load_content else {},
         "control_citation_formats_url": url_for("admin_citation_formats") if remote_admin else url_for("control_citation_formats"),
-        "citation_formats_editor": _citation_formats_editor(),
+        "citation_formats_editor": (_citation_formats_editor()) if load_content else [],
         "control_card_order_url": url_for("admin_card_order") if remote_admin else url_for("control_card_order"),
-        "card_order_cards": [{"key": key, "label": _FEATURE_CARD_LABELS[key]} for key in _get_card_order()],
+        "card_order_cards": ([{"key": key, "label": _FEATURE_CARD_LABELS[key]} for key in _get_card_order()]) if load_content else [],
         "control_registry_geo_url": url_for("admin_registry_geo") if remote_admin else url_for("control_registry_geo"),
-        "registry_geo_settings": _registry_geo_editor_settings(),
+        "registry_geo_settings": (_registry_geo_editor_settings()) if load_content else {},
         "control_ai_assistant_mode_url": url_for("admin_ai_assistant_mode") if remote_admin else url_for("control_ai_assistant_mode"),
-        "ai_assistant_mode_setting": _ai_assistant_mode(),
+        "ai_assistant_mode_setting": (_ai_assistant_mode()) if load_content else {},
         "control_sponsor_url": url_for("admin_sponsor") if remote_admin else url_for("control_sponsor"),
-        "sponsor_enabled_setting": _sponsor_button_enabled(),
+        "sponsor_enabled_setting": (_sponsor_button_enabled()) if load_content else False,
         "control_reader_access_ban_url": url_for("admin_reader_access_ban") if remote_admin else "",
-        "recent_orders": list_recent_orders(limit=18),
-        "recent_subscriptions": list_recent_subscriptions(limit=18),
-        "recent_payment_events": list_payment_events(limit=18),
-        "payment_qr_settings": _payment_qr_settings() if remote_admin else {"default_mode": "redirect", "plans": {}},
+        "recent_orders": (list_recent_orders(limit=18)) if load_members else [],
+        "recent_subscriptions": (list_recent_subscriptions(limit=18)) if load_members else [],
+        "recent_payment_events": (list_payment_events(limit=18)) if load_members else [],
+        "payment_qr_settings": (_payment_qr_settings() if remote_admin else {"default_mode": "redirect", "plans": {}}) if load_members else {},
         "control_payment_qr_url": url_for("admin_payment_qr_settings") if remote_admin else "",
         "control_payment_test_qr_url": url_for("admin_payment_test_qr") if remote_admin else "",
         "control_payment_clear_pending_url": url_for("admin_payment_clear_pending") if remote_admin else "",
@@ -5976,94 +6012,94 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "admin_store_db_path": str(ADMIN_STORE_DB_PATH),
         "journal_alerts_db_path": str(JOURNAL_ALERTS_DB_PATH),
         "feedback_db_path": str(FEEDBACK_DB_PATH),
-        "feedback_threads": list_feedback_threads(limit=50) if remote_admin else [],
+        "feedback_threads": (list_feedback_threads(limit=50) if remote_admin else []) if load_content else [],
         "feedback_admin_email": FEEDBACK_ADMIN_EMAIL,
-        "page_error_reports": _augment_page_error_jump_urls(list_page_error_reports(limit=80)) if remote_admin else [],
-        "page_error_open_count": count_open_page_error_reports() if remote_admin else 0,
+        "page_error_reports": (_augment_page_error_jump_urls(list_page_error_reports(limit=80)) if remote_admin else []) if load_content else [],
+        "page_error_open_count": (count_open_page_error_reports() if remote_admin else 0) if load_content else 0,
         "corpus_repair_status": (
-            corpus_repair_status_snapshot()
-            if remote_admin and admin_module == "content" else {"configured": False, "state": "not_loaded"}
+            (corpus_repair_status_snapshot()
+            if remote_admin and admin_module == "content" else {"configured": False, "state": "not_loaded"}) if load_content else {}
         ),
         "corpus_repair_review": (
-            list_corpus_repair_issues(
+            (list_corpus_repair_issues(
                 status="manual_review",
                 page=max(1, int(request.args.get("repair_page") or 1))
                 if str(request.args.get("repair_page") or "1").isdigit() else 1,
                 per_page=40,
             )
-            if remote_admin and admin_module == "content" else {"items": [], "total": 0}
+            if remote_admin and admin_module == "content" else {"items": [], "total": 0}) if load_content else {}
         ),
         # 个人文库审核队列（仅网站后台；本地控制台不参与用户内容审核）
         "mylib_queue": (
-            _mylib_admin_inspection_rows(
+            (_mylib_admin_inspection_rows(
                 mylib.list_pending(limit=80), inspect_submission_id=mylib_inspect_id
             )
             if remote_admin and admin_module == "content" else
-            mylib.list_pending(limit=80) if remote_admin else []
+            mylib.list_pending(limit=80) if remote_admin else []) if load_content else []
         ),
         "mylib_reviewed": (
-            _mylib_admin_inspection_rows(
+            (_mylib_admin_inspection_rows(
                 mylib.list_recent_reviewed(limit=20), inspect_submission_id=mylib_inspect_id
             )
-            if remote_admin and admin_module == "content" else []
+            if remote_admin and admin_module == "content" else []) if load_content else []
         ),
-        "mylib_pending_count": mylib.count_pending() if remote_admin else 0,
+        "mylib_pending_count": (mylib.count_pending() if remote_admin else 0) if load_content else 0,
         "control_mylib_review_endpoint": "admin_mylib_review",
         "control_mylib_enabled": bool(remote_admin and mylib_store.configured()),
         "book_recommendations": (
-            _recommendation_admin_rows()
-            if remote_admin and admin_module == "content" else []
+            (_recommendation_admin_rows()
+            if remote_admin and admin_module == "content" else []) if load_content else []
         ),
         "book_recommendation_pending_count": (
-            mylib.count_pending_book_recommendations() if remote_admin else 0
+            (mylib.count_pending_book_recommendations() if remote_admin else 0) if load_content else 0
         ),
-        "book_recommendation_storage_enabled": bool(
+        "book_recommendation_storage_enabled": (bool(
             remote_admin and mylib_store.configured()
-        ),
+        )) if load_content else {},
         "control_mylib_limits_url": url_for("admin_mylib_limits") if remote_admin else "",
-        "mylib_max_books_per_user": mylib.max_books_per_user(),
-        "mylib_ocr_usage": mylib.ocr_usage_overview() if remote_admin else {},
-        "journal_alert_settings": journal_alert_settings,
+        "mylib_max_books_per_user": (mylib.max_books_per_user()) if load_content else 0,
+        "mylib_ocr_usage": (mylib.ocr_usage_overview() if remote_admin else {}) if load_content else {},
+        "journal_alert_settings": (journal_alert_settings) if load_journal else {},
         "journal_sources": (
-            [s for s in list_journal_sources(limit=160) if str(s.get("language") or "").lower() == "en"]
-            if remote_admin else []
+            ([s for s in list_journal_sources(limit=160) if str(s.get("language") or "").lower() == "en"]
+            if remote_admin else []) if load_journal else {}
         ),
-        "journal_source_catalog": journal_source_catalog() if remote_admin else {"zh": [], "en": [], "total": 0, "auto_count": 0},
-        "journal_alert_subscriptions": list_recent_journal_subscriptions(limit=80) if remote_admin else [],
+        "journal_source_catalog": (journal_source_catalog() if remote_admin else {"zh": [], "en": [], "total": 0, "auto_count": 0}) if load_journal else {},
+        "journal_alert_subscriptions": (list_recent_journal_subscriptions(limit=80) if remote_admin else []) if load_journal else {},
         # 旧版全局列表保留（兼容模板/历史数据），批次化审核改用下面的 batch 变量。
-        "journal_pending_articles": list_journal_articles_by_status("pending_review", limit=30) if remote_admin else [],
-        "journal_ready_articles": list_journal_articles_by_status("ready", limit=12) if remote_admin else [],
+        "journal_pending_articles": (list_journal_articles_by_status("pending_review", limit=30) if remote_admin else []) if load_journal else {},
+        "journal_ready_articles": (list_journal_articles_by_status("ready", limit=12) if remote_admin else []) if load_journal else {},
         # 当前批次及其文章（按学科归类后展示），综述与发送都围绕它。
-        "journal_current_batch": journal_batch,
-        "journal_send_status": journal_send_status,
-        "journal_email_preview_html": journal_email_preview_html,
-        "journal_email_preview_subject": journal_email_preview_subject,
-        "journal_batch_pending_articles": journal_batch_pending,
-        "journal_batch_ready_articles": journal_batch_ready,
-        "journal_processing_states": journal_processing_states,
-        "journal_workflow": journal_workflow,
-        "journal_fulltext_storage": journal_fulltext_storage_usage() if remote_admin else {},
+        "journal_current_batch": (journal_batch) if load_journal else {},
+        "journal_send_status": (journal_send_status) if load_journal else {},
+        "journal_email_preview_html": (journal_email_preview_html) if load_journal else {},
+        "journal_email_preview_subject": (journal_email_preview_subject) if load_journal else {},
+        "journal_batch_pending_articles": (journal_batch_pending) if load_journal else {},
+        "journal_batch_ready_articles": (journal_batch_ready) if load_journal else {},
+        "journal_processing_states": (journal_processing_states) if load_journal else {},
+        "journal_workflow": (journal_workflow) if load_journal else {},
+        "journal_fulltext_storage": (journal_fulltext_storage_usage() if remote_admin else {}) if load_journal else {},
         # 顺延（deferred）待办：超过单期发布上限、留待后续批次逐步释放的文章数。
-        "journal_deferred_count": count_deferred_journal_articles() if remote_admin else 0,
-        "journal_recent_batches": list_recent_batches(limit=8) if remote_admin else [],
-        "journal_ai_model": AI_CONFIG.model,
-        "journal_ai_enabled": bool(AI_CONFIG.enabled),
-        "journal_recent_articles": list_recent_journal_articles(limit=18) if remote_admin else [],
-        "journal_recent_runs": list_recent_journal_runs(limit=12) if remote_admin else [],
-        "journal_delivery_logs": list_recent_journal_delivery_logs(limit=18) if remote_admin else [],
-        "journal_abstract_coverage": journal_abstract_coverage() if remote_admin else {},
+        "journal_deferred_count": (count_deferred_journal_articles() if remote_admin else 0) if load_journal else 0,
+        "journal_recent_batches": (list_recent_batches(limit=8) if remote_admin else []) if load_journal else {},
+        "journal_ai_model": (AI_CONFIG.model) if load_journal else {},
+        "journal_ai_enabled": (bool(AI_CONFIG.enabled)) if load_journal else {},
+        "journal_recent_articles": (list_recent_journal_articles(limit=18) if remote_admin else []) if load_journal else {},
+        "journal_recent_runs": (list_recent_journal_runs(limit=12) if remote_admin else []) if load_journal else {},
+        "journal_delivery_logs": (list_recent_journal_delivery_logs(limit=18) if remote_admin else []) if load_journal else {},
+        "journal_abstract_coverage": (journal_abstract_coverage() if remote_admin else {}) if load_journal else {},
         # 中文源国内中继健康度（中英文采集/发送本就同批次统一，这里只看中继侧是否新鲜）
-        "journal_relay_status": journal_relay_status() if remote_admin else {},
-        "journal_smtp_enabled": load_smtp_config().enabled,
-        "smtp_config": load_smtp_config(),
+        "journal_relay_status": (journal_relay_status() if remote_admin else {}) if load_journal else {},
+        "journal_smtp_enabled": (load_smtp_config().enabled) if load_journal else {},
+        "smtp_config": (load_smtp_config()) if load_content else {},
         "control_email_test_url": url_for("admin_email_test") if remote_admin else "",
         "control_broadcast_send_url": url_for("admin_broadcast_send") if remote_admin else "",
         "control_broadcast_preview_url": url_for("admin_broadcast_preview") if remote_admin else "",
         "control_broadcast_draft_url": url_for("admin_broadcast_draft") if remote_admin else "",
-        "broadcast_draft": _broadcast_draft() if remote_admin else {"subject": "", "body": "", "saved_at": "", "source": ""},
-        "broadcast_recent_campaigns": list_recent_broadcast_campaigns(limit=12) if remote_admin else [],
+        "broadcast_draft": (_broadcast_draft() if remote_admin else {"subject": "", "body": "", "saved_at": "", "source": ""}) if load_content else {},
+        "broadcast_recent_campaigns": (list_recent_broadcast_campaigns(limit=12) if remote_admin else []) if load_content else [],
         # 「久未回访用户」召回名单（注册于记 IP 上线前、至今无登录态回访；回访即自动离开该集合）
-        "broadcast_dormant_recipients": resolve_broadcast_recipients("dormant_noip") if remote_admin else [],
+        "broadcast_dormant_recipients": (resolve_broadcast_recipients("dormant_noip") if remote_admin else []) if load_content else [],
         "control_journal_run_url": url_for("admin_journal_run") if remote_admin else "",
         "control_journal_backfill_url": url_for("admin_journal_backfill_sources") if remote_admin else "",
         "control_journal_approve_all_url": url_for("admin_journal_approve_all") if remote_admin else "",
@@ -6074,8 +6110,8 @@ def _management_console_context(*, remote_admin: bool, admin_module: str = "over
         "control_journal_archive_url": url_for("admin_journal_archive_old") if remote_admin else "",
         "control_journal_purge_url": url_for("admin_journal_purge_archived") if remote_admin else "",
         "desktop_sync": {**load_desktop_sync_cache(), "cache_path": str(DESKTOP_SYNC_CACHE_PATH)},
-        "desktop_devices": list_desktop_devices(limit=80) if remote_admin else [],
-        "desktop_releases": list_releases(limit=30) if remote_admin else [],
+        "desktop_devices": (list_desktop_devices(limit=80) if remote_admin else []) if load_overview else [],
+        "desktop_releases": (list_releases(limit=30) if remote_admin else []) if load_overview else [],
         "latest_desktop_release": latest_release(),
     }
 
@@ -6172,7 +6208,14 @@ def _handle_site_texts_submit(*, remote_admin: bool):
     action = (request.form.get("action") or "save").strip().lower()
     if action == "reset":
         if DEPLOYMENT.is_server:
-            delete_setting("site_texts")
+            from admin_store import patch_site_texts
+            reset_keys = request.form.getlist("reset_keys")
+            defaults = get_site_text_map()
+            if reset_keys:
+                patch_site_texts({key: None for key in reset_keys if key in defaults}, defaults=defaults,
+                                 actor=_management_actor_label(remote_admin))
+            else:
+                delete_setting("site_texts")
         else:
             reset_site_text_overrides()
         _log_management_action(
@@ -6186,11 +6229,8 @@ def _handle_site_texts_submit(*, remote_admin: bool):
         values = _site_text_form_values()
         if DEPLOYMENT.is_server:
             defaults = get_site_text_map()
-            set_setting(
-                "site_texts",
-                {key: value for key, value in values.items() if defaults.get(key) != value},
-                updated_by=_management_actor_label(remote_admin),
-            )
+            from admin_store import patch_site_texts
+            patch_site_texts(values, defaults=defaults, actor=_management_actor_label(remote_admin))
         else:
             save_site_text_overrides(values)
         _log_management_action(
@@ -6201,7 +6241,7 @@ def _handle_site_texts_submit(*, remote_admin: bool):
             details={"keys": len(values)},
         )
         flash("站点说明文字已保存。", "success")
-    return _management_redirect(remote_admin, "copy")
+    return _management_redirect(remote_admin, "copy", copy_group=request.form.get("copy_group", ""), copy_page=request.form.get("copy_page", "1"))
 
 
 def _save_quick_site_texts(
@@ -6541,6 +6581,7 @@ def _handle_ai_assistant_mode_submit(*, remote_admin: bool):
 def _handle_site_text_scan(*, remote_admin: bool):
     """实时重新扫描模板，返回最新的文案框架覆盖情况（供控制台「检测框架变化」按钮调用）。"""
     _require_management_access(remote_admin)
+    __import__("site_content").reset_discovery_cache()
     report = site_text_coverage_report(overrides=_effective_override_values())
     return jsonify({"ok": True, "coverage": report})
 
@@ -6591,11 +6632,11 @@ def _handle_plans_submit(*, remote_admin: bool):
     try:
         plan = upsert_plan(
             code=plan_code,
-            name=(request.form.get("name") or "").strip(),
+            name=(existing_plan["name"] if existing_plan and plan_code in member_copy.PLAN_CODES else (request.form.get("name") or "").strip()),
             price_cents=_form_int("price_cents", 0),
             currency=(request.form.get("currency") or "CNY").strip() or "CNY",
             interval_months=_form_int("interval_months", 1),
-            description=(request.form.get("description") or "").strip(),
+            description=(existing_plan["description"] if existing_plan and plan_code in member_copy.PLAN_CODES else (request.form.get("description") or "").strip()),
             daily_ai_token_limit=(
                 _form_optional_int("daily_ai_token_limit")
                 if "daily_ai_token_limit" in request.form
@@ -6603,7 +6644,7 @@ def _handle_plans_submit(*, remote_admin: bool):
             ),
             daily_zhipu_token_limit=_form_optional_int("daily_zhipu_token_limit"),
             daily_deepseek_web_limit=_form_optional_int("daily_deepseek_web_limit"),
-            features=(request.form.get("features") or "").strip(),
+            features=(existing_plan["features"] if existing_plan and plan_code in member_copy.PLAN_CODES else (request.form.get("features") or "").strip()),
             badge=(request.form.get("badge") or "").strip(),
             is_active=_form_bool("is_active"),
             sort_order=_form_int("sort_order", 0),
@@ -9009,7 +9050,7 @@ def pricing():
     state = current_view_state()
     plans = list_active_plans()
     from member_catalog import PRICING_NOTICE_ITEMS, public_plan
-    plans = [public_plan(plan) for plan in plans]
+    plans = [public_plan(plan, _request_site_texts()) for plan in plans]
     purchase_enabled = multi_purchase.enabled()
     purchase_options = multi_purchase.purchase_options(
         int(g.current_user["id"]) if g.current_user else None, plans) if purchase_enabled else {}
@@ -9023,7 +9064,7 @@ def pricing():
         plans=plans,
         purchase_options=purchase_options,
         journal_catalog=research_source_catalog(),
-        pricing_notice_items=PRICING_NOTICE_ITEMS,
+        pricing_notice_items=member_copy.notices(_request_site_texts()),
         next_url=next_url,
         payment_ready=False,
     )
@@ -9520,6 +9561,7 @@ def admin_2fa():
 
 @app.route("/admin")
 @app.route("/admin/<module>")
+@admin_timed
 def admin(module: str = "overview"):
     _require_admin()
     if module == "journal" and request.args.get("history") != "1":
@@ -9527,6 +9569,45 @@ def admin(module: str = "overview"):
     if module not in ADMIN_MODULES:
         abort(404, description="管理模块不存在。")
     return render_template("control.html", **_management_console_context(remote_admin=True, admin_module=module))
+
+
+@app.get("/admin/overview/data")
+@admin_timed
+def admin_overview_data():
+    _require_admin()
+    section = request.args.get("section", "summary")
+    if section not in {"summary", "tokens", "readers", "history"}:
+        abort(400)
+    started = time.monotonic()
+    day = _parse_dashboard_day(request.args.get("date", ""), _beijing_now().date().isoformat())
+    start, end, days = _dashboard_selected_history_range()
+    context = dict(dashboard_section=section, dashboard_selected_day=day, dashboard_history_start=start,
+        dashboard_history_end=end, dashboard_metrics={}, dashboard_history_rows=[], state=current_view_state(),
+        csrf_token=_ensure_csrf_token(), dashboard_rules=_dashboard_rules(),
+        dashboard_export_url=url_for("admin_dashboard_export",history_start=start,history_end=end),
+        dashboard_export_all_url=url_for("admin_dashboard_export",all="1"),
+        control_online_series_url=url_for("admin_online_series"), control_ai_access_url=url_for("admin_ai_access"),
+        control_ai_usage_url=url_for("admin_ai_usage"), control_reader_access_url=url_for("admin_reader_access"),
+        control_reader_access_ban_url=url_for("admin_reader_access_ban"))
+    if section == "history":
+        context["dashboard_history_rows"] = _dashboard_history_rows(days)
+    elif section == "readers":
+        rows = list_reader_anomaly_visitors(day=day,limit=20)
+        policy, bans = _load_access_policy(), _reader_bans()
+        for row in rows: row["reader_blocked"] = _reader_ban_status(row,policy=policy,bans=bans)
+        context["dashboard_metrics"] = {"reader_anomaly_visitors": rows}
+    else:
+        metrics = (_dashboard_metrics_for_day(day,include_readers=False) if section == "summary"
+                   else _dashboard_history_rows([day])[0])
+        blocked = _ai_blocked_emails(_load_access_policy())
+        for row in metrics.get("high_token_users", []):
+            row["ai_blocked"] = normalize_email(str(row.get("email") or "")) in blocked
+        context["dashboard_metrics"] = metrics
+    response = app.make_response(render_template("_admin_dashboard.html", **context))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Server-Timing"] = f"admin;dur={(time.monotonic()-started)*1000:.1f}"
+    LOGGER.info("admin data section=%s duration_ms=%.1f", section, (time.monotonic()-started)*1000)
+    return response
 
 
 @app.route("/admin/overview/export.xlsx")
@@ -9542,7 +9623,7 @@ def admin_dashboard_export():
         start_day = _parse_dashboard_day(request.args.get("history_start", ""), default_start)
         end_day = _parse_dashboard_day(request.args.get("history_end", ""), today)
         days = _dashboard_date_range(start_day, end_day, max_days=DASHBOARD_MAX_HISTORY_DAYS)
-    history_rows = _dashboard_history_rows(days)
+    history_rows = _dashboard_history_rows(days, full=True)
     workbook = _build_xlsx(
         [
             ("历史指标", _dashboard_history_sheet_rows(history_rows)),
@@ -9557,6 +9638,58 @@ def admin_dashboard_export():
         as_attachment=True,
         download_name=filename,
     )
+
+
+@app.post("/admin/model-policies")
+def admin_model_policies():
+    _require_admin()
+    _require_management_csrf()
+    import model_policies
+    try:
+        policy = None if request.form.get("action") == "reset" else model_policies.make_policy(
+            request.form.get("flash_thinking") == "1", request.form.get("pro") == "1", request.form.get("research", "flash"))
+        code = request.form.get("code", "")
+        before, after = model_policies.save(code, policy, expected_version=int(request.form.get("version", "-1")),
+                                            actor=_management_actor_label(True))
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for("admin", module="members", _anchor="model-policies"))
+    _log_management_action(action="model_policy.save", target=code, result="success", remote_admin=True,
+                           details={"before": before, "after": after})
+    flash("模型权限已保存；后续调用立即按新权限检查。", "success")
+    return redirect(url_for("admin", module="members", _anchor="model-policies"))
+
+
+@app.post("/admin/membership-copy")
+def admin_membership_copy():
+    _require_admin()
+    _require_management_csrf()
+    import member_copy
+    from admin_store import patch_site_texts
+    texts = _request_site_texts()
+    group = next((item for item in member_copy.editor(texts) if item["id"] == request.form.get("group")), None)
+    if group is None:
+        abort(400, description="未知文案分组。")
+    action = request.form.get("action", "save")
+    if action not in {"save", "reset", "preview"}:
+        abort(400)
+    values = {key: str(request.form.get("site_text__" + key, texts[key])) for key in group["keys"]}
+    if any(len(value) > 12000 for value in values.values()):
+        abort(400, description="单项文案不能超过 12000 字。")
+    if action == "preview":
+        g._site_text_map_cache = {**texts, **values}
+        return pricing()
+    try:
+        patch_site_texts({key: None for key in values} if action == "reset" else values,
+                         defaults=get_site_text_map(), actor=_management_actor_label(True),
+                         expected={key: str(request.form.get("original__" + key, texts[key])) for key in values})
+    except ValueError as exc:
+        flash(str(exc), "warning")
+    else:
+        _log_management_action(action="membership_copy." + action, target=group["id"], result="success", remote_admin=True,
+                               details={"keys": list(values)})
+        flash("会员文案已保存。", "success")
+    return redirect(url_for("admin", module="members", _anchor="membership-copy"))
 
 
 @app.post("/control/ai")

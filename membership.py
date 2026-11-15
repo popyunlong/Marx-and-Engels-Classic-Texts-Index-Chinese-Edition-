@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ai_models import application_model
+import model_policies
 
 import json
 import hashlib
@@ -64,18 +65,7 @@ _LEGACY_BASIC_AI_MODEL_POLICY = {
         "reader": {"model": "deepseek-v4-flash", "reasoning_effort": "off"},
     },
 }
-_PLUS_AI_MODEL_POLICY = {
-    "models": {
-        "mimo-v2.5-pro": ["on"],
-        "deepseek-v4-flash": ["off"],
-        "deepseek-v4-pro": ["high"],
-    },
-    "defaults": {
-        "quick": {"model": "deepseek-v4-flash", "reasoning_effort": "off"},
-        "research": {"model": "deepseek-v4-pro", "reasoning_effort": "high"},
-        "reader": {"model": "deepseek-v4-flash", "reasoning_effort": "off"},
-    },
-}
+_PLUS_AI_MODEL_POLICY = model_policies.default_policy("support_plus_20")
 _PRO_AI_MODEL_POLICY = {
     "models": {
         "mimo-v2.5-pro": ["on"],
@@ -417,6 +407,8 @@ def _connect() -> sqlite3.Connection:
             _WAL_ENABLED = True
         except sqlite3.Error:
             pass
+    from admin_performance import observe_connection
+    observe_connection(conn)
     return conn
 
 
@@ -609,6 +601,8 @@ def init_membership_db() -> Path:
                 ON site_activity(day, feature, last_seen_at DESC);
             CREATE INDEX IF NOT EXISTS idx_site_activity_last_seen
                 ON site_activity(last_seen_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_site_activity_session_user
+                ON site_activity(session_key, user_id) WHERE user_id IS NOT NULL;
             CREATE INDEX IF NOT EXISTS idx_ai_usage_day_user
                 ON ai_usage(day, user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_reader_access_day_actor
@@ -1053,7 +1047,6 @@ def init_membership_db() -> Path:
                 ) VALUES(?, ?, ?, 'CNY', 1, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 30, ?, '')
                 ON CONFLICT(code) DO UPDATE SET
                     kind=excluded.kind, tier_rank=excluded.tier_rank,
-                    model_policy=excluded.model_policy,
                     parallel_group=excluded.parallel_group, ai_budget_micros=excluded.ai_budget_micros,
                     billing_cycle_days=excluded.billing_cycle_days,
                     sale_starts_at=excluded.sale_starts_at
@@ -1067,15 +1060,8 @@ def init_membership_db() -> Path:
                 ),
             )
 
-        # 模型路由属于权益而非营销文案；幂等刷新已生成的钱包快照。
-        policy_update_at = utc_now_text()
-        for policy_plan in NEW_AI_PLANS:
-            policy_json = json.dumps(policy_plan["model_policy"], ensure_ascii=False, sort_keys=True)
-            conn.execute(
-                "UPDATE ai_wallets SET model_policy=?, updated_at=? "
-                "WHERE plan_code=? AND model_policy!=?",
-                (policy_json, policy_update_at, policy_plan["code"], policy_json),
-            )
+        # Effective model rights are resolved at admission, never rewritten into
+        # existing wallets during candidate startup. Accounting snapshots stay intact.
 
         # 套餐的名称、售价、说明、卖点、角标、排序、上下架状态和 weekly_token_limit 均由后台维护，
         # 启动时只补齐权限/钱包等代码管理的结构字段。不要把这些运营字段加入上面的冲突更新：
@@ -1704,7 +1690,7 @@ def backfill_user_ips_from_events() -> dict:
     return {"reader": filled_reader, "ai_usage": filled_ai, "ai_ip_column": ai_has_ip}
 
 
-def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
+def list_users(search_text: str = "", limit: int = 50, offset: int = 0) -> list[dict]:
     needle = f"%{(search_text or '').strip().lower()}%"
     with _connect() as conn:
         rows = conn.execute(
@@ -1749,9 +1735,9 @@ def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
                     OR lower(u.display_name) LIKE ?
                 )
             ORDER BY u.created_at DESC, u.id DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (needle, needle, needle, max(1, int(limit))),
+            (needle, needle, needle, max(1, int(limit)), max(0, int(offset))),
         ).fetchall()
     users = [row_to_dict(row) for row in rows]
     # 后台展示与运行期口径对齐：上面的 SQL 取「最近创建的一条订阅」，但会员身份/到期实际按
@@ -1763,8 +1749,9 @@ def list_users(search_text: str = "", limit: int = 50) -> list[dict]:
         str(p.get("code")): p.get("daily_ai_token_limit")
         for p in list_plans(include_inactive=True)
     }
+    snapshots = membership_snapshots([int(user["id"]) for user in users])
     for user in users:
-        snapshot = get_membership_snapshot(int(user["id"]))
+        snapshot = snapshots[int(user["id"])]
         if snapshot.is_active_member:
             user["membership_status"] = "active"
             user["membership_plan_code"] = snapshot.plan_code
@@ -2459,6 +2446,24 @@ def get_membership_snapshot(user_id: int | None) -> MembershipSnapshot:
     return snapshot
 
 
+def membership_snapshots(user_ids):
+    if not user_ids:
+        return {}
+    with _connect() as conn:
+        rows = conn.execute("SELECT s.user_id,s.id,s.status,s.plan_code,s.expires_at,s.created_at,s.starts_at,"
+            "p.name AS plan_name,p.interval_months,p.tier_rank,p.parallel_group FROM subscriptions s "
+            "JOIN plans p ON p.code=s.plan_code WHERE s.user_id IN (" + ",".join("?" for _ in user_ids) + ") "
+            "ORDER BY s.created_at DESC,s.id DESC", tuple(user_ids)).fetchall()
+    grouped = {uid: [] for uid in user_ids}
+    for row in rows:
+        grouped[row["user_id"]].append(row)
+    result = {uid: _snapshot_from_rows(items) for uid, items in grouped.items()}
+    cache = _request_membership_cache()
+    if cache is not None:
+        cache.update(result)
+    return result
+
+
 def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
     with _connect() as conn:
         rows = conn.execute(
@@ -2473,6 +2478,10 @@ def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
             """,
             (user_id,),
         ).fetchall()
+    return _snapshot_from_rows(rows)
+
+
+def _snapshot_from_rows(rows):
     if not rows:
         return MembershipSnapshot(
             is_logged_in=True,
@@ -4734,6 +4743,7 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
     with _connect() as conn:
         _ensure_user_ai_wallets(conn, int(user_id), now)
         protected = legacy_ai.quota(conn, int(user_id), now)
+        policies = model_policies.read(conn)
         rows = conn.execute(
             """
             SELECT * FROM ai_wallets
@@ -4755,7 +4765,7 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
         item["budget_yuan"] = round(int(item["budget_micros"]) / MICROYUAN_PER_YUAN, 6)
         item["remaining_yuan"] = round(available / MICROYUAN_PER_YUAN, 6)
         wallets.append(item)
-        policy = _effective_model_policy(str(item.get("model_policy") or "{}"))
+        policy = _effective_model_policy(model_policies.for_wallet(item, policies))
         for model, efforts in (policy.get("models") or {}).items():
             models.setdefault(str(model), set()).update(str(e) for e in (efforts or []))
         plan_code = str(item.get("plan_code") or "")
@@ -5028,6 +5038,23 @@ def reserve_ai_budget(
     estimate_completion = max(0, int(max_completion_tokens))
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        _ensure_user_ai_wallets(conn, int(user_id), now)
+        protected = legacy_ai.quota(conn, user_id, now)
+        policies = model_policies.read(conn)
+        active_rows = conn.execute(
+            """
+            SELECT *, released_micros-spent_micros-reserved_micros AS available_micros
+            FROM ai_wallets
+            WHERE user_id=? AND status='active' AND starts_at <= ? AND expires_at > ?
+            ORDER BY priority ASC, expires_at ASC, id ASC
+            """,
+            (int(user_id), now, now),
+        ).fetchall()
+        active_rows = legacy_ai.paid_wallets(active_rows, protected)
+        if not ((protected["eligible"] and legacy_ai.supports(m, effort)) or any(
+            _policy_allows(model_policies.for_wallet(row, policies), m, effort, feature) for row in active_rows
+        )):
+            raise ValueError("当前权益不支持所选 AI 模型或思考档位。")
         req_id = str(request_id or secrets.token_urlsafe(18))
         previous = conn.execute("SELECT * FROM ai_budget_reservations WHERE request_id=?", (req_id,)).fetchone()
         if previous:
@@ -5037,9 +5064,19 @@ def reserve_ai_budget(
                 raise ValueError("AI 请求编号与原请求不匹配。")
             if previous["status"] != "reserved":
                 raise ValueError("AI 请求已处理，请勿重复提交。")
+            # Another wallet may still allow this model after the original
+            # funding tier was revoked. It cannot authorize spending that tier.
+            allowed_wallet_ids = {
+                int(row["id"]) for row in active_rows
+                if _policy_allows(model_policies.for_wallet(row, policies), m, effort, feature)
+            }
+            allocations = conn.execute(
+                "SELECT wallet_id FROM ai_reservation_allocations WHERE reservation_id=?",
+                (int(previous["id"]),),
+            ).fetchall()
+            if any(int(row["wallet_id"]) not in allowed_wallet_ids for row in allocations):
+                raise ValueError("原请求使用的权益已变更，请重新发起请求。")
             return dict(previous)
-        _ensure_user_ai_wallets(conn, int(user_id), now)
-        protected = legacy_ai.quota(conn, user_id, now)
         if protected["eligible"] and (tool or legacy_ai.supports(m, effort)):
             cost = 0
             gift = False
@@ -5060,21 +5097,11 @@ def reserve_ai_budget(
                     effort=effort, feature=feature, request_id=req_id, now=now, tokens=tokens, tool=tool, cost=cost)
                 conn.commit()
                 return result
-        active_rows = conn.execute(
-            """
-            SELECT *, released_micros-spent_micros-reserved_micros AS available_micros
-            FROM ai_wallets
-            WHERE user_id=? AND status='active' AND starts_at <= ? AND expires_at > ?
-            ORDER BY priority ASC, expires_at ASC, id ASC
-            """,
-            (int(user_id), now, now),
-        ).fetchall()
-        active_rows = legacy_ai.paid_wallets(active_rows, protected)
         rows = [row for row in active_rows if int(row["available_micros"] or 0) > 0]
-        eligible = [r for r in rows if _policy_allows(str(r["model_policy"]), m, effort, feature)]
+        eligible = [r for r in rows if _policy_allows(model_policies.for_wallet(r, policies), m, effort, feature)]
         compatible_active = [
             row for row in active_rows
-            if _policy_allows(str(row["model_policy"]), m, effort, feature)
+            if _policy_allows(model_policies.for_wallet(row, policies), m, effort, feature)
         ]
         estimated_cost, _ = calculate_ai_cost_micros(
             provider=p, model=m, prompt_tokens=estimate_prompt, completion_tokens=estimate_completion,
@@ -5179,6 +5206,7 @@ def affordable_completion_tokens(*, user_id: int, selection: dict, messages: lis
     prompt = _ceil_div(((len(json.dumps(messages, ensure_ascii=False))+1)//2)*5, 4)
     with _connect() as conn:
         _ensure_user_ai_wallets(conn, user_id, now)
+        policies = model_policies.read(conn)
         protected = legacy_ai.quota(conn, user_id, now)
         legacy_max = 0
         if protected["eligible"] and legacy_ai.supports(selection["model"], selection["reasoning_effort"]):
@@ -5188,7 +5216,7 @@ def affordable_completion_tokens(*, user_id: int, selection: dict, messages: lis
         rows = [r for r in conn.execute(
             "SELECT *,released_micros-spent_micros-reserved_micros AS available_micros FROM ai_wallets "
             "WHERE user_id=? AND status='active' AND starts_at<=? AND expires_at>?", (user_id, now, now)
-        ).fetchall() if _policy_allows(r["model_policy"], selection["model"], selection["reasoning_effort"], "comprehensive-chat")]
+        ).fetchall() if _policy_allows(model_policies.for_wallet(r, policies), selection["model"], selection["reasoning_effort"], "comprehensive-chat")]
         rows = legacy_ai.paid_wallets(rows, protected)
         lo, hi = 0, max(0, requested)
         while lo < hi:
@@ -5904,6 +5932,7 @@ def get_admin_dashboard_metrics(
     now_text: str,
     high_token_threshold: int = 50000,
     token_limit_ratio: float = 0.8,
+    include_readers: bool = True,
 ) -> dict:
     with _connect() as conn:
         def scalar(sql: str, params: tuple = ()) -> int:
@@ -5921,23 +5950,11 @@ def get_admin_dashboard_metrics(
             # 有 cookie 的真实回访浏览器仍按会话计；无 cookie 的脚本按真实 IP 计，
             # 避免“每请求一个新 cookie/新会话”把总览在线数刷高。
             "current_online": scalar(
-                """
-                SELECT COUNT(DISTINCT CASE
-                    WHEN COALESCE(sa.user_id, m.user_id) IS NOT NULL
-                        THEN 'u:' || COALESCE(sa.user_id, m.user_id)
-                    ELSE 's:' || sa.session_key
-                END)
-                FROM site_activity sa
-                LEFT JOIN (
-                    SELECT session_key, MAX(user_id) AS user_id
-                    FROM site_activity
-                    WHERE user_id IS NOT NULL
-                    GROUP BY session_key
-                ) m ON m.session_key = sa.session_key
-                WHERE sa.last_seen_at >= ?
-                """,
-                (online_since,),
-            ),
+                "SELECT COUNT(DISTINCT CASE WHEN COALESCE(sa.user_id,(SELECT MAX(m.user_id) FROM site_activity m "
+                "WHERE m.session_key=sa.session_key AND m.user_id IS NOT NULL)) IS NOT NULL "
+                "THEN 'u:'||COALESCE(sa.user_id,(SELECT MAX(m.user_id) FROM site_activity m "
+                "WHERE m.session_key=sa.session_key AND m.user_id IS NOT NULL)) ELSE 's:'||sa.session_key END) "
+                "FROM site_activity sa WHERE sa.last_seen_at>=?", (online_since,)),
             "today_online": scalar(
                 """
                 SELECT COUNT(DISTINCT CASE
@@ -6156,7 +6173,7 @@ def get_admin_dashboard_metrics(
     metrics["high_token_threshold"] = int(high_token_threshold)
     metrics["token_limit_ratio"] = float(token_limit_ratio)
     metrics["member_as_of"] = member_as_of
-    reader_anomalies = list_reader_anomaly_visitors(day=day, limit=20)
+    reader_anomalies = list_reader_anomaly_visitors(day=day, limit=20) if include_readers else []
     metrics["reader_anomaly_visitors"] = reader_anomalies
     metrics["reader_anomaly_count"] = len(reader_anomalies)
     return metrics

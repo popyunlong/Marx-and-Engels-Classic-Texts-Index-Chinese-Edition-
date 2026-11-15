@@ -74,6 +74,8 @@ def _connect() -> sqlite3.Connection:
             _WAL_ENABLED = True
         except sqlite3.Error:
             pass
+    from admin_performance import observe_connection
+    observe_connection(conn)
     return conn
 
 
@@ -202,6 +204,31 @@ def delete_setting(key: str) -> None:
         conn.execute("DELETE FROM unified_settings WHERE key = ?", (key,))
         conn.commit()
     _settings_cache_invalidate(key)
+
+
+def patch_site_texts(values: dict, *, defaults: dict, actor: str, expected: dict | None = None) -> None:
+    """Merge a scoped editor atomically, preserving all unrelated copy."""
+    # Browsers submit textarea/hidden-input line breaks as CRLF. Stored defaults
+    # use LF; those equivalent values must not look like a concurrent edit.
+    def normalized(value):
+        return str(value).replace("\r\n", "\n").replace("\r", "\n")
+
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value_json FROM unified_settings WHERE key='site_texts'").fetchone()
+        saved = _json_loads(row[0], {}) if row else {}
+        if expected is not None and any(normalized(saved.get(k, defaults.get(k, ""))) != normalized(v) for k, v in expected.items()):
+            raise ValueError("这些文案已被另一窗口修改，请刷新后再保存。")
+        for key, value in values.items():
+            if value is None or normalized(value) == normalized(defaults.get(key, "")):
+                saved.pop(key, None)
+            else:
+                saved[key] = normalized(value)
+        conn.execute("INSERT INTO unified_settings(key,value_json,updated_at,updated_by) VALUES('site_texts',?,?,?) "
+                     "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+                     (json.dumps(saved, ensure_ascii=False), utc_now_text(), actor))
+        conn.commit()
+    _settings_cache_invalidate("site_texts")
 
 
 def update_reader_ban_records(changes: dict, *, updated_by: str, expected: dict | None = None) -> None:
