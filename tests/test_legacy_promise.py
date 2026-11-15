@@ -179,7 +179,7 @@ def test_web_last_gift_concurrent_failure_release():
     assert M.get_deepseek_web_quota(u["id"])["gift_remaining"]==1
 
 
-def test_mixed_new_plan_fallback_and_pro_authorization():
+def test_mixed_legacy_and_plus_fallback_keeps_pro_disabled():
     u,_,_=member("monthly")
     with pytest.raises(ValueError):
         M.authorize_ai_selection(user_id=u["id"],feature="research",provider="deepseek",model="deepseek-v4-pro",reasoning_effort="high")
@@ -189,9 +189,11 @@ def test_mixed_new_plan_fallback_and_pro_authorization():
     assert M.get_legacy_ai_quota(u["id"])["remaining"]==0
     r=reserve(u)
     assert "funding_source" not in r
-    selection=M.authorize_ai_selection(user_id=u["id"],feature="research",provider="deepseek",model="deepseek-v4-pro",reasoning_effort="high")
-    assert selection["model"]=="deepseek-v4-pro"
-    assert M.get_ai_entitlements(u["id"])["defaults"]["research"]["model"]=="deepseek-v4-flash"
+    with pytest.raises(ValueError):
+        M.authorize_ai_selection(user_id=u["id"],feature="research",provider="deepseek",model="deepseek-v4-pro",reasoning_effort="high")
+    assert M.get_ai_entitlements(u["id"])["defaults"]["research"] == {
+        "provider": "deepseek", "model": "deepseek-v4-flash", "reasoning_effort": "off",
+    }
     assert M.get_deepseek_web_quota(u["id"])["limit"]==40
 
 

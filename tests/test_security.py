@@ -1606,7 +1606,13 @@ class SecurityRegressionTests(unittest.TestCase):
         self._login("reader-audit-admin@example.test")
         overview = self.client.get(f"/admin?date={day}")
         self.assertEqual(overview.status_code, 200)
-        html = overview.get_data(as_text=True)
+        overview_html = overview.get_data(as_text=True)
+        self.assertIn('data-section="readers"', overview_html)
+        self.assertNotIn("203.0.113.8", overview_html)
+
+        readers = self.client.get(f"/admin/overview/data?section=readers&date={day}")
+        self.assertEqual(readers.status_code, 200)
+        html = readers.get_data(as_text=True)
         self.assertIn("203.0.113.8", html)
         self.assertIn("reader-access-detail-btn", html)
 
@@ -2282,9 +2288,13 @@ class SecurityRegressionTests(unittest.TestCase):
 
         overview = self.client.get("/admin")
         self.assertEqual(overview.status_code, 200)
-        overview_html = overview.get_data(as_text=True)
-        self.assertIn("运营仪表盘", overview_html)
-        self.assertIn("AI token", overview_html)
+        self.assertIn('data-section="summary"', overview.get_data(as_text=True))
+
+        summary = self.client.get("/admin/overview/data?section=summary")
+        self.assertEqual(summary.status_code, 200)
+        summary_html = summary.get_data(as_text=True)
+        self.assertIn("运营仪表盘", summary_html)
+        self.assertIn("AI token", summary_html)
 
 
 if __name__ == "__main__":
