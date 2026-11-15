@@ -213,6 +213,20 @@ def test_history_batch_matches_existing_metrics_without_per_day_live_scans(monke
         M.record_ai_usage(user_id=u['id'],day=day,total_tokens=65432,provider='deepseek',model=P.FLASH)
         M.record_site_activity(session_key='batch-'+day,user_id=u['id'],day=day,feature='search')
         M.record_site_activity(session_key='batch-'+day,user_id=None,day=day,feature='reader')
+
+    # Compare the two queries at the same instant. A subscription that starts
+    # in the current second can otherwise become active between the calls.
+    as_of = M.utc_now().replace(microsecond=0) + timedelta(seconds=1)
+
+    class DashboardClock(A.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return as_of.astimezone().replace(tzinfo=None)
+            return as_of.astimezone(tz)
+
+    monkeypatch.setattr(A, 'datetime', DashboardClock)
+    monkeypatch.setattr(M, 'utc_now_text', lambda: as_of.isoformat(timespec='seconds'))
     with A.app.test_request_context('/'):
         A.g.current_user=None
         reference=[A._dashboard_metrics_for_day(day,for_history=True) for day in days]
