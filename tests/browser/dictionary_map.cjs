@@ -19,7 +19,7 @@ before(async()=>{
   await ctx.close();
 });
 after(async()=>{if(browser)await browser.close();if(server)server.kill();});
-const ready=p=>p.waitForFunction(()=>!document.getElementById('dmWorkspace').hidden);
+const ready = page => page.locator('#dmWorkspace').waitFor({ state: 'visible' });
 const centerURL=()=>base+'/dictionary/map?center='+encodeURIComponent(center);
 
 test('unavailable map hides both navigation entries and keeps dictionary reading',async t=>{
