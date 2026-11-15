@@ -2299,7 +2299,7 @@
     "/limits": {
       "get": {
         "operationId": "get_api_limits",
-        "description": "读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。REST/MCP 共用优先队列，默认最多 8 个等待请求、最长 5 秒；Max 最高优先。等待计入查询预算，未取得名额不计次数。此额度查询使用独立控制通道；scheduling 返回当前优先级和限制。",
+        "description": "读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。REST/MCP 共用优先队列，默认最多 8 个等待请求、最长 5 秒；Max 最高优先、Pro 优先、Plus 及合格早期会员普通排队，三档调用额度相同。等待计入查询预算，未取得名额不计次数。此额度查询使用独立控制通道；scheduling 返回当前优先级和限制。",
         "security": [
           {
             "BearerKey": []
@@ -2427,6 +2427,7 @@
                           "type": "string",
                           "enum": [
                             "normal",
+                            "high",
                             "highest"
                           ]
                         }

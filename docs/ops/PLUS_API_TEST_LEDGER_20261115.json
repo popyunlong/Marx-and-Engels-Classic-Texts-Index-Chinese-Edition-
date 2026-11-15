@@ -1,0 +1,231 @@
+{
+  "task": "plus-api-20261115",
+  "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+  "branch": "codex/plus-api-20261115",
+  "artifact_root": "D:/CodexData/outputs/plus-api-20261115",
+  "policy": "Each scenario once; preserve failures and interruptions; explicit scope-specific authorization required for reruns.",
+  "prior_evidence": [
+    "docs/ops/AGENT_API_TEST_LEDGER_20261107.json",
+    "docs/ops/MEMBERSHIP_REFRESH_TEST_LEDGER_20261113.json",
+    "docs/ops/REST_API_RECOVERY_LEDGER_20261112.json"
+  ],
+  "backend_first": {
+    "passed": 31,
+    "failed": 2
+  },
+  "browser_first": {
+    "passed": 2,
+    "runner_post_result_console_error": "UnicodeEncodeError in GBK output after successful child exit and saved record; not rerun"
+  },
+  "protocol_first": "passed",
+  "static_first": "passed",
+  "post_static_changes": [
+    "tests/test_plus_api.py: quarterly fixture and public_plan assertion",
+    "scripts/check_plus_api_once.py: console backslashreplace output"
+  ],
+  "runs": [
+    {
+      "stage": "static",
+      "status": "passed",
+      "started": "2026-11-15T08:28:29.015671+08:00",
+      "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+      "command": [
+        "C:/Users/10108/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe",
+        "-B",
+        "scripts/check_membership_refresh_syntax.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\plus-api-20261115\\static.log",
+      "hashes": {
+        "agent_api_contract.py": "cededcdc1182c57ae923d5bfc66ca595919776c5fb901b7f45f7add89d5494ef",
+        "agent_api_store.py": "a23b59a66141c33983e0d3575a963abd30708467f8ae1ccb9a3183bb3ad97efb",
+        "agent_api_web.py": "c851cc6d5a28ea3b338ce0ab28b02f512f8c03e97d021a2f66e4fec830f97b03",
+        "docs/agent-api/README.md": "e702a4d3b898ab4416a5763a621bcd2e8a2310876dbeaf1af9f7f74e5bb342ec",
+        "member_catalog.py": "3aa6c79b8125cc92dee7c31214ce366974cfb449a2442fd5cb92b17864675a83",
+        "membership.py": "c9dc54511378bbf0c4e4c9a1c6ed73cea82b831feed3b7b0bab4f7d68d48c2a3",
+        "scripts/check_plus_api_once.py": "a0c99542ff9b2928fbefb9ca04f93edd2080a9ff33a433a50cb481db40da3fd7",
+        "static/agent-api/openapi.json": "a1eaf35a06bec64f31c4d35b0555d05a9ba3de8b09fdd3ed7aa46590ab78a0bd",
+        "templates/account.html": "f02e86a88e532996461099b2daee710e5da86e07a556988af07c24e734b9d246",
+        "templates/agent_api.html": "92db2eaa2dfb839b6a624d0a8b9dcfeddb08e2ca05295186266f38c4022b94cd",
+        "tests/browser/plus_api.cjs": "7d173572fc3d0646716afc2860fda928cc71fd197cfd8a8c7879ceb26d5a483d",
+        "tests/plus_api_fixture_server.py": "94a3438e96de61236f2dcfd0df37a2b1c9d6a7027a2b234e30474a4e70e9a9a6",
+        "tests/plus_api_protocol_once.py": "41deea16acca4bdd7fdb74e5601bd4b0313bb4b06e03784ae12567d637d33adc",
+        "tests/test_membership_refresh.py": "5ba77f0d07c8d455decc3fcd4f0f07252a040270a6fe15b74bd5940b8e12115e",
+        "tests/test_plus_api.py": "79f548eaf6de21ea8c4583b13eb0defaa3f74b9c46d9fd8a784f9bdc62240ad6"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T08:28:30.104397+08:00"
+    },
+    {
+      "stage": "backend",
+      "status": "failed",
+      "started": "2026-11-15T08:28:29.020163+08:00",
+      "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+      "command": [
+        "C:/Users/10108/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "-q",
+        "tests/test_plus_api.py",
+        "tests/test_membership_refresh.py::test_authoritative_feature_matrix",
+        "tests/test_membership_refresh.py::test_plus_and_pro_api_key_access",
+        "tests/test_membership_refresh.py::test_pre_cutover_pending_order_settles_original_snapshot",
+        "--basetemp=D:\\CodexData\\temp\\plus-api-20261115\\pytest",
+        "--junitxml=D:\\CodexData\\outputs\\plus-api-20261115\\backend.xml"
+      ],
+      "log": "D:\\CodexData\\outputs\\plus-api-20261115\\backend.log",
+      "hashes": {
+        "agent_api_contract.py": "cededcdc1182c57ae923d5bfc66ca595919776c5fb901b7f45f7add89d5494ef",
+        "agent_api_store.py": "a23b59a66141c33983e0d3575a963abd30708467f8ae1ccb9a3183bb3ad97efb",
+        "agent_api_web.py": "c851cc6d5a28ea3b338ce0ab28b02f512f8c03e97d021a2f66e4fec830f97b03",
+        "docs/agent-api/README.md": "e702a4d3b898ab4416a5763a621bcd2e8a2310876dbeaf1af9f7f74e5bb342ec",
+        "member_catalog.py": "3aa6c79b8125cc92dee7c31214ce366974cfb449a2442fd5cb92b17864675a83",
+        "membership.py": "c9dc54511378bbf0c4e4c9a1c6ed73cea82b831feed3b7b0bab4f7d68d48c2a3",
+        "scripts/check_plus_api_once.py": "a0c99542ff9b2928fbefb9ca04f93edd2080a9ff33a433a50cb481db40da3fd7",
+        "static/agent-api/openapi.json": "a1eaf35a06bec64f31c4d35b0555d05a9ba3de8b09fdd3ed7aa46590ab78a0bd",
+        "templates/account.html": "f02e86a88e532996461099b2daee710e5da86e07a556988af07c24e734b9d246",
+        "templates/agent_api.html": "92db2eaa2dfb839b6a624d0a8b9dcfeddb08e2ca05295186266f38c4022b94cd",
+        "tests/browser/plus_api.cjs": "7d173572fc3d0646716afc2860fda928cc71fd197cfd8a8c7879ceb26d5a483d",
+        "tests/plus_api_fixture_server.py": "94a3438e96de61236f2dcfd0df37a2b1c9d6a7027a2b234e30474a4e70e9a9a6",
+        "tests/plus_api_protocol_once.py": "41deea16acca4bdd7fdb74e5601bd4b0313bb4b06e03784ae12567d637d33adc",
+        "tests/test_membership_refresh.py": "5ba77f0d07c8d455decc3fcd4f0f07252a040270a6fe15b74bd5940b8e12115e",
+        "tests/test_plus_api.py": "79f548eaf6de21ea8c4583b13eb0defaa3f74b9c46d9fd8a784f9bdc62240ad6"
+      },
+      "exit_code": 1,
+      "finished": "2026-11-15T08:28:42.034128+08:00"
+    },
+    {
+      "stage": "protocol",
+      "status": "passed",
+      "started": "2026-11-15T08:29:42.79832+08:00",
+      "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+      "command": [
+        "D:/CodexData/dependencies/agent-api-mcp-20261107/Scripts/python.exe",
+        "-B",
+        "tests/plus_api_protocol_once.py"
+      ],
+      "log": "D:\\CodexData\\outputs\\plus-api-20261115\\protocol.log",
+      "hashes": {
+        "agent_api_contract.py": "cededcdc1182c57ae923d5bfc66ca595919776c5fb901b7f45f7add89d5494ef",
+        "agent_api_store.py": "a23b59a66141c33983e0d3575a963abd30708467f8ae1ccb9a3183bb3ad97efb",
+        "agent_api_web.py": "c851cc6d5a28ea3b338ce0ab28b02f512f8c03e97d021a2f66e4fec830f97b03",
+        "docs/agent-api/README.md": "e702a4d3b898ab4416a5763a621bcd2e8a2310876dbeaf1af9f7f74e5bb342ec",
+        "member_catalog.py": "3aa6c79b8125cc92dee7c31214ce366974cfb449a2442fd5cb92b17864675a83",
+        "membership.py": "c9dc54511378bbf0c4e4c9a1c6ed73cea82b831feed3b7b0bab4f7d68d48c2a3",
+        "scripts/check_plus_api_once.py": "a0c99542ff9b2928fbefb9ca04f93edd2080a9ff33a433a50cb481db40da3fd7",
+        "static/agent-api/openapi.json": "a1eaf35a06bec64f31c4d35b0555d05a9ba3de8b09fdd3ed7aa46590ab78a0bd",
+        "templates/account.html": "f02e86a88e532996461099b2daee710e5da86e07a556988af07c24e734b9d246",
+        "templates/agent_api.html": "92db2eaa2dfb839b6a624d0a8b9dcfeddb08e2ca05295186266f38c4022b94cd",
+        "tests/browser/plus_api.cjs": "7d173572fc3d0646716afc2860fda928cc71fd197cfd8a8c7879ceb26d5a483d",
+        "tests/plus_api_fixture_server.py": "94a3438e96de61236f2dcfd0df37a2b1c9d6a7027a2b234e30474a4e70e9a9a6",
+        "tests/plus_api_protocol_once.py": "41deea16acca4bdd7fdb74e5601bd4b0313bb4b06e03784ae12567d637d33adc",
+        "tests/test_membership_refresh.py": "5ba77f0d07c8d455decc3fcd4f0f07252a040270a6fe15b74bd5940b8e12115e",
+        "tests/test_plus_api.py": "e73878e22de9d9597c9b4e946e93ae5f86b154599ff729ad2a968acd7775f20c"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T08:30:01.341021+08:00"
+    },
+    {
+      "stage": "browser",
+      "status": "passed",
+      "started": "2026-11-15T08:29:42.805321+08:00",
+      "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+      "command": [
+        "node",
+        "--test",
+        "tests/browser/plus_api.cjs"
+      ],
+      "log": "D:\\CodexData\\outputs\\plus-api-20261115\\browser.log",
+      "hashes": {
+        "agent_api_contract.py": "cededcdc1182c57ae923d5bfc66ca595919776c5fb901b7f45f7add89d5494ef",
+        "agent_api_store.py": "a23b59a66141c33983e0d3575a963abd30708467f8ae1ccb9a3183bb3ad97efb",
+        "agent_api_web.py": "c851cc6d5a28ea3b338ce0ab28b02f512f8c03e97d021a2f66e4fec830f97b03",
+        "docs/agent-api/README.md": "e702a4d3b898ab4416a5763a621bcd2e8a2310876dbeaf1af9f7f74e5bb342ec",
+        "member_catalog.py": "3aa6c79b8125cc92dee7c31214ce366974cfb449a2442fd5cb92b17864675a83",
+        "membership.py": "c9dc54511378bbf0c4e4c9a1c6ed73cea82b831feed3b7b0bab4f7d68d48c2a3",
+        "scripts/check_plus_api_once.py": "a0c99542ff9b2928fbefb9ca04f93edd2080a9ff33a433a50cb481db40da3fd7",
+        "static/agent-api/openapi.json": "a1eaf35a06bec64f31c4d35b0555d05a9ba3de8b09fdd3ed7aa46590ab78a0bd",
+        "templates/account.html": "f02e86a88e532996461099b2daee710e5da86e07a556988af07c24e734b9d246",
+        "templates/agent_api.html": "92db2eaa2dfb839b6a624d0a8b9dcfeddb08e2ca05295186266f38c4022b94cd",
+        "tests/browser/plus_api.cjs": "7d173572fc3d0646716afc2860fda928cc71fd197cfd8a8c7879ceb26d5a483d",
+        "tests/plus_api_fixture_server.py": "94a3438e96de61236f2dcfd0df37a2b1c9d6a7027a2b234e30474a4e70e9a9a6",
+        "tests/plus_api_protocol_once.py": "41deea16acca4bdd7fdb74e5601bd4b0313bb4b06e03784ae12567d637d33adc",
+        "tests/test_membership_refresh.py": "5ba77f0d07c8d455decc3fcd4f0f07252a040270a6fe15b74bd5940b8e12115e",
+        "tests/test_plus_api.py": "e73878e22de9d9597c9b4e946e93ae5f86b154599ff729ad2a968acd7775f20c"
+      },
+      "exit_code": 0,
+      "finished": "2026-11-15T08:30:04.257658+08:00"
+    },
+    {
+      "stage": "authorized-retest",
+      "status": "passed",
+      "started": "2026-11-15T08:37:30.155783+08:00",
+      "authorization": "同意上述最小复测",
+      "scope": "Two original failed pytest nodes once each and one AST syntax parse of tests/test_plus_api.py",
+      "baseline": "d231ec2879e790c951c24b934e3b1b23ce5570ab",
+      "hashes": {
+        "agent_api_contract.py": "cededcdc1182c57ae923d5bfc66ca595919776c5fb901b7f45f7add89d5494ef",
+        "agent_api_store.py": "a23b59a66141c33983e0d3575a963abd30708467f8ae1ccb9a3183bb3ad97efb",
+        "agent_api_web.py": "c851cc6d5a28ea3b338ce0ab28b02f512f8c03e97d021a2f66e4fec830f97b03",
+        "docs/agent-api/README.md": "e702a4d3b898ab4416a5763a621bcd2e8a2310876dbeaf1af9f7f74e5bb342ec",
+        "member_catalog.py": "3aa6c79b8125cc92dee7c31214ce366974cfb449a2442fd5cb92b17864675a83",
+        "membership.py": "c9dc54511378bbf0c4e4c9a1c6ed73cea82b831feed3b7b0bab4f7d68d48c2a3",
+        "scripts/check_plus_api_once.py": "1a19e73a255af6f495651ee2edca8e3c6c0d8ddc3b8eafabb83bc5c076610f4d",
+        "static/agent-api/openapi.json": "a1eaf35a06bec64f31c4d35b0555d05a9ba3de8b09fdd3ed7aa46590ab78a0bd",
+        "templates/account.html": "f02e86a88e532996461099b2daee710e5da86e07a556988af07c24e734b9d246",
+        "templates/agent_api.html": "92db2eaa2dfb839b6a624d0a8b9dcfeddb08e2ca05295186266f38c4022b94cd",
+        "tests/browser/plus_api.cjs": "7d173572fc3d0646716afc2860fda928cc71fd197cfd8a8c7879ceb26d5a483d",
+        "tests/plus_api_fixture_server.py": "94a3438e96de61236f2dcfd0df37a2b1c9d6a7027a2b234e30474a4e70e9a9a6",
+        "tests/plus_api_protocol_once.py": "41deea16acca4bdd7fdb74e5601bd4b0313bb4b06e03784ae12567d637d33adc",
+        "tests/test_membership_refresh.py": "5ba77f0d07c8d455decc3fcd4f0f07252a040270a6fe15b74bd5940b8e12115e",
+        "tests/test_plus_api.py": "e73878e22de9d9597c9b4e946e93ae5f86b154599ff729ad2a968acd7775f20c"
+      },
+      "checks": {
+        "syntax": {
+          "status": "passed",
+          "started": "2026-11-15T08:37:30.249455+08:00",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-c",
+            "import ast; from pathlib import Path; p=Path('tests/test_plus_api.py'); ast.parse(p.read_bytes(), filename=str(p)); print('Syntax passed:', p)"
+          ],
+          "log": "D:\\CodexData\\outputs\\plus-api-20261115\\authorized-retest-syntax.log",
+          "exit_code": 0,
+          "finished": "2026-11-15T08:37:30.359514+08:00"
+        },
+        "backend": {
+          "status": "passed",
+          "started": "2026-11-15T08:37:30.360561+08:00",
+          "command": [
+            "C:\\Users\\10108\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+            "-B",
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            "tests/test_plus_api.py::test_self_service_and_real_limits_match_current_tier[quarterly-normal]",
+            "tests/test_plus_api.py::test_contract_artifact_and_membership_copy_are_consistent",
+            "--basetemp=D:\\CodexData\\temp\\plus-api-20261115\\authorized-retest",
+            "--junitxml=D:\\CodexData\\outputs\\plus-api-20261115\\authorized-retest.xml"
+          ],
+          "log": "D:\\CodexData\\outputs\\plus-api-20261115\\authorized-retest-backend.log",
+          "exit_code": 0,
+          "finished": "2026-11-15T08:37:37.707505+08:00"
+        }
+      },
+      "finished": "2026-11-15T08:37:37.708503+08:00"
+    }
+  ],
+  "authorized_retest": {
+    "authorization": "同意上述最小复测",
+    "backend_passed": 2,
+    "syntax_passed": 1,
+    "original_passed_repeated": 0,
+    "push_ci_release_runs": 0,
+    "junit": "D:/CodexData/outputs/plus-api-20261115/authorized-retest.xml"
+  }
+}

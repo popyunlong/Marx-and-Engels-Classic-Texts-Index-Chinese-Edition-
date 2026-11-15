@@ -323,7 +323,7 @@
         </article>
 
         <article class="card">
-          <h2>我的权益</h2><p>AI 研究对话：{{ membership_refresh.priority }}排队（三种模式均适用）。{% if membership_refresh.tier == "max" %}API/MCP 最高优先。{% endif %}</p>
+          <h2>我的权益</h2><p>AI 研究对话：{{ membership_refresh.priority }}排队（三种模式均适用）。{% if state.feature_access.get('agent_api') and state.feature_access.get('search') and state.feature_access.get('viewer') and membership.is_active_member %}API/MCP：{{ membership_refresh.priority }}排队。{% endif %}</p>
           <p class="muted">
             {% if is_admin %}
             管理员账号：以下功能均已开放。
@@ -346,7 +346,7 @@
                   <span class="benefit-name">{{ item.label }}</span>
                   <span class="benefit-hint">{{ item.hint }}</span>
                 </span>
-                <span class="benefit-state">{{ '已开放' if enabled else ('暂不可用' if membership.is_active_member and item.key != 'agent_api' else '需要升级') }}</span>
+                <span class="benefit-state">{{ '已开放' if enabled else ('暂不可用' if membership.is_active_member else '需要升级') }}</span>
               </li>
               {% endfor %}
             </ul>

@@ -54,7 +54,7 @@ def test_original_wallet_and_dates_survive_new_catalog(code,budget,weekly):
     assert M.get_user_weekly_token_entitlement(u['id'])['weekly_limit']==weekly
 
 
-@pytest.mark.parametrize('code,api',[('support_basic',False),('support_plus',False),(PLUS_CODE,False),('support_pro',True),('support_max',True),('monthly',True),(None,False)])
+@pytest.mark.parametrize('code,api',[('support_basic',True),('support_plus',True),(PLUS_CODE,True),('support_pro',True),('support_max',True),('monthly',True),(None,False)])
 def test_authoritative_feature_matrix(code,api):
     u=user(code)
     policy=F.load_access_policy(include_saved=False)
@@ -89,11 +89,11 @@ def test_multimonth_discount_preserves_monthly_18(monkeypatch):
     assert len(rows)==3 and all(r[0]==18_000_000 for r in rows)
 
 
-def test_plus_api_key_immediate_denial_and_pro_self_service():
+def test_plus_and_pro_api_key_access():
     store=A.app.extensions['agent_api']['store']
     low=user('support_plus'); high=user('support_pro')
     with A.app.test_client() as c:
-        for u,status in [(low,403),(high,200)]:
+        for u,status in [(low,200),(high,200)]:
             key=store.create_key(u['id'],'fixture')
             response=c.get('/api/v1/limits',headers={'Authorization':'Bearer '+key})
             assert response.status_code==status,response.get_data(as_text=True)
@@ -257,7 +257,7 @@ def test_pre_cutover_pending_order_settles_original_snapshot(code,price,budget):
     settled=M.mark_order_paid(order_no=order_no,provider='fixture')
     assert settled['order']['amount_cents']==price
     assert M.get_ai_entitlements(u['id'])['wallets'][0]['budget_micros']==budget
-    assert not F.feature_effective_for_user('agent_api',u)
+    assert F.feature_effective_for_user('agent_api',u)
 
 
 def test_monday_beijing_reset_preserves_whole_cycle_wallet(monkeypatch):
