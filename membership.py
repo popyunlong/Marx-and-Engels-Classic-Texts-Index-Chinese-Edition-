@@ -290,8 +290,8 @@ NEW_AI_PLANS += ({
     "ai_budget_micros": 18_000_000, "tier_rank": 120, "weekly_token_limit": 1_000_000,
     "sort_order": 120, "kind": "membership", "parallel_group": "new_membership",
     "model_policy": _PLUS_AI_MODEL_POLICY, "badge": "Plus",
-    "description": "20 元 / 30 天；全部网页会员权益；不含 API/MCP 数据调用。",
-    "features": "每周 100 万 Flash 等值额度，周一恢复\n联想检索、概念地图、笔记与 Word 导出\n完整研究动态与自主选刊邮件\n不含 API/MCP",
+    "description": "20 元 / 30 天；全部网页会员权益；含 API/MCP 数据调用，普通排队。",
+    "features": "每周 100 万 Flash 等值额度，周一恢复\n联想检索、概念地图、笔记与 Word 导出\n完整研究动态与自主选刊邮件\nAPI/MCP 数据调用，普通排队",
 },)
 
 # 请求级缓存（挂在 flask.g）：会员快照在同一请求内不会变化，却被鉴权/视图状态/各功能权限判定反复

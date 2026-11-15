@@ -34,7 +34,7 @@ def scheduling(priority=0):
             "near_text_concurrency": 1, "user_data_concurrency": setting("USER_CONCURRENCY", 1),
             "user_control_concurrency": 1, "control_concurrency": setting("CONTROL_CONCURRENCY", 2), "queue": True,
             "queue_capacity": setting("QUEUE_CAPACITY", 8), "queue_wait_seconds": setting("QUEUE_WAIT_SECONDS", 5),
-            "priority": "highest" if priority == 2 else "normal"}
+            "priority": {2: "highest", 1: "high"}.get(priority, "normal")}
 
 
 class Store:

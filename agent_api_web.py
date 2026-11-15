@@ -80,7 +80,7 @@ def register_routes(app, web):
         if not eligible(user):
             raise APIError("membership_required", "此接口需要有效会员及检索、正文和 API 权限。", 403)
         g.agent_api_key = key
-        g.agent_api_priority = 2 if member_priority(web["_membership_plan_code_for_user"](user)) == 2 else 0
+        g.agent_api_priority = member_priority(web["_membership_plan_code_for_user"](user))
         stage("auth", started)
         # No cookie fallback and no change to g.current_user's browser identity.
 
@@ -165,6 +165,10 @@ def register_routes(app, web):
                                                 priority=g.agent_api_priority, cancelled=request.environ.get("waitress.client_disconnected", lambda: False), request_id=request_id))
             from membership import _invalidate_request_membership_cache
             _invalidate_request_membership_cache()
+            # Admission may wait while an administrator changes access policy.
+            from admin_store import _settings_cache_invalidate
+            _settings_cache_invalidate("access_policy")
+            g.pop("_access_policy_cache", None)
             user = web["get_user_by_id"](key["user_id"])
             if not eligible(user):
                 raise APIError("membership_required", "会员或 API 权限已变化。", 403)

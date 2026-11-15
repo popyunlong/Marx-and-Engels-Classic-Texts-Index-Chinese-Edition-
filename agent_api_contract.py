@@ -55,7 +55,7 @@ SCHEDULING = record({
     "user_data_concurrency": {"type": "integer", "minimum": 1},
     "user_control_concurrency": {"const": 1}, "control_concurrency": {"type": "integer", "minimum": 1}, "queue": {"const": True},
     "queue_capacity": {"type": "integer", "minimum": 1}, "queue_wait_seconds": {"type": "integer", "minimum": 1},
-    "priority": {"type": "string", "enum": ["normal", "highest"]}})
+    "priority": {"type": "string", "enum": ["normal", "high", "highest"]}})
 ERROR_OUTPUT = record({"ok": {"const": False}, "error": ERROR})
 SUCCESS_OUTPUTS = {
     "list_sources": record({"ok": {"const": True}, "corpus_version": VERSION, "sources": array(SOURCE)}),
@@ -85,7 +85,7 @@ TOOLS = {
     "list_sources": ("列出已发布公共文库、版本及卷册范围。先选择文库再查原文。", EMPTY, "GET", "/sources"),
     "search_corpus": ("检索原文候选。exact 为规范化精确匹配，cooccurrence 为 2–5 个空格分隔关键词共现；near_text 为有编辑距离校验的近似定位，必须指定 scope。同账号数据请求串行调用；仅 retryable=true 的限流或执行前忙碌可按 retry_after_seconds 退避，最多重试两次。超时或执行状态不明不自动重发。", SEARCH, "POST", "/search"),
     "get_passage": ("读取证据原文及同一作品内最多相邻各一页的上下文。核对版本、印刷页和措辞；近似或共现候选不代表观点已获证实。引用失效时重新检索。", PASSAGE, "GET", "/passages/"),
-    "get_api_limits": ("读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。REST/MCP 共用优先队列，默认最多 8 个等待请求、最长 5 秒；Max 最高优先。等待计入查询预算，未取得名额不计次数。此额度查询使用独立控制通道；scheduling 返回当前优先级和限制。", EMPTY, "GET", "/limits"),
+    "get_api_limits": ("读取当前账号限制与剩余短窗查询额度；多个客户端和 Key 共用额度。REST/MCP 共用优先队列，默认最多 8 个等待请求、最长 5 秒；Max 最高优先、Pro 优先、Plus 及合格早期会员普通排队，三档调用额度相同。等待计入查询预算，未取得名额不计次数。此额度查询使用独立控制通道；scheduling 返回当前优先级和限制。", EMPTY, "GET", "/limits"),
 }
 
 
