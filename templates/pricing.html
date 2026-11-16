@@ -371,7 +371,7 @@
             </select>
             <div class="purchase-total" aria-live="polite">应付 {{ format_price(purchase.quotes[0].amount_cents, plan.currency) }}</div>
             <p class="purchase-offer" id="offer-{{ plan.code }}">{{ purchase.offer }}</p>
-            <p class="purchase-help">每月 30 天，按月生效；优惠不减少每月 AI 额度。</p>
+            <p class="purchase-help">每月 30 天，按月生效；{% if plan.code == 'support_happy' %}共用每周 2 万 token 体验额度，购买和续费不重置已用量。{% else %}优惠不减少每月 AI 额度。{% endif %}</p>
           </div>
           {% elif purchase and purchase.upgrade %}
           <p class="purchase-help">请先补差升档，完成后可购买该档 1–6 个月续费。{{ purchase.offer }}。</p>

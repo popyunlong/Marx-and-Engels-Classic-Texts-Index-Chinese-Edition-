@@ -19,7 +19,7 @@ from pathlib import Path
 from runtime_env import APPDATA_DIR, secure_db_file
 import membership_purchase as multi_purchase
 import legacy_ai
-from member_catalog import PLUS_CODE, RETIRED_PLUS_CODES, effective_rank
+from member_catalog import HAPPY_PLAN_CODE, PLUS_CODE, RETIRED_PLUS_CODES, effective_rank
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
@@ -223,6 +223,16 @@ _SUPPORT_WALLET_MICROS_PER_CENT = 9_000
 
 
 NEW_AI_PLANS = (
+    {
+        "code": HAPPY_PLAN_CODE, "name": "happy 会员", "price_cents": 666,
+        "ai_budget_micros": 0, "tier_rank": 5,
+        "weekly_token_limit": 20_000, "sort_order": 100,
+        "kind": "membership", "parallel_group": "new_membership",
+        "description": "30 天会员；解锁日常检索、阅读与知识整理功能。",
+        "features": "除下列四项外，享有其它普通会员功能\n不含 AI 研究对话、Agent 插注校注、国内外研究动态、个人文库\n阅读器 AI 导学等共用每周 2 万 token 体验额度\nDeepSeek Flash 非思考模式；不赠送 AI 金额钱包",
+        "badge": "happy",
+        "model_policy": {},
+    },
     {
         "code": "support_basic", "name": "基础会员", "price_cents": 1500,
         "ai_budget_micros": 13_500_000, "tier_rank": 110,
@@ -1793,7 +1803,9 @@ def list_dormant_noip_user_emails() -> list[dict]:
     return [row_to_dict(row) for row in rows]
 
 
-def list_active_member_emails(plan_codes: list[str] | None = None) -> list[dict]:
+def list_active_member_emails(
+    plan_codes: list[str] | None = None, *, exclude_plan_code: str = "",
+) -> list[dict]:
     """有有效付费会员资格的用户（subscriptions.status='active' 且未过期）。
 
     plan_codes 非空时仅返回这些套餐的会员；为空/None 返回全部有效会员。
@@ -1807,6 +1819,9 @@ def list_active_member_emails(plan_codes: list[str] | None = None) -> list[dict]
         placeholders = ",".join("?" for _ in codes)
         plan_filter = f" AND s.plan_code IN ({placeholders})"
         params.extend(codes)
+    if exclude_plan_code:
+        plan_filter += " AND s.plan_code != ? AND s.starts_at <= ?"
+        params.extend((exclude_plan_code, now))
     with _connect() as conn:
         rows = conn.execute(
             f"""
@@ -2172,7 +2187,14 @@ def create_pending_order(*, user_id: int, plan_code: str, allow_out_of_sale: boo
                     (int(existing["id"]),),
                 )
 
-        order_no = f"{utc_now().strftime('%Y%m%d%H%M%S')}{secrets.randbelow(100000):05d}"
+        # BEGIN IMMEDIATE keeps the uniqueness check and insertion atomic.
+        # Multiple purchases in one second can otherwise collide on the suffix.
+        for _ in range(10):
+            order_no = f"{utc_now().strftime('%Y%m%d%H%M%S')}{secrets.randbelow(100000):05d}"
+            if conn.execute("SELECT 1 FROM orders WHERE order_no=?", (order_no,)).fetchone() is None:
+                break
+        else:
+            raise ValueError("订单号生成繁忙，请稍后重试。")
         expires_at = (utc_now() + timedelta(hours=24)).isoformat(timespec="seconds")
         cur = conn.execute(
             """
@@ -2464,7 +2486,21 @@ def membership_snapshots(user_ids):
     return result
 
 
-def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
+def get_conversation_membership_snapshot(user_id: int | None) -> MembershipSnapshot:
+    """Membership/expiry that funds cloud conversations, excluding happy periods."""
+    if not user_id:
+        return get_membership_snapshot(None)
+    cache = _request_membership_cache()
+    key = (int(user_id), "conversations")
+    if cache is not None and key in cache:
+        return cache[key]
+    snapshot = _compute_membership_snapshot(int(user_id), exclude_happy=True)
+    if cache is not None:
+        cache[key] = snapshot
+    return snapshot
+
+
+def _compute_membership_snapshot(user_id: int, *, exclude_happy: bool = False) -> MembershipSnapshot:
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -2478,6 +2514,10 @@ def _compute_membership_snapshot(user_id: int) -> MembershipSnapshot:
             """,
             (user_id,),
         ).fetchall()
+    if exclude_happy:
+        # Cloud retention is based on the subscription that actually included
+        # conversations. A later happy purchase must not extend that expiry.
+        rows = [row for row in rows if row["plan_code"] != HAPPY_PLAN_CODE]
     return _snapshot_from_rows(rows)
 
 
@@ -2507,10 +2547,13 @@ def _snapshot_from_rows(rows):
         if r["status"] == "active" and parsed is not None and parsed > now and started:
             active.append((r, parsed))
     if active:
-        # 身份：显式 tier_rank 最大；老库尚未补值时才用 interval_months 作兼容兜底。
+        # happy 最低；旧会员沿用月数排序，新会员比较显式 tier_rank。
         tier_row = max(
             active,
             key=lambda rp: (
+                # Legacy identities still compare interval_months (1/3/12),
+                # not their stored ranks (10/20/30). Happy must lose to both.
+                str(rp[0]["plan_code"] or "") != HAPPY_PLAN_CODE,
                 (
                     int(rp[0]["interval_months"] or 0)
                     if str(rp[0]["parallel_group"] or "") == "legacy_membership"
@@ -3305,8 +3348,8 @@ def _resolve_bulk_audience(conn: sqlite3.Connection, *, scope: str, emails: list
 def _current_tier_plan(conn: sqlite3.Connection, user_id: int, now_text: str) -> tuple[str | None, str | None]:
     """当前有效订阅中的最高档套餐 (plan_code, plan_name)，无有效会员返回 (None, None)。
 
-    档次以 interval_months 为代理（月 1 < 季 3 < 年 12），与 _compute_membership_snapshot 一致——
-    「沿用现有档次」的延长即照此档补时长，不会把高档会员写成低档。
+    排序与 _compute_membership_snapshot 一致：happy 最低，旧档按月数、新档按 tier_rank。
+    排队但尚未开始的新套餐不参与「沿用现有档次」。
     """
     row = conn.execute(
         """
@@ -3314,10 +3357,13 @@ def _current_tier_plan(conn: sqlite3.Connection, user_id: int, now_text: str) ->
         FROM subscriptions s
         JOIN plans p ON p.code = s.plan_code
         WHERE s.user_id = ? AND s.status = 'active' AND s.expires_at > ?
-        ORDER BY p.interval_months DESC, s.expires_at DESC, s.id DESC
+          AND (p.parallel_group!='new_membership' OR s.starts_at<=?)
+        ORDER BY (p.code!=?) DESC,
+                 CASE WHEN p.parallel_group='legacy_membership' THEN p.interval_months ELSE p.tier_rank END DESC,
+                 s.expires_at DESC, s.id DESC
         LIMIT 1
         """,
-        (int(user_id), now_text),
+        (int(user_id), now_text, now_text, HAPPY_PLAN_CODE),
     ).fetchone()
     if row is None:
         return None, None
@@ -4616,6 +4662,8 @@ def _ensure_user_ai_wallets(conn: sqlite3.Connection, user_id: int, at_text: str
         starts = _parse_utc(str(row["starts_at"] or "")) or at
         expires = _parse_utc(str(row["expires_at"] or "")) or (starts + timedelta(days=30))
         plan_code = str(row["plan_code"] or "")
+        if plan_code == HAPPY_PLAN_CODE:
+            continue  # Content-only subscription: use the registered free AI pool.
         support_budget = (
             _support_subscription_budget_micros(conn, row)
             if plan_code in _SUPPORT_MEMBERSHIP_PLAN_CODES else None
@@ -4748,9 +4796,10 @@ def get_ai_entitlements(user_id: int | None, *, at_text: str | None = None) -> d
             """
             SELECT * FROM ai_wallets
             WHERE user_id=? AND status='active' AND starts_at <= ? AND expires_at > ?
+              AND plan_code != ?
             ORDER BY priority ASC, expires_at ASC, id ASC
             """,
-            (int(user_id), now, now),
+            (int(user_id), now, now, HAPPY_PLAN_CODE),
         ).fetchall()
         rows = legacy_ai.paid_wallets(rows, protected)
         conn.commit()
@@ -4813,6 +4862,8 @@ def get_user_weekly_token_entitlement(user_id: int, *, at_text: str | None = Non
         ).fetchall()
         conn.commit()
     # 任一并行生效的会员权益设为 0，即表示该权益不设周 token 上限；金额钱包仍是最终硬帽。
+    # happy 的体验池不能叠加到另购钱包或旧会员的付费额度中。
+    plan_rows = [row for row in plan_rows if row["code"] != HAPPY_PLAN_CODE]
     if not plan_rows:
         return {"weekly_limit": None, "source": "monetary_wallet", "plan_codes": []}
     plan_codes = [str(r["code"]) for r in plan_rows]

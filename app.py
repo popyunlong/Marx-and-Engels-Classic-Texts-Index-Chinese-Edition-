@@ -141,6 +141,8 @@ from membership import (
     bulk_grant_coverage,
     get_order_by_no,
     get_membership_snapshot,
+    get_conversation_membership_snapshot,
+    HAPPY_PLAN_CODE,
     get_account_email_token,
     get_admin_dashboard_first_day,
     get_admin_dashboard_metrics,
@@ -1417,6 +1419,15 @@ def _effective_ai_limit_info(user: dict | None) -> dict:
             }
     bucket = _ai_token_bucket_for_user(user)
     label = AI_TOKEN_DAILY_LABELS.get(bucket, bucket)
+    if _membership_plan_code_for_user(user) == HAPPY_PLAN_CODE:
+        # Membership content rights do not buy an AI wallet. Keep the same
+        # account/week usage and reset bucket as the registered experience pool.
+        return {
+            "daily_limit": REGISTERED_FREE_AI_WEEKLY_LIMIT // AI_TOKEN_WEEKLY_FACTOR,
+            "weekly_limit": REGISTERED_FREE_AI_WEEKLY_LIMIT,
+            "bucket": "registered", "label": "happy 会员体验额度",
+            "source": "registered_free",
+        }
     if base.get("plan_limit") is not None:
         daily = int(base["plan_limit"]); source = "plan"
     elif bucket == "registered":
@@ -1537,6 +1548,7 @@ def _ai_entitlements_payload(user: dict | None = None) -> dict:
         "quarter": "旧季度会员",
         "quarterly": "旧季度会员",
         "yearly": "旧长期会员",
+        HAPPY_PLAN_CODE: "happy 会员",
         "support_basic": "Plus（原15元额度）",
         "support_plus_20": "Plus",
         "support_plus": "Plus（原25元额度）",
@@ -13303,15 +13315,18 @@ def api_ai_assistant_config():
     locked_message = render_site_text(
         "index.ai_drawer_locked_login" if chat_login_gated else "index.ai_drawer_locked_member"
     )
+    happy_locked = bool(_membership_plan_code_for_user(user) == HAPPY_PLAN_CODE and not access and not research_access)
+    if happy_locked:
+        locked_message = "happy 会员不包含 AI 研究对话，请升级至 Plus、Pro 或 Max。"
     return jsonify(
         {
             "ok": True,
             "access": access,
-            "access_gate": "login" if chat_login_gated else "member",
+            "access_gate": "upgrade" if happy_locked else ("login" if chat_login_gated else "member"),
             "web_access": bool(_ai_web_access_enabled()),
             **comprehensive_web.capabilities(sys.modules[__name__]),
             "runtime": runtime,
-            "quota": _ai_token_quota_payload() if access else {},
+            "quota": _ai_token_quota_payload() if access or ai_detail else {},
             "ai_entitlements": _ai_entitlements_payload(user) if user else _ai_entitlements_payload(None),
             "credits": (
                 get_ai_credit_balances(int(user["id"]))
@@ -13321,10 +13336,7 @@ def api_ai_assistant_config():
             "logged_in": bool(user),
             # 会话云端备份为会员主动勾选功能；正文只经鉴权转发到个人文库节点，本站不落库。
             "conversation_sync_eligible": bool(
-                user and (
-                    _is_admin_user(user)
-                    or getattr(getattr(g, "membership", None), "is_active_member", False)
-                )
+                user and _ai_conversation_membership_policy(user)["eligible"]
                 and mylib_store.configured()
             ),
             "locked_message": locked_message,
@@ -13591,7 +13603,7 @@ def _ai_conversation_membership_policy(user: dict | None = None) -> dict:
     user = user or getattr(g, "current_user", None)
     now = datetime.now(timezone.utc)
     now_ms = int(now.timestamp() * 1000)
-    membership = getattr(g, "membership", None)
+    membership = get_conversation_membership_snapshot(int(user["id"]) if user else None)
     is_admin = bool(user and _is_admin_user(user))
     is_active = bool(is_admin or getattr(membership, "is_active_member", False))
     expiry_text = str(getattr(membership, "expires_at", "") or "").strip()
@@ -13645,11 +13657,8 @@ def _ai_conversation_user(*, require_active_member: bool = False) -> dict:
     user = getattr(g, "current_user", None)
     if not user:
         abort(401, description="请先登录账号。")
-    if require_active_member and not (
-        _is_admin_user(user)
-        or getattr(getattr(g, "membership", None), "is_active_member", False)
-    ):
-        abort(403, description="云端保存会话为会员可选功能。")
+    if require_active_member and not _ai_conversation_membership_policy(user)["eligible"]:
+        abort(403, description="happy 会员不包含云端保存与续期会话，请升级至 Plus、Pro 或 Max。")
     if not mylib_store.configured():
         abort(503, description="个人文库服务器暂不可用，请稍后重试。")
     return user
@@ -20371,6 +20380,9 @@ def api_search_associative():
     requested_mode = str(payload.get("mode") or "auto").strip().lower()
     if requested_mode != "research":
         return _api_search_associative_impl()
+
+    # Deny unavailable research rights before allocating a worker/SSE stream.
+    _require_content_feature("research")
 
     # ``copy_current_request_context`` deliberately does not promise to copy ``g``.  Preserve the
     # before_request state (current user, access data, etc.) so the worker sees the same identity.

@@ -82,7 +82,7 @@ class AutoSiteTextEngineTests(unittest.TestCase):
         self.assertIn("80% 输入／20% 输出", rendered)
         self.assertIn("排队优先级不打断已经开始的任务", rendered)
         self.assertNotIn(old_plan_copy, rendered)
-        self.assertIn("Plus / Pro / Max 三档之间互斥", rendered)
+        self.assertIn("happy / Plus / Pro / Max 四档之间互斥", rendered)
         self.assertIn("同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。", rendered)
 
     def test_saved_auto_override_is_present_in_effective_map(self) -> None:

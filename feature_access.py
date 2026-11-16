@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from member_catalog import api_eligible, PLUS_CODES
 from admin_store import get_setting, init_admin_store_db
-from membership import get_membership_snapshot, normalize_email
+from membership import HAPPY_PLAN_CODE, get_membership_snapshot, normalize_email
 
 
 FEATURE_ACCESS_KEYS = ("concept_map", "search", "viewer", "library", "dictionary", "static_library", "stream_reading", "journal_alerts", "notes", "personal_library", "citation_assistant", "agent_api", "ai", "search_chat", "associative", "research", "ai_web")
@@ -35,7 +35,7 @@ FEATURE_ACCESS_HINTS = {
     "dictionary": "马克思主义大辞典查词",
     "static_library": "中外文原著文库",
     "stream_reading": "《马克思恩格斯文集》网页适配阅读",
-    "journal_alerts": "固定向所有有效旧版与新版会员开放",
+    "journal_alerts": "向有效旧版会员与 Plus、Pro、Max 开放，happy 不包含此项",
     "notes": "阅读器记笔记 + 「我的知识库」跨书聚合",
     "personal_library": "上传自有书籍，审核后私有阅读与检索",
     "citation_assistant": "上传 DOCX，建议补注、校对注释并导出副本",
@@ -46,7 +46,7 @@ FEATURE_ACCESS_HINTS = {
     "ai_web": "智谱 GLM 联网检索通道",
 }
 # 控制台权限分组：把可配置功能聚到一张子表里，避免十余项平铺难辨。
-# journal_alerts 是面向所有有效会员的固定独立栏目，故不进入套餐/个人功能开关表。
+# journal_alerts 为固定栏目：happy 不包含，其他有效会员沿用既有权限。
 FEATURE_ACCESS_GROUPS = (
     {"label": "内容与功能", "features": ("concept_map", "search", "viewer", "library", "dictionary", "static_library", "stream_reading", "notes", "personal_library", "citation_assistant", "agent_api")},
     {"label": "AI 功能（由「AI 导学」拆分而来，可分别开放）", "features": ("ai", "search_chat", "associative", "research", "ai_web")},
@@ -54,6 +54,12 @@ FEATURE_ACCESS_GROUPS = (
 # 论文插注校注已经正式上线，默认作为会员功能开放；ai_web（智谱联网通道）仍默认关闭，
 # 由套餐或个人权限单独放开。控制台显式关闭任一功能时仍以保存值为准。
 DEFAULT_FEATURE_ACCESS = {key: key != "ai_web" for key in FEATURE_ACCESS_KEYS}
+HAPPY_EXCLUDED_FEATURES = frozenset({
+    "search_chat", "research", "ai_web", "citation_assistant", "journal_alerts", "personal_library",
+})
+DEFAULT_PLAN_ACCESS = {
+    HAPPY_PLAN_CODE: {key: False for key in HAPPY_EXCLUDED_FEATURES},
+}
 AUDIENCE_ACCESS_LABELS = {
     "guest": "访客",
     "registered": "注册用户",
@@ -119,7 +125,9 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
             _inherit_split_features(normalized_values)
             user_overrides[normalized_email] = normalized_values
 
-    plan_rules: dict[str, dict[str, bool]] = {}
+    plan_rules: dict[str, dict[str, bool]] = {
+        code: dict(values) for code, values in DEFAULT_PLAN_ACCESS.items()
+    }
     raw_plans = policy.get("plans")
     if isinstance(raw_plans, dict):
         for plan_code, values in raw_plans.items():
@@ -131,8 +139,11 @@ def load_access_policy(*, include_saved: bool = True) -> dict:
                 for key in FEATURE_ACCESS_KEYS
                 if key in values
             }
-            _inherit_split_features(normalized_plan)
-            plan_rules[normalized_code] = normalized_plan
+            # happy was introduced after the AI permission split; missing
+            # fields must retain its exclusions rather than inherit ai=True.
+            if normalized_code != HAPPY_PLAN_CODE:
+                _inherit_split_features(normalized_plan)
+            plan_rules.setdefault(normalized_code, {}).update(normalized_plan)
 
     audience_rules = {name: dict(values) for name, values in DEFAULT_AUDIENCE_ACCESS.items()}
     raw_audience = policy.get("audience")
@@ -202,7 +213,8 @@ def feature_allowed_by_policy(policy: dict, feature: str, user: dict | None = No
     # 旧版会员与新版会员都由 membership snapshot 归一为有效 plan_code；
     # 普通注册用户、已过期会员仍会得到空值。管理员保留运营预览权限。
     if feature == "journal_alerts":
-        return is_admin_user(user) or bool(membership_plan_code_for_user(user))
+        code = membership_plan_code_for_user(user)
+        return is_admin_user(user) or bool(code and code != HAPPY_PLAN_CODE)
 
     if not is_admin_user(user):
         plan_code = membership_plan_code_for_user(user)
@@ -233,7 +245,8 @@ def plan_feature_access_rows(plans: list[dict], policy: dict) -> list[dict]:
     for plan in plans:
         code = str(plan.get("code") or "").strip()
         values = {
-            key: bool((policy.get("plans") or {}).get(code, {}).get(key, policy["global"].get(key, True)))
+            key: bool((policy.get("plans") or {}).get(code, {}).get(
+                key, DEFAULT_PLAN_ACCESS.get(code, {}).get(key, policy["global"].get(key, True))))
             for key in FEATURE_ACCESS_KEYS
         }
         if code in PLUS_CODES or code in {"support_pro", "support_max"}:

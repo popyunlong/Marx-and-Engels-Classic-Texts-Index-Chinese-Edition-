@@ -71,7 +71,7 @@
       <div class="nav-group">{% if journal_member_access %}<a href="{{ url_for('account_journal_alerts') }}">邮件订阅</a>{% else %}<a href="{{ upgrade_url }}">开通会员阅读新期</a>{% endif %}<a href="/">返回首页</a></div>
     </nav>
     {% if not journal_member_access %}
-    <p class="member-note"><strong>{{ '阅读新期需开通会员。' if member_required else '当前为公开完整样刊。' }}</strong>样刊目录、所有文章全文和公开 PDF 均可免费阅读；每周正式新期仅向会员开放。<a class="member-cta" href="{{ upgrade_url }}">查看会员套餐 →</a></p>
+    <p class="member-note"><strong>{{ '阅读新期需开通相应会员。' if member_required else '当前为公开完整样刊。' }}</strong>样刊目录、所有文章全文和公开 PDF 均可免费阅读；正式新期向有效旧会员与Plus、Pro、Max 会员开放，happy 不包含此项。<a class="member-cta" href="{{ upgrade_url }}">查看会员套餐 →</a></p>
     {% endif %}
     {% if batch and batch.status == 'sample' %}
     <p class="sample-note"><span class="sample-badge">样刊</span>本期选取较早的优质英文文献作为阅读示例；每周新一期将严格按上周 7 天的采集窗口另行生成。</p>
