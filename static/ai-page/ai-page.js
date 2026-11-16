@@ -2928,6 +2928,7 @@
   // /ai 页专属锁定文案（区别于抽屉的「AI 随心问」措辞）：按当前权限门（登录/会员）取词。
   function lockedMessage() {
     var gate = (config && config.access_gate) || "";
+    if (gate === "upgrade") return config.locked_message;
     return gate === "login"
       ? "「AI 研究对话」登录后即可使用，每位登录用户每日均有免费额度。"
       : "「AI 研究对话」需登录并开通会员后使用。";

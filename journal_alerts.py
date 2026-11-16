@@ -4352,7 +4352,7 @@ def resolve_recipients(
     if mode == "members":
         from membership import list_active_member_emails
 
-        rows = list_active_member_emails(plan_codes)
+        rows = list_active_member_emails(plan_codes, exclude_plan_code=membership_store.HAPPY_PLAN_CODE)
         return ([{"email": r["email"], "user_id": r.get("user_id")} for r in rows if r.get("email")], False)
     if mode not in RECIPIENT_MODES:
         raise ValueError("国外文献精选周刊只能发送给有效会员或已订阅的有效会员。")

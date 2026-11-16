@@ -1,5 +1,6 @@
 """Public membership contract; historical product codes remain accounting identities."""
 PLUS_CODE = "support_plus_20"
+HAPPY_PLAN_CODE = "support_happy"
 RETIRED_PLUS_CODES = frozenset({"support_basic", "support_plus"})
 PLUS_CODES = RETIRED_PLUS_CODES | {PLUS_CODE}
 LEGACY_CODES = frozenset({"monthly", "quarter", "quarterly", "yearly"})
@@ -18,7 +19,7 @@ def priority(code):
 
 
 def api_eligible(code):
-    return code in LEGACY_CODES or tier(code) in {"plus", "pro", "max"}
+    return code == HAPPY_PLAN_CODE or code in LEGACY_CODES or tier(code) in {"plus", "pro", "max"}
 
 
 def _default_public_plan(plan):
@@ -66,12 +67,12 @@ def public_plan(plan, texts=None):
 # Render these as data so historical auto-text overrides cannot restore obsolete
 # numbering or hide the current allowance explanation. Accounting is unchanged.
 PRICING_NOTICE_ITEMS = (
-    ("购买规则", "已生效的旧套餐与一个新套餐可以并行；Plus / Pro / Max 三档之间互斥；原 15/25 元套餐已停售，原 AI 额度保留。"),
+    ("购买规则", "已生效的旧套餐与一个新套餐可以并行；happy / Plus / Pro / Max 四档之间互斥；原 15/25 元套餐已停售，原 AI 额度保留。"),
     ("早期会员承诺", "北京时间 2026 年 7 月 4 日零点前购买且仍有效的旧会员，按月／季／年档每周享有 28／49／77 万实际输入与输出 token，周一恢复。每天独立赠送 20 次联网。旧权益支持 DeepSeek Flash 非思考模式，另购套餐的额度单独计算。"),
     ("续费与升降档", "同档续费排在当前周期结束后，升档按剩余秒数补差并立即生效，降档需等下个周期。"),
-    ("AI 额度开放", "AI 额度每个 30 天周期分两次开放：周期开始时开放 50%，第 15 天开放余下 50%，周期结束时到期。"),
+    ("AI 额度开放", "Plus、Pro、Max 的套餐 AI 额度在 30 天周期开始时开放 50%，第 15 天开放余下 50%，周期结束时到期。happy 共用每周 2 万 token 体验额度。"),
     ("AI 容量说明", "套餐所列容量按当前计费配置、缓存未命中及 80% 输入／20% 输出估算，范围对应高峰至低谷时段，并非固定对话次数。AI 研究对话与其他消耗套餐额度的 AI 功能共享余额；实际可用量随模型、上下文长度、思考输出、缓存命中及联网工具使用情况变化。"),
-    ("排队规则", "API／MCP：Plus 普通排队、Pro 优先排队、Max 最高优先排队；仍有效的原 15/25 元套餐按 Plus 开放，合格早期会员保留原权限。三档接口功能与调用额度相同。同档先到先执行，排队优先级不打断已经开始的任务。"),
+    ("排队规则", "API／MCP：happy 与 Plus 普通排队，Pro 优先排队，Max 最高优先排队。合格早期会员保留原权限。同档先到先执行，排队优先级不打断已经开始的任务。"),
 )
 
 
@@ -98,6 +99,6 @@ BENEFIT_GROUPS = (
             ("deepseek_web", "联网搜索与网页阅读", "按账户日额度与 AI 余额使用"),
             ("citation_assistant", "论文插注校注", "引文核验与文稿导出"),
             ("journal_alerts", "国内外研究动态", "完整周报、双语题录、引文导出与自主选刊邮件"),
-            ("agent_api", "API/MCP 数据调用", "Plus/Pro/Max 套餐内自助开通，分别普通／优先／最高优先排队；保留合格老会员权益"),
+            ("agent_api", "API/MCP 数据调用", "happy 与 Plus 普通排队，Pro 优先排队，Max 最高优先排队；保留合格老会员权益"),
         ))},
 )
