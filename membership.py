@@ -23,9 +23,10 @@ from member_catalog import HAPPY_PLAN_CODE, PLUS_CODE, RETIRED_PLUS_CODES, effec
 
 
 DB_PATH = APPDATA_DIR / "membership.sqlite3"
-# Only this catalog interprets the marker as on sale. The predecessor
-# continues honoring the stored sale window while both versions share the DB.
-PLUS_CATALOG_SALE_MARKER = "9999-01-01T00:00:00+00:00"
+# A release opens marked plans only for the codes its catalog recognizes.
+# Older releases honor the stored sale window for unknown plans.
+CATALOG_SALE_MARKER = "9999-01-01T00:00:00+00:00"
+CATALOG_SALE_CODES = (PLUS_CODE, HAPPY_PLAN_CODE)
 SECRET_KEY_PATH = APPDATA_DIR / "session_secret.txt"
 # 灾备导出账本（append-only）：每笔会员开通/续费即时追加一行 JSON（含完整账号信息），供本地每分钟
 # 增量拉取到站长本机；站点若被封可凭此即时迁移会员。拉取/落地脚本见 deploy/sync_members_local.ps1。
@@ -1066,7 +1067,7 @@ def init_membership_db() -> Path:
                     plan["features"], plan["badge"], plan["sort_order"], plan["kind"],
                     plan["tier_rank"], json.dumps(plan["model_policy"], ensure_ascii=False, sort_keys=True),
                     plan["parallel_group"], plan["ai_budget_micros"], plan["weekly_token_limit"],
-                    PLUS_CATALOG_SALE_MARKER if plan["code"] == PLUS_CODE else MEMBERSHIP_REFORM_CUTOFF,
+                    CATALOG_SALE_MARKER if plan["code"] in CATALOG_SALE_CODES else MEMBERSHIP_REFORM_CUTOFF,
                 ),
             )
 
@@ -1250,7 +1251,7 @@ def _catalog_plan(row: sqlite3.Row | None) -> dict | None:
     plan = row_to_dict(row)
     if plan is None:
         return None
-    if plan["code"] == PLUS_CODE and plan["sale_starts_at"] == PLUS_CATALOG_SALE_MARKER:
+    if plan["code"] in CATALOG_SALE_CODES and plan["sale_starts_at"] == CATALOG_SALE_MARKER:
         plan["sale_starts_at"] = ""
     if plan["code"] in RETIRED_PLUS_CODES and "is_active" in plan:
         plan["is_active"] = 0
@@ -1269,11 +1270,11 @@ def list_active_plans() -> list[dict]:
                    billing_cycle_days, sale_starts_at, sale_ends_at
             FROM plans
             WHERE is_active = 1 AND kind != 'donation'
-              AND (sale_starts_at = '' OR sale_starts_at <= ? OR (code = ? AND sale_starts_at = ?))
+              AND (sale_starts_at = '' OR sale_starts_at <= ? OR (code IN (?, ?) AND sale_starts_at = ?))
               AND (sale_ends_at = '' OR sale_ends_at > ?)
             ORDER BY sort_order ASC, code ASC
             """
-            , (now, PLUS_CODE, PLUS_CATALOG_SALE_MARKER, now)
+            , (now, *CATALOG_SALE_CODES, CATALOG_SALE_MARKER, now)
         ).fetchall()
     return [_catalog_plan(row) for row in rows if row["code"] not in RETIRED_PLUS_CODES]
 
