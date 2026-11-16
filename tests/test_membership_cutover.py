@@ -5,12 +5,13 @@ import types
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
+
 from membership_refresh_fixture import A, M, login, user
-from member_catalog import PLUS_CODE, RETIRED_PLUS_CODES
+from member_catalog import HAPPY_PLAN_CODE, PLUS_CODE, RETIRED_PLUS_CODES
 
 
-def load_predecessor(monkeypatch, name):
-    revision = "ba1d884aeac0cd1bb2a505eaf2971920f350e29b"
+def load_predecessor(monkeypatch, name, revision="ba1d884aeac0cd1bb2a505eaf2971920f350e29b"):
     source = subprocess.check_output(
         ["git", "show", f"{revision}:{name}.py"],
         cwd=Path(__file__).resolve().parents[1],
@@ -41,7 +42,7 @@ def test_candidate_seed_preserves_predecessor_catalog_and_rollback_wallet(tmp_pa
     M.init_membership_db()
     assert {plan["code"] for plan in predecessor.list_active_plans()} == previous_sales
     candidate_sales = {plan["code"] for plan in M.list_active_plans()}
-    assert candidate_sales == (previous_sales - RETIRED_PLUS_CODES) | {PLUS_CODE}
+    assert candidate_sales == (previous_sales - RETIRED_PLUS_CODES) | {PLUS_CODE, HAPPY_PLAN_CODE}
 
     member = user()
     order = M.create_pending_order(user_id=member["id"], plan_code=PLUS_CODE)
@@ -53,6 +54,32 @@ def test_candidate_seed_preserves_predecessor_catalog_and_rollback_wallet(tmp_pa
     assert predecessor.get_membership_snapshot(member["id"]).plan_code == PLUS_CODE
     assert M.get_ai_entitlements(member["id"])["wallets"][0]["budget_micros"] == 18_000_000
     assert {plan["code"] for plan in predecessor.list_active_plans()} == previous_sales
+
+
+def test_rollback_settles_pending_happy_order_without_opening_new_sales(tmp_path, monkeypatch):
+    db = tmp_path / "membership.sqlite3"
+    monkeypatch.setattr(M, "DB_PATH", db)
+    revision = "b6d3a9bec332bc35dc0aa9a18c3afd33f7fbd738"
+    predecessor_purchase = load_predecessor(monkeypatch, "membership_purchase", revision)
+    with monkeypatch.context() as importing:
+        importing.setitem(sys.modules, "membership_purchase", predecessor_purchase)
+        predecessor = load_predecessor(monkeypatch, "membership", revision)
+    predecessor.DB_PATH = db
+    predecessor.MEMBER_EXPORT_FILE = tmp_path / "members.ndjson"
+    predecessor.MEMBER_EXPORT_DIR = tmp_path
+    M.init_membership_db()
+
+    member = user()
+    order = M.create_pending_order(user_id=member["id"], plan_code=HAPPY_PLAN_CODE)
+    with pytest.raises(ValueError, match="不在销售期"):
+        predecessor.create_pending_order(user_id=member["id"], plan_code=HAPPY_PLAN_CODE)
+    with monkeypatch.context() as settling:
+        settling.setitem(sys.modules, "membership", predecessor)
+        paid = predecessor.mark_order_paid(order_no=order["order_no"], provider="fixture")
+    assert paid["order"]["status"] == "paid"
+    assert paid["order"]["amount_cents"] == 666
+    assert M.get_membership_snapshot(member["id"]).plan_code == HAPPY_PLAN_CODE
+    assert M.get_ai_entitlements(member["id"])["wallets"] == []
 
 
 def test_retired_pending_order_reopens_with_frozen_checkout(monkeypatch):

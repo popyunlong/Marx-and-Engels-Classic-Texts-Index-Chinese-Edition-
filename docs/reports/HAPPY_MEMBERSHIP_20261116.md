@@ -104,3 +104,17 @@ day-15 quota release. The page now retains the expected wording and limits
 that allowance to Plus, Pro and Max. The existing authorized main integration
 run includes this pricing regression and gates production advancement. See
 `release-local-authorized.xml` and the corresponding ledger entry.
+
+PR #58 passed its CI and merged at `da1b3ffa0dce72f546da219ecd97b579ee9ee735`.
+Main integration passed 1,518 tests and skipped eight. The one failure,
+`test_candidate_seed_preserves_predecessor_catalog_and_rollback_wallet`,
+showed that the predecessor treated the seeded happy plan as available.
+The existing sale marker now recognizes happy only in the current code.
+The new isolated pending-payment test passed on the first run. It confirms
+that the production predecessor rejects a fresh happy purchase but can
+settle one already created at the frozen ¥6.66 price.
+
+Production has not advanced. The repair needs one feature push hook, one PR
+CI run, and one main CI run including the failed integration case. The
+previously authorized production hook, production CI, rehearsal and formal
+release remain unused.
