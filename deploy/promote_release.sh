@@ -228,6 +228,11 @@ PYTHONPYCACHEPREFIX="$FINAL/.pycache" PYTHONPATH="$FINAL/app:$FINAL/.deps" \
 chown -R root:www-data "$FINAL"
 PYTHONPYCACHEPREFIX="$APP_ROOT/runtime-cache" PYTHONPATH="$FINAL/app:$FINAL/.deps" \
   "$RUNTIME_PYTHON" "$FINAL/app/scripts/book_import_deploy.py" prepare --root "$APP_ROOT" --app "$FINAL/app"
+source "$FINAL/app/deploy/citation_workers.sh"
+if ! citation_candidate_checks "$FINAL" "$APP_ROOT" "$RUNTIME_PYTHON"; then
+  echo "citation candidate startup or DeepSeek route preflight failed; live traffic unchanged" >&2
+  exit 4
+fi
 (
   cd "$FINAL/app"
   PYTHONPATH="$FINAL/app:$FINAL/.deps" APP_RELEASE_FILE="$FINAL/release.json" \
@@ -458,7 +463,6 @@ if ! python3 "$FINAL/app/scripts/catalog_deploy.py" accept --root "$APP_ROOT" --
 fi
 OLD_CURRENT=""
 if [ -L "$APP_ROOT/current" ]; then OLD_CURRENT="$(readlink -f "$APP_ROOT/current")"; fi
-source "$FINAL/app/deploy/citation_workers.sh"
 capture_citation_units "$FINAL/citation-units-before.tsv"
 remember_legacy_citation "$FINAL" "$OLD_CURRENT"
 CITATION_EARLY_HOLD=1

@@ -26,7 +26,7 @@ import citation_agent_test_runtime as runtime  # noqa: E402
 from book_data_release import append_ancestors, compatible_corpus  # noqa: E402
 
 CORPUS_INDEX_DB_PATH = runtime.CORPUS_INDEX_DB_PATH
-corpus = runtime.load_corpus()
+corpus = None
 CORPUS_ANALYSIS_VERSION_ERROR = "语料库版本已变更，请重新创建测试任务。"
 CORPUS_EXPORT_VERSION_ERROR = "语料库版本已变更，为保证结果可复现，已拒绝导出。"
 TEMPLATE_ANALYSIS_VERSION_ERROR = "引文模板已变更，请重新创建测试任务。"
@@ -194,17 +194,19 @@ def _retire_incompatible(corpus_versions, template):
              tasks.core._iso(), tasks.core._iso(), tasks.core._iso(),template,*versions))
 
 
-def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
-    global _STOP_REQUESTED
-    _STOP_REQUESTED = False
-    signal.signal(signal.SIGTERM, _request_stop)
-    signal.signal(signal.SIGINT, _request_stop)
-    worker_id = f"citation-agent-test:{socket.gethostname()}:{os.getpid()}"
-    processed = 0
+def _initialize_worker():
+    global corpus
+    started = time.monotonic()
     loaded_fingerprint = _corpus_file_fingerprint()
+    if corpus is None:
+        print("citation worker startup: loading corpus", flush=True)
+        corpus = runtime.load_corpus()
+        print(f"citation worker startup: corpus loaded seconds={time.monotonic() - started:.2f}", flush=True)
+    phase = time.monotonic()
     tasks.init_db()
     loaded_corpus_sha256 = runtime.corpus_sha256()
     loaded_template_version = runtime.template_version()
+    print(f"citation worker startup: runtime verified seconds={time.monotonic() - phase:.2f}", flush=True)
     recovered = tasks.recover_jobs_for_loaded_runtime(
         loaded_corpus_sha256,
         loaded_template_version,
@@ -225,6 +227,35 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
             f"citation Agent test worker queued PDF-only recovery jobs={recovered_pdf}",
             flush=True,
         )
+    # Never attest a corpus that changed while it was being prepared.
+    if _corpus_file_fingerprint() != loaded_fingerprint:
+        raise RuntimeError("citation corpus changed during startup")
+    print(f"citation worker startup: ready seconds={time.monotonic() - started:.2f}", flush=True)
+    return loaded_fingerprint, loaded_corpus_sha256, loaded_template_version
+
+
+def _check_startup() -> None:
+    # The probe is only allowed to initialize disposable databases and never
+    # enters the claim loop or publishes a live readiness heartbeat.
+    from runtime_env import APPDATA_DIR
+    value = os.environ.get("CITATION_STARTUP_PROBE_HOME")
+    if not value:
+        raise SystemExit("isolated citation probe home is required")
+    home = Path(value).resolve()
+    if (home.parent != Path("/run").resolve() or not home.name.startswith("marx-citation-startup-")
+            or Path.home().resolve() != home or not APPDATA_DIR.resolve().is_relative_to(home)):
+        raise SystemExit("citation worker startup check would access live application data")
+    _initialize_worker()
+
+
+def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
+    global _STOP_REQUESTED
+    _STOP_REQUESTED = False
+    signal.signal(signal.SIGTERM, _request_stop)
+    signal.signal(signal.SIGINT, _request_stop)
+    worker_id = f"citation-agent-test:{socket.gethostname()}:{os.getpid()}"
+    processed = 0
+    loaded_fingerprint, loaded_corpus_sha256, loaded_template_version = _initialize_worker()
     last_ready = 0.0
     last_maintenance = 0.0
     while True:
@@ -259,7 +290,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="管理员论文校注 Agent 测试工作节点")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument("--production", action="store_true")
+    parser.add_argument("--check-startup", action="store_true")
     args = parser.parse_args()
+    if args.production or args.check_startup:
+        model = os.environ.get("CITATION_AGENT_MODEL") or "deepseek-v4-flash"
+        if model != "deepseek-v4-flash" or os.environ.get("CITATION_AGENT_TEST_MODE") not in {"admin_live", "live"}:
+            raise SystemExit("citation bridge requires the approved DeepSeek route")
+    if args.check_startup:
+        _check_startup()
+        return
     raise SystemExit(run(once=bool(args.once), poll_seconds=float(args.poll_seconds)))
 
 

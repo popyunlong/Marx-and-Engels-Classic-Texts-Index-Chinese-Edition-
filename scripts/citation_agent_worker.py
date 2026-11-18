@@ -7,6 +7,7 @@ This module intentionally imports neither the web application nor corpus/documen
 
 from datetime import datetime
 import argparse
+import http.client
 import json
 import os
 import re
@@ -29,6 +30,9 @@ from ai_models import provider_model  # noqa: E402
 
 PROMPT_VERSION = "citation-agent-actions-v2-flash-thinking"
 DEFAULT_ALLOWED_HOSTS = {"api.deepseek.com"}
+PRODUCTION_MODEL = "deepseek-v4-flash"
+PRODUCTION_PROXY = "http://127.0.0.2:18080"
+_production = False
 
 
 class AgentWorkerError(RuntimeError):
@@ -53,11 +57,22 @@ def _endpoint() -> tuple[str, str, str]:
     if not path.endswith("/chat/completions"):
         path = f"{path}/chat/completions"
     endpoint = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
-    api_key = str(os.environ.get("CITATION_AGENT_API_KEY") or "").strip()
+    model = str(os.environ.get("CITATION_AGENT_MODEL") or PRODUCTION_MODEL).strip()
+    if _production:
+        if (parsed.netloc != "api.deepseek.com" or parsed.path.rstrip("/") not in {"", "/v1"}
+                or parsed.query or parsed.fragment or allowed != DEFAULT_ALLOWED_HOSTS
+                or model != PRODUCTION_MODEL):
+            raise AgentWorkerError("unapproved_production_model")
+        directory = os.environ.get("CREDENTIALS_DIRECTORY")
+        try:
+            api_key = (Path(directory) / "citation-deepseek").read_text(encoding="utf-8").strip() if directory else ""
+        except OSError as exc:
+            raise AgentWorkerError("missing_citation_deepseek_credential") from exc
+    else:
+        api_key = str(os.environ.get("CITATION_AGENT_API_KEY") or "").strip()
     if len(api_key) < 12:
         raise AgentWorkerError("missing_api_key", "未配置 Agent 专用模型密钥。")
-    model = str(os.environ.get("CITATION_AGENT_MODEL") or "deepseek-v4-flash").strip()[:120]
-    return endpoint, api_key, model
+    return endpoint, api_key, model[:120]
 
 
 def _thinking_mode(payload: dict | None = None, *, repair: bool = False) -> str:
@@ -72,6 +87,12 @@ def _opener() -> urllib.request.OpenerDirector:
     require_proxy = str(os.environ.get("CITATION_AGENT_REQUIRE_PROXY") or "1").strip().lower() in {
         "1", "true", "yes", "on",
     }
+    if _production:
+        if proxy != PRODUCTION_PROXY or not require_proxy:
+            raise AgentWorkerError("unapproved_production_proxy")
+        # An inherited no_proxy setting must never bypass the dedicated proxy.
+        for name in ("NO_PROXY", "no_proxy"):
+            os.environ.pop(name, None)
     handlers: list = []
     if proxy:
         proxy_url = urllib.parse.urlparse(proxy)
@@ -274,10 +295,33 @@ def _listen(worker_id: str, once: bool, poll_seconds: float) -> int:
 
 
 def main() -> None:
+    global _production
     parser = argparse.ArgumentParser(description="脱敏论文校注 Agent 工作节点")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=1.0)
+    parser.add_argument("--production", action="store_true")
+    parser.add_argument("--check-provider", action="store_true")
     args = parser.parse_args()
+    _production = args.production
+    if _production or args.check_provider:
+        # Fail before opening the shared queue. Print only fixed error codes.
+        try:
+            if not _production or os.environ.get("CITATION_AGENT_TEST_MODE") not in {"admin_live", "live"}:
+                raise AgentWorkerError("worker_disabled")
+            _endpoint()
+            _opener()
+            if args.check_provider:
+                # CONNECT and verify the peer certificate without sending a model request or key.
+                proxy = http.client.HTTPSConnection("127.0.0.2", 18080, timeout=10)
+                try:
+                    proxy.set_tunnel("api.deepseek.com", port=443)
+                    proxy.connect()
+                finally:
+                    proxy.close()
+                print("citation model transport ready: deepseek-v4-flash", flush=True)
+                return
+        except (AgentWorkerError, OSError, ValueError, http.client.HTTPException) as exc:
+            raise SystemExit(f"citation model preflight: {getattr(exc, 'code', 'proxy_connect_failed')}") from None
     raise SystemExit(run(once=bool(args.once), poll_seconds=float(args.poll_seconds)))
 
 

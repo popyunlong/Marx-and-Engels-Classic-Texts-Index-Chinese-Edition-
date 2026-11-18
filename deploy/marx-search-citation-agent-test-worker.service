@@ -21,7 +21,7 @@ Environment=MARX_RUNTIME_DATA_DIR=/opt/marx-search/data
 Environment=MARX_RUNTIME_PDF_DIR=/opt/marx-search/pdfs
 Environment=MARX_RUNTIME_LOG_DIR=/opt/marx-search/logs
 Environment=MARX_AI_CONFIG_FILE=/opt/marx-search/config/ai.yaml
-ExecStart=/opt/marx-search/runtime-python scripts/citation_agent_test_worker.py
+ExecStart=/opt/marx-search/runtime-python scripts/citation_agent_test_worker.py --production
 Restart=always
 RestartSec=3
 TimeoutStopSec=20min
@@ -29,7 +29,7 @@ TimeoutStopSec=20min
 # Keep group write permission so either isolated worker may create WAL sidecars.
 UMask=0007
 Nice=15
-CPUQuota=25%
+CPUQuota=75%
 MemoryHigh=1400M
 MemoryMax=1800M
 IOWeight=10
