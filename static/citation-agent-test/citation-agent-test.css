@@ -186,3 +186,9 @@ body.cat-page .ca-review-tabs button.active { border-color: var(--cat-deep); bac
   .cat-live-dot { animation: catPulse 2.4s ease-in-out infinite; }
   @keyframes catPulse { 50% { box-shadow: 0 0 0 9px rgba(131, 213, 173, 0); } }
 }
+
+.cat-controls {display:flex; gap:.6rem; margin:.5rem 0;}
+.cat-controls button, .cat-differences button, #catStylePanel button {cursor:pointer; color:inherit; border:1px solid #9b8f7c; background:transparent; border-radius:.4rem; padding:.4rem .75rem;}
+.cat-differences {padding:.7rem; border-inline-start:3px solid #976b42; background:#faf6ef; overflow-wrap:anywhere;}
+.cat-differences p {margin:.4rem 0;}
+.cat-differences ul {padding-inline-start:1.5rem;}

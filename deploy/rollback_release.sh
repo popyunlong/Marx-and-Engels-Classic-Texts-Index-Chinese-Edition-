@@ -24,7 +24,7 @@ MANAGED_SUPPORT_UNITS=(
   marx-corpus-repair-promote.service marx-corpus-repair-promote.timer
   marx-search-backup.service marx-search-backup.timer
   marx-search-cfip-sync.service marx-search-cfip-sync.timer
-  marx-search-citation-agent-test-worker.service marx-search-citation-worker.service
+  marx-citation-agent.service marx-search-citation-agent-test-worker.service marx-search-citation-worker.service
   marx-search-journal-alerts.service marx-search-journal-alerts.timer
   marx-search-journal-process.service marx-search-journal-process.timer
   marx-search-journal-send.service marx-search-journal-send.timer
@@ -113,6 +113,9 @@ OLD_REAL="$(readlink -f "$APP_ROOT/current")"
 SERVICE_BACKUP="$(mktemp -d /run/marx-search-rollback.XXXXXX)"
 source "$TRANSACTION_APP/deploy/watchdog_release.sh"
 cleanup_rollback() {
+  if [[ "${CITATION_EARLY_HOLD:-0}" == 1 ]]; then
+    restore_citation_units "$SERVICE_BACKUP/citation-units-before.tsv" "$OLD_REAL" || echo "CRITICAL: restore citation units after interrupted rollback" >&2
+  fi
   resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
   rm -rf -- "$SERVICE_BACKUP"
 }
@@ -127,19 +130,16 @@ for unit in "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
     OPTIONAL_UNITS_PRESENT+=("$unit")
   fi
 done
-ACTIVE_CITATION_WORKERS=()
-for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service; do
-  if systemctl is-active --quiet "$unit"; then
-    ACTIVE_CITATION_WORKERS+=("$unit")
-  fi
-done
+source "$TRANSACTION_APP/deploy/citation_workers.sh"
+capture_citation_units "$SERVICE_BACKUP/citation-units-before.tsv"
+if [[ ! -f "$TARGET/app/deploy/citation_workers.sh" ]]; then
+  citation_legacy_compatible || { echo "legacy rollback deferred; current release and user data retained" >&2; exit 75; }
+fi
+LEGACY_CITATION_ACTIVE=0
+if systemctl is-active --quiet marx-search-citation-worker.service; then LEGACY_CITATION_ACTIVE=1; fi
 
-restart_active_citation_workers() {
-  local unit
-  for unit in "${ACTIVE_CITATION_WORKERS[@]}"; do
-    echo "gracefully restarting $unit for the selected release"
-    systemctl restart "$unit" || return 1
-  done
+restart_legacy_citation_worker() {
+  [[ "$LEGACY_CITATION_ACTIVE" == 0 ]] || systemctl restart marx-search-citation-worker.service
 }
 
 source "$TRANSACTION_APP/deploy/research_units.sh"
@@ -160,6 +160,7 @@ restore_predecessor() {
       return 1
     fi
   fi
+  stop_citation_units || { echo "CRITICAL: citation workers could not drain" >&2; return 1; }
   ln -s -- "$OLD_REAL" "$APP_ROOT/.current-rollback-restore"
   mv -Tf -- "$APP_ROOT/.current-rollback-restore" "$APP_ROOT/current"
   rm -f -- /etc/systemd/system/marx-search.service
@@ -175,7 +176,8 @@ restore_predecessor() {
   SECURITY_CADDY_TARGET_APP="$OLD_REAL/app"
   if declare -F activate_security_units >/dev/null; then activate_security_units "$OLD_REAL/app" || true; fi
   systemctl restart "$MAIN_SERVICE" || true
-  restart_active_citation_workers || true
+  recover_citation_units "$SERVICE_BACKUP/citation-units-before.tsv" "$OLD_REAL" || echo "CRITICAL: citation worker recovery failed" >&2
+  restart_legacy_citation_worker || true
   if wait_runtime "$PRIMARY_PORT" "$OLD_REAL/release.json" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
     retire_candidate_if_drained "failed rollback candidate" || true
   else
@@ -217,6 +219,7 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
   --property="WorkingDirectory=$TARGET/app" --property=EnvironmentFile=-/etc/marx-search.env \
   --property="ReadOnlyPaths=$TARGET" \
+  --setenv=CITATION_WORKER_READY_REQUIRED=1 \
   --setenv=PYTHONUNBUFFERED=1 --setenv="PYTHONPATH=$TARGET/app:$TARGET/.deps" \
   --setenv="PYTHONPYCACHEPREFIX=$APP_ROOT/runtime-cache" \
   --setenv="APP_RELEASE_FILE=$TARGET/release.json" \
@@ -233,6 +236,11 @@ if ! wait_runtime "$CANDIDATE_PORT" "$TARGET/release.json"; then
   retire_candidate_if_drained "unhealthy rollback candidate" || true
   exit 5
 fi
+CITATION_EARLY_HOLD=1
+if ! stop_citation_units; then
+  retire_candidate_if_drained "citation worker drain failure" || true
+  exit 6
+fi
 if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"; then
   retire_candidate_if_drained "uncut rollback candidate" || true
   exit 5
@@ -245,6 +253,7 @@ if ! drain_port "$PRIMARY_PORT" "pre-rollback primary"; then
 fi
 
 trap 'restore_predecessor; exit 4' ERR
+CITATION_EARLY_HOLD=0
 pause_research_units
 ln -s -- "$TARGET" "$APP_ROOT/.current-rollback-$TARGET_RELEASE"
 mv -Tf -- "$APP_ROOT/.current-rollback-$TARGET_RELEASE" "$APP_ROOT/current"
@@ -283,7 +292,7 @@ if ! target_healthy; then
   echo "target failed health checks; current release restored" >&2
   exit 5
 fi
-if ! restart_active_citation_workers; then
+if ! restart_legacy_citation_worker || ! activate_citation_units "$TARGET" "$OLD_REAL"; then
   restore_predecessor
   echo "an active citation worker failed to restart; current release restored" >&2
   exit 6

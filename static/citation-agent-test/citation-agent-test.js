@@ -4,6 +4,8 @@
   const csrf=root.dataset.csrf||'',apiBase=root.dataset.apiBase||'/api/citation-agent',hasAccess=root.dataset.access==='1';
   let job=parse(root.dataset.job,{}),jobs=parse(root.dataset.jobs,[]),tree=parse(root.dataset.scope,[]);
   let scopeCtl=null,page=1,pageSize=40,total=0,items=[],decision='pending',summary={total:0,accepted:0,pending:0,rejected:0,auto_accepted:0,unresolved:0},poll=null,reviewBound=false;
+  let polling = false, failures = 0, revision = 0, reviewStamp = '', requestNumber = 0, unresolvedItems = [];
+  const active = () => ['extracting','queued','matching','exporting'].includes(job.status);
   const $=s=>document.querySelector(s);
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function parse(value,fallback){try{return JSON.parse(value||'')}catch(_){return fallback}}
@@ -15,11 +17,20 @@
   function notice(text,error){const el=$('#catNotice');if(!el)return;el.textContent=text||'';el.hidden=!text;el.classList.toggle('error',!!error);if(text)setTimeout(()=>{el.hidden=true},6500)}
   async function api(url,opt){
     opt=opt||{};opt.headers=Object.assign({'X-CSRF-Token':csrf},opt.headers||{});
-    const response=await fetch(url,opt);let data={};try{data=await response.json()}catch(_){}
-    if(!response.ok)throw new Error(data.error||data.message||('请求失败（'+response.status+'）'));
-    return data;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opt.method && opt.method !== 'GET' ? 60000 : 15000);
+    try {
+      const response = await fetch(withPreviewIdentity(url), {...opt, signal: controller.signal});
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data) {
+        const error = new Error((data && (data.error || data.message)) || ('请求未完成（'+response.status+'）'));
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    } finally { clearTimeout(timer); }
   }
-  const statusLabels={extracting:'正在读取论文',awaiting_sections:'等待确认章节和文库',queued:'已进入证据核验队列',matching:'正在本地核验与 Agent 补漏',review_ready:'校注结果等待审核',exporting:'正在生成输出文件',complete:'输出文件已生成',failed:'任务未完成'};
+  const statusLabels={extracting:'正在读取论文',awaiting_sections:'等待确认章节和文库',queued:'已进入证据核验队列',matching:'正在本地核验与 Agent 补漏',review_ready:'校注结果等待审核',exporting:'正在生成输出文件',complete:'输出文件已生成',failed:'任务未完成',stopped:'处理已暂停'};
   const modeLabels={both:'插注＋校注',generate:'插注',audit:'校注'};
   function exportButtonText(){if(!job)return'生成输出';if(job.mode==='generate')return'生成浅蓝色插注 Word';if(job.mode==='audit')return'生成校注 Word 与批注 PDF';return'生成插注校注 Word 与批注 PDF'}
 
@@ -53,8 +64,19 @@
   }
 
   function progressHtml(){
-    const max=Math.max(1,Number(job.progress_total||1)),done=Math.max(0,Number(job.progress_done||0)),pct=Math.min(100,Math.round(done*100/max));
-    return '<div class="ca-status"><h3>'+esc(statusLabels[job.status]||job.status)+'</h3><div class="ca-progress"><i style="width:'+pct+'%"></i></div><p>'+pct+'% · 正在本地证据链与独立 Agent 队列中处理。</p></div>';
+    const stages = {deterministic:'站内原文匹配',agent_planning:'AI 查找候选出处',local_verification:'核对原文和页码',finalizing:'保存结果'};
+    const done = Number(job.progress_done || 0), total = Number(job.progress_total || 0);
+    const processed = Number(job.processed_record_count || 0), pending = Number(job.deferred_record_count || 0);
+    const stamp = job.last_progress_at || job.updated_at;
+    const label = job.status === 'matching' ? stages[job.analysis_stage] : statusLabels[job.status];
+    const details = [];
+    if (total > 0 && job.analysis_stage === 'deterministic' && job.status === 'matching') details.push('本阶段 '+done+' / '+total);
+    if (job.eligible_record_count) details.push('AI 已处理 '+processed+' / '+Number(job.eligible_record_count)+' 条');
+    if (pending) details.push('尚余 '+pending+' 条');
+    if (job.status==='stopped' && job.error) details.push(job.error);
+    if (stamp) details.push('最近进展 '+new Date(stamp).toLocaleTimeString());
+    if (job.worker_available === false) details.push('处理服务暂时离线，任务已保存');
+    return '<div class="ca-status"><h3>'+esc(label || statusLabels[job.status])+'</h3><p>'+esc(details.join(' · '))+'</p></div>';
   }
   function renderTimeline(){
     const box=$('#catTimeline');if(!box)return;
@@ -105,15 +127,23 @@
   const textMatchLabels={exact:'逐字一致',near:'近似文字',none:'文字未核验',paraphrase:'观点依据'};
   const sourceResolutionLabels={unique:'唯一出处',reference_disambiguated:'参考文献消歧',multiple:'多个转载版本',locator_only:'仅页码定位',none:'无站内出处'};
   const writebackLabels={footnote:'浅蓝色脚注插入',endnote:'浅蓝色尾注插入',comment:'正文 Word 批注',readonly:'网页只读',none:'不写回文件'};
-  const reasonLabels={exact_text:'逐字核对一致',near_text_requires_review:'文字接近，仍需人工复核',paraphrase_never_auto:'属于观点转述，不会自动采用',reference_field_disambiguated:'已通过参考文献交叉核对出处',multiple_reprints:'存在多个转载或版本，需人工选择',locator_without_text_match:'仅核对到页码，尚未核实文字',proofreading_comment_only:'校注意见只写入 Word 批注，不改正文',auto_insert_hard_evidence:'证据充分，可安全自动插注',cross_reference_readonly:'尾注交叉引用无法唯一解析，仅供人工复核',unsafe_ooxml_anchor:'Word 结构复杂，不能安全自动写入',no_local_evidence:'未找到可核验的站内证据'};
+  const reasonLabels={verified_minor_difference:'完整引文仅有轻微文字差异，已核对出处和印刷页',manual_insert_after_review:'请逐项确认出处和差异，确认后可插注',exact_text:'逐字核对一致',near_text_requires_review:'文字接近，仍需人工复核',paraphrase_never_auto:'属于观点转述，不会自动采用',reference_field_disambiguated:'已通过参考文献交叉核对出处',multiple_reprints:'存在多个转载或版本，需人工选择',locator_without_text_match:'仅核对到页码，尚未核实文字',proofreading_comment_only:'校注意见只写入 Word 批注，不改正文',auto_insert_hard_evidence:'证据充分，可安全自动插注',cross_reference_readonly:'尾注交叉引用无法唯一解析，仅供人工复核',unsafe_ooxml_anchor:'Word 结构复杂，不能安全自动写入',no_local_evidence:'未找到可核验的站内证据'};
   const legacyIssueLabels={'已核验原文；管理员确认后仅以 Word 批注写入':'已核验原文；采信后将作为 Word 批注写入，不改动正文'};
   function reasonLabel(code){return reasonLabels[String(code||'')]||'其他需要人工复核的情况'}
   function issueLabel(candidate){const value=String(candidate.issue_label||candidate.issue_code||'校注建议');return legacyIssueLabels[value]||value}
   function badges(candidate){
     const locatorOnly=candidate.match_type==='locator'||candidate.verification_scope==='locator_only';
     const origin=locatorOnly?'<span class="ca-tag">原注页码定位</span>':(candidate.evidence_origin==='agent'?'<span class="ca-tag cat-origin">Agent 补漏</span>':(candidate.evidence_level==='exact'?'<span class="ca-tag">确定性命中</span>':'<span class="ca-tag">确定性检索</span>'));
-    const level=locatorOnly?'<span class="ca-tag warn">文字未核验</span>':(candidate.evidence_level==='paraphrase'?'<span class="ca-tag cat-paraphrase">观点依据建议</span>':(candidate.evidence_level==='exact'?'<span class="ca-tag exact">逐字一致</span>':'<span class="ca-tag warn">文字需复核</span>'));
+    const level=locatorOnly?'<span class="ca-tag warn">文字未核验</span>':(candidate.evidence_level==='paraphrase'?'<span class="ca-tag cat-paraphrase">观点依据建议</span>':(candidate.evidence_level==='exact'?'<span class="ca-tag exact">逐字一致</span>':(candidate.auto_selected?'<span class="ca-tag">轻微文字差异</span>':'<span class="ca-tag warn">文字需复核</span>')));
     return origin+level+(candidate.auto_selected?'<span class="ca-auto-badge">已自动采用</span>':'');
+  }
+  function differenceHtml(option) {
+    const evidence = option.quote_evidence;
+    if (!evidence || !evidence.differences || !evidence.differences.length) return '';
+    const rows = evidence.differences.map(d => '<li>第 '+(Number(d.paper_start)+1)+' 字　论文 <b>'+esc(d.paper || '〔无〕')+'</b>　原书 <b>'+esc(d.source || '〔无〕')+'</b></li>');
+    const report = !option.private_source && !option.personal && option.source_file
+      ? '<button type="button" data-report>提交疑似原书文字报错</button>' : '';
+    return '<div class="cat-differences"><b>完整引文对照</b><p>论文　'+esc(evidence.paper_text)+'</p><p>原书　'+esc(evidence.source_text)+'</p><ul>'+rows.join('')+'</ul>'+report+'</div>';
   }
   function candidateHtml(candidate,readonly){
     const options=candidate.source_options||[],chosen=Math.max(0,Math.min(Number(candidate.selected_option||0),Math.max(0,options.length-1))),option=options[chosen]||{};
@@ -129,11 +159,12 @@
     const editableEvidence='<dt>站内证据</dt><dd class="ca-source">'+select+'<div class="cat-evidence-context">'+evidenceHtml(option.context,false)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原文 ↗</a></dd><dt>'+(viewpoint?'建议依据注':'建议注释')+'</dt><dd class="cat-citation-editor"><textarea class="ca-citation-edit cat-citation-edit" data-field="citation" rows="3" aria-label="'+(viewpoint?'建议依据注':'建议注释')+'">'+esc(candidate.proposed_citation||'')+'</textarea><small>可在采信前修改；内容会随卡片决定一并保存。</small></dd>';
     const locatorEvidence=locatorOnly&&options.length?'<dt>原注所指页面</dt><dd class="ca-source"><div>'+esc(optionLabel(option,chosen))+'</div><div class="cat-evidence-context">'+evidenceHtml(option.context,true)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原注所指页面 ↗</a></dd>':'';
     const readonlyEvidence=!locatorOnly&&options.length?'<dt>只读站内证据</dt><dd class="ca-source"><div>'+esc(optionLabel(option,chosen))+'</div><div class="cat-evidence-context">'+evidenceHtml(option.context,false)+'</div><a class="ca-source-link" href="'+esc(viewerUrl)+'" '+(viewerUrl?'':'hidden')+'>打开原文 ↗</a></dd>':'';
-    return '<article class="ca-candidate '+(effectiveReadonly?'cat-readonly':esc(candidate.decision))+'" data-id="'+candidate.id+'"><div class="ca-cand-head"><strong>'+esc(issueLabel(candidate))+'</strong>'+badges(candidate)+actions+'</div>'+viewpointNotice+scopeNotice+resultNotice+reasonNotice+'<dl><dt>实际核对文字</dt><dd class="ca-quote">'+esc(candidate.paper_text||'（无）')+'</dd>'+(candidate.existing_note_text?'<dt>原注</dt><dd>'+esc(candidate.existing_note_text)+'</dd>':'')+(effectiveReadonly?(locatorEvidence||readonlyEvidence):editableEvidence)+'</dl></article>';
+    return '<article class="ca-candidate '+(effectiveReadonly?'cat-readonly':esc(candidate.decision))+'" data-id="'+candidate.id+'" data-revision="'+esc(candidate.review_revision || '')+'"><div class="ca-cand-head"><strong>'+esc(issueLabel(candidate))+'</strong>'+badges(candidate)+actions+'</div>'+viewpointNotice+scopeNotice+resultNotice+reasonNotice+'<dl><dt>实际核对文字</dt><dd class="ca-quote">'+esc(candidate.paper_text||'（无）')+'</dd><dd class="cat-comparison">'+differenceHtml(option)+'</dd>'+(candidate.existing_note_text?'<dt>原注</dt><dd>'+esc(candidate.existing_note_text)+'</dd>':'')+(effectiveReadonly?(locatorEvidence||readonlyEvidence):editableEvidence)+'</dl></article>';
   }
   async function loadCandidates(){
     const query=new URLSearchParams({page:String(page),page_size:String(pageSize),bucket:'actionable'});if(decision)query.set('decision',decision);
-    try{const data=await api(apiBase+'/jobs/'+job.id+'/candidates?'+query);items=data.items||[];total=Number(data.total||0);summary=Object.assign(summary,data.summary||{});renderCandidates()}
+    const serial = ++requestNumber;
+    try{const data=await api(apiBase+'/jobs/'+job.id+'/candidates?'+query);if(serial!==requestNumber)return;items=data.items||[];total=Number(data.total||0);summary=Object.assign(summary,data.summary||{});renderCandidates()}
     catch(error){notice(error.message,true)}
   }
   function renderCandidates(){
@@ -144,6 +175,7 @@
       const card=select.closest('.ca-candidate'),link=card.querySelector('.ca-source-link'),url=sourceUrl(option,item.paper_text,false);
       card.querySelector('[data-field=citation]').value=citations[job.resolved_style||job.citation_style]||citations.gb2025||citations.gb2015||option.citation||'';
       card.querySelector('.cat-evidence-context').innerHTML=evidenceHtml(option.context,false);
+      card.querySelector('.cat-comparison').innerHTML=differenceHtml(option);
       link.href=url;link.hidden=!url;
     }));
     box.querySelectorAll('.cat-citation-edit').forEach(textarea=>{
@@ -156,44 +188,118 @@
     const values={catAgentVerified:job.agent_verified_count,catViewpointSuggestions:job.viewpoint_suggestion_count,catPending:summary.pending,catUnresolved:job.unresolved_count,catOutScope:job.out_of_scope_count,catNoEvidence:job.skipped_no_evidence_count,catPendingTab:summary.pending,catAcceptedTab:summary.accepted,catRejectedTab:summary.rejected,catAllTab:summary.total,catUnresolvedSummary:job.unresolved_count};
     Object.keys(values).forEach(id=>{const element=document.getElementById(id);if(element)element.textContent=Number(values[id]||0)});
     document.querySelectorAll('[data-cat-decision]').forEach(button=>button.classList.toggle('active',button.dataset.catDecision===decision));
-    $('#catPendingActions').hidden=decision!=='pending'||Number(summary.pending||0)===0;
+    $('#catPendingActions').hidden=job.status==='matching'||decision!=='pending'||Number(summary.pending||0)===0;
     const warning=$('#catAgentWarning');if(warning){
       if(job.agent_status==='budget_exhausted')warning.innerHTML='<div class="ca-warning"><b>深度补漏未完全覆盖</b><p>已达到时间或工具预算，未处理完的项目没有被伪装成完成。</p></div>';
       else if(job.agent_status==='degraded')warning.innerHTML='<div class="ca-warning"><b>Agent 已安全降级</b><p>模型、队列或结构校验未完成；确定性结果仍可正常审核和导出。</p></div>';
       else if(job.agent_status==='not_run')warning.innerHTML='<div class="ca-rule-note"><b>Agent 当前未运行</b><span>本次任务只包含确定性核验结果。</span></div>';
       else warning.innerHTML='';
     }
-    const exportButton=$('#catExport');if(exportButton)exportButton.textContent=exportButtonText();
+    const exportButton=$('#catExport');if(exportButton){exportButton.textContent=exportButtonText();exportButton.disabled=job.citation_style==='auto' && Number(job.style_confidence || 0)<0.8;}
   }
-  function payload(card,action){return {id:Number(card.dataset.id),decision:action,selected_option:Number((card.querySelector('[data-field=option]')||{}).value||0),proposed_citation:(card.querySelector('[data-field=citation]')||{}).value||''}}
-  async function decide(button){const card=button.closest('.ca-candidate');card.querySelectorAll('button').forEach(item=>item.disabled=true);await api(apiBase+'/jobs/'+job.id+'/decisions',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({decisions:[payload(card,button.dataset.action)]})});await loadCandidates()}
+  function payload(card,action){return {id:Number(card.dataset.id),review_revision:card.dataset.revision,decision:action,selected_option:Number((card.querySelector('[data-field=option]')||{}).value||0),proposed_citation:(card.querySelector('[data-field=citation]')||{}).value||''}}
+  async function decide(button){const card=button.closest('.ca-candidate');card.querySelectorAll('button').forEach(item=>item.disabled=true);try{await api(apiBase+'/jobs/'+job.id+'/decisions',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({decisions:[payload(card,button.dataset.action)]})});await loadCandidates()}catch(error){if(error.status===409)await loadCandidates();throw error}finally{card.querySelectorAll('button').forEach(item=>item.disabled=false)}}
   async function decidePending(value){const out=await api(apiBase+'/jobs/'+job.id+'/decisions/pending',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision:value})});notice('已处理 '+Number(out.updated||0)+' 条可操作候选。');page=1;await loadCandidates()}
   async function loadUnresolved(){
     const box=$('#catUnresolvedList');if(!box||box.dataset.loaded==='1')return;
-    try{const data=await api(apiBase+'/jobs/'+job.id+'/candidates?bucket=unresolved&page_size=200');box.dataset.loaded='1';box.innerHTML=(data.items||[]).length?(data.items||[]).map(item=>candidateHtml(item,true)).join(''):'<div class="ca-empty">没有未能核实项。</div>'}
+    try{const data=await api(apiBase+'/jobs/'+job.id+'/candidates?bucket=unresolved&page_size=200');unresolvedItems=data.items||[];box.dataset.loaded='1';box.innerHTML=(data.items||[]).length?(data.items||[]).map(item=>candidateHtml(item,true)).join(''):'<div class="ca-empty">没有未能核实项。</div>'}
     catch(error){notice(error.message,true)}
   }
   function setupReview(){
+    const styleBox = $('#catStylePanel');
+    styleBox.hidden = !(job.citation_style === 'auto' && Number(job.style_confidence || 0) < 0.8);
     $('#catReviewPanel').hidden=false;if(!reviewBound){reviewBound=true;
+      $('#catApplyStyle').onclick=async event=>{
+        const button=event.currentTarget;button.disabled=true;
+        try {
+          const out=await api(apiBase+'/jobs/'+job.id+'/citation-style',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({citation_style:$('#catReviewStyle').value})});
+          revision++;job=out.job;reviewStamp='';renderJob();
+        }catch(error){notice(error.message,true)}finally{button.disabled=false}
+      };
       document.querySelectorAll('[data-cat-decision]').forEach(button=>button.addEventListener('click',()=>{decision=button.dataset.catDecision||'';page=1;loadCandidates()}));
       $('#catPrev').addEventListener('click',()=>{if(page>1){page--;loadCandidates()}});$('#catNext').addEventListener('click',()=>{if(page*pageSize<total){page++;loadCandidates()}});
       $('#catAcceptPending').addEventListener('click',()=>decidePending('accepted').catch(error=>notice(error.message,true)));$('#catRejectPending').addEventListener('click',()=>decidePending('rejected').catch(error=>notice(error.message,true)));
       $('#catUnresolvedDetails').addEventListener('toggle',event=>{if(event.currentTarget.open)loadUnresolved()});
-      $('#catExport').addEventListener('click',async()=>{const button=$('#catExport');button.disabled=true;try{await api(apiBase+'/jobs/'+job.id+'/export',{method:'POST'});job.status='exporting';renderJob();startPolling()}catch(error){notice(error.message,true);button.disabled=false}});
-    }loadCandidates();
+      $('#catExport').addEventListener('click',async()=>{const button=$('#catExport');button.disabled=true;try{const out=await api(apiBase+'/jobs/'+job.id+'/export',{method:'POST'});revision++;job=out.job || {...job,status:'exporting'};renderJob();startPolling()}catch(error){notice(error.message,true);button.disabled=false}});
+    }
+    const stamp = [job.candidate_count, job.status, job.last_progress_at].join('|');
+    if (stamp !== reviewStamp && !$('#catCandidateList').contains(document.activeElement) && !$('#catCandidateList').querySelector('[data-dirty]')) {
+      reviewStamp = stamp;
+      loadCandidates();
+      $('#catUnresolvedList').dataset.loaded = '';
+      if ($('#catUnresolvedDetails').open) loadUnresolved();
+    } else renderSummary();
   }
-  function renderDownloads(){const box=$('#catDownloads');box.hidden=false;box.className='ca-downloads';const wordText=job.mode==='generate'?'新增上标、标号和注文均为浅蓝色':(job.mode==='audit'?'原脚注未改动，意见写入正文批注':'同一副本含浅蓝色插注和正文校注批注');const counts='自动插注 '+Number(job.inserted_count||0)+' 条，未插入 '+Number(job.not_inserted_count||0)+' 条；正文批注 '+Number(job.commented_count||0)+' 条，只读 '+Number(job.readonly_count||0)+' 条。';const pdfFailed=['failed','position_failed'].includes(job.pdf_export_status),pdfConverting=job.pdf_export_status==='converting',heading=pdfFailed?'Word 已完成，PDF 未完成':(pdfConverting?'Word 已完成，PDF 正在生成':'输出文件已生成');let html='<div style="width:100%"><h3>'+heading+'</h3><p>只读清单没有进入这些文件；上传原稿保持不变。'+counts+'</p>'+(job.error?'<p class="ca-warning">'+esc(job.error)+'</p>':'')+'</div>'+(job.docx_url?'<a class="ca-download" href="'+esc(withPreviewIdentity(job.docx_url))+'"><b>下载 Word</b><span>'+wordText+'</span></a>':'')+(job.pdf_url?'<a class="ca-download" href="'+esc(withPreviewIdentity(job.pdf_url))+'"><b>下载批注 PDF</b><span>从最终 Word 转换，批注已精确定位</span></a>':'');if(pdfConverting)html+='<div class="ca-rule-note" style="width:100%">PDF 正在从已生成的最终 Word 单独重建。</div>';if(job.docx_url&&job.mode!=='generate'&&pdfFailed)html+='<button type="button" id="catRetryPdf">单独重试 PDF</button>';box.innerHTML=html;const retry=$('#catRetryPdf');if(retry)retry.addEventListener('click',async()=>{retry.disabled=true;try{const out=await api(apiBase+'/jobs/'+job.id+'/retry-pdf',{method:'POST'});job=out.job||job;job.status='exporting';job.pdf_export_status='converting';renderJob();startPolling()}catch(error){notice(error.message,true);retry.disabled=false}})}
+  function renderDownloads(){const box=$('#catDownloads');box.hidden=false;box.className='ca-downloads';const wordText=job.mode==='generate'?'新增上标、标号和注文均为浅蓝色':(job.mode==='audit'?'原脚注未改动，意见写入正文批注':'同一副本含浅蓝色插注和正文校注批注');const counts='实际插注 '+Number(job.inserted_count||0)+' 条，未插入 '+Number(job.not_inserted_count||0)+' 条；正文批注 '+Number(job.commented_count||0)+' 条，只读 '+Number(job.readonly_count||0)+' 条。';const pdfFailed=['failed','position_failed'].includes(job.pdf_export_status),pdfConverting=job.pdf_export_status==='converting',heading=pdfFailed?'Word 已完成，PDF 未完成':(pdfConverting?'Word 已完成，PDF 正在生成':'输出文件已生成');let html='<div style="width:100%"><h3>'+heading+'</h3><p>只读清单没有进入这些文件；上传原稿保持不变。'+counts+'</p>'+(job.error?'<p class="ca-warning">'+esc(job.error)+'</p>':'')+'</div>'+(job.docx_url?'<a class="ca-download" href="'+esc(withPreviewIdentity(job.docx_url))+'"><b>下载 Word</b><span>'+wordText+'</span></a>':'')+(job.pdf_url?'<a class="ca-download" href="'+esc(withPreviewIdentity(job.pdf_url))+'"><b>下载批注 PDF</b><span>从最终 Word 转换，批注已精确定位</span></a>':'');if(pdfConverting)html+='<div class="ca-rule-note" style="width:100%">PDF 正在从已生成的最终 Word 单独重建。</div>';if(job.docx_url&&job.mode!=='generate'&&pdfFailed)html+='<button type="button" id="catRetryPdf">单独重试 PDF</button>';box.innerHTML=html;const retry=$('#catRetryPdf');if(retry)retry.addEventListener('click',async()=>{retry.disabled=true;try{const out=await api(apiBase+'/jobs/'+job.id+'/retry-pdf',{method:'POST'});job=out.job||job;job.status='exporting';job.pdf_export_status='converting';renderJob();startPolling()}catch(error){notice(error.message,true);retry.disabled=false}})}
   function renderJob(){
     const status=$('#catStatusPanel'),sections=$('#catSectionsPanel'),review=$('#catReviewPanel'),downloads=$('#catDownloads');if(!status)return;sections.hidden=true;review.hidden=true;downloads.hidden=true;renderTimeline();
-    if(['extracting','queued','matching','exporting'].includes(job.status)){status.innerHTML=progressHtml();if(job.status==='exporting'&&job.word_export_status==='ready')renderDownloads()}
+    $('#catStop').hidden=!['queued','extracting','matching'].includes(job.status);
+    $('#catResume').hidden=!job.resumable || job.status==='exporting';
+    if(['extracting','queued','matching','exporting'].includes(job.status)){status.innerHTML=progressHtml();if(job.partial_results && job.status==='matching')setupReview();if(job.status==='exporting'&&job.word_export_status==='ready')renderDownloads()}
     else if(job.status==='awaiting_sections'){status.innerHTML='';renderSections()}
     else if(job.status==='review_ready'){status.innerHTML='';setupReview()}
+    else if(job.status==='stopped'){status.innerHTML=progressHtml();if(job.partial_results)setupReview()}
     else if(job.status==='complete'){status.innerHTML='';renderDownloads()}
     else if(job.status==='failed')status.innerHTML='<div class="ca-errorbox"><b>任务未完成</b><p>'+esc(job.error||'处理时发生错误。')+'</p></div>';
     else status.innerHTML='<div class="ca-status"><h3>'+esc(statusLabels[job.status]||job.status)+'</h3></div>';
   }
-  async function refresh(){try{const out=await api(apiBase+'/jobs/'+job.id);job=out.job;renderJob();if(!['extracting','queued','matching','exporting'].includes(job.status)){clearInterval(poll);poll=null}}catch(error){clearInterval(poll);poll=null;notice(error.message,true)}}
-  function startPolling(){if(!poll)poll=setInterval(refresh,1800)}
-  function setupJob(){renderJob();if(['extracting','queued','matching','exporting'].includes(job.status))startPolling();$('#catDeleteJob').addEventListener('click',async()=>{if(!confirm('确定删除这个任务及其文件吗？'))return;try{await api(apiBase+'/jobs/'+job.id,{method:'DELETE'});location.href=withPreviewIdentity('/citation-agent')}catch(error){notice(error.message,true)}})}
+  async function refresh(){
+    if(polling) return;
+    polling = true;
+    const version = revision;
+    const connection = $('#catConnection');
+    try {
+      const out = await api(apiBase+'/jobs/'+job.id);
+      if(version === revision) { job = out.job; renderJob(); }
+      failures = 0;
+      connection.hidden = true;
+    } catch(error) {
+      const labels = {401:'请重新登录后打开此任务。',403:'当前账号没有此任务的访问权限。',404:'任务已删除或过期。'};
+      connection.textContent = labels[error.status] || '暂时无法读取进度，正在重新连接。';
+      connection.hidden = false;
+      if(labels[error.status]) { polling=false; return; }
+      failures++;
+    } finally { polling=false; }
+    if(active()) startPolling();
+  }
+  function startPolling(){
+    if(poll === null && !polling) poll = setTimeout(() => {
+      poll=null; refresh();
+    }, failures ? Math.min(15000,2000 * Math.pow(2,failures-1)) : 1800);
+  }
+  async function control(action, button) {
+    button.disabled = true;
+    try {
+      const out = await api(apiBase+'/jobs/'+job.id+'/'+action, {method:'POST'});
+      revision++; job=out.job; reviewStamp=''; renderJob(); if(active())startPolling();
+    } catch(error) { notice(error.message,true); } finally { button.disabled=false; }
+  }
+  async function reportDifference(button) {
+    const card = button.closest('.ca-candidate');
+    const item = items.find(c => String(c.id) === card.dataset.id) || unresolvedItems.find(c => String(c.id) === card.dataset.id);
+    if(!item)return;
+    const select = card.querySelector('[data-field=option]');
+    const option = item.source_options[Number(select ? select.value : item.selected_option || 0)];
+    if(!option || !option.quote_evidence || option.personal || option.private_source)return;
+    if(!confirm('将原书页码、差异字词和语料版本提交给管理员核对？'))return;
+    const ev = option.quote_evidence;
+    button.disabled = true;
+    try {
+      const differences = ev.differences.map(d => (d.source || '〔无〕')+' → '+(d.paper || '〔无〕'));
+      await api('/api/reader/report-page-error',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        reader:'viewer',issue_type:'text_error',book:option.display_title,volume:option.volume,
+        page:(option.printed_pages||[])[0],source_ref:option.source_file,citation:option.citation,
+        snippet:ev.source_text,note:'引文对照线索 '+differences.join('、')+'；语料版本 '+job.corpus_sha256
+      })});
+      button.textContent='已提交核对';
+    } catch(error){button.disabled=false;notice(error.message,true)}
+  }
+  function setupJob(){
+    renderJob(); if(active())startPolling();
+    $('#catStop').onclick=e=>control('stop',e.currentTarget);
+    $('#catResume').onclick=e=>control('resume',e.currentTarget);
+    root.addEventListener('click',e=>{const button=e.target.closest('[data-report]');if(button)reportDifference(button)});
+    root.addEventListener('input',e=>{const card=e.target.closest('.ca-candidate');if(card)card.dataset.dirty='1'});
+    $('#catDeleteJob').addEventListener('click',async()=>{if(!confirm('确定删除这个任务及其文件吗？'))return;try{await api(apiBase+'/jobs/'+job.id,{method:'DELETE'});location.href=withPreviewIdentity('/citation-agent')}catch(error){notice(error.message,true)}})}
   if(job&&job.id)setupJob();else{if(hasAccess)setupUpload();renderHistory()}
 })();

@@ -3,6 +3,8 @@ from __future__ import annotations
 """Private-network deterministic worker for the administrator Agent test lane."""
 
 import argparse
+import multiprocessing
+from datetime import timedelta
 import os
 import signal
 import socket
@@ -16,6 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import citation_agent_queue  # noqa: E402
+import citation_job_execution as execution  # noqa: E402
 import citation_agent_bridge  # noqa: E402
 import citation_agent_test_backend as tasks  # noqa: E402
 import citation_agent_test_runtime as runtime  # noqa: E402
@@ -66,13 +70,11 @@ def _analysis(job_id: str, corpus_sha256: str, template_version: str) -> None:
         if job.get("template_version") != template_version:
             raise tasks.CitationAssistantError(TEMPLATE_ANALYSIS_VERSION_ERROR)
         mode = str(os.environ.get("CITATION_AGENT_TEST_MODE") or "off").strip().lower()
-        # This deployment is intentionally incapable of a member rollout.  A future
-        # approval release must add that lane explicitly rather than flipping a typo.
-        agent_callback = citation_agent_bridge.make_callback(corpus) if mode == "admin_live" else None
+        agent_callback = citation_agent_bridge.make_callback(corpus) if mode in {"admin_live", "live"} else None
         options={}
         ancestor=append_ancestors(corpus_sha256).get(job.get('corpus_sha256'))
         scope=list(job.get('scope') or [])
-        if ancestor and not [s for s in scope if not str(s).startswith('mylib:')]:
+        if ancestor and not scope:
             options['scope_override']=scope+['book:'+b for b in ancestor['books']]
         tasks.run_analysis(
             job_id, corpus, personal_callback=runtime.personal_callback(job),
@@ -94,6 +96,102 @@ def _export(job_id: str, corpus_sha256: str, template_version: str) -> None:
         tasks.run_export(job_id)
     except Exception as exc:
         tasks.update_job(job_id, status="failed", error=str(exc)[:500])
+
+
+def _execute_stage(job, corpus_sha256, template_version):
+    # In Linux production fork shares the loaded read-only corpus. Isolate native
+    # calls and LibreOffice in this process group so the supervisor can bound them.
+    if os.name == "posix":
+        os.setsid()
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    tasks.init_db()
+    with execution.worker_claim(job):
+        stage = job["claimed_stage"]
+        if stage == "extracting":
+            tasks.run_extraction(job["id"])
+        elif stage in {"queued","matching"}:
+            _analysis(job["id"], corpus_sha256, template_version)
+        else:
+            _export(job["id"], corpus_sha256, template_version)
+
+
+def _terminate_stage(process):
+    if process.is_alive():
+        try:
+            if os.name == "posix" and os.getpgid(process.pid) == process.pid:
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+        except ProcessLookupError:
+            pass
+    process.join()
+
+
+def _supervise(job, corpus_sha256, template_version):
+    ctx = multiprocessing.get_context("fork" if os.name == "posix" else "spawn")
+    child = ctx.Process(target=_execute_stage, args=(job, corpus_sha256, template_version))
+    child.start()
+    stage = job["claimed_stage"]
+    phase = {"queued":"matching"}.get(stage,stage)
+    limit = {"extracting":60,"matching":180,"agent":180,"exporting":360}
+    started = time.monotonic()
+    last_renewed = started - 10
+    try:
+        while child.is_alive():
+            now = time.monotonic()
+            with tasks.core._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("SELECT * FROM citation_assistant_jobs WHERE id=?",(job["id"],)).fetchone()
+                if (not row or row["lease_owner"] != job["lease_owner"] or
+                    row["execution_generation"] != job["execution_generation"] or
+                    row["expires_at"] <= tasks.core._iso() or row["status"] not in {"extracting","matching","exporting"}):
+                    break
+                if stage in {"queued","matching"} and phase == "matching" and row["analysis_stage"] in {
+                    "agent_planning","local_verification","agent_verification","finalizing"
+                }:
+                    phase = "agent"
+                    started = now
+                if now - started >= limit[phase]:
+                    if phase == "exporting" and row["word_export_status"] == "ready":
+                        conn.execute("""UPDATE citation_assistant_jobs SET status='complete',lease_owner='',
+                            lease_expires_at='',pdf_export_status='failed',output_pdf_path='',
+                            error='Word 已完成，PDF 生成超时，可以单独重试。',updated_at=? WHERE id=?""",
+                            (tasks.core._iso(),job["id"]))
+                    else:
+                        execution.interrupt(conn,tasks.core,row,phase+"_timeout","本阶段已超时，已保留完成的结果。")
+                    break
+                if now - last_renewed >= 10:
+                    stamp = tasks.core._utcnow()
+                    conn.execute("UPDATE citation_assistant_jobs SET heartbeat_at=?,lease_expires_at=? WHERE id=?",
+                                 (tasks.core._iso(stamp),tasks.core._iso(stamp+timedelta(seconds=60)),job["id"]))
+                    citation_agent_queue.write_worker_ready()
+                    last_renewed = now
+            child.join(timeout=1)
+    finally:
+        try:
+            _terminate_stage(child)
+        finally:
+            child.close()
+    # A crashed child leaves its stage and checkpoint intact. All subsequent
+    # claims (including crashes of this supervisor) use the same recovery limit.
+    with tasks.core._connect() as conn:
+        conn.execute("UPDATE citation_assistant_jobs SET lease_expires_at=? "
+                     "WHERE id=? AND lease_owner=? AND execution_generation=?",
+                     (tasks.core._iso(),job["id"],job["lease_owner"],job["execution_generation"]))
+
+
+def _retire_incompatible(corpus_versions, template):
+    versions = list(corpus_versions)
+    placeholders = ",".join("?" for _ in versions)
+    with tasks.core._connect() as conn:
+        conn.execute(f"""UPDATE citation_assistant_jobs SET status='failed',
+            error=CASE WHEN template_version!=? THEN ? ELSE ? END,execution_reason='incompatible_version',
+            lease_owner='',lease_expires_at='',resumable=0,updated_at=?
+            WHERE status IN ('extracting','queued','matching','exporting','stopped') AND expires_at>?
+            AND (lease_owner='' OR lease_expires_at<=?)
+            AND (template_version!=? OR corpus_sha256 NOT IN ({placeholders}))""",
+            (template,TEMPLATE_ANALYSIS_VERSION_ERROR,CORPUS_ANALYSIS_VERSION_ERROR,
+             tasks.core._iso(), tasks.core._iso(), tasks.core._iso(),template,*versions))
 
 
 def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
@@ -127,19 +225,22 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
             f"citation Agent test worker queued PDF-only recovery jobs={recovered_pdf}",
             flush=True,
         )
+    last_ready = 0.0
+    last_maintenance = 0.0
     while True:
         if _STOP_REQUESTED:
             return processed
         _reload_if_runtime_changed(loaded_fingerprint, loaded_template_version)
-        ancestors=append_ancestors(loaded_corpus_sha256)
-        claim=tasks.claim_next_job
-        if ancestors:
-            from ingestion.claims import citation
-            def claim(*args,**kwargs):
-                return citation(tasks.core,[loaded_corpus_sha256,*ancestors],*args,**kwargs)
-        job = claim(
-            worker_id,
-            lease_seconds=900,
+        now = time.monotonic()
+        ancestors = append_ancestors(loaded_corpus_sha256)
+        if now - last_ready >= 10 or not last_ready:
+            citation_agent_queue.write_worker_ready()
+            last_ready = now
+        if now - last_maintenance >= 3600 or not last_maintenance:
+            _retire_incompatible([loaded_corpus_sha256,*ancestors],loaded_template_version)
+            last_maintenance = now
+        job = tasks.claim_next_job(
+            worker_id, lease_seconds=60, ancestors=ancestors,
             corpus_sha256=loaded_corpus_sha256,
             template_version=loaded_template_version,
         )
@@ -148,14 +249,7 @@ def run(*, once: bool = False, poll_seconds: float = 2.0) -> int:
                 return processed
             time.sleep(max(0.5, poll_seconds))
             continue
-        job_id = str(job["id"])
-        stage = str(job.get("claimed_stage") or job.get("status") or "")
-        if stage == "extracting":
-            tasks.run_extraction(job_id)
-        elif stage in {"queued", "matching"}:
-            _analysis(job_id, loaded_corpus_sha256, loaded_template_version)
-        elif stage == "exporting":
-            _export(job_id, loaded_corpus_sha256, loaded_template_version)
+        _supervise(job, loaded_corpus_sha256, loaded_template_version)
         processed += 1
         if once or _STOP_REQUESTED:
             return processed

@@ -5,6 +5,7 @@ After=network-online.target
 RequiresMountsFor=/var/www/.marx_search_full/journal
 
 [Service]
+Environment=CITATION_WORKER_READY_REQUIRED=1
 Type=simple
 User=www-data
 Group=www-data

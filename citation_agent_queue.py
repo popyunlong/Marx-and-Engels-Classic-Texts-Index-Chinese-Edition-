@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -28,6 +29,33 @@ _FORBIDDEN_KEYS = {
 
 class AgentQueueError(ValueError):
     pass
+
+
+def write_worker_ready() -> None:
+    filename = os.environ.get("CITATION_READY_FILE")
+    if filename:
+        target = Path(filename)
+        staging = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        staging.write_text(json.dumps({"protocol": 2, "pid": os.getpid(), "time": time.time()}), encoding="utf-8")
+        os.replace(staging, target)
+
+
+@contextmanager
+def ready_heartbeat():
+    write_worker_ready()
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(10):
+            write_worker_ready()
+
+    thread = threading.Thread(target=beat, daemon=True, name="citation-agent-heartbeat")
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
 
 
 def _iso(value: datetime | None = None) -> str:
@@ -112,6 +140,9 @@ def validate_request(payload: dict) -> dict:
     }
     if set(payload) - allowed_top:
         raise AgentQueueError("Agent 请求包含未授权字段。")
+    version = payload.get("protocol_version", 1)
+    if type(version) is not int or version not in (1, 2):
+        raise AgentQueueError("不支持的 Agent 协议版本。")
     depth = str(payload.get("recognition_depth") or "direct_only")
     if depth not in {"direct_only", "direct_and_paraphrase"}:
         raise AgentQueueError("识别深度无效。")
@@ -123,16 +154,21 @@ def validate_request(payload: dict) -> dict:
         raise AgentQueueError("Agent 规划强度无效。")
     books = payload.get("allowed_public_books") or []
     personal = payload.get("personal_source_ids") or []
-    if not isinstance(books, list) or len(books) > 100 or not all(_BOOK_KEY_RE.fullmatch(str(x)) for x in books):
+    limit = 500 if version == 2 else 100
+    book_pattern = _OPAQUE_ID_RE if version == 2 else _BOOK_KEY_RE
+    if not isinstance(books, list) or len(books) > limit or not all(book_pattern.fullmatch(str(x)) for x in books):
         raise AgentQueueError("公共书库键无效。")
-    if not isinstance(personal, list) or len(personal) > 100 or not all(_OPAQUE_ID_RE.fullmatch(str(x)) for x in personal):
+    if not isinstance(personal, list) or len(personal) > limit or not all(_OPAQUE_ID_RE.fullmatch(str(x)) for x in personal):
         raise AgentQueueError("个人书编号无效。")
     records = payload.get("records") or []
     if not isinstance(records, list) or not 1 <= len(records) <= MAX_BATCH_RECORDS:
         raise AgentQueueError("每批记录必须为 1—8 条。")
     clean_records: list[dict] = []
+    record_fields = {"record_id", "kind", "fragment"}
+    if version == 2:
+        record_fields.update({"evidence", "surrounding"})
     for item in records:
-        if not isinstance(item, dict) or set(item) - {"record_id", "kind", "fragment"}:
+        if not isinstance(item, dict) or set(item) - record_fields:
             raise AgentQueueError("脱敏记录结构无效。")
         record_id = str(item.get("record_id") or "")
         kind = str(item.get("kind") or "direct")
@@ -142,6 +178,26 @@ def validate_request(payload: dict) -> dict:
         if not fragment or len(fragment) > MAX_FRAGMENT_CHARS:
             raise AgentQueueError("脱敏片段为空或超出 320 字。")
         clean_records.append({"record_id": record_id, "kind": kind, "fragment": fragment})
+        if version == 2:
+            excerpts = item.get("evidence", [])
+            if not isinstance(excerpts, list) or len(excerpts) > 3:
+                raise AgentQueueError("候选证据超出范围。")
+            seen = set()
+            for candidate in excerpts:
+                if not isinstance(candidate, dict) or set(candidate) != {"candidate_id", "quotation", "excerpt"}:
+                    raise AgentQueueError("候选证据字段无效。")
+                cid = candidate["candidate_id"]
+                if not isinstance(cid, str) or cid in seen or not _OPAQUE_ID_RE.fullmatch(cid):
+                    raise AgentQueueError("候选证据编号无效。")
+                seen.add(cid)
+                if not all(isinstance(candidate[k], str) and 0 < len(candidate[k]) <= 320 for k in ("quotation", "excerpt")):
+                    raise AgentQueueError("证据片段长度无效。")
+            surrounding = item.get("surrounding", "")
+            if not isinstance(surrounding, str) or len(surrounding) > 96:
+                raise AgentQueueError("引文上下文长度无效。")
+            clean_records[-1].update(evidence=excerpts, surrounding=surrounding)
+    if len({r["record_id"] for r in clean_records}) != len(clean_records):
+        raise AgentQueueError("批次内记录编号重复。")
     observations = payload.get("observations") or []
     if not isinstance(observations, list) or len(observations) > MAX_ACTIONS_PER_RESPONSE:
         raise AgentQueueError("观察结果数量无效。")
@@ -173,7 +229,7 @@ def validate_request(payload: dict) -> dict:
             "result": result,
         })
     return {
-        "protocol_version": 1,
+        "protocol_version": version,
         "prompt_version": str(payload.get("prompt_version") or "citation-agent-v1")[:80],
         "round": round_no,
         "planning_effort": planning_effort,
@@ -186,7 +242,9 @@ def validate_request(payload: dict) -> dict:
 
 
 def validate_response(payload: dict, request_payload: dict) -> dict:
-    if not isinstance(payload, dict) or set(payload) - {"actions"}:
+    version_two = request_payload.get("protocol_version") == 2
+    fields = {"actions", "verdicts"} if version_two else {"actions"}
+    if not isinstance(payload, dict) or set(payload) - fields:
         raise AgentQueueError("Agent 回答必须只包含 actions。")
     actions = payload.get("actions") or []
     if not isinstance(actions, list) or len(actions) > MAX_ACTIONS_PER_RESPONSE:
@@ -232,7 +290,22 @@ def validate_response(payload: dict, request_payload: dict) -> dict:
             "action_id": action_id, "record_id": record_id, "tool": tool,
             "fragment": fragment, "keywords": keywords,
         })
-    return {"actions": clean}
+    if not version_two:
+        return {"actions": clean}
+    verdicts = payload.get("verdicts", [])
+    if not isinstance(verdicts, list) or len(verdicts) > 3 * MAX_BATCH_RECORDS:
+        raise AgentQueueError("核验证据条数无效。")
+    allowed = {(r["record_id"], e["candidate_id"]) for r in record_map.values() for e in r.get("evidence", [])}
+    for verdict in verdicts:
+        if not isinstance(verdict, dict) or set(verdict) != {"record_id", "candidate_id", "judgment"}:
+            raise AgentQueueError("证据判断结构无效。")
+        pair = verdict["record_id"], verdict["candidate_id"]
+        if not all(isinstance(x, str) for x in pair) or pair not in allowed:
+            raise AgentQueueError("判断未绑定到本轮候选。")
+        allowed.remove(pair)
+        if verdict["judgment"] not in ("minor_difference", "meaning_changed", "uncertain"):
+            raise AgentQueueError("证据判断无效。")
+    return {"actions": clean, "verdicts": verdicts}
 
 
 def enqueue(payload: dict, *, ttl_seconds: int = 180, path: Path = QUEUE_PATH) -> str:
@@ -280,7 +353,8 @@ def claim(worker_id: str, *, lease_seconds: int = 120, path: Path = QUEUE_PATH) 
         conn.commit()
     if not changed:
         return None
-    return {"id": str(row["id"]), "request": json.loads(str(row["request_json"] or "{}"))}
+    return {"id": str(row["id"]), "request": json.loads(str(row["request_json"] or "{}")),
+            "expires_at": str(row["expires_at"])}
 
 
 def complete(task_id: str, worker_id: str, response: dict, *, path: Path = QUEUE_PATH) -> None:
@@ -329,9 +403,11 @@ def result(task_id: str, *, path: Path = QUEUE_PATH) -> dict | None:
     return {"status": status, "response": response, "error_code": str(row["error_code"] or "")}
 
 
-def wait_result(task_id: str, *, timeout_seconds: float, path: Path = QUEUE_PATH) -> dict:
+def wait_result(task_id: str, *, timeout_seconds: float, path: Path = QUEUE_PATH, check_active=None) -> dict:
     deadline = time.monotonic() + max(0.1, float(timeout_seconds))
     while time.monotonic() < deadline:
+        if check_active:
+            check_active()
         current = result(task_id, path=path) or {}
         if current.get("status") in {"complete", "failed", "expired", "missing"}:
             return current

@@ -31,6 +31,8 @@ import fitz
 from lxml import etree
 from rapidfuzz.distance import Levenshtein
 
+import citation_quote_evidence as quote_evidence
+
 from build_index import normalize
 from citation_styles import CITATION_FORMAT_KEYS
 from runtime_env import APPDATA_DIR
@@ -91,6 +93,8 @@ LEGACY_PDF_RECOVERY_ERROR_PREFIXES = (
 REASON_LABELS = {
     "exact_text": "逐字核对一致",
     "near_text_requires_review": "文字接近，仍需人工复核",
+    "verified_minor_difference": "全文与原书已对齐，AI 已核对轻微文字差异",
+    "manual_insert_after_review": "逐项确认所选出处后可插注",
     "paraphrase_never_auto": "属于观点转述，不会自动采用",
     "reference_field_disambiguated": "已通过参考文献交叉核对出处",
     "multiple_reprints": "存在多个转载或版本，需人工选择",
@@ -1478,7 +1482,7 @@ def _norm_offset_for_raw(raw_map: list[int], raw_offset: int) -> int:
 
 def _selected_volumes(corpus, scope_tokens: list[str]) -> tuple[dict[str, set[int] | None], list]:
     public_tokens = [str(t) for t in scope_tokens if not str(t).startswith("mylib:")]
-    if not public_tokens:
+    if not public_tokens and not scope_tokens:
         # The assistant serves papers across the whole public collection.  An
         # empty selector therefore means “all public books”, not only the five
         # Marx/Engels collections; exact uniqueness still governs auto-adoption.
@@ -1535,7 +1539,7 @@ def _phrase_records(
             start, end = match.span(1)
             quoted_spans.append((start, end))
             qnorm = normalize(match.group(1))
-            if len(qnorm) < 12:
+            if len(qnorm) < (10 if include_readonly_structures else 12):
                 continue
             nstart = _norm_offset_for_raw(pmap, start)
             nend = _norm_offset_for_raw(pmap, end)
@@ -1750,10 +1754,13 @@ def _option_from_hit(hit, *, personal: bool = False, personal_confidence: float 
         "pdf_pages": pdf_pages,
         "printed_pages": item.get("printed_pages") or [],
         "section_title": item.get("section_title") or "",
+        "norm_start": getattr(hit, "norm_start", item.get("norm_start")),
+        "norm_end": getattr(hit, "norm_end", item.get("norm_end")),
         "work_title": item.get("work_title") or "",
         "work_authors": item.get("work_authors") or [],
         "work_date": item.get("work_date") or "",
         "work_end_pdf_page": item.get("work_end_pdf_page"),
+        "page_id": item.get("page_id"),
         "page_refs": item.get("page_refs") or [],
         "page_location": item.get("page_location") or "",
         "context": item.get("context") or "",
@@ -1829,6 +1836,10 @@ def choose_citation_style(job_id: str, user_id: int, style: str) -> dict:
 def _is_reliable_page(option: dict) -> bool:
     printed = [str(x or "") for x in (option.get("printed_pages") or [])]
     if option.get("personal") and float(option.get("page_confidence") or 0) < 0.70:
+        return False
+    refs = option.get("page_refs") or []
+    if refs and any(not ref.get("printed_page") or ref.get("status") in
+                    {"needs_review", "source_error", "unnumbered"} for ref in refs):
         return False
     return bool(printed and all(x and not x.startswith("pre-") for x in printed))
 
@@ -2090,8 +2101,8 @@ def _reference_disambiguate_options(
 def _locate_ellipsis_quote(corpus, text: str, scope_spec: dict) -> list:
     """Match every ellipsis-separated segment in order inside one source window."""
     raw_segments = re.split(r"(?:\.{3,}|…+|⋯+)", str(text or ""))
-    segments = [normalize(segment) for segment in raw_segments if len(normalize(segment)) >= 6]
-    if len(segments) < 2:
+    segments = [normalize(segment) for segment in raw_segments if normalize(segment)]
+    if len(segments) < 2 or any(len(segment) < 6 for segment in segments):
         return []
     hits: list = []
     for book, allowed in scope_spec.items():
@@ -2130,6 +2141,7 @@ def _existing_note_candidate(
     scope_spec: dict,
     style: str,
     previous_option: dict | None = None,
+    verified_by_text: dict | None = None,
 ) -> dict:
     text = str(paragraph.get("text") or "")
     offset = max(0, min(int(note.get("offset") or 0), len(text)))
@@ -2167,8 +2179,12 @@ def _existing_note_candidate(
                     lookup_scope = {mentioned_book: {inherited_volume}}
             else:
                 lookup_scope = {mentioned_book: allowed}
+    # Direct quotations and existing notes share the same batch retrieval. Short
+    # anchors and explicit omissions retain their specialized legacy locators.
+    use_batch = (verified_by_text is not None and len(normalize(anchor_text)) >= 10
+                 and not re.search(r"…|⋯|\.{3,}", anchor_text))
     hits = []
-    if can_search:
+    if can_search and not use_batch:
         hits = _locate_ellipsis_quote(corpus, anchor_text, lookup_scope)
         if not hits:
             hits = corpus.locate_quote(
@@ -2179,7 +2195,7 @@ def _existing_note_candidate(
     # classified as wrong_source/wrong_version.  Search the wider user-selected
     # scope for exact copies, and only pay for a wider fuzzy scan when the claimed
     # source did not yield a textual match.
-    if can_search and mentioned_book and lookup_scope != scope_spec:
+    if can_search and not use_batch and mentioned_book and lookup_scope != scope_spec:
         narrow_exact = any(str(getattr(hit, "match_type", "")) == "exact" for hit in hits)
         if not narrow_exact:
             wider_exact = corpus.locate_quote(
@@ -2201,6 +2217,8 @@ def _existing_note_candidate(
         if sig not in seen:
             seen.add(sig)
             options.append(option)
+    if use_batch and can_search:
+        options = copy.deepcopy(verified_by_text.get(anchor_text) or [])
     options = _prefer_exact_options(options)
     options, reference_disambiguated = _reference_disambiguate_options(options, note_text, corpus)
     locator_only = False
@@ -2291,6 +2309,8 @@ def analyze_extraction(
     personal_callback: Callable[[list[dict], list[str], str], list[dict]] | None = None,
     shadow_callback: Callable[[list[dict], list[dict], list[str]], None] | None = None,
     include_readonly_structures: bool = False,
+    previous_note_options: dict | None = None,
+    check_active: Callable[[], None] | None = None,
 ) -> tuple[list[dict], str, float]:
     selected = {str(x) for x in selected_sections}
     paragraphs = list(extracted.get("paragraphs") or [])
@@ -2306,8 +2326,13 @@ def analyze_extraction(
         include_readonly_structures=include_readonly_structures,
     )
     if mode in {"generate", "both"} and records and volumes:
-        seeds = _seed_records(records)
-        review_seeds = _review_seed_records(records)
+        # The Agent validates explicit quotations in one batch across its frozen scope.
+        # Raw spans and completeness stay attached to the selected source option.
+        other_records = [
+            record for record in records if not (include_readonly_structures and record["quoted"])
+        ]
+        seeds = _seed_records(other_records)
+        review_seeds = _review_seed_records(other_records)
         grouped: dict[tuple[int, int, int], dict] = {}
         seed_occurrences: dict[tuple[str, str], int] = defaultdict(int)
         review_occurrences: dict[tuple[str, str], int] = defaultdict(int)
@@ -2316,9 +2341,13 @@ def analyze_extraction(
         review_matcher = _build_seed_matcher(review_seeds)
         total = max(1, len(volumes))
         for vindex, volume in enumerate(volumes, start=1):
+            if check_active:
+                check_active()
             if progress:
                 progress(vindex - 1, total)
-            for source_seed_start, seed in _iter_seed_hits(volume.norm_full, seeds, matcher):
+            for hit_idx, (source_seed_start, seed) in enumerate(_iter_seed_hits(volume.norm_full, seeds, matcher)):
+                if check_active and hit_idx % 64 == 0:
+                    check_active()
                 freq_key = (str(volume.source_file), seed)
                 seed_occurrences[freq_key] += 1
                 if seed_occurrences[freq_key] > 40:
@@ -2377,7 +2406,9 @@ def analyze_extraction(
             # full quotation/sentence must then pass >=92% edit-distance review.
             # Keep the paper span whole so notes are never inserted mid-quote.
             per_record_volume: dict[tuple, int] = defaultdict(int)
-            for source_seed_start, seed in _iter_seed_hits(volume.norm_full, review_seeds, review_matcher):
+            for hit_idx, (source_seed_start, seed) in enumerate(_iter_seed_hits(volume.norm_full, review_seeds, review_matcher)):
+                if check_active and hit_idx % 64 == 0:
+                    check_active()
                 freq_key = (str(volume.source_file), seed)
                 review_occurrences[freq_key] += 1
                 if review_occurrences[freq_key] > 80:
@@ -2428,6 +2459,25 @@ def analyze_extraction(
                     if not existing or existing.get("match_type") != "exact":
                         entry["options"][signature] = option
 
+        if include_readonly_structures:
+            quoted = [r for r in records if r.get("quoted")]
+            verified = quote_evidence.verify_many(
+                corpus, volumes, [r["raw_text"] for r in quoted], check_active=check_active,
+            )
+            private_scope = any(t.startswith(("mylib:", "book:mylib:")) for t in scope_tokens)
+            for record in quoted:
+                options = verified.get(record["raw_text"]) or []
+                if not options:
+                    continue
+                if private_scope:
+                    for opt in options:
+                        opt["quote_evidence"]["complete_search"] = False
+                idx = record["paragraph_index"]
+                start = record["citation_start"]
+                end = _anchor_end(paragraphs[idx]["text"], record["citation_end"])
+                grouped[(idx, start, end)] = {
+                    "record": record, "options": dict(enumerate(options)), "paper_text": record["raw_text"],
+                }
         # A second pass rescues only explicit quotations that the full-library
         # exact/normal-review pass missed.  This avoids charging every already
         # located quote (and every ordinary sentence) for short-anchor scans.
@@ -2443,6 +2493,8 @@ def analyze_extraction(
         )
         rescue_matcher = _build_seed_matcher(rescue_seeds)
         for volume in volumes:
+            if check_active:
+                check_active()
             # Count before verification so a common short seed is discarded as
             # a whole instead of privileging its first N occurrences (the true
             # source may be later in the volume).
@@ -2516,7 +2568,10 @@ def analyze_extraction(
             # 已有注释锚点落在命中结尾附近时不再重复补注，由 audit 分支处理。
             if _candidate_has_existing_note(paragraph, key[2]):
                 continue
-            options = _prefer_exact_options(list(value["options"].values()))[:20]
+            options = list(value["options"].values())
+            if not any(o.get("quote_evidence") for o in options):
+                options = _prefer_exact_options(options)
+            options = options[:20]
             best_match_type = "exact" if any(o.get("match_type") == "exact" for o in options) else "fuzzy"
             best_score = 100 if best_match_type == "exact" else max(int(o.get("score") or 0) for o in options)
             best_errors = 0 if best_match_type == "exact" else min(
@@ -2543,6 +2598,8 @@ def analyze_extraction(
         covered = {(c["paragraph_index"], c["raw_start"], c["raw_end"]) for c in candidates}
         fuzzy_records = [r for r in records if r.get("quoted")][:200]
         for record in fuzzy_records:
+            if check_active:
+                check_active()
             if any(p == int(record["paragraph_index"]) and s <= int(record["raw_start"]) and e >= int(record["raw_end"])
                    for p, s, e in covered):
                 continue
@@ -2555,7 +2612,7 @@ def analyze_extraction(
                 continue
             raw = paragraph_text[int(record["raw_start"]):int(record["raw_end"])]
             hits = _locate_ellipsis_quote(corpus, raw, scope_spec)
-            if not hits:
+            if not hits and not include_readonly_structures:
                 hits = corpus.locate_quote(raw, per_book_exact=8, allow_fuzzy=True, book_scope=scope_spec)
                 hits = [h for h in hits if str(getattr(h, "match_type", "")) == "fuzzy"]
             if not hits:
@@ -2590,9 +2647,28 @@ def analyze_extraction(
 
     if personal_callback and mode in {"generate", "both"}:
         try:
-            candidates.extend(personal_callback(records, scope_tokens, resolved_style) or [])
+            private = personal_callback(records, scope_tokens, resolved_style) or []
+            if include_readonly_structures:
+                by_span = {(c["paragraph_index"], c["raw_start"], c["raw_end"]): c for c in candidates}
+                for item in private:
+                    paragraph = paragraphs[item["paragraph_index"]]
+                    item["raw_end"] = _anchor_end(paragraph["text"], item["raw_end"])
+                    if _candidate_has_existing_note(paragraph, item["raw_end"]):
+                        continue
+                    key = item["paragraph_index"], item["raw_start"], item["raw_end"]
+                    current = by_span.get(key)
+                    if current is None:
+                        candidates.append(item)
+                        by_span[key] = item
+                    else:
+                        current["source_options"].extend(item["source_options"])
+                        current.update(issue_code="ambiguous", issue_label=ISSUE_LABELS["ambiguous"],
+                                       auto_selected=False)
+            else:
+                candidates.extend(private)
         except Exception:
-            pass
+            if include_readonly_structures:
+                raise
 
     if shadow_callback and mode in {"generate", "both"}:
         try:
@@ -2603,7 +2679,14 @@ def analyze_extraction(
             pass
 
     if mode in {"audit", "both"}:
-        previous_options: dict[str, dict | None] = {}
+        verified_notes = None
+        if include_readonly_structures:
+            anchors = [_note_anchor(p["text"], n["offset"])[2]
+                       for p in paragraphs if p.get("section_id") in selected
+                       for n in p.get("note_refs") or []]
+            verified_notes = quote_evidence.verify_many(corpus, volumes, anchors, check_active=check_active)
+        volumes_by_file = {v.source_file: v for v in volumes}
+        previous_options = previous_note_options if previous_note_options is not None else {}
         for paragraph in paragraphs:
             if paragraph.get("section_id") not in selected:
                 continue
@@ -2630,8 +2713,13 @@ def analyze_extraction(
                     note_kind = str(note.get("kind") or "footnote")
                     candidate = _existing_note_candidate(
                         paragraph, note, corpus, scope_spec, resolved_style,
-                        previous_option=previous_options.get(note_kind),
+                        previous_option=previous_options.get(note_kind), verified_by_text=verified_notes,
                     )
+                    if include_readonly_structures and candidate["match_type"] in {"exact", "fuzzy"}:
+                        options = candidate["source_options"]
+                        quote_evidence.attest_located_options(corpus, volumes_by_file, candidate["paper_text"],
+                                                              [o for o in options if not o.get("quote_evidence")])
+                        candidate["partial_quote"] = any(opt.get("partial_quote") for opt in options)
                     candidates.append(candidate)
                     if readonly_structure:
                         candidate["write_blocked"] = True
@@ -2640,6 +2728,23 @@ def analyze_extraction(
                         if candidate.get("source_options") else None
                     )
 
+        if include_readonly_structures:
+            audit_targets = [c for c in candidates if c["kind"] == "audit"
+                            and c.get("source_options") and c.get("match_type") in {"fuzzy", "exact"}]
+            located = verified_notes or {}
+            has_private = any(t.startswith(("mylib:", "book:mylib:")) for t in scope_tokens)
+            for item in audit_targets:
+                full_options = located.get(item["paper_text"]) or []
+                for opt in item["source_options"]:
+                    verified = [v for v in full_options if _option_signature(v) == _option_signature(opt)]
+                    if len(verified) == 1:
+                        proof = dict(verified[0]["quote_evidence"])
+                        competitors = [v["quote_evidence"]["similarity"] for v in full_options if v is not verified[0]]
+                        gap = proof["similarity"] - max(competitors) if competitors else 100
+                        proof["complete_search"] = bool(proof["complete_search"] and not has_private and (
+                            len(full_options) == 1 or (item.get("reference_disambiguated") and gap >= 5)
+                        ))
+                        opt["quote_evidence"] = proof
         # A bibliography field can point to the same quote already found by the
         # generate pass.  Prefer the audit record because it carries the user's
         # source metadata and can disambiguate reprints; never show two review
@@ -2953,6 +3058,12 @@ def _candidate_comment_text(candidate: dict) -> str:
     paper_text = str(candidate.get("paper_text") or "").strip()
     if paper_text:
         lines.append(f"实际核对文字：{paper_text}")
+    evidence = quote_evidence.selected_evidence(candidate)
+    if evidence.get("differences"):
+        lines.append("所据原文：" + evidence["source_text"])
+        for difference in evidence["differences"]:
+            left, right = difference["paper"] or "∅", difference["source"] or "∅"
+            lines.append(f"论文第{difference['paper_start'] + 1}字附近：{left} → 原书 {right}")
     note_kind_value = str(candidate.get("existing_note_kind") or "")
     note_kind = {
         "footnote": "脚注", "endnote": "尾注", "manual_endnote": "手工尾注",
@@ -3227,7 +3338,10 @@ def _candidate_is_insertion_eligible(
     uniquely_resolved = resolution in {"unique", "reference_disambiguated"}
     if not resolution:
         uniquely_resolved = len(options) == 1 or bool(candidate.get("reference_disambiguated"))
-    if not exact or not uniquely_resolved or not options or not _is_reliable_page(options[0]):
+    near = quote_evidence.near_permission(candidate, _is_reliable_page)
+    if not near and (not exact or not uniquely_resolved or not options or not _is_reliable_page(_selected_option(candidate))):
+        return False
+    if near and candidate.get("auto_selected") and near != "auto":
         return False
     pindex = int(candidate.get("paragraph_index", -1))
     if not 0 <= pindex < len(paragraphs):
@@ -3236,6 +3350,11 @@ def _candidate_is_insertion_eligible(
     if _paragraph_has_unsafe_note_anchor(paragraph):
         return False
     offset = int(candidate.get("raw_end") or 0)
+    if near:
+        start = int(candidate.get("raw_start") or 0)
+        actual = _paragraph_text(paragraph)[start:offset]
+        return (normalize(actual) == normalize(quote_evidence.selected_evidence(candidate)["paper_text"])
+                and _comment_span_is_safe(paragraph, start, offset))
     return any(
         int(left) <= offset <= int(right)
         for left, right in _safe_comment_spans(paragraph)
@@ -3243,7 +3362,13 @@ def _candidate_is_insertion_eligible(
 
 
 def _candidate_is_comment_eligible(job: dict, candidate: dict) -> bool:
-    if candidate.get("decision") != "accepted" or str(candidate.get("kind") or "") != "audit":
+    if candidate.get("decision") != "accepted":
+        return False
+    if candidate.get("kind") == "generate":
+        return (_mode_allows(job, "generate")
+                and candidate.get("writeback_mode") in VALID_NOTE_KINDS
+                and bool(quote_evidence.near_permission(candidate, _is_reliable_page)))
+    if candidate.get("kind") != "audit":
         return False
     if str(candidate.get("existing_note_kind") or "") == "reference_field":
         return False
@@ -3311,7 +3436,13 @@ def export_docx(job: dict, candidates: list[dict]) -> Path:
         note_roots[kind] = _parse_xml(parts[part_name]) if part_name in parts else _empty_note_part(kind)
 
     accepted = [c for c in candidates if c.get("decision") == "accepted"]
-    comment_candidates = [c for c in accepted if _candidate_is_comment_eligible(job, c)]
+    generate = [c for c in accepted if _candidate_is_insertion_eligible(job, c, paragraphs)]
+    missing = [c for c in accepted if quote_evidence.selected_evidence(c)
+               and c.get("writeback_mode") in VALID_NOTE_KINDS and c not in generate]
+    if missing:
+        raise CitationAssistantError("已采信引文的写入位置或证据已变化，请重新核对后导出。")
+    comment_candidates = [c for c in accepted if _candidate_is_comment_eligible(job, c)
+                          and (c.get("kind") != "generate" or c in generate)]
     if comment_candidates:
         try:
             extraction_path = Path(str(job.get("extraction_path") or ""))
@@ -3334,9 +3465,6 @@ def export_docx(job: dict, candidates: list[dict]) -> Path:
             # A missing optional marker must never block an otherwise safe comment.
             comment_candidates = [dict(candidate) for candidate in comment_candidates]
 
-    generate = [
-        c for c in accepted if _candidate_is_insertion_eligible(job, c, paragraphs)
-    ]
     # Descending offsets keep the stored visible-text offsets stable while runs are split.
     generate.sort(key=lambda c: (int(c.get("paragraph_index", -1)), int(c.get("raw_end") or 0)), reverse=True)
     kind = str(job.get("note_kind") or "footnote")
@@ -4205,7 +4333,7 @@ def _export_candidate_counts(job: dict, candidates: list[dict]) -> dict[str, int
     }
 
 
-def queue_pdf_retry(job_id: str, user_id: int) -> dict:
+def queue_pdf_retry(job_id: str, user_id: int, *, require_unexpired: bool = False) -> dict:
     """Atomically queue PDF-only recovery while preserving the final Word artifact."""
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -4213,8 +4341,8 @@ def queue_pdf_retry(job_id: str, user_id: int) -> dict:
             "SELECT * FROM citation_assistant_jobs WHERE id=? AND user_id=?",
             (str(job_id), int(user_id)),
         ).fetchone())
-        if not row:
-            raise CitationAssistantError("任务不存在。")
+        if not row or (require_unexpired and row["expires_at"] <= _iso()):
+            raise CitationAssistantError("任务不存在或已过期。")
         if str(row.get("mode") or "") not in {"audit", "both"}:
             raise CitationAssistantError("插注模式不生成 PDF。")
         if str(row.get("status") or "") != "complete":

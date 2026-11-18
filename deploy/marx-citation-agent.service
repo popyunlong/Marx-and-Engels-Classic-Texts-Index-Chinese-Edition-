@@ -6,6 +6,9 @@ ConditionPathExists=/etc/marx-citation-agent.env
 
 [Service]
 Type=simple
+RuntimeDirectory=marx-citation-agent
+Environment=CITATION_READY_FILE=/run/marx-citation-agent/ready-v2.json
+Environment=PYTHONDONTWRITEBYTECODE=1
 User=marx-citation-agent
 Group=marx-citation-agent
 SupplementaryGroups=marx-citation-agent-queue
@@ -50,4 +53,5 @@ InaccessiblePaths=/var/www/.marx_search_full /opt/marx-search /etc/marx-search.e
 IPAddressDeny=any
 IPAddressAllow=127.0.0.2
 
-# Deliberately no [Install] section: keep stopped while CITATION_AGENT_TEST_MODE=off.
+[Install]
+WantedBy=multi-user.target

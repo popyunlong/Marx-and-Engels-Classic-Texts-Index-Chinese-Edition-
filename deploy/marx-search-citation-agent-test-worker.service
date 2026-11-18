@@ -4,6 +4,9 @@ After=local-fs.target
 
 [Service]
 Type=simple
+RuntimeDirectory=marx-search-citation-agent-test-worker
+Environment=CITATION_READY_FILE=/run/marx-search-citation-agent-test-worker/ready-v2.json
+Environment=PYTHONDONTWRITEBYTECODE=1
 User=www-data
 Group=www-data
 SupplementaryGroups=marx-citation-agent-queue
@@ -45,5 +48,5 @@ RestrictRealtime=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX
 
-# Deliberately no [Install] section: install the unit in the off state and start it
-# manually only during the administrator test window.
+[Install]
+WantedBy=multi-user.target

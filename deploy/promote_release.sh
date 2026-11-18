@@ -35,7 +35,7 @@ MANAGED_SUPPORT_UNITS=(
   marx-corpus-repair-promote.service marx-corpus-repair-promote.timer
   marx-search-backup.service marx-search-backup.timer
   marx-search-cfip-sync.service marx-search-cfip-sync.timer
-  marx-search-citation-agent-test-worker.service marx-search-citation-worker.service
+  marx-citation-agent.service marx-search-citation-agent-test-worker.service marx-search-citation-worker.service
   marx-search-journal-alerts.service marx-search-journal-alerts.timer
   marx-search-journal-process.service marx-search-journal-process.timer
   marx-search-journal-send.service marx-search-journal-send.timer
@@ -121,6 +121,9 @@ cleanup_incomplete() {
     wait "$CATALOG_OBSERVER_PID" 2>/dev/null || true
   fi
   trap - ERR
+  if [[ "${CITATION_EARLY_HOLD:-0}" == 1 ]]; then
+    recover_citation_units "$FINAL/citation-units-before.tsv" "$OLD_CURRENT" || echo "CRITICAL: restore citation units after interrupted cutover" >&2
+  fi
   if declare -F resume_watchdog_after_release >/dev/null; then
     resume_watchdog_after_release || echo "WARNING: restore watchdog timer failed" >&2
   fi
@@ -400,6 +403,7 @@ systemd-run --unit="${CANDIDATE_UNIT%.service}" \
   --property=Type=exec --property=User=www-data --property=Group=www-data \
   --property="WorkingDirectory=$FINAL/app" --property=EnvironmentFile=-/etc/marx-search.env \
   --property="ReadOnlyPaths=$FINAL" \
+  --setenv=CITATION_WORKER_READY_REQUIRED=1 \
   --setenv=PYTHONUNBUFFERED=1 --setenv="PYTHONPATH=$FINAL/app:$FINAL/.deps" \
   --setenv="PYTHONPYCACHEPREFIX=$APP_ROOT/runtime-cache" \
   --setenv="APP_RELEASE_FILE=$FINAL/release.json" \
@@ -452,6 +456,13 @@ if ! python3 "$FINAL/app/scripts/catalog_deploy.py" accept --root "$APP_ROOT" --
   retire_candidate_if_drained "unaccepted catalogue candidate" || KEEP_FINAL=1
   exit 4
 fi
+OLD_CURRENT=""
+if [ -L "$APP_ROOT/current" ]; then OLD_CURRENT="$(readlink -f "$APP_ROOT/current")"; fi
+source "$FINAL/app/deploy/citation_workers.sh"
+capture_citation_units "$FINAL/citation-units-before.tsv"
+remember_legacy_citation "$FINAL" "$OLD_CURRENT"
+CITATION_EARLY_HOLD=1
+stop_citation_units
 if ! switch_caddy "$PRIMARY_PORT" "$CANDIDATE_PORT"; then
   retire_candidate_if_drained "uncut candidate" || KEEP_FINAL=1
   echo "candidate was healthy but Caddy cutover failed; primary is unchanged" >&2
@@ -472,8 +483,6 @@ if ! drain_port "$PRIMARY_PORT" "previous primary"; then
   exit 10
 fi
 
-OLD_CURRENT=""
-if [ -L "$APP_ROOT/current" ]; then OLD_CURRENT="$(readlink -f "$APP_ROOT/current")"; fi
 SYSTEMD_BACKUP="$FINAL/systemd-before.tar.gz"
 tar -czf "$SYSTEMD_BACKUP" -C /etc/systemd/system \
   --ignore-failed-read marx-search.service marx-search.service.d \
@@ -484,19 +493,11 @@ for unit in "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
     OPTIONAL_UNITS_PRESENT+=("$unit")
   fi
 done
-ACTIVE_CITATION_WORKERS=()
-for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service; do
-  if systemctl is-active --quiet "$unit"; then
-    ACTIVE_CITATION_WORKERS+=("$unit")
-  fi
-done
+LEGACY_CITATION_ACTIVE=0
+if systemctl is-active --quiet marx-search-citation-worker.service; then LEGACY_CITATION_ACTIVE=1; fi
 
-restart_active_citation_workers() {
-  local unit
-  for unit in "${ACTIVE_CITATION_WORKERS[@]}"; do
-    echo "gracefully restarting $unit for the selected release"
-    systemctl restart "$unit" || return 1
-  done
+restart_legacy_citation_worker() {
+  [[ "$LEGACY_CITATION_ACTIVE" == 0 ]] || systemctl restart marx-search-citation-worker.service
 }
 
 source "$FINAL/app/deploy/research_units.sh"
@@ -523,6 +524,7 @@ rollback_primary() {
     fi
   fi
   echo "new primary failed; restoring the direct predecessor" >&2
+  stop_citation_units || { echo "CRITICAL: citation workers could not drain" >&2; return 1; }
   rm -f -- /etc/systemd/system/marx-search.service
   rm -rf -- /etc/systemd/system/marx-search.service.d
   for unit in "${MANAGED_SUPPORT_UNITS[@]}" "${OPTIONAL_PRODUCTION_UNITS[@]}"; do
@@ -545,7 +547,8 @@ rollback_primary() {
   fi
   [ -f "$OLD_CURRENT/app/deploy/security_caddy.py" ] || SECURITY_CADDY_REMOVE=1
   systemctl restart "$MAIN_SERVICE" || true
-  restart_active_citation_workers || true
+  recover_citation_units "$FINAL/citation-units-before.tsv" "$OLD_CURRENT" || echo "CRITICAL: citation worker recovery failed" >&2
+  restart_legacy_citation_worker || true
   if wait_health "$PRIMARY_PORT" && switch_caddy "$CANDIDATE_PORT" "$PRIMARY_PORT"; then
     if retire_candidate_if_drained "rollback candidate"; then
       KEEP_FINAL=0
@@ -558,6 +561,7 @@ rollback_primary() {
 # Any unexpected failure after traffic moves to the candidate must restore the
 # previous service files, current link and primary route.
 trap 'rollback_primary; exit 6' ERR
+CITATION_EARLY_HOLD=0
 pause_research_units
 ln -s -- "$FINAL" "$APP_ROOT/.current-$RELEASE_ID"
 mv -Tf -- "$APP_ROOT/.current-$RELEASE_ID" "$APP_ROOT/current"
@@ -578,7 +582,7 @@ if ! systemctl restart "$MAIN_SERVICE" || ! wait_health "$PRIMARY_PORT" "$RELEAS
   rollback_primary
   exit 6
 fi
-if ! restart_active_citation_workers; then
+if ! restart_legacy_citation_worker || ! activate_citation_units "$FINAL"; then
   rollback_primary
   exit 6
 fi

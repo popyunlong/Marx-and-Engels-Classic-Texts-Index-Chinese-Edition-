@@ -92,3 +92,40 @@ def test_legacy_admin_page_redirects_to_member_agent(monkeypatch) -> None:
     )
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/citation-agent")
+
+
+def test_candidate_cutover_blocks_upload_until_current_worker_heartbeat(monkeypatch):
+    import json
+    import shlex
+    from pathlib import Path
+
+    deploy = Path(__file__).resolve().parents[1] / "deploy"
+    setting = "CITATION_WORKER_READY_REQUIRED=1"
+    assert f"Environment={setting}" in (deploy / "marx-search.service").read_text(encoding="utf-8")
+    for transaction in ("promote_release.sh", "rollback_release.sh"):
+        source = (deploy / transaction).read_text(encoding="utf-8")
+        command = source.split("systemd-run --unit=", 1)[1].split(">/dev/null", 1)[0]
+        args = shlex.split(command.replace(chr(92) + chr(10), " "))
+        assert "--setenv=" + setting in args
+
+    client = _test_app(monkeypatch).test_client()
+    headers = {"X-Test-User": "member"}
+    monkeypatch.setenv(*setting.split("=", 1))
+    monkeypatch.setattr(agent_web.time, "time", lambda: 2000)
+    state = {}
+
+    def read_ready_file(path):
+        assert path.as_posix() == "/run/marx-search-citation-agent-test-worker/ready-v2.json"
+        if not state:
+            raise FileNotFoundError
+        return json.dumps(state)
+
+    monkeypatch.setattr(agent_web.Path, "read_text", read_ready_file)
+    for protocol, stamp in [(None, None), (1, 1999), (2, 1900)]:
+        if protocol is not None:
+            state.update(protocol=protocol, time=stamp)
+        response = client.post("/api/citation-agent/jobs", headers=headers)
+        assert response.status_code == 503
+    state.update(protocol=2, time=1999)
+    # The request reaches normal upload validation as soon as the new worker is ready.
+    assert client.post("/api/citation-agent/jobs", headers=headers).status_code == 400

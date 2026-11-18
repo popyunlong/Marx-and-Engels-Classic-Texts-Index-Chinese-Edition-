@@ -8,8 +8,15 @@ keeps its original database, files, workers, routes, and behaviour.
 """
 
 import importlib.util
+import citation_quote_evidence as quote_evidence
 import json
+import re
+import inspect
+import time
+
+import citation_job_execution as execution
 import threading
+from hashlib import sha256
 from pathlib import Path
 from typing import Callable
 
@@ -30,6 +37,7 @@ _SPEC.loader.exec_module(core)
 core.DB_PATH = APPDATA_DIR / "citation_agent_test.sqlite3"
 core.ARTIFACT_ROOT = APPDATA_DIR / "citation_agent_test"
 
+execution.install_isolation(core)
 DB_PATH = core.DB_PATH
 ARTIFACT_ROOT = core.ARTIFACT_ROOT
 CitationAssistantError = core.CitationAssistantError
@@ -70,8 +78,10 @@ def init_db() -> Path:
         core.init_db()
         secure_db_file(core.DB_PATH)
         with core._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(citation_assistant_jobs)")}
             for name, declaration in {
+                **execution.JOB_COLUMNS,
                 "recognition_depth": "TEXT NOT NULL DEFAULT 'direct_only'",
                 "analysis_stage": "TEXT NOT NULL DEFAULT ''",
                 "agent_status": "TEXT NOT NULL DEFAULT 'not_run'",
@@ -94,6 +104,7 @@ def init_db() -> Path:
                 str(row[1]) for row in conn.execute("PRAGMA table_info(citation_assistant_candidates)")
             }
             for name, declaration in {
+                "manually_reviewed": "INTEGER NOT NULL DEFAULT 0",
                 "review_bucket": "TEXT NOT NULL DEFAULT 'actionable'",
                 "evidence_origin": "TEXT NOT NULL DEFAULT 'deterministic'",
                 "evidence_level": "TEXT NOT NULL DEFAULT ''",
@@ -155,6 +166,7 @@ def init_db() -> Path:
                 );
                 """
             )
+            conn.execute("BEGIN IMMEDIATE")
             run_columns = {
                 str(row[1]) for row in conn.execute("PRAGMA table_info(citation_agent_test_runs)")
             }
@@ -170,7 +182,9 @@ def init_db() -> Path:
             }.items():
                 if name not in run_columns:
                     conn.execute(f"ALTER TABLE citation_agent_test_runs ADD COLUMN {name} {declaration}")
-            _backfill_existing_candidate_rules(conn)
+            if "reason_codes_json" not in candidate_columns:
+                _backfill_existing_candidate_rules(conn)
+            execution.init_schema(conn)
         _READY_DB_PATH = target
     return core.DB_PATH
 
@@ -192,7 +206,7 @@ def create_job(*args, recognition_depth: str = "direct_only", **kwargs) -> dict:
     kwargs["scope_tokens"] = _required_scope_tokens(kwargs.get("scope_tokens"))
     job = core.create_job(*args, **kwargs)
     update_job(
-        str(job["id"]), recognition_depth=depth, analysis_stage="deterministic",
+        str(job["id"]), policy_version=2, recognition_depth=depth, analysis_stage="deterministic",
         agent_status="not_run", agent_verified_count=0, viewpoint_suggestion_count=0,
         unresolved_count=0,
         out_of_scope_count=0, skipped_no_evidence_count=0,
@@ -201,19 +215,22 @@ def create_job(*args, recognition_depth: str = "direct_only", **kwargs) -> dict:
 
 
 def update_job(job_id: str, **values: object) -> None:
-    base = {key: value for key, value in values.items() if key not in _EXTENDED_JOB_FIELDS}
-    if base:
-        core.update_job(job_id, **base)
-    extended = {key: value for key, value in values.items() if key in _EXTENDED_JOB_FIELDS}
-    if not extended:
-        return
-    extended["updated_at"] = core._iso()
-    sets = ",".join(f"{key}=?" for key in extended)
+    # A terminal transition releases the owner in the same fenced write as its report.
+    values["updated_at"] = core._iso()
+    if {"progress_done","analysis_stage","status"} & values.keys():
+        values["last_progress_at"] = values["updated_at"]
+    if values.get("status") in {"awaiting_sections","review_ready","complete","failed","expired","deleted","queued"}:
+        values.update(lease_owner="", lease_expires_at="")
+    if any(not key.isidentifier() for key in values):
+        raise ValueError("Invalid job column")
+    style_columns = {
+        "resolved_style": "COALESCE(NULLIF(review_style,''),?)",
+        "style_confidence": "CASE WHEN review_style!='' THEN 1 ELSE ? END",
+    }
+    assignments = ",".join(f"{key}={style_columns.get(key,'?')}" for key in values)
     with core._connect() as conn:
-        conn.execute(
-            f"UPDATE citation_assistant_jobs SET {sets} WHERE id=?",
-            (*extended.values(), str(job_id)),
-        )
+        conn.execute(f"UPDATE citation_assistant_jobs SET {assignments} WHERE id=?",
+                     (*values.values(), job_id))
 
 
 def get_job(job_id: str, user_id: int | None = None) -> dict | None:
@@ -221,9 +238,25 @@ def get_job(job_id: str, user_id: int | None = None) -> dict | None:
     return core.get_job(job_id, user_id)
 
 
+def visible_job(job_id: str, user_id: int) -> dict | None:
+    row = get_job(job_id, user_id)
+    if not row or row.get("status") in {"deleted", "expired"}:
+        return None
+    expiry = row.get("expires_at")
+    if expiry and expiry <= core._iso():
+        return None
+    return row
+
+
 def list_jobs(user_id: int, limit: int = 30) -> list[dict]:
     init_db()
-    return core.list_jobs(user_id, limit)
+    with core._connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM citation_assistant_jobs WHERE user_id=? AND expires_at>? "
+            "AND status NOT IN ('deleted','expired') ORDER BY created_at DESC LIMIT ?",
+            (user_id, core._iso(), max(1, min(100, limit))),
+        ).fetchall()
+    return [core._row_dict(row) for row in rows]
 
 
 def count_active_jobs(user_id: int) -> int:
@@ -244,16 +277,30 @@ def set_analysis_config(
     scope_tokens: list[str],
 ) -> dict:
     scope_tokens = _required_scope_tokens(scope_tokens)
-    row = core.set_analysis_config(
-        job_id, user_id, section_ids=section_ids, scope_tokens=scope_tokens,
-    )
-    update_job(
-        job_id, analysis_stage="deterministic", agent_status="not_run",
-        agent_verified_count=0, viewpoint_suggestion_count=0,
-        unresolved_count=0, out_of_scope_count=0,
-        skipped_no_evidence_count=0,
-    )
-    return get_job(job_id, user_id) or row
+    with core._connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = core._row_dict(conn.execute(
+            "SELECT * FROM citation_assistant_jobs WHERE id=? AND user_id=? AND expires_at>?",
+            (job_id, user_id, core._iso())
+        ).fetchone())
+        if not row or row["status"] not in {"awaiting_sections","review_ready","failed"}:
+            raise CitationAssistantError("当前任务状态不能重新分析。")
+        valid_sections = {str(section["id"]) for section in row.get("sections", [])}
+        selected = list(dict.fromkeys(str(x) for x in section_ids if str(x) in valid_sections))
+        if not selected:
+            raise CitationAssistantError("请至少选择一个需要扫描的章节。")
+        conn.execute("DELETE FROM citation_job_checkpoints WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM citation_assistant_candidates WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM citation_agent_test_runs WHERE job_id=?", (job_id,))
+        conn.execute("""UPDATE citation_assistant_jobs SET status='queued',scope_json=?,selected_sections_json=?,
+            analysis_stage='deterministic',agent_status='not_run',candidate_count=0,accepted_count=0,
+            agent_verified_count=0,viewpoint_suggestion_count=0,unresolved_count=0,out_of_scope_count=0,
+            skipped_no_evidence_count=0,eligible_record_count=0,processed_record_count=0,deferred_record_count=0,
+            completion_reason='',review_style='',policy_version=2,paragraph_batch_size=24,recovery_count=0,partial_results=0,resumable=0,
+            execution_generation=execution_generation+1,execution_reason='',lease_owner='',lease_expires_at='',
+            error='',progress_done=0,progress_total=0,updated_at=? WHERE id=?""",
+            (json.dumps(scope_tokens),json.dumps(selected),core._iso(),job_id))
+    return get_job(job_id, user_id)
 
 
 def _candidate_level(item: dict) -> str:
@@ -298,6 +345,8 @@ def _is_full_quote_span(item: dict, paragraphs: dict[int, dict]) -> bool:
     start = max(0, min(int(item.get("raw_start") or 0), len(text)))
     end = max(start, min(int(item.get("raw_end") or 0), len(text)))
     if text:
+        if normalize(text[start:end]) != normalize(str(item.get("paper_text") or "")):
+            return False
         left = start - 1
         while left >= 0 and text[left].isspace():
             left -= 1
@@ -339,6 +388,7 @@ def _apply_test_evidence_rules(
     result["verification_scope"] = scope
 
     def finalize() -> dict:
+        permission = quote_evidence.near_permission(result, core._is_reliable_page)
         level = str(result.get("evidence_level") or "")
         result["text_match_level"] = {
             "exact": "exact", "near_text": "near", "paraphrase": "paraphrase",
@@ -362,7 +412,7 @@ def _apply_test_evidence_rules(
         safe_spans = list(paragraph.get("safe_comment_spans") or [])
         span_safe = (
             any(start >= int(span[0]) and end <= int(span[1]) and end > start for span in safe_spans)
-            if safe_spans else not bool(paragraph.get("has_field"))
+            if "safe_comment_spans" in paragraph else not bool(paragraph.get("has_field"))
         )
         safe_anchor = (
             not bool(paragraph.get("tracked"))
@@ -385,8 +435,12 @@ def _apply_test_evidence_rules(
             writeback = "comment"
         elif (
             candidate_kind == "generate" and options and safe_anchor
-            and bool(result.get("auto_selected")) and level == "exact"
-            and resolution in {"unique", "reference_disambiguated"}
+            and not core._candidate_has_existing_note(paragraph, end)
+            and (
+                (level == "exact" and bool(result.get("auto_selected"))
+                 and resolution in {"unique", "reference_disambiguated"})
+                or (level == "near_text" and permission)
+            )
         ):
             writeback = note_kind if note_kind in core.VALID_NOTE_KINDS else "footnote"
         elif candidate_kind == "audit" and options:
@@ -394,15 +448,19 @@ def _apply_test_evidence_rules(
         else:
             writeback = "none"
         result["writeback_mode"] = writeback
+        if writeback in {"none", "readonly"}:
+            result["auto_selected"] = False
         reasons: list[str] = []
         if level == "exact": reasons.append("exact_text")
-        if level == "near_text": reasons.append("near_text_requires_review")
+        if level == "near_text":
+            reasons.append("verified_minor_difference" if permission == "auto" else "near_text_requires_review")
         if level == "paraphrase": reasons.append("paraphrase_never_auto")
         if resolution == "reference_disambiguated": reasons.append("reference_field_disambiguated")
         if resolution == "multiple": reasons.append("multiple_reprints")
         if resolution == "locator_only": reasons.append("locator_without_text_match")
         if writeback == "comment": reasons.append("proofreading_comment_only")
-        if writeback in core.VALID_NOTE_KINDS: reasons.append("auto_insert_hard_evidence")
+        if writeback in core.VALID_NOTE_KINDS:
+            reasons.append("auto_insert_hard_evidence" if result.get("auto_selected") else "manual_insert_after_review")
         if cross_reference: reasons.append("cross_reference_readonly")
         if writeback == "readonly": reasons.append("unsafe_ooxml_anchor")
         if not options: reasons.append("no_local_evidence")
@@ -418,6 +476,11 @@ def _apply_test_evidence_rules(
             "auto_selected": False,
             "proposed_citation": str(result.get("existing_note_text") or ""),
         })
+        return finalize()
+
+    if result.get("partial_quote"):
+        result.update(review_bucket="unresolved", evidence_level="near_text", auto_selected=False,
+                      issue_code="text_mismatch", issue_label="仅定位到部分引文，请在原书核对全文")
         return finalize()
 
     level = _candidate_level(result)
@@ -469,7 +532,13 @@ def _apply_test_evidence_rules(
             "conservative",
         )
     )
-    result["auto_selected"] = bool(exact_is_safe)
+    evidence = quote_evidence.selected_evidence(result)
+    if evidence and not evidence.get("complete_search"):
+        exact_is_safe = False
+    if result.get("partial_quote") or re.search(r"…|⋯|\.{3,}", str(result.get("paper_text") or "")):
+        exact_is_safe = False
+    near = quote_evidence.near_permission(result, core._is_reliable_page)
+    result["auto_selected"] = bool(exact_is_safe or (level == "near_text" and near == "auto"))
     if scope in {"unquoted_text", "note_sentence"} and level == "exact":
         # Exact unquoted wording can reveal a missing quotation mark, but changing
         # the document still requires an administrator's decision.
@@ -552,6 +621,7 @@ def replace_candidates(
     *,
     out_of_scope_count: int = 0,
     skipped_no_evidence_count: int = 0,
+    incremental: bool = False,
 ) -> None:
     now = core._iso()
     job_row = core.get_job(job_id) or {}
@@ -561,8 +631,23 @@ def replace_candidates(
     accepted = 0
     with core._connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM citation_assistant_candidates WHERE job_id=?", (str(job_id),))
-        for item in candidates:
+        explicit_style = conn.execute(
+            "SELECT review_style FROM citation_assistant_jobs WHERE id=?", (job_id,)
+        ).fetchone()[0]
+        existing = {
+            execution.identity(dict(row)): row for row in conn.execute(
+                "SELECT * FROM citation_assistant_candidates WHERE job_id=?", (job_id,)
+            )
+        }
+        unique = {execution.identity(item): item for item in candidates}
+        # Stable database ids keep review decisions attached across worker batches.
+        for key, old in existing.items():
+            if not incremental and key not in unique and not old["manually_reviewed"]:
+                conn.execute("DELETE FROM citation_assistant_candidates WHERE id=?", (old["id"],))
+        for key, item in unique.items():
+            old = existing.get(key)
+            if old is not None and old["manually_reviewed"]:
+                continue
             if str(item.get("match_type") or "") == "locator":
                 item = _apply_test_evidence_rules(dict(item), {}, note_kind=note_kind)
             bucket = str(item.get("review_bucket") or "actionable")
@@ -573,25 +658,30 @@ def replace_candidates(
                 _apply_test_evidence_rules(dict(item), {}, note_kind=note_kind)
                 if not item.get("text_match_level") else item
             )
+            if explicit_style and item.get("kind") == "generate" and item.get("source_options"):
+                selected = int(item.get("selected_option") or 0)
+                item = dict(item, proposed_citation=core._citation_for_style(item["source_options"][selected], explicit_style))
             level = _candidate_level(item)
-            auto = bool(item.get("auto_selected")) and bucket == "actionable" and level == "exact"
+            auto = bool(item.get("auto_selected")) and bucket == "actionable" and (
+                level == "exact" or quote_evidence.near_permission(item, core._is_reliable_page) == "auto"
+            )
             decision = "informational" if bucket == "unresolved" else ("accepted" if auto else "pending")
             actionable += int(bucket == "actionable")
             unresolved += int(bucket == "unresolved")
             accepted += int(decision == "accepted")
             conn.execute(
-                """INSERT INTO citation_assistant_candidates
-                   (job_id,kind,section_id,paragraph_index,raw_start,raw_end,paper_text,
+                """INSERT OR REPLACE INTO citation_assistant_candidates
+                   (id,job_id,kind,section_id,paragraph_index,raw_start,raw_end,paper_text,
                     existing_note_kind,existing_note_id,existing_note_text,match_type,score,
                      fuzzy_errors,issue_code,issue_label,source_options_json,selected_option,
                      proposed_citation,decision,auto_selected,review_bucket,evidence_origin,
                      evidence_level,verification_scope,text_match_level,source_resolution,
                      writeback_mode,reason_codes_json,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    str(job_id), str(item.get("kind") or "generate"), str(item.get("section_id") or ""),
+                    old["id"] if old else None, str(job_id), str(item.get("kind") or "generate"), str(item.get("section_id") or ""),
                     int(item.get("paragraph_index", -1)), int(item.get("raw_start") or 0),
-                    int(item.get("raw_end") or 0), str(item.get("paper_text") or "")[:2000],
+                    int(item.get("raw_end") or 0), str(item.get("paper_text") or ""),
                     str(item.get("existing_note_kind") or ""), item.get("existing_note_id"),
                     str(item.get("existing_note_text") or "")[:4000], str(item.get("match_type") or ""),
                     float(item.get("score") or 0), item.get("fuzzy_errors"),
@@ -606,6 +696,12 @@ def replace_candidates(
                     json.dumps(item.get("reason_codes") or [], ensure_ascii=False), now,
                 ),
             )
+        actionable, accepted, unresolved = conn.execute(
+            """SELECT COUNT(CASE WHEN review_bucket='actionable' THEN 1 END),
+                      COUNT(CASE WHEN decision='accepted' AND review_bucket='actionable' THEN 1 END),
+                      COUNT(CASE WHEN review_bucket='unresolved' THEN 1 END)
+               FROM citation_assistant_candidates WHERE job_id=?""", (job_id,)
+        ).fetchone()
         conn.execute(
             """UPDATE citation_assistant_jobs
                SET candidate_count=?,accepted_count=?,unresolved_count=?,out_of_scope_count=?,
@@ -620,6 +716,12 @@ def replace_candidates(
 
 def _candidate_dict(row) -> dict:
     item = core._candidate_dict(row)
+    # A stable row id identifies this quotation, not the evidence a reviewer saw.
+    # Bind edits to the source options (including their order), policy and prior
+    # decision. Exclude created_at so an identical worker checkpoint stays valid.
+    revision_data = {key: value for key, value in dict(row).items() if key != "created_at"}
+    revision = json.dumps(revision_data, ensure_ascii=False,sort_keys=True,separators=(",",":"))
+    item["review_revision"] = sha256(revision.encode("utf-8")).hexdigest()
     raw = item.pop("reason_codes_json", "[]")
     try:
         item["reason_codes"] = json.loads(raw or "[]")
@@ -700,40 +802,99 @@ def all_candidates(job_id: str, *, bucket: str = "") -> list[dict]:
     return [_candidate_dict(row) for row in rows]
 
 
-def save_decisions(job_id: str, user_id: int, decisions: list[dict]) -> int:
-    if not get_job(job_id, user_id):
+def _editable_job(conn, job_id, user_id):
+    row = conn.execute(
+        "SELECT * FROM citation_assistant_jobs WHERE id=? AND user_id=?",
+        (str(job_id), int(user_id)),
+    ).fetchone()
+    if row is None:
         raise CitationAssistantError("任务不存在。")
-    ids: list[int] = []
-    for item in decisions[:2000]:
-        try:
-            ids.append(int(item.get("id")))
-        except (TypeError, ValueError):
-            continue
-    if ids:
-        placeholders = ",".join("?" for _ in ids)
-        with core._connect() as conn:
-            readonly = conn.execute(
-                f"SELECT COUNT(*) FROM citation_assistant_candidates WHERE job_id=? "
-                f"AND id IN ({placeholders}) "
-                "AND (review_bucket!='actionable' OR match_type='locator')",
-                (str(job_id), *ids),
-            ).fetchone()[0]
-        if readonly:
-            raise CitationAssistantError("未能核实项为只读内容，不能采信或写入文件。")
-    return core.save_decisions(job_id, user_id, decisions)
+    if row["status"] in {"exporting", "complete", "deleted", "expired"} or row["expires_at"] <= core._iso():
+        raise CandidateRevisionConflict("任务已导出或过期，不能修改本次审核决定。")
+    return dict(row)
 
 
-def bulk_decide_pending(job_id: str, user_id: int, decision: str) -> dict:
+class CandidateRevisionConflict(CitationAssistantError):
+    """The displayed source evidence no longer matches the editable result."""
+
+
+def save_decisions(job_id: str, user_id: int, decisions: list[dict], *, web_review: bool = False) -> int:
+    init_db()
+    with core._connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        job = _editable_job(conn, job_id, user_id)
+        for change in decisions[:2000]:
+            try:
+                candidate_id = int(change["id"])
+                index = int(change.get("selected_option") or 0)
+            except (KeyError, TypeError, ValueError):
+                raise CitationAssistantError("候选或来源编号无效。") from None
+            row = conn.execute(
+                "SELECT * FROM citation_assistant_candidates WHERE job_id=? AND id=?",
+                (job_id, candidate_id),
+            ).fetchone()
+            if row is None:
+                raise CandidateRevisionConflict("候选已更新，请刷新结果后再试。")
+            item = _candidate_dict(row)
+            decision = change.get("decision", "pending")
+            if decision not in {"pending", "accepted", "rejected"}:
+                raise CitationAssistantError("无效的审核决定。")
+            if item["review_bucket"] != "actionable" or item["match_type"] == "locator":
+                raise CitationAssistantError("未能核实项为只读内容，不能采信或写入文件。")
+            revision = change.get("review_revision")
+            if (revision is not None and revision != item["review_revision"]) or (
+                web_review and revision is None and job["status"] != "review_ready"
+            ):
+                raise CandidateRevisionConflict("这条引文的证据已更新，请刷新候选并核对后再提交。")
+            if web_review and job["status"] != "review_ready" and not (
+                job["partial_results"] and job["status"] in {"matching","stopped"}
+            ):
+                raise CandidateRevisionConflict("当前任务状态不能审核，请刷新任务。")
+            options = item["source_options"]
+            if options and not 0 <= index < len(options):
+                raise CitationAssistantError("所选出处已失效。")
+            item["selected_option"] = index
+            if decision == "accepted" and item["kind"] == "generate" and item["evidence_level"] != "paraphrase":
+                eligible = item["writeback_mode"] in core.VALID_NOTE_KINDS and bool(options)
+                if item["text_match_level"] == "near":
+                    eligible = eligible and bool(quote_evidence.near_permission(item, core._is_reliable_page))
+                if not eligible:
+                    raise CitationAssistantError("这条引文的完整文字、页码或写入位置尚未核实，不能插注。")
+            citation = str(change.get("proposed_citation") or "").strip()[:2000]
+            if not citation and options:
+                citation = core._citation_for_style(options[index], job["resolved_style"] or job["citation_style"])
+            conn.execute(
+                """UPDATE citation_assistant_candidates SET decision=?, selected_option=?,
+                     proposed_citation=?, auto_selected=0, manually_reviewed=1 WHERE job_id=? AND id=?""",
+                (decision, index, citation, job_id, candidate_id),
+            )
+        accepted = conn.execute(
+            "SELECT count(*) FROM citation_assistant_candidates WHERE job_id=? AND decision='accepted'",
+            (job_id,),
+        ).fetchone()[0]
+        conn.execute("UPDATE citation_assistant_jobs SET accepted_count=?, updated_at=? WHERE id=?",
+                     (accepted, core._iso(), job_id))
+    return int(accepted)
+
+
+def bulk_decide_pending(job_id: str, user_id: int, decision: str, *, web_review: bool = False) -> dict:
     if decision not in {"accepted", "rejected"}:
         raise CitationAssistantError("批量决定只能是采信或弃用。")
-    if not get_job(job_id, user_id):
-        raise CitationAssistantError("任务不存在。")
+    init_db()
     with core._connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        job = _editable_job(conn, job_id, user_id)
+        if web_review and job["status"] != "review_ready" and not (job["status"]=="stopped" and job["partial_results"]):
+            raise CandidateRevisionConflict("核验仍在更新，请逐条审核，或先停止核验再批量处理。")
         evidence_guard = " AND match_type!='locator'"
         if decision == "accepted":
-            evidence_guard += " AND evidence_level!='paraphrase'"
+            evidence_guard += (
+                " AND evidence_level!='paraphrase' AND writeback_mode IN ('comment','footnote','endnote')"
+                " AND (kind!='generate' OR "
+                "(evidence_level='exact' AND writeback_mode IN ('footnote','endnote')))"
+            )
         cursor = conn.execute(
-            "UPDATE citation_assistant_candidates SET decision=? WHERE job_id=? "
+            "UPDATE citation_assistant_candidates SET decision=?,manually_reviewed=1,auto_selected=0 WHERE job_id=? "
             "AND review_bucket='actionable' AND decision='pending'" + evidence_guard,
             (decision, str(job_id)),
         )
@@ -952,6 +1113,70 @@ def _filter_mode_additions(additions: list[dict], mode: str) -> list[dict]:
     ]
 
 
+def _visible_candidate(item):
+    return not (item.get("review_bucket") == "unresolved" and (
+        not item.get("source_options") or item.get("verification_scope") == "locator_only"))
+
+
+def _deterministic_batches(job_id, row, extracted, corpus, personal_callback, check_active):
+    paragraphs = list(extracted.get("paragraphs") or [])
+    note_texts = [str(note.get("text") or "") for p in paragraphs for note in p.get("note_refs", [])]
+    style, confidence = core._detect_style(note_texts, str(row.get("citation_style") or "auto"))
+    sections = list(row.get("selected_sections") or [])
+    # Keep original paragraph indices in saved evidence, and only compact indices
+    # inside one matcher call. Prior footnote/endnote context survives a checkpoint.
+    selected = [p for p in paragraphs if p.get("section_id") in sections]
+    kept = []
+    counts = {"out_of_scope_count": 0, "skipped_no_evidence_count": 0}
+    previous = {}
+    start = 0
+    batch_size = max(1, int(row["paragraph_batch_size"]))
+    while start < len(selected):
+        name = f"paragraphs-{start}"
+        saved = execution.read(core, job_id, name)
+        if saved is None:
+            check_active()
+            batch = selected[start:start + batch_size]
+            local = [dict(p, index=n) for n, p in enumerate(batch)]
+            batch_extract = dict(extracted, paragraphs=local)
+            # Progress from the core is per-volume and restarts for each batch.
+            next_progress = 0
+            def progress(_done, _total):
+                nonlocal next_progress
+                check_active()
+                if time.monotonic() >= next_progress:
+                    update_job(job_id, progress_done=start, progress_total=len(selected))
+                    next_progress = time.monotonic() + 5
+
+            candidates, _, _ = core.analyze_extraction(
+                batch_extract, corpus, selected_sections=sections, scope_tokens=list(row.get("scope") or []),
+                mode=str(row.get("mode") or "both"), threshold="conservative", citation_style=style,
+                progress=progress, personal_callback=personal_callback, shadow_callback=None,
+                include_readonly_structures=True, previous_note_options=previous, check_active=check_active,
+            )
+            items, batch_counts = _partition_deterministic(
+                candidates, corpus, list(row.get("scope") or []), style, extracted=batch_extract,
+                note_kind=str(row.get("note_kind") or "footnote"),
+            )
+            items = _promote_locator_viewpoints(items, _paragraphs_by_index(batch_extract),
+                                               str(row.get("recognition_depth") or "direct_only"))
+            for item in items:
+                item["paragraph_index"] = batch[int(item["paragraph_index"])]["index"]
+            saved = {"items": items, "counts": batch_counts, "previous": previous, "end":start+len(batch)}
+            execution.put(core, job_id, name, saved)
+        previous = saved["previous"]
+        kept.extend(saved["items"])
+        for key in counts:
+            counts[key] += saved["counts"].get(key, 0)
+        if saved["items"] and not execution.read(core, job_id, name+"-published"):
+            replace_candidates(job_id, [i for i in saved["items"] if _visible_candidate(i)], incremental=True, **counts)
+            execution.put(core, job_id, name+"-published", True)
+        update_job(job_id, partial_results=1, resolved_style=style, style_confidence=confidence,
+                   progress_done=saved["end"], progress_total=len(selected))
+        start = saved["end"]
+    return kept, counts, style, confidence
+
+
 def run_analysis(
     job_id: str,
     corpus,
@@ -978,39 +1203,53 @@ def run_analysis(
         )
         extracted = json.loads(Path(str(row["extraction_path"])).read_text(encoding="utf-8"))
 
-        def progress(done: int, total: int) -> None:
-            update_job(job_id, progress_done=int(done), progress_total=int(total))
+        next_check = 0.0
 
-        records, _paragraph_norms = core._phrase_records(
-            list(extracted.get("paragraphs") or []),
-            set(str(x) for x in (row.get("selected_sections") or [])),
+        def check_active():
+            nonlocal next_check
+            now = time.monotonic()
+            if now >= next_check:
+                execution.check_active(core)
+                next_check = now + 0.5
+
+        records, _ = core._phrase_records(
+            list(extracted.get("paragraphs") or []), set(str(x) for x in row.get("selected_sections", [])),
             include_readonly_structures=True,
         )
-        candidates, resolved, confidence = core.analyze_extraction(
-            extracted, corpus,
-            selected_sections=list(row.get("selected_sections") or []),
-            scope_tokens=list(row.get("scope") or []),
-            mode=str(row.get("mode") or "both"),
-            threshold="conservative",
-            citation_style=str(row.get("citation_style") or "auto"),
-            progress=progress, personal_callback=personal_callback, shadow_callback=None,
-            include_readonly_structures=True,
-        )
-        kept, counts = _partition_deterministic(
-            candidates, corpus, list(row.get("scope") or []), resolved, extracted=extracted,
-            note_kind=str(row.get("note_kind") or "footnote"),
-        )
+        kept, counts, resolved, confidence = _deterministic_batches(
+            job_id, row, extracted, corpus, personal_callback, check_active)
         paragraphs = _paragraphs_by_index(extracted)
-        kept = _promote_locator_viewpoints(
-            kept, paragraphs, str(row.get("recognition_depth") or "direct_only"),
-        )
+        def classify(additions):
+            return _filter_mode_additions([
+                _apply_test_evidence_rules(dict(item), paragraphs, note_kind=str(row.get("note_kind") or "footnote"))
+                for item in additions
+            ], str(row.get("mode") or "both"))
+        saved_agent = execution.read(core, job_id, "agent") or {}
+        known_additions = {execution.identity(item): item for item in saved_agent.get("items", [])}
+
+        def checkpoint(state, additions):
+            checked = classify(additions)
+            for item in checked:
+                known_additions[execution.identity(item)] = item
+            execution.put(core, job_id, "agent", {"state": state, "items": list(known_additions.values())})
+            replace_candidates(job_id, [item for item in checked if _visible_candidate(item)],incremental=True, **counts)
+            update_job(job_id, partial_results=1, processed_record_count=int(state.get("processed_record_count") or 0),
+                       eligible_record_count=int(state.get("eligible_record_count") or 0),
+                       progress_done=int(state.get("processed_record_count") or 0),
+                       progress_total=int(state.get("eligible_record_count") or 0))
+
         report = {"status": "not_run", "mode": "off"}
         if agent_callback:
             update_job(job_id, analysis_stage="agent_planning", agent_status="running")
             try:
+                signature = inspect.signature(agent_callback)
+                optional = {"checkpoint": saved_agent.get("state", {}), "on_checkpoint": checkpoint,
+                            "check_active": check_active}
+                if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()):
+                    optional = {k: v for k,v in optional.items() if k in signature.parameters}
                 additions, report = agent_callback(
                     job=dict(row), extracted=extracted, records=records,
-                    deterministic_candidates=kept, resolved_style=resolved,
+                    deterministic_candidates=kept, resolved_style=resolved, **optional,
                 )
             except Exception:
                 # Queue corruption, model failure, timeout, or an Agent bug must
@@ -1022,13 +1261,8 @@ def run_analysis(
                     "tool_call_count": 0, "verified_match_count": 0,
                     "direct_verified_match_count": 0, "viewpoint_suggestion_count": 0,
                 }
-            additions = [
-                _apply_test_evidence_rules(
-                    dict(item), paragraphs, note_kind=str(row.get("note_kind") or "footnote"),
-                )
-                for item in (additions or [])
-            ]
-            additions = _filter_mode_additions(additions, str(row.get("mode") or "both"))
+            known_additions.update((execution.identity(item), item) for item in classify(additions or []))
+            additions = list(known_additions.values())
             resolved_audit = {
                 (int(item.get("paragraph_index") or 0), int(item.get("existing_note_id") or 0))
                 for item in (additions or [])
@@ -1047,6 +1281,7 @@ def run_analysis(
                         ) in resolved_audit
                     )
                 ]
+            kept = [item for item in kept if execution.identity(item) not in known_additions]
             kept.extend(additions or [])
             counts["out_of_scope_count"] += int(report.get("out_of_scope_count") or 0)
             counts["skipped_no_evidence_count"] += int(report.get("skipped_no_evidence_count") or 0)
@@ -1084,7 +1319,9 @@ def run_analysis(
         update_job(
             job_id, status="review_ready", resolved_style=resolved,
             style_confidence=float(confidence), progress_done=1, progress_total=1,
-            analysis_stage="finalizing", agent_status=agent_status,
+            analysis_stage="finalizing", agent_status=agent_status, partial_results=1,
+            resumable=int(agent_status in {"degraded","budget_exhausted"} or bool(report.get("deferred_record_count"))),
+            execution_reason=str(report.get("error_code") or ""), resume_stage="queued",
             agent_verified_count=int(
                 report.get("direct_verified_match_count", report.get("verified_match_count")) or 0
             ),
@@ -1104,7 +1341,8 @@ def run_analysis(
 
 
 def _exportable_candidates(job_id: str) -> tuple[list[dict], list[dict]]:
-    all_records = all_candidates(job_id)
+    snapshot = execution.read(core, job_id, "export")
+    all_records = snapshot["items"] if snapshot else all_candidates(job_id)
     candidates = [
         item for item in all_records
         if str(item.get("review_bucket") or "actionable") == "actionable"
@@ -1205,6 +1443,7 @@ def delete_job(job_id: str, user_id: int) -> bool:
     removed = core.delete_job(job_id, user_id)
     if removed:
         with core._connect() as conn:
+            conn.execute("DELETE FROM citation_job_checkpoints WHERE job_id=?", (str(job_id),))
             conn.execute("DELETE FROM citation_agent_test_runs WHERE job_id=?", (str(job_id),))
     return removed
 
@@ -1212,6 +1451,8 @@ def delete_job(job_id: str, user_id: int) -> bool:
 def purge_expired(*args, **kwargs) -> int:
     removed = core.purge_expired(*args, **kwargs)
     with core._connect() as conn:
+        conn.execute("DELETE FROM citation_job_checkpoints WHERE job_id IN "
+                     "(SELECT id FROM citation_assistant_jobs WHERE status IN ('expired','deleted'))")
         conn.execute(
             "DELETE FROM citation_agent_test_runs WHERE job_id IN "
             "(SELECT id FROM citation_assistant_jobs WHERE status IN ('expired','deleted'))"
@@ -1227,8 +1468,21 @@ def start_background(*args, **kwargs):
     return core.start_background(*args, **kwargs)
 
 
-def claim_next_job(*args, **kwargs):
-    return core.claim_next_job(*args, **kwargs)
+def claim_next_job(worker_id, lease_seconds=60, *, corpus_sha256=None, template_version=None, ancestors=()):
+    return execution.claim_next(core, worker_id, versions=[corpus_sha256, *ancestors] if corpus_sha256 else [],
+                                template_version=template_version, lease_seconds=lease_seconds)
+
+
+def stop_job(job_id, user_id):
+    return execution.transition(core, job_id, user_id, "stop", _candidate_dict)
+
+
+def resume_job(job_id, user_id):
+    return execution.transition(core, job_id, user_id, "resume", _candidate_dict)
+
+
+def queue_export_snapshot(job_id, user_id):
+    return execution.transition(core, job_id, user_id, "export", _candidate_dict)
 
 
 def recover_jobs_for_loaded_runtime(*args, **kwargs):
@@ -1239,12 +1493,31 @@ def recover_pdf_position_failures(*args, **kwargs):
     return core.recover_pdf_position_failures(*args, **kwargs)
 
 
-def choose_citation_style(*args, **kwargs):
-    return core.choose_citation_style(*args, **kwargs)
+def choose_citation_style(job_id, user_id, style):
+    if style not in VALID_CITATION_STYLES - {"auto"}:
+        raise CitationAssistantError("请选择有效的引文格式。")
+    with core._connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute("SELECT status,partial_results FROM citation_assistant_jobs "
+                               "WHERE id=? AND user_id=? AND expires_at>?", (job_id,user_id,core._iso())).fetchone()
+        if not current or not (current["status"] == "review_ready" or
+                current["partial_results"] and current["status"] in {"matching","stopped"}):
+            raise CitationAssistantError("请先进入结果审核。")
+        rows = conn.execute("SELECT id,source_options_json,selected_option FROM citation_assistant_candidates "
+                            "WHERE job_id=? AND kind='generate'", (job_id,)).fetchall()
+        for candidate in rows:
+            options = json.loads(candidate["source_options_json"])
+            if options:
+                selected = min(max(0,candidate["selected_option"]),len(options)-1)
+                conn.execute("UPDATE citation_assistant_candidates SET proposed_citation=? WHERE id=?",
+                             (core._citation_for_style(options[selected], style)[:2000],candidate["id"]))
+        conn.execute("UPDATE citation_assistant_jobs SET review_style=?,citation_style=?,resolved_style=?,"
+                     "style_confidence=1,updated_at=? WHERE id=?",(style,style,style,core._iso(),job_id))
+    return get_job(job_id,user_id)
 
 
 def queue_pdf_retry(*args, **kwargs):
-    return core.queue_pdf_retry(*args, **kwargs)
+    return core.queue_pdf_retry(*args, require_unexpired=True, **kwargs)
 
 
 def run_extraction(*args, **kwargs):
