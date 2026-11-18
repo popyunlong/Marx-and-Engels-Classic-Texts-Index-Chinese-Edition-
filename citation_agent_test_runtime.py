@@ -13,6 +13,7 @@ from admin_store import get_setting, init_admin_store_db
 from build_index import DB_PATH as CORPUS_INDEX_DB_PATH
 from citation_styles import CITATION_FORMAT_KEYS
 import citation_agent_test_backend as tasks
+import citation_quote_evidence
 import personal_corpus
 import personal_library
 from runtime_env import compute_sha256
@@ -87,39 +88,38 @@ def personal_callback(job: dict):
 
     def callback(records: list[dict], _tokens: list[str], style: str) -> list[dict]:
         results: list[dict] = []
-        for record in records[:400]:
+        selected_volumes = [vol for book in wanted for vol in corpus.get_volumes(book)]
+        mixed = any(not token.startswith(("mylib:", "book:mylib:")) for token in _tokens)
+        verified = citation_quote_evidence.verify_many(
+            corpus, selected_volumes, [r["raw_text"] for r in records if r.get("quoted")],
+        )
+        for record in records:
             raw = str(record.get("raw_text") or "").strip()
             if not raw:
                 continue
-            try:
-                hits = corpus.locate_quote(
-                    raw, per_book_exact=8, allow_fuzzy=bool(record.get("quoted")),
-                )
-            except Exception:
-                continue
-            options: list[dict] = []
-            seen: set[tuple] = set()
-            for hit in hits:
-                if str(getattr(hit, "book", "")) not in wanted:
-                    continue
-                submission_id = personal_corpus.submission_id_from_key(str(hit.book))
-                source_row = rows.get(int(submission_id or 0))
+            if record.get("quoted"):
+                found = verified.get(raw) or []
+            else:
+                found = [
+                    tasks.core._option_from_hit(hit)
+                    for hit in corpus.locate_quote(raw, per_book_exact=8, allow_fuzzy=False, book_scope=wanted)
+                ]
+            options = []
+            for option in found:
+                submission_id = personal_corpus.submission_id_from_key(option["book"])
+                source_row = rows.get(submission_id)
                 if not source_row:
                     continue
-                confidence = float(personal_library.submission_quality(source_row).get("page_confidence") or 0.0)
-                option = tasks.core._option_from_hit(
-                    hit, personal=True, personal_confidence=confidence,
-                )
+                confidence = float(personal_library.submission_quality(source_row).get("page_confidence") or 0)
                 option.update({
-                    "private_source": True,
+                    "private_source": True, "personal": True, "page_confidence": confidence,
                     "submission_id": submission_id,
                     "display_title": str(source_row.get("title") or option.get("display_title") or "个人文库"),
-                    "viewer_url": f"/mylib/{int(submission_id or 0)}",
+                    "viewer_url": f"/mylib/{submission_id}",
                 })
-                signature = tasks.core._option_signature(option)
-                if signature not in seen:
-                    seen.add(signature)
-                    options.append(option)
+                if mixed and option.get("quote_evidence"):
+                    option["quote_evidence"]["complete_search"] = False
+                options.append(option)
             if not options:
                 continue
             best = options[0]
@@ -130,8 +130,8 @@ def personal_callback(job: dict):
             results.append({
                 "kind": "generate", "section_id": str(record.get("section_id") or ""),
                 "paragraph_index": int(record.get("paragraph_index") or 0),
-                "raw_start": int(record.get("raw_start") or 0),
-                "raw_end": int(record.get("raw_end") or 0), "paper_text": raw,
+                "raw_start": int(record.get("citation_start", record.get("raw_start")) or 0),
+                "raw_end": int(record.get("citation_end", record.get("raw_end")) or 0), "paper_text": raw,
                 "match_type": match_type, "score": score, "fuzzy_errors": errors,
                 "issue_code": issue, "issue_label": tasks.core.ISSUE_LABELS[issue],
                 "source_options": options, "selected_option": 0,

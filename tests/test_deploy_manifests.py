@@ -215,18 +215,62 @@ def test_rollback_is_separate_locked_and_audited() -> None:
     assert "target failed health checks; current release restored" in source
 
 
-def test_release_and_rollback_restart_only_previously_active_citation_workers() -> None:
-    for relative in ("deploy/promote_release.sh", "deploy/rollback_release.sh"):
-        source = (ROOT / relative).read_text(encoding="utf-8")
-        assert "ACTIVE_CITATION_WORKERS=()" in source
-        assert "for unit in marx-search-citation-worker.service marx-search-citation-agent-test-worker.service" in source
-        assert 'if systemctl is-active --quiet "$unit"' in source
-        assert 'ACTIVE_CITATION_WORKERS+=("$unit")' in source
-        assert "restart_active_citation_workers()" in source
-        assert 'for unit in "${ACTIVE_CITATION_WORKERS[@]}"' in source
-        assert 'systemctl restart "$unit" || return 1' in source
-        assert "if ! restart_active_citation_workers; then" in source
-        assert "systemctl enable marx-search-citation-agent-test-worker.service" not in source
+def test_citation_workers_are_activated_and_recovered_inside_release_transaction() -> None:
+    for relative, target in (("promote_release.sh", "$FINAL"), ("rollback_release.sh", "$TARGET")):
+        source = (ROOT / "deploy" / relative).read_text(encoding="utf-8")
+        assert source.index("flock -n 9") < source.index("capture_citation_units ")
+        assert f'activate_citation_units "{target}"' in source
+        assert 'recover_citation_units ' in source
+    helper = (ROOT / "deploy/citation_workers.sh").read_text(encoding="utf-8")
+    assert "citation_legacy_compatible" in helper
+    for unit in ("marx-search-citation-agent-test-worker", "marx-citation-agent"):
+        definition = (ROOT / "deploy" / (unit + ".service")).read_text(encoding="utf-8")
+        assert f"CITATION_READY_FILE=/run/{unit}/ready-v2.json" in definition
+        assert "WantedBy=multi-user.target" in definition
+
+
+def test_citation_transaction_orders_consumers_and_restores_static_units(tmp_path) -> None:
+    """Exercise release functions with a fake service manager; never call systemd."""
+    import os
+    import pytest
+    candidates = [shutil.which("bash")]
+    if os.name == "nt" and shutil.which("git"):
+        git_root = Path(shutil.which("git")).parents[1]
+        candidates.insert(0, str(git_root / "bin" / "bash.exe"))
+    bash = next((path for path in candidates if path and Path(path).is_file()), None)
+    if bash is None:
+        pytest.skip("Bash is unavailable")
+    # Relative names allow Git Bash and Linux to execute the identical fixture.
+    helper = (ROOT / "deploy/citation_workers.sh").read_text(encoding="utf-8")
+    (tmp_path / "helper.sh").write_bytes(helper.encode("utf-8"))
+    deploy = tmp_path / "new" / "app" / "deploy"
+    deploy.mkdir(parents=True)
+    (deploy / "citation_workers.sh").write_bytes(b"")
+    script = r'''set -eu
+source ./helper.sh
+systemctl() {
+  printf "%s\n" "$*" >> trace
+  case "$1" in
+    is-active) return 3;;
+    is-enabled) echo static;;
+  esac
+}
+install_citation_model() { return 0; }
+citation_ready() { printf "ready %s\n" "$1" >> trace; }
+capture_citation_units before
+stop_citation_units
+activate_citation_units new
+restore_citation_units before legacy
+'''
+    subprocess.run([bash, "-s"], cwd=tmp_path, input=script.encode("utf-8"), check=True)
+    trace = (tmp_path / "trace").read_text().splitlines()
+    model = "marx-citation-agent"
+    bridge = "marx-search-citation-agent-test-worker"
+    assert trace.index(f"stop {bridge}.service") < trace.index(f"stop {model}.service")
+    assert trace.index(f"start {model}.service") < trace.index(f"ready {model}") < trace.index(f"start {bridge}.service")
+    assert (tmp_path / "before").read_text().splitlines() == [f"{model} 0 0", f"{bridge} 0 0"]
+    assert trace[-4:] == [f"disable {model}.service", f"stop {model}.service",
+                          f"disable {bridge}.service", f"stop {bridge}.service"]
 
 
 def test_citation_workers_finish_claimed_jobs_before_release_restart() -> None:

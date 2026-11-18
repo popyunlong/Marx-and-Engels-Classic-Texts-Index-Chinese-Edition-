@@ -127,3 +127,28 @@ for(const width of [390,768,1280]) test(`categories and details fit ${width}px v
   await openDetails(page);
   const box=await page.locator('.bscope-panel').boundingBox();assert.ok(box.x>=0&&box.x+box.width<=width+1);
 });
+
+test('interrupted progress reconnects to partial evidence, then pause and resume use same job',async t=>{
+  const {page}=await setup(t,'/citation-agent/jobs/fixture?status=matching');
+  let reads=0;
+  let current={id:'fixture',status:'matching',mode:'both',partial_results:true,analysis_stage:'agent_planning',candidate_count:1};
+  const evidence={paper_text:'劳动过裎',source_text:'劳动过程',differences:[{paper_start:3,paper:'裎',source:'程'}]};
+  const candidate={id:9,review_revision:'fixture-revision',evidence_level:'near_text',paper_text:evidence.paper_text,decision:'pending',source_options:[{quote_evidence:evidence,display_title:'原书',printed_pages:['42']}]};
+  await page.route(/\/api\/citation-agent\/jobs\/fixture(?:[/?]|$)/, async route=>{
+    const pathname=new URL(route.request().url()).pathname;
+    if(pathname.endsWith('/candidates'))return route.fulfill({json:{items:[candidate],total:1,summary:{pending:1}}});
+    if(pathname.endsWith('/stop'))current={...current,status:'stopped',resumable:true};
+    else if(pathname.endsWith('/resume'))current={...current,status:'queued',resumable:false};
+    else if(++reads===1)return route.abort('connectionreset');
+    return route.fulfill({json:{ok:true,job:current}});
+  });
+  await page.locator('#catConnection').waitFor({state:'visible'});
+  await page.locator('#catReviewPanel .cat-differences').waitFor();
+  assert.equal(await page.locator('#catConnection').isHidden(),true);
+  assert.match(await page.locator('.cat-differences li').textContent(),/裎.*程/);
+  await page.locator('#catStop').click();
+  await page.locator('#catResume').waitFor();
+  await page.locator('#catResume').click();
+  await page.locator('#catResume').waitFor({state:'hidden'});
+  assert.equal(new URL(page.url()).pathname,'/citation-agent/jobs/fixture');
+});

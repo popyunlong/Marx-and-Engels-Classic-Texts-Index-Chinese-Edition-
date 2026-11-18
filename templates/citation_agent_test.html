@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/layout-v2/layout-v2.css?v=31">
   <link rel="stylesheet" href="/static/book-scope/book-scope.css?v=4">
   <link rel="stylesheet" href="/static/citation-assistant/citation-assistant.css?v=4">
-  <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=6">
+  <link rel="stylesheet" href="/static/citation-agent-test/citation-agent-test.css?v=20261118">
   {% include '_refined_assets.html' %}
 </head>
 <body class="v2 ca-page cat-page{% if not citation_access %} cat-preview-page{% endif %}">
@@ -55,7 +55,7 @@
 
     {% if citation_access %}
     <aside class="cat-access-card cat-access-member" role="status">
-      <div><span class="cat-access-icon">✓</span><p><b>正式 Agent 已解锁</b><small>你的任务使用独立文件空间与证据核验队列。</small></p></div>
+      <div><span class="cat-access-icon">✓</span><p><b>正式 Agent 已解锁</b><small>AI 核对脱敏引文与候选原书短片段，完整论文在站内处理。</small></p></div>
       <a href="{{ url_for('citation_assistant_page') }}">查看旧版历史任务</a>
     </aside>
     {% else %}
@@ -84,9 +84,9 @@
           <label><span>处理方式</span><select name="mode" id="catModeSelect"><option value="both">插注＋校注（推荐）</option><option value="generate">插注</option><option value="audit">校注</option></select></label>
           <label id="catNoteKindField"><span>插注类型</span><select name="note_kind"><option value="footnote">脚注</option><option value="endnote">尾注</option></select><small>新增上标、标号和注文统一使用浅蓝色。</small></label>
           <label><span>识别深度</span><select name="recognition_depth"><option value="direct_only" selected>仅直接引文（默认）</option><option value="direct_and_paraphrase">直接引文＋观点依据发现（实验）</option></select><small>观点依据只表示站内文献可能支持论文观点，不证明论文语句出自该文献，且永不自动采用。</small></label>
-          <label><span>引文格式</span><select name="citation_style">{{ citation_options(citation_style_groups, 'mkszyj', true) }}</select></label>
+          <label><span>引文格式</span><select name="citation_style">{{ citation_options(citation_style_groups, 'mkszyj', gb2025_approved) }}</select></label>
         </div>
-        <div class="ca-rule-note cat-rule-note"><b>自动采用闸门</b><span>只有唯一、归一化逐字一致且印刷页可靠的命中才可能自动采用；Agent 自报的出处与置信度不能越过证据闸门。</span></div>
+        <div class="ca-rule-note cat-rule-note"><b>何时自动插注</b><span>完整引文核对到可靠页码后，可自动插注。相差一两个字时，还会核对差异和其他版本。可在导出前逐条查看或撤销。</span></div>
         <div class="ca-scope-block cat-scope-block">
           <div class="cat-scope-title"><span>指定核验文库</span><em>必选</em></div>
           <div id="catBookScope"></div>
@@ -128,7 +128,12 @@
         <div><a class="ca-back" href="{{ url_for('citation_agent_page') }}">← 返回任务列表</a><h2>{{ job.original_filename }}</h2></div>
         <button type="button" class="ca-danger-link" id="catDeleteJob">删除任务和文件</button>
       </div>
-      <div id="catStatusPanel"></div>
+      <div id="catConnection" class="ca-warning" role="status" hidden></div>
+      <div id="catStatusPanel" aria-live="polite"></div>
+      <div class="cat-controls">
+        <button type="button" id="catStop" hidden>暂停处理</button>
+        <button type="button" id="catResume" hidden>继续未完成项</button>
+      </div>
       <div id="catTimeline" class="cat-timeline"></div>
       <div id="catSectionsPanel" hidden></div>
       <div id="catReviewPanel" hidden>
@@ -141,14 +146,18 @@
           <div><strong id="catNoEvidence">0</strong><span>无站内证据</span></div>
         </div>
         <div id="catAgentWarning"></div>
-        <div class="ca-exportbar ca-exportbar-top"><div><b>只导出经过证据闸门的可操作候选</b><p>插注模式只生成浅蓝色 Word；校注和组合模式从最终 Word 生成批注 PDF，任何批注定位不唯一都会拒绝发布 PDF。</p></div><button class="ca-primary" type="button" id="catExport">生成输出</button></div>
+        <div id="catStylePanel" hidden>
+          <label>请选择导出格式 <select id="catReviewStyle">{{ citation_options(citation_style_groups, 'mkszyj') }}</select></label>
+          <button type="button" id="catApplyStyle">采用此格式</button>
+        </div>
+        <div class="ca-exportbar ca-exportbar-top"><div><b>导出当前已确认的结果</b><p>插注模式只生成浅蓝色 Word；校注和组合模式从最终 Word 生成批注 PDF，任何批注定位不唯一都会拒绝发布 PDF。</p></div><button class="ca-primary" type="button" id="catExport">生成输出</button></div>
         <div class="ca-review-tabs" role="tablist" aria-label="候选状态">
           <button type="button" class="active" data-cat-decision="pending">待审核 <span id="catPendingTab">0</span></button>
           <button type="button" data-cat-decision="accepted">已采信 <span id="catAcceptedTab">0</span></button>
           <button type="button" data-cat-decision="rejected">已弃用 <span id="catRejectedTab">0</span></button>
           <button type="button" data-cat-decision="">全部 <span id="catAllTab">0</span></button>
         </div>
-        <div class="ca-batchbar" id="catPendingActions"><div><b>快速处理可操作的待审核项</b><small>“一键采信”仅处理直接引文；观点依据必须逐条人工判断。</small></div><button type="button" id="catAcceptPending">一键采信直接引文</button><button type="button" class="ca-reject-button" id="catRejectPending">一键弃用全部</button></div>
+        <div class="ca-batchbar" id="catPendingActions"><div><b>快速处理可操作的待审核项</b><small>“一键采信”仅处理直接引文；近似引文与观点依据请逐条确认。</small></div><button type="button" id="catAcceptPending">一键采信直接引文</button><button type="button" class="ca-reject-button" id="catRejectPending">一键弃用全部</button></div>
         <div id="catCandidateList" class="ca-candidate-list"></div>
         <div class="ca-pagination"><button type="button" id="catPrev">上一页</button><span id="catPage"></span><button type="button" id="catNext">下一页</button></div>
         <details class="cat-unresolved" id="catUnresolvedDetails">
@@ -162,6 +171,6 @@
   </main>
 
   <script src="/static/book-scope/book-scope.js?v=6"></script>
-  <script src="/static/citation-agent-test/citation-agent-test.js?v=12"></script>
+  <script src="/static/citation-agent-test/citation-agent-test.js?v=20261118"></script>
 </body>
 </html>

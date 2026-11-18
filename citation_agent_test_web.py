@@ -10,6 +10,8 @@ API aliases so an open test tab is not broken during the rollout.
 """
 
 import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -82,6 +84,15 @@ def register_routes(app, web: dict) -> None:
             )
         return cleaned
 
+    def worker_available() -> bool:
+        if os.getenv("CITATION_WORKER_READY_REQUIRED") != "1":
+            return True
+        try:
+            ready = json.loads(Path("/run/marx-search-citation-agent-test-worker/ready-v2.json").read_text())
+            return ready["protocol"] == 2 and 0 <= time.time() - float(ready["time"]) < 60
+        except (OSError, KeyError, ValueError, TypeError):
+            return False
+
     def job_payload(job: dict) -> dict:
         public = {
             key: job.get(key) for key in (
@@ -101,9 +112,12 @@ def register_routes(app, web: dict) -> None:
                 "commented_count", "readonly_count", "word_export_status",
                 "pdf_export_status", "pdf_position_failure_count",
                 "corpus_sha256", "template_version", "error", "created_at",
-                "updated_at", "expires_at",
+                "updated_at", "expires_at", "heartbeat_at", "last_progress_at",
+                "partial_results", "resumable", "execution_generation", "recovery_count",
+                "policy_version", "execution_reason",
             )
         }
+        public["worker_available"] = worker_available()
         public["page_url"] = url_for("citation_agent_job_page", job_id=job["id"])
         public["docx_url"] = (
             url_for("citation_agent_download", job_id=job["id"], artifact="docx")
@@ -157,7 +171,7 @@ def register_routes(app, web: dict) -> None:
     @app.get("/citation-agent/jobs/<job_id>")
     def citation_agent_job_page(job_id: str):
         user = require_agent_access()
-        job = tasks.get_job(job_id, int(user["id"]))
+        job = tasks.visible_job(job_id, int(user["id"]))
         if not job or job.get("status") in {"deleted", "expired"}:
             abort(404, description="任务不存在或已过期。")
         return render_template(
@@ -186,6 +200,8 @@ def register_routes(app, web: dict) -> None:
     def api_citation_agent_create_job():
         user = require_agent_access()
         user_id = int(user["id"])
+        if not worker_available():
+            abort(503, description="论文处理服务暂时离线，请稍后上传。")
         if not web["_is_admin_user"](user):
             if tasks.count_active_jobs(user_id) >= tasks.MAX_ACTIVE_PER_USER:
                 abort(429, description=f"同时最多可保留 {tasks.MAX_ACTIVE_PER_USER} 个活动任务。")
@@ -228,7 +244,7 @@ def register_routes(app, web: dict) -> None:
     @app.get("/api/admin/citation-agent-test/jobs/<job_id>")
     def api_citation_agent_get_job(job_id: str):
         user = require_agent_access()
-        job = tasks.get_job(job_id, int(user["id"]))
+        job = tasks.visible_job(job_id, int(user["id"]))
         if not job or job.get("status") in {"deleted", "expired"}:
             abort(404, description="任务不存在或已过期。")
         return jsonify({"ok": True, "job": job_payload(job)})
@@ -238,7 +254,7 @@ def register_routes(app, web: dict) -> None:
     def api_citation_agent_analyze(job_id: str):
         user = require_agent_access()
         user_id = int(user["id"])
-        if not tasks.get_job(job_id, user_id):
+        if not tasks.visible_job(job_id, user_id):
             abort(404, description="任务不存在。")
         payload = request.get_json(silent=True) or {}
         sections, scope = payload.get("sections") or [], payload.get("scope") or []
@@ -258,7 +274,7 @@ def register_routes(app, web: dict) -> None:
     @app.get("/api/admin/citation-agent-test/jobs/<job_id>/candidates")
     def api_citation_agent_candidates(job_id: str):
         user = require_agent_access()
-        if not tasks.get_job(job_id, int(user["id"])):
+        if not tasks.visible_job(job_id, int(user["id"])):
             abort(404, description="任务不存在。")
         result = tasks.list_candidates(
             job_id, page=request.args.get("page", type=int) or 1,
@@ -279,7 +295,9 @@ def register_routes(app, web: dict) -> None:
         if not isinstance(decisions, list):
             abort(400, description="决定列表格式无效。")
         try:
-            accepted = tasks.save_decisions(job_id, int(user["id"]), decisions)
+            accepted = tasks.save_decisions(job_id, int(user["id"]), decisions, web_review=True)
+        except tasks.CandidateRevisionConflict as exc:
+            abort(409, description=str(exc))
         except tasks.CitationAssistantError as exc:
             abort(400, description=str(exc))
         return jsonify({"ok": True, "accepted_count": accepted})
@@ -290,7 +308,9 @@ def register_routes(app, web: dict) -> None:
         user = require_agent_access()
         decision = str((request.get_json(silent=True) or {}).get("decision") or "")
         try:
-            result = tasks.bulk_decide_pending(job_id, int(user["id"]), decision)
+            result = tasks.bulk_decide_pending(job_id, int(user["id"]), decision, web_review=True)
+        except tasks.CandidateRevisionConflict as exc:
+            abort(409, description=str(exc))
         except tasks.CitationAssistantError as exc:
             abort(400, description=str(exc))
         return jsonify({"ok": True, **result})
@@ -312,15 +332,36 @@ def register_routes(app, web: dict) -> None:
     @app.post("/api/admin/citation-agent-test/jobs/<job_id>/export")
     def api_citation_agent_export(job_id: str):
         user = require_agent_access()
-        job = tasks.get_job(job_id, int(user["id"]))
+        job = tasks.visible_job(job_id, int(user["id"]))
         if not job:
             abort(404, description="任务不存在。")
         if job.get("citation_style") == "auto" and float(job.get("style_confidence") or 0) < 0.80:
             abort(409, description="请先明确选择引文格式。")
-        if job.get("status") != "review_ready":
-            abort(409, description="请先完成候选内容审核。")
-        tasks.update_job(job_id, status="exporting")
-        return jsonify({"ok": True, "status": "exporting"}), 202
+        try:
+            job = tasks.queue_export_snapshot(job_id, int(user["id"]))
+        except tasks.CitationAssistantError as exc:
+            abort(409, description=str(exc))
+        return jsonify({"ok": True, "status": job["status"], "job": job_payload(job)}), 202
+
+    @app.post("/api/citation-agent/jobs/<job_id>/stop")
+    @app.post("/api/admin/citation-agent-test/jobs/<job_id>/stop")
+    def api_citation_agent_stop(job_id: str):
+        user = require_agent_access()
+        try:
+            job = tasks.stop_job(job_id, int(user["id"]))
+        except tasks.CitationAssistantError as exc:
+            abort(409, description=str(exc))
+        return jsonify({"ok": True, "job": job_payload(job)})
+
+    @app.post("/api/citation-agent/jobs/<job_id>/resume")
+    @app.post("/api/admin/citation-agent-test/jobs/<job_id>/resume")
+    def api_citation_agent_resume(job_id: str):
+        user = require_agent_access()
+        try:
+            job = tasks.resume_job(job_id, int(user["id"]))
+        except tasks.CitationAssistantError as exc:
+            abort(409, description=str(exc))
+        return jsonify({"ok": True, "job": job_payload(job)}), 202
 
     @app.post("/api/citation-agent/jobs/<job_id>/retry-pdf")
     @app.post("/api/admin/citation-agent-test/jobs/<job_id>/retry-pdf")
@@ -336,7 +377,7 @@ def register_routes(app, web: dict) -> None:
     @app.get("/api/admin/citation-agent-test/jobs/<job_id>/download/<artifact>")
     def citation_agent_download(job_id: str, artifact: str):
         user = require_agent_access()
-        job = tasks.get_job(job_id, int(user["id"]))
+        job = tasks.visible_job(job_id, int(user["id"]))
         if not job:
             abort(404, description="任务不存在。")
         if artifact == "docx":

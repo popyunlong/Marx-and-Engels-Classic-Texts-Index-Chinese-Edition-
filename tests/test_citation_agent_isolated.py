@@ -337,10 +337,10 @@ def test_viewpoint_support_is_counted_separately_and_never_bulk_accepted(
         str(job["id"]), agent_verified_count=1, viewpoint_suggestion_count=1,
     )
     result = test_tasks.bulk_decide_pending(str(job["id"]), 7, "accepted")
-    assert result["updated"] == 1
+    assert result["updated"] == 0
     rows = test_tasks.all_candidates(str(job["id"]), bucket="actionable")
     decisions = {item["paper_text"]: item["decision"] for item in rows}
-    assert decisions == {"直接引文候选": "accepted", "观点依据候选": "pending"}
+    assert decisions == {"直接引文候选": "pending", "观点依据候选": "pending"}
     current = test_tasks.get_job(str(job["id"]), 7)
     assert current and current["agent_verified_count"] == 1
     assert current["viewpoint_suggestion_count"] == 1
