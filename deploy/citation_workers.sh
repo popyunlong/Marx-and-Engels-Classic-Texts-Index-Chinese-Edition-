@@ -101,7 +101,7 @@ recover_citation_units() {
 }
 
 # Isolate only the three allowlisted files outside the application's inaccessible path.
-install_citation_model() {
+stage_citation_model() {
   local app="$1/app" dest="/opt/marx-citation-agent/releases/${1##*/}"
   local temp name
   temp=$(mktemp -d "${dest%/*}/.stage.XXXXXX") || return 1
@@ -124,10 +124,56 @@ install_citation_model() {
     return 1
   fi
   [[ ! -d "$temp" ]] || rm -rf -- "$temp" || return 1
+}
+
+install_citation_model() {
+  local app="$1/app" dest="/opt/marx-citation-agent/releases/${1##*/}"
+  stage_citation_model "$1" || return 1
   # Use a release-specific path so restoring the backed-up unit restores its code.
   sed "s|^WorkingDirectory=/opt/marx-citation-agent/current$|WorkingDirectory=$dest|" \
     "$app/deploy/$citation_model.service" > "/etc/systemd/system/$citation_model.service" || return 1
   chmod 0644 "/etc/systemd/system/$citation_model.service" || return 1
+}
+
+citation_candidate_checks() {
+  local release="$1" root="$2" python="$3" app="$1/app"
+  local model="/opt/marx-citation-agent/releases/${1##*/}" unit="marx-citation-startup-${1##*/}"
+  local key value
+  local -a limits=()
+  # Read the four production resource settings, so the candidate is checked
+  # under the same limits as the installed worker.
+  for key in CPUQuota MemoryHigh MemoryMax IOWeight; do
+    value="$(sed -n "s/^${key}=//p" "$app/deploy/$citation_bridge.service")"
+    [[ "$value" =~ ^[0-9]+[%KMG]?$ ]] || return 1
+    limits+=("--property=$key=$value")
+  done
+  stage_citation_model "$release" || return 1
+  systemd-run --unit="${unit}-model" --wait --pipe --collect \
+    --property=Type=exec --property=RuntimeMaxSec=30s \
+    --property=User=marx-citation-agent --property=Group=marx-citation-agent \
+    --property="WorkingDirectory=$model" --property=EnvironmentFile=/etc/marx-citation-agent.env \
+    --property=LoadCredential=citation-deepseek:/etc/marx-citation-agent-deepseek.key \
+    --property=IPAddressDeny=any --property=IPAddressAllow=127.0.0.2 \
+    --property=NoNewPrivileges=true --property=ProtectSystem=strict --property=ProtectHome=true \
+    --property="InaccessiblePaths=/var/www/.marx_search_full /opt/marx-search /etc/marx-search.env" \
+    /usr/bin/env PYTHONDONTWRITEBYTECODE=1 /opt/marx-citation-agent/venv/bin/python \
+    scripts/citation_agent_worker.py --production --check-provider || return 1
+
+  systemd-run --unit="$unit" --wait --pipe --collect \
+    --property=Type=exec --property=RuntimeMaxSec=300s \
+    --property=User=www-data --property=Group=www-data --property="WorkingDirectory=$app" \
+    --property="RuntimeDirectory=$unit" --property=RuntimeDirectoryMode=0700 \
+    --property=EnvironmentFile=/etc/marx-search.env --property=EnvironmentFile=/etc/marx-citation-agent-bridge.env \
+    --property=UMask=0007 --property=Nice=15 "${limits[@]}" \
+    --property=PrivateTmp=true --property=PrivateNetwork=true --property=RestrictAddressFamilies=AF_UNIX \
+    --property=ProtectSystem=strict --property=ProtectHome=true --property=NoNewPrivileges=true \
+    --property=InaccessiblePaths=-/var/www/.marx_search_full \
+    /usr/bin/env "HOME=/run/$unit" "CITATION_STARTUP_PROBE_HOME=/run/$unit" \
+    "PYTHONPATH=$app:$release/.deps" PYTHONDONTWRITEBYTECODE=1 \
+    "APP_RELEASE_FILE=$release/release.json" "MARX_RUNTIME_DATA_DIR=$root/data" "MARX_RUNTIME_PDF_DIR=$root/pdfs" \
+    "MARX_RUNTIME_LOG_DIR=$root/logs" "MARX_AI_CONFIG_FILE=$root/config/ai.yaml" \
+    CITATION_READY_FILE= CITATION_ASSISTANT_INLINE_WORKER=0 \
+    "$python" scripts/citation_agent_test_worker.py --check-startup
 }
 
 citation_ready() {
